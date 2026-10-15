@@ -156,7 +156,7 @@ class TestRunCachedTrendsQuery(BaseTest):
                 return_value=response,
             ),
             patch("posthog.hogql_queries.query_runner.get_api_team_rate_limiter") as api_limiter,
-            patch("posthog.hogql_queries.query_runner.get_app_org_rate_limiter") as org_limiter,
+            patch("posthog.clickhouse.client.limit.get_app_org_rate_limiter") as org_limiter,
             patch(
                 "products.product_analytics.backend.hogql_queries.trends.trends_query_runner.TrendsQueryRunner._enforce_api_queries_budget"
             ) as enforce_budget,
@@ -167,7 +167,7 @@ class TestRunCachedTrendsQuery(BaseTest):
             api_key_org_kwargs = org_limiter.return_value.run.call_args.kwargs
             assert api_key_team_kwargs["is_api"] is True
             assert api_key_org_kwargs["is_api"] is True
-            enforce_budget.assert_called_once()
+            enforce_budget.assert_not_called()
 
             reset_query_tags()
             run_cached_trends_query(

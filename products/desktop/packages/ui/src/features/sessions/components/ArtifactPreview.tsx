@@ -37,6 +37,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { commentAgentContext, withScreenshot } from "../commentAgentContext";
+import { sendCommentToAgent } from "../sendCommentToAgent";
 import { ArtifactEditView } from "./ArtifactEditView";
 import {
   ArtifactPreviewContent,
@@ -155,7 +157,7 @@ export function ArtifactPreview({
       : runId;
   const markdownRootRef = useRef<HTMLDivElement>(null);
   const markdownContainerRef = useRef<HTMLDivElement>(null);
-  const [imageError, setImageError] = useState(false);
+  const [mediaError, setMediaError] = useState(false);
   const [imageCommenting, setImageCommenting] = useState(false);
   const authIdentity = useAuthStateValue(getAuthIdentity);
   const {
@@ -336,7 +338,7 @@ export function ArtifactPreview({
   if (isLoading) {
     return <LoadingState />;
   }
-  if (isError || imageError) return <ArtifactPreviewError />;
+  if (isError || mediaError) return <ArtifactPreviewError />;
 
   if (isPostHogObjectPreview(previewData)) {
     return (
@@ -392,10 +394,21 @@ export function ArtifactPreview({
       members={members}
       activateThread={activateThread}
       createAnchoredComment={createAnchoredComment}
+      sendCommentToAgent={(anchor, content, screenshot) =>
+        sendCommentToAgent({
+          taskId,
+          comment: content,
+          context: withScreenshot(
+            commentAgentContext(anchor, { kind: "artifact", name }),
+            screenshot,
+          ),
+          surface: "artifact",
+        })
+      }
       onResolutionsChange={onResolutionsChange}
       imageCommenting={imageCommenting}
       setImageCommenting={setImageCommenting}
-      onImageError={() => setImageError(true)}
+      onMediaError={() => setMediaError(true)}
       editableKind={editing.editableKind}
       artifactResult={artifactResult}
     />

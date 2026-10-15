@@ -1,6 +1,10 @@
+use common_database::PoolConfig;
 use envconfig::Envconfig;
+use personhog_common::h2_window::{Http2Windows, WindowSize};
 use std::net::SocketAddr;
 use std::time::Duration;
+
+use crate::pools::Lane;
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
@@ -43,6 +47,7 @@ pub struct Config {
     #[envconfig(default = "lifecycle_op_person_tmp")]
     pub lifecycle_op_person_table: String,
 
+    /// Fast pool (see `crate::pools`).
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
 
@@ -52,11 +57,26 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub acquire_timeout_secs: u64,
 
-    #[envconfig(default = "300")]
-    pub idle_timeout_secs: u64,
-
     #[envconfig(default = "5000")]
     pub statement_timeout_ms: u64,
+
+    /// Heavy pool, sized separately so a burst of long transactions cannot
+    /// take the fast pool's slots.
+    #[envconfig(default = "10")]
+    pub heavy_max_pg_connections: u32,
+
+    #[envconfig(default = "0")]
+    pub heavy_min_pg_connections: u32,
+
+    #[envconfig(default = "10")]
+    pub heavy_acquire_timeout_secs: u64,
+
+    #[envconfig(default = "5000")]
+    pub heavy_statement_timeout_ms: u64,
+
+    /// Applies to both pools.
+    #[envconfig(default = "300")]
+    pub idle_timeout_secs: u64,
 
     /// Maximum number of server-side (PgBouncer → Postgres) connections to
     /// warm at startup via SELECT 1. Clamped to min_pg_connections. Set to 0
@@ -99,9 +119,27 @@ pub struct Config {
     #[envconfig(default = "4")]
     pub router_channels: usize,
 
-    /// Per-call timeout for leader-routed property writes (ms).
+    #[envconfig(default = "0")]
+    pub router_initial_stream_window_bytes: WindowSize,
+
+    #[envconfig(default = "0")]
+    pub router_initial_connection_window_bytes: WindowSize,
+
+    /// Per-attempt timeout for leader-routed property writes and strong reads (ms).
     #[envconfig(default = "5000")]
     pub leader_request_timeout_ms: u64,
+
+    /// Attempts per leader-routed write or strong read, each under `leader_request_timeout_ms`.
+    #[envconfig(default = "2")]
+    pub leader_request_attempts: u32,
+
+    /// etcd endpoints, comma separated. The delete saga groups its fence
+    /// calls by leader partition, and the partition count lives in etcd.
+    #[envconfig(default = "http://localhost:2379")]
+    pub etcd_endpoints: String,
+
+    #[envconfig(default = "/personhog/")]
+    pub etcd_prefix: String,
 
     /// Interval between HTTP/2 keepalive pings sent by the gRPC server (0 = disabled)
     #[envconfig(default = "30")]
@@ -110,6 +148,12 @@ pub struct Config {
     /// Timeout for a keepalive ping ack before considering the connection dead
     #[envconfig(default = "10")]
     pub grpc_keepalive_timeout_secs: u64,
+
+    #[envconfig(default = "0")]
+    pub grpc_initial_stream_window_bytes: WindowSize,
+
+    #[envconfig(default = "0")]
+    pub grpc_initial_connection_window_bytes: WindowSize,
 
     /// Maximum gRPC message size to encode (send), in bytes. Defaults to 128 MiB.
     #[envconfig(default = "134217728")]
@@ -156,6 +200,11 @@ pub struct Config {
     /// Warn when an op's attempt counter reaches this value.
     #[envconfig(default = "5")]
     pub lifecycle_attempt_alert_threshold: i32,
+
+    /// Merge saga drives allowed to outlive a caller that hangs up; past this
+    /// many a drive runs inline and stops with its caller. 0 disables.
+    #[envconfig(default = "256")]
+    pub lifecycle_detached_drive_limit: usize,
 
     /// Run the sweeper + GC loop for abandoned lifecycle ops; the lease
     /// arbitrates, so any number of instances may run it.
@@ -251,10 +300,6 @@ impl Config {
         }
     }
 
-    pub fn acquire_timeout(&self) -> Duration {
-        Duration::from_secs(self.acquire_timeout_secs)
-    }
-
     pub fn idle_timeout(&self) -> Option<Duration> {
         if self.idle_timeout_secs == 0 {
             None
@@ -263,16 +308,55 @@ impl Config {
         }
     }
 
-    pub fn statement_timeout(&self) -> Option<u64> {
-        if self.statement_timeout_ms == 0 {
-            None
-        } else {
-            Some(self.statement_timeout_ms)
+    pub fn fast_pool_config(&self) -> PoolConfig {
+        self.pool_config(
+            Lane::Fast,
+            self.min_pg_connections,
+            self.max_pg_connections,
+            self.acquire_timeout_secs,
+            self.statement_timeout_ms,
+        )
+    }
+
+    pub fn heavy_pool_config(&self) -> PoolConfig {
+        self.pool_config(
+            Lane::Heavy,
+            self.heavy_min_pg_connections,
+            self.heavy_max_pg_connections,
+            self.heavy_acquire_timeout_secs,
+            self.heavy_statement_timeout_ms,
+        )
+    }
+
+    fn pool_config(
+        &self,
+        lane: Lane,
+        min_connections: u32,
+        max_connections: u32,
+        acquire_timeout_secs: u64,
+        statement_timeout_ms: u64,
+    ) -> PoolConfig {
+        PoolConfig {
+            min_connections,
+            max_connections,
+            acquire_timeout: Duration::from_secs(acquire_timeout_secs),
+            idle_timeout: self.idle_timeout(),
+            test_before_acquire: false,
+            statement_timeout_ms: (statement_timeout_ms != 0).then_some(statement_timeout_ms),
+            pool_name: Some(lane.label().to_string()),
         }
     }
 
     pub fn leader_request_timeout(&self) -> Duration {
         Duration::from_millis(self.leader_request_timeout_ms)
+    }
+
+    pub fn etcd_endpoint_list(&self) -> Vec<String> {
+        self.etcd_endpoints
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
     }
 
     pub fn grpc_keepalive_interval(&self) -> Option<Duration> {
@@ -289,6 +373,20 @@ impl Config {
         } else {
             Some(Duration::from_secs(self.grpc_keepalive_timeout_secs))
         }
+    }
+
+    pub fn router_http2_windows(&self) -> Http2Windows {
+        Http2Windows::new(
+            self.router_initial_stream_window_bytes,
+            self.router_initial_connection_window_bytes,
+        )
+    }
+
+    pub fn grpc_http2_windows(&self) -> Http2Windows {
+        Http2Windows::new(
+            self.grpc_initial_stream_window_bytes,
+            self.grpc_initial_connection_window_bytes,
+        )
     }
 
     pub fn grpc_max_connection_age(&self) -> Option<Duration> {

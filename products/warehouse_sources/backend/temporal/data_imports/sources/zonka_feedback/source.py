@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -48,6 +47,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZonkaFeedbackSource(ResumableSource[ZonkaFeedbackSourceConfig, ZonkaFeedbackResumeConfig]):
+    codebase_detection = detect(env=("^(ZONKA_FEEDBACK|ZONKAFEEDBACK)_",), script_hosts=("us1.zonkasurvey.com",))
+
     api_docs_url = "https://apidocs.zonkafeedback.com/"
 
     supported_versions = (ZONKA_API_VERSION_V1, ZONKA_API_VERSION_V2_1)
@@ -68,7 +69,7 @@ class ZonkaFeedbackSource(ResumableSource[ZonkaFeedbackSourceConfig, ZonkaFeedba
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ZONKA_FEEDBACK,
+            name=ExternalDataSourceType.ZONKAFEEDBACK,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Zonka Feedback",
             releaseStatus=ReleaseStatus.ALPHA,

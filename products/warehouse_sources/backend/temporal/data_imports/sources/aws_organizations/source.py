@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organizations.aws_organizations import (
     AwsOrganizationsResumeConfig,
     aws_organizations_source,
@@ -44,6 +43,15 @@ _MANAGEMENT_ACCOUNT_HINT = (
 
 @SourceRegistry.register
 class AwsOrganizationsSource(ResumableSource[AwsOrganizationsSourceConfig, AwsOrganizationsResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_ORGANIZATIONS|AWSORGANIZATIONS)_",),
+        npm=("@aws-sdk/client-organizations",),
+        cargo=("aws-sdk-organizations",),
+        go=("github.com/aws/aws-sdk-go-v2/service/organizations",),
+        maven=("software.amazon.awssdk:organizations", "com.amazonaws:aws-java-sdk-organizations"),
+        rubygems=("aws-sdk-organizations",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     supported_versions = (ORGANIZATIONS_API_VERSION,)
     default_version = ORGANIZATIONS_API_VERSION
@@ -137,7 +145,7 @@ class AwsOrganizationsSource(ResumableSource[AwsOrganizationsSourceConfig, AwsOr
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AWS_ORGANIZATIONS,
+            name=ExternalDataSourceType.AWSORGANIZATIONS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS Organizations",
             caption="""Sync your AWS organization structure into the PostHog Data warehouse, so cost and usage data can be read by account name, organizational unit, and tag.

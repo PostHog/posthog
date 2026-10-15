@@ -1,12 +1,11 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -33,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TVMazeSource(ResumableSource[TVMazeSourceConfig, TVMazeResumeConfig]):
+    codebase_detection = detect(env=("^(TV_MAZE|TVMAZE)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # TVmaze exposes no version token (no /vN/ path, header, or dated release), so the
     # framework's unversioned default applies.
@@ -97,7 +98,7 @@ class TVMazeSource(ResumableSource[TVMazeSourceConfig, TVMazeResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TV_MAZE,
+            name=ExternalDataSourceType.TVMAZE,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="TVmaze",
             caption="Import TV show and people data from the free public TVmaze API. No API key is required. TVmaze data is licensed CC BY-SA, which requires attribution and share-alike.",

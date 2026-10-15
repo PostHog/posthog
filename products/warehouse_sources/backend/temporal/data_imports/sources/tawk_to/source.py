@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -33,6 +32,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TawkToSource(ResumableSource[TawkToSourceConfig, TawkToResumeConfig]):
+    codebase_detection = detect(
+        env=("^(TAWK_TO|TAWKTO)_",),
+        script_hosts=("embed.tawk.to",),
+        npm=("@tawk.to/tawk-messenger-react", "@tawk.to/tawk-messenger-vue"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -48,7 +53,7 @@ class TawkToSource(ResumableSource[TawkToSourceConfig, TawkToResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TAWK_TO,
+            name=ExternalDataSourceType.TAWKTO,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="tawk.to",
             releaseStatus=ReleaseStatus.ALPHA,

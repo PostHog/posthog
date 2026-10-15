@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FinancialModellingSource(ResumableSource[FinancialModellingSourceConfig, FinancialModellingResumeConfig]):
+    codebase_detection = detect(env=("^(FINANCIAL_MODELLING|FINANCIALMODELLING)_", "^FMP_API_KEY$"))
+
     supported_versions = ("stable",)
     default_version = "stable"
     api_docs_url = "https://site.financialmodelingprep.com/developer/docs/stable"
@@ -48,7 +49,7 @@ class FinancialModellingSource(ResumableSource[FinancialModellingSourceConfig, F
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FINANCIAL_MODELLING,
+            name=ExternalDataSourceType.FINANCIALMODELLING,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Financial Modeling Prep",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -4,7 +4,12 @@ import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/cons
 import { logger } from '~/common/utils/logger'
 import { BlockMetadataBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-batcher'
 import { BlockMetadataParquetStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-parquet-store'
-import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
+import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
+import {
+    CaptureWatermark,
+    capturedRecords,
+    releasingOffsetStore,
+} from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 
 import { CleanupResources } from './base-server'
@@ -35,35 +40,48 @@ export function buildSinkConsumerConfig(config: IngestionSessionReplayMlMirrorSe
 
 /** Drains the ML block-metadata topic, rolling rows up into one Parquet object per flush interval in the ML bucket. */
 export class IngestionSessionReplayMlParquetSinkServer extends MlMirrorConsumerServer {
-    private privacy?: MlPrivacyRuntime
+    private keyManager?: MlKeyManager
 
     protected async startServices(): Promise<void> {
         if (this.config.AI_RESEARCH_REPLAY_KEY_TABLE) {
-            this.privacy = new MlPrivacyRuntime(this.config)
-            await this.privacy.start()
+            this.keyManager = new MlKeyManager(this.config)
+            await this.keyManager.start()
         }
         const s3Client = requireS3Client(buildSessionRecordingS3Client(this.config))
+        if (!this.config.AI_RESEARCH_REPLAY_S3_BUCKET) {
+            throw new Error(
+                'AI_RESEARCH_REPLAY_S3_BUCKET must be set: sessions started after the v3 cutoff write there'
+            )
+        }
         const store = new BlockMetadataParquetStore(
             s3Client,
-            this.config.SESSION_RECORDING_V2_S3_BUCKET,
+            { v2: this.config.SESSION_RECORDING_V2_S3_BUCKET, v3: this.config.AI_RESEARCH_REPLAY_S3_BUCKET },
             this.config.SESSION_RECORDING_ML_METADATA_PREFIX
         )
 
         const consumer = new KafkaConsumer(buildSinkConsumerConfig(this.config))
+        const watermark = new CaptureWatermark('parquet_sink')
         const batcher = new BlockMetadataBatcher(
             store,
-            consumer,
+            releasingOffsetStore(consumer, watermark),
             {
                 flushIntervalMs: this.config.SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS,
                 maxRows: this.config.SESSION_RECORDING_ML_PARQUET_MAX_ROWS,
             },
             Date.now(),
-            this.privacy?.kafka
+            this.keyManager?.kafka
         )
-        await consumer.connect((messages) => {
-            consumer.heartbeat()
-            return batcher.handleBatch(messages, Date.now())
-        })
+        await consumer.connect(
+            (messages) => {
+                consumer.heartbeat()
+                watermark.hold(capturedRecords(messages, () => 'event_metadata'))
+                return batcher.handleBatch(messages, Date.now())
+            },
+            (partitions) => {
+                watermark.forget(partitions)
+                return Promise.resolve()
+            }
+        )
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-parquet-sink',
@@ -86,7 +104,7 @@ export class IngestionSessionReplayMlParquetSinkServer extends MlMirrorConsumerS
             kafkaProducers: [],
             redisPools: [],
             additionalCleanup: () => {
-                this.privacy?.stop()
+                this.keyManager?.stop()
                 return Promise.resolve()
             },
         }

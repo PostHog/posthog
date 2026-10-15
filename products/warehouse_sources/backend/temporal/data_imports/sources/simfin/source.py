@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -28,6 +27,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SimFinSource(SimpleSource[SimFinSourceConfig]):
+    codebase_detection = detect(env=("^(SIM_FIN|SIMFIN)_",), pypi=("simfin",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)
     default_version = "v3"
@@ -114,7 +115,7 @@ class SimFinSource(SimpleSource[SimFinSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SIM_FIN,
+            name=ExternalDataSourceType.SIMFIN,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="SimFin",
             releaseStatus=ReleaseStatus.ALPHA,

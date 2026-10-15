@@ -1,19 +1,8 @@
-import {
-  CaretDownIcon,
-  ChatCircleIcon,
-  FunnelSimpleIcon,
-  GitPullRequestIcon,
-} from "@phosphor-icons/react";
+import { ChatCircleIcon } from "@phosphor-icons/react";
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import { commentTargetKey } from "@posthog/core/comments/anchors";
 import {
-  Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -25,7 +14,12 @@ import type {
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
-import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
+import {
+  ALL_SOURCES,
+  CommentListHeader,
+  type CommentStateFilter,
+} from "@posthog/ui/features/canvas/components/CommentListHeader";
+import { CommentThreadGroups } from "@posthog/ui/features/canvas/components/CommentThreadGroups";
 import {
   buildRows,
   type CommentSource,
@@ -36,7 +30,6 @@ import {
   byNewestThread,
   prCommentThreads,
   resourceCommentThreads,
-  type SourceKind,
   type TaskCommentThread,
   threadSourceOptions,
 } from "@posthog/ui/features/canvas/components/taskCommentThreads";
@@ -53,7 +46,14 @@ import {
 } from "@posthog/ui/features/panels/panelLayoutStore";
 import { usePrCommentsForUrls } from "@posthog/ui/features/pr-review/usePrCommentsForUrls";
 import { usePrReviewThreadsForUrls } from "@posthog/ui/features/pr-review/usePrReviewThreadsForUrls";
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import {
+  type CommentResource,
+  commentAgentContext,
+} from "@posthog/ui/features/sessions/commentAgentContext";
+import {
+  canvasCommentFocusKey,
+  useCommentNavigationStore,
+} from "@posthog/ui/features/sessions/commentNavigationStore";
 import { CommentComposer } from "@posthog/ui/features/sessions/components/CommentComposer";
 import { CommentThreadCard } from "@posthog/ui/features/sessions/components/CommentThreadCard";
 import type { HighlightResolution } from "@posthog/ui/features/sessions/components/commentViewTypes";
@@ -65,7 +65,7 @@ import {
   useCreateComment,
   useSetCommentResolved,
 } from "@posthog/ui/features/sessions/components/useComments";
-import { FileIcon } from "@posthog/ui/primitives/FileIcon";
+import { sendCommentToAgent } from "@posthog/ui/features/sessions/sendCommentToAgent";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -74,7 +74,6 @@ const EMPTY_COMMENTS: ResourceComment[] = [];
  *  poll because this one fans out across every resource. */
 const POLL_INTERVAL_MS = 30_000;
 const PULSE_MS = 1_200;
-const ALL_SOURCES = "all";
 // Keep task comments live, but bound the artifact and canvas poll so generated
 // output cannot turn one Comments tab into an unbounded backend request.
 const MAX_RESOURCE_COMMENT_TARGETS = 20;
@@ -82,8 +81,6 @@ const MAX_RESOURCE_COMMENT_TARGETS = 20;
 // task with generated output cannot fan out into an unbounded number of requests.
 const MAX_PR_COMMENT_SOURCES = 20;
 const MAX_CONCURRENT_PR_SOURCES = 4;
-
-type StateFilter = "open" | "resolved";
 
 function scrollThreadInPane(pane: HTMLElement, thread: HTMLElement): void {
   const paneRect = pane.getBoundingClientRect();
@@ -97,45 +94,6 @@ function scrollThreadInPane(pane: HTMLElement, thread: HTMLElement): void {
   if (offset !== 0) {
     pane.scrollTo({ top: pane.scrollTop + offset, behavior: "smooth" });
   }
-}
-
-/** The icon a source shows wherever it's named — the card label and the
- *  filter menu — so the two always agree. */
-function sourceIcon(kind: SourceKind, label: string, size = 12) {
-  switch (kind) {
-    case "pr":
-      return (
-        <GitPullRequestIcon size={size} className="shrink-0 text-gray-11" />
-      );
-    case "canvas":
-      return iconForTemplate("", { size, className: "text-violet-9" });
-    case "task":
-      return <ChatCircleIcon size={size} className="shrink-0 text-gray-11" />;
-    default:
-      return <FileIcon filename={label} size={size} />;
-  }
-}
-
-function SourceLabel({ thread }: { thread: TaskCommentThread }) {
-  const replies = thread.entries.length - 1;
-  return (
-    <span className="mb-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
-      {sourceIcon(thread.sourceKind, thread.sourceLabel)}
-      <span className="min-w-0 truncate" title={thread.sourceLabel}>
-        {thread.sourceLabel}
-      </span>
-      {thread.origin.kind === "pr-review" && (
-        <span className="min-w-0 truncate">
-          · {thread.origin.filePath.split("/").at(-1)}
-        </span>
-      )}
-      {replies > 0 && (
-        <span className="shrink-0">
-          · {replies} {replies === 1 ? "reply" : "replies"}
-        </span>
-      )}
-    </span>
-  );
 }
 
 function CommentReference({
@@ -153,15 +111,42 @@ function CommentReference({
   const quote = anchor?.kind === "text" ? anchor.quote : null;
   if (!version && !quote) return null;
   return (
-    <span className="mb-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+    <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
       {version && <span className="shrink-0">{version} ·</span>}
       {quote && (
-        <span className="min-w-0 truncate" title={quote}>
-          “{quote}”
+        <span
+          className="min-w-0 truncate border-[rgb(250_204_21)] border-l-2 pl-2"
+          title={quote}
+        >
+          {quote}
         </span>
       )}
     </span>
   );
+}
+
+function commentResource(source: CommentSource): CommentResource {
+  if (source.kind === "canvas") return { kind: "canvas", name: source.name };
+  if (source.kind === "task") return { kind: "task", name: source.name };
+  return { kind: "artifact", name: source.name };
+}
+
+function sendSourceCommentToAgent(
+  taskId: string,
+  source: CommentSource,
+  root: ResourceComment | null,
+  content: string,
+): void {
+  const resource = commentResource(source);
+  sendCommentToAgent({
+    taskId,
+    comment: content,
+    context: commentAgentContext(
+      root ? (readCommentContext(root)?.anchor ?? null) : { kind: "document" },
+      resource,
+    ),
+    surface: resource.kind,
+  });
 }
 
 /**
@@ -178,22 +163,20 @@ function ResourceThreadRow({
   pulsing,
   resolution,
   onOpen,
-  showSource = true,
   commentVersionLabel,
 }: {
   thread: TaskCommentThread;
   source: CommentSource;
   root: ResourceComment;
-  taskId: string;
+  taskId: string | null;
   members: UserBasic[];
   selected: boolean;
   pulsing: boolean;
   resolution?: HighlightResolution;
   onOpen: () => void;
-  showSource?: boolean;
   commentVersionLabel?: (versionId: string) => string | null;
 }) {
-  const createComment = useCreateComment(source.target, taskId);
+  const createComment = useCreateComment(source.target, taskId ?? undefined);
   const setResolved = useSetCommentResolved(source.target);
   const rootPending = isOptimisticComment(root);
 
@@ -208,10 +191,7 @@ function ResourceThreadRow({
       resolution={resolution}
       busy={createComment.isPending || setResolved.isPending}
       source={
-        <>
-          {showSource && <SourceLabel thread={thread} />}
-          <CommentReference root={root} versionLabel={commentVersionLabel} />
-        </>
+        <CommentReference root={root} versionLabel={commentVersionLabel} />
       }
       onSelect={onOpen}
       canReply={!rootPending}
@@ -224,7 +204,14 @@ function ResourceThreadRow({
           mentions,
         });
       }}
-      onResolve={(resolved) => setResolved.mutate({ root, resolved })}
+      onResolve={async (resolved) => {
+        await setResolved.mutateAsync({ root, resolved });
+      }}
+      onSendReplyToAgent={
+        taskId
+          ? (content) => sendSourceCommentToAgent(taskId, source, root, content)
+          : undefined
+      }
     />
   );
 }
@@ -266,7 +253,16 @@ function PrThreadRow({
       // insert markup nobody on that side understands.
       members={[]}
       busy={busy}
-      source={<SourceLabel thread={thread} />}
+      source={
+        origin.kind === "pr-review" && (
+          <span
+            className="block truncate text-muted-foreground text-xs"
+            title={origin.filePath}
+          >
+            {origin.filePath.split("/").at(-1)}
+          </span>
+        )
+      }
       // Only inline review threads accept replies and resolution; conversation
       // comments are read here and linked out to GitHub to act on.
       canReply={origin.kind === "pr-review"}
@@ -297,6 +293,7 @@ function PrThreadRow({
  * it there, which is why no surface carries a thread list of its own.
  */
 export function TaskCommentsList({
+  taskId,
   task,
   timeline,
   onlySource,
@@ -304,8 +301,9 @@ export function TaskCommentsList({
   commentVersionLabel,
   onCanvasCommentOpen,
 }: {
-  task: Task;
-  timeline: ThreadTimelineRow<TaskThreadMessage>[];
+  taskId: string | null;
+  task?: Task;
+  timeline?: ThreadTimelineRow<TaskThreadMessage>[];
   /** Restricts the pane to one resource known by its host, without relying on
    * the task timeline to rediscover it. */
   onlySource?: CommentSource;
@@ -313,42 +311,44 @@ export function TaskCommentsList({
   commentVersionLabel?: (versionId: string) => string | null;
   onCanvasCommentOpen?: (versionId: string | null) => void;
 }) {
-  const { runs } = useTaskRuns(onlySource ? undefined : task.id);
+  const taskKey = taskId ?? "";
+  const focusKey = onlySource ? commentTargetKey(onlySource.target) : taskKey;
+  const { runs } = useTaskRuns(onlySource ? undefined : (taskId ?? undefined));
   const { members } = useOrgMembers();
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
-  const activeArtifactId = useActiveArtifactId(task.id);
+  const activeArtifactId = useActiveArtifactId(taskKey);
   const requestCommentFocus = useCommentNavigationStore(
     (state) => state.requestCommentFocus,
   );
   const focus = useCommentNavigationStore(
-    (state) => state.focusByTask[task.id],
+    (state) => state.focusByTask[focusKey],
   );
   const resolutionsByTarget = useCommentNavigationStore(
     (state) => state.resolutionsByTarget,
   );
-  const [stateFilter, setStateFilter] = useState<StateFilter>("open");
+  const [stateFilter, setStateFilter] = useState<CommentStateFilter>("open");
   const [sourceFilter, setSourceFilter] = useState<string>(ALL_SOURCES);
   const [pulseThreadId, setPulseThreadId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const threadListRef = useRef<HTMLDivElement>(null);
   const sourceFilterTouched = useRef(false);
-  const previousTaskId = useRef(task.id);
+  const previousFocusKey = useRef(focusKey);
 
   useEffect(() => {
-    if (previousTaskId.current === task.id) return;
-    previousTaskId.current = task.id;
+    if (previousFocusKey.current === focusKey) return;
+    previousFocusKey.current = focusKey;
     sourceFilterTouched.current = false;
     setSourceFilter(ALL_SOURCES);
     setDraft("");
-  }, [task.id]);
+  }, [focusKey]);
 
   const rows = useMemo(
-    () => buildRows(task, timeline, runs),
+    () => (task ? buildRows(task, timeline ?? [], runs) : []),
     [task, timeline, runs],
   );
   const sources = useMemo(
-    () => (onlySource ? [onlySource] : commentSources(task.id, rows)),
-    [task.id, rows, onlySource],
+    () => (onlySource ? [onlySource] : commentSources(taskKey, rows)),
+    [taskKey, rows, onlySource],
   );
   const targets = useMemo(
     () =>
@@ -362,11 +362,11 @@ export function TaskCommentsList({
   );
   const singleSourceComments = useCommentsQuery(
     onlySource?.target ?? null,
-    task.id,
+    taskId ?? "",
   );
   const taskComments = useCommentsForTargetsQuery(
     onlySource ? [] : targets,
-    task.id,
+    taskKey,
     {
       live: true,
       intervalMs: POLL_INTERVAL_MS,
@@ -418,9 +418,9 @@ export function TaskCommentsList({
     prUrls.length,
   ]);
 
-  const taskTarget = useMemo(() => taskCommentTarget(task.id), [task.id]);
+  const taskTarget = useMemo(() => taskCommentTarget(taskKey), [taskKey]);
   const composerTarget = onlySource?.target ?? taskTarget;
-  const createComment = useCreateComment(composerTarget, task.id);
+  const createComment = useCreateComment(composerTarget, taskId ?? undefined);
 
   const threads = useMemo(() => {
     const reviewByUrl = new Map(prReviews.byUrl);
@@ -514,42 +514,53 @@ export function TaskCommentsList({
     (thread: TaskCommentThread, requestThreadFocus = true) => {
       const origin = thread.origin;
       if (origin.kind === "pr-review" || origin.kind === "pr-conversation") {
-        openPrInReview(task.id, origin.prUrl);
+        openPrInReview(taskKey, origin.prUrl);
         if (origin.kind === "pr-review") {
           // The review pane scrolls by file; a specific comment is as close as it
           // gets until it grows a per-thread target.
           useReviewNavigationStore
             .getState()
-            .requestScrollToFile(task.id, origin.filePath);
+            .requestScrollToFile(taskKey, origin.filePath);
         }
         return;
       }
       const { source, root } = origin;
       if (source.kind === "canvas") {
-        if (requestThreadFocus) {
-          requestCommentFocus(task.id, source.target, root.id);
-        }
         if (onCanvasCommentOpen) {
+          if (requestThreadFocus) {
+            requestCommentFocus(focusKey, source.target, root.id);
+          }
           onCanvasCommentOpen(
             readCommentContext(root)?.canvasVersionId ?? null,
           );
           return;
         }
+        requestCommentFocus(
+          canvasCommentFocusKey(source.target.itemId),
+          source.target,
+          root.id,
+        );
         canvasArtifactOpenHandler(source.url)?.();
         return;
       }
       // A thread on the task itself has nowhere else to open because it lives here.
       if (source.kind === "task" || !source.runId) return;
-      openArtifactTab(task.id, {
+      openArtifactTab(taskKey, {
         runId: source.runId,
         artifactId: source.target.itemId,
         name: source.name,
       });
       if (requestThreadFocus) {
-        requestCommentFocus(task.id, source.target, root.id);
+        requestCommentFocus(focusKey, source.target, root.id);
       }
     },
-    [onCanvasCommentOpen, openArtifactTab, requestCommentFocus, task.id],
+    [
+      onCanvasCommentOpen,
+      openArtifactTab,
+      requestCommentFocus,
+      focusKey,
+      taskKey,
+    ],
   );
 
   // A thread picked on the artifact itself has to surface here, even when a
@@ -558,12 +569,12 @@ export function TaskCommentsList({
   const focusedThreadId = focus?.threadId ?? null;
   const handledFocusRef = useRef<string | null>(null);
   useEffect(() => {
-    const focusKey = focus ? `${task.id}:${focus.nonce}` : null;
-    if (!focus || handledFocusRef.current === focusKey) return;
+    const handledKey = focus ? `${focusKey}:${focus.nonce}` : null;
+    if (!focus || handledFocusRef.current === handledKey) return;
     const focused = threads.find((thread) => thread.id === focus.threadId);
     // The thread may still be loading, so wait rather than guess its filters.
     if (!focused) return;
-    handledFocusRef.current = focusKey;
+    handledFocusRef.current = handledKey;
     setStateFilter(focused.resolved ? "resolved" : "open");
     setSourceFilter((current) =>
       current === ALL_SOURCES || current === focused.sourceKey
@@ -580,7 +591,7 @@ export function TaskCommentsList({
       );
       if (pane && thread) scrollThreadInPane(pane, thread);
     });
-  }, [focus, openThread, threads, task.id]);
+  }, [focus, openThread, threads, focusKey]);
   // The pulse fades on its own; owning the timer in its own effect keeps it
   // cleaned up on the next pulse or on unmount, without a stray ref.
   useEffect(() => {
@@ -598,88 +609,26 @@ export function TaskCommentsList({
     // The parent scrolls the middle; the filters and the composer are pinned so
     // they stay reachable however long the thread list grows.
     <div className="flex h-full min-h-0 flex-col">
-      <header className="sticky top-0 z-10 flex shrink-0 items-center justify-end gap-1 bg-gray-1 px-2 py-2">
-        {!onlySource && (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  size="sm"
-                  aria-label="Filter by source"
-                  title={sourceLabel}
-                >
-                  <span className="max-w-40 truncate">{sourceLabel}</span>
-                  <CaretDownIcon />
-                </Button>
-              }
-            />
-            {/* Wide, single-line rows: the label truncates at the end (with the
-              full name on hover) and the count is pinned right with the shared
-              ml-auto idiom, so a long PR title stays legible and aligned. */}
-            <DropdownMenuContent align="end" sideOffset={6} className="w-80">
-              <DropdownMenuRadioGroup
-                value={sourceFilter}
-                onValueChange={(value) => {
+      <CommentListHeader
+        stateFilter={stateFilter}
+        openCount={openCount}
+        resolvedCount={resolvedCount}
+        onStateFilterChange={setStateFilter}
+        sourceFilter={
+          onlySource
+            ? undefined
+            : {
+                value: effectiveSourceFilter,
+                valueLabel: sourceLabel,
+                options: sourceOptions,
+                onChange: (value) => {
                   sourceFilterTouched.current = value !== ALL_SOURCES;
                   setSourceFilter(value);
-                }}
-              >
-                <DropdownMenuRadioItem value={ALL_SOURCES} className="gap-2">
-                  <FunnelSimpleIcon
-                    size={12}
-                    className="shrink-0 text-gray-11"
-                  />
-                  <span className="min-w-0 truncate">All sources</span>
-                  <span className="ml-auto shrink-0 pl-3 text-muted-foreground tabular-nums">
-                    {stateFilteredThreads.length}
-                  </span>
-                </DropdownMenuRadioItem>
-                {sourceOptions.map((option) => (
-                  <DropdownMenuRadioItem
-                    key={option.key}
-                    value={option.key}
-                    title={option.label}
-                    className="gap-2"
-                  >
-                    {sourceIcon(option.kind, option.label)}
-                    <span className="min-w-0 truncate">{option.label}</span>
-                    <span className="ml-auto shrink-0 pl-3 text-muted-foreground tabular-nums">
-                      {option.count}
-                    </span>
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button size="sm" aria-label="Filter comments">
-                {stateFilter === "open" ? "Open" : "Resolved"}
-                <CaretDownIcon />
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="end" sideOffset={6}>
-            <DropdownMenuRadioGroup
-              value={stateFilter}
-              onValueChange={(value) => setStateFilter(value as StateFilter)}
-            >
-              <DropdownMenuRadioItem value="open">
-                Open ({openCount})
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="resolved">
-                Resolved ({resolvedCount})
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </header>
-      <div
-        ref={threadListRef}
-        className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pt-3 pb-2"
-      >
+                },
+              }
+        }
+      />
+      <div ref={threadListRef} className="min-h-0 flex-1 overflow-y-auto">
         {loadFailed ? (
           <Empty className="py-8">
             <EmptyHeader>
@@ -713,34 +662,38 @@ export function TaskCommentsList({
             </EmptyHeader>
           </Empty>
         ) : (
-          visibleThreads.map((thread) =>
-            thread.origin.kind === "resource" ? (
-              <ResourceThreadRow
-                key={thread.id}
-                thread={thread}
-                source={thread.origin.source}
-                root={thread.origin.root}
-                taskId={task.id}
-                members={members}
-                selected={thread.id === focusedThreadId}
-                pulsing={thread.id === pulseThreadId}
-                resolution={resolutionsByTarget[thread.sourceKey]?.get(
-                  thread.id,
-                )}
-                onOpen={() => openThread(thread)}
-                showSource={!onlySource}
-                commentVersionLabel={commentVersionLabel}
-              />
-            ) : (
-              <PrThreadRow
-                key={thread.id}
-                thread={thread}
-                selected={thread.id === focusedThreadId}
-                pulsing={thread.id === pulseThreadId}
-                onOpen={() => openThread(thread)}
-              />
-            ),
-          )
+          <CommentThreadGroups
+            threads={visibleThreads}
+            grouped={!onlySource}
+            revealThreadId={pulseThreadId}
+            renderThread={(thread) =>
+              thread.origin.kind === "resource" ? (
+                <ResourceThreadRow
+                  key={thread.id}
+                  thread={thread}
+                  source={thread.origin.source}
+                  root={thread.origin.root}
+                  taskId={taskId}
+                  members={members}
+                  selected={thread.id === focusedThreadId}
+                  pulsing={thread.id === pulseThreadId}
+                  resolution={resolutionsByTarget[thread.sourceKey]?.get(
+                    thread.id,
+                  )}
+                  onOpen={() => openThread(thread)}
+                  commentVersionLabel={commentVersionLabel}
+                />
+              ) : (
+                <PrThreadRow
+                  key={thread.id}
+                  thread={thread}
+                  selected={thread.id === focusedThreadId}
+                  pulsing={thread.id === pulseThreadId}
+                  onOpen={() => openThread(thread)}
+                />
+              )
+            }
+          />
         )}
       </div>
       <footer className="sticky bottom-0 shrink-0 border-border border-t bg-background p-2">
@@ -757,14 +710,30 @@ export function TaskCommentsList({
               mentions,
             });
             setDraft("");
-            requestCommentFocus(task.id, composerTarget, created.id, {
+            requestCommentFocus(focusKey, composerTarget, created.id, {
               intent: "focus-only",
             });
           }}
           members={members}
-          placeholder={`Comment on this ${onlySource ? "canvas" : "task"}… Type @ to mention someone`}
-          rows={2}
+          placeholder={`Comment on this ${onlySource ? "canvas" : "task"}…`}
+          rows={1}
           disabled={createComment.isPending}
+          compact
+          onSendToAgent={
+            taskId
+              ? (content) =>
+                  sendSourceCommentToAgent(
+                    taskId,
+                    onlySource ?? {
+                      kind: "task",
+                      target: composerTarget,
+                      name: "This task",
+                    },
+                    null,
+                    content,
+                  )
+              : undefined
+          }
         />
       </footer>
     </div>

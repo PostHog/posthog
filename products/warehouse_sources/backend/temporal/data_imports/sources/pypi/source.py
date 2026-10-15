@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -31,6 +30,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PyPISource(SimpleSource[PyPISourceConfig]):
+    codebase_detection = detect(
+        env=("^(PY_PI|PYPI)_", "^TWINE_USERNAME$", "^TWINE_PASSWORD$", "^UV_PUBLISH_TOKEN$"), pypi=("twine",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.pypi.org/api/json/"
 
@@ -41,7 +44,7 @@ class PyPISource(SimpleSource[PyPISourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PY_PI,
+            name=ExternalDataSourceType.PYPI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="PyPI",
             releaseStatus=ReleaseStatus.ALPHA,

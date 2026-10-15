@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -33,6 +32,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OmniSource(ResumableSource[OmniSourceConfig, OmniResumeConfig]):
+    codebase_detection = detect(
+        env=("^OMNI_API_TOKEN$", "^OMNI_API_KEY$", "^OMNI_BASE_URL$", "^OMNI_URL$"),
+        npm=("@omni-co/embed", "@omni-co/mcp"),
+        pypi=("omni-python-sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.omni.co/api"
 
@@ -103,7 +108,7 @@ class OmniSource(ResumableSource[OmniSourceConfig, OmniResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.OMNI,
+            name=ExternalDataSourceType.OMNI,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Omni Analytics",
             releaseStatus=ReleaseStatus.ALPHA,

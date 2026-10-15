@@ -8,7 +8,6 @@ from posthog.utils import str_to_bool
 
 INGESTION_LAG_METRIC_TEAM_IDS = get_list(os.getenv("INGESTION_LAG_METRIC_TEAM_IDS", ""))
 
-# KEEP IN SYNC WITH plugin-server/src/config/config.ts
 BUFFER_CONVERSION_SECONDS = get_from_env("BUFFER_CONVERSION_SECONDS", default=60, type_cast=int)
 
 # Whether or not random partitioning (i.e. overflow routing) should be allowed.
@@ -52,6 +51,10 @@ REPLAY_CAPTURE_ENDPOINT = os.getenv("REPLAY_CAPTURE_ENDPOINT", "/s/")
 
 CAPTURE_INTERNAL_URL = os.getenv("CAPTURE_INTERNAL_URL", "http://localhost:8010")
 CAPTURE_REPLAY_INTERNAL_URL = os.getenv("CAPTURE_REPLAY_INTERNAL_URL", "http://localhost:8010")
+# The AI lane is a different capture deployment (capture-ai), not just a different path:
+# `/i/v1/ai/events` is mounted only on CaptureMode::Ai, and capture-analytics refuses
+# AI-lane event names. In the clusters this is capture-ai.capture-ai.svc.cluster.local.
+CAPTURE_AI_INTERNAL_URL = os.getenv("CAPTURE_AI_INTERNAL_URL", "http://localhost:8010")
 
 # Internal OTLP/HTTP endpoint for first-party log emission into Logs (the `capture-logs` service,
 # path `/i/v1/logs`). The OTLP Bearer (a project token) routes records to a team's Logs. Defaults to
@@ -79,6 +82,7 @@ NEW_ANALYTICS_CAPTURE_ENDPOINT = os.getenv("NEW_CAPTURE_ENDPOINT", "/i/v0/e/")
 
 
 CAPTURE_V1_INTERNAL_ENDPOINT = os.getenv("CAPTURE_V1_INTERNAL_ENDPOINT", "/i/v1/analytics/events")
+CAPTURE_V1_AI_INTERNAL_ENDPOINT = os.getenv("CAPTURE_V1_AI_INTERNAL_ENDPOINT", "/i/v1/ai/events")
 CAPTURE_V1_INTERNAL_MAX_ATTEMPTS = get_from_env("CAPTURE_V1_INTERNAL_MAX_ATTEMPTS", type_cast=int, default=4)
 CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS = get_from_env(
     "CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS", type_cast=float, default=5.0

@@ -18,6 +18,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "id": "Unique identifier of the interview.",
             "external_id": "Identifier of the interview in the source system it was imported from.",
             "name": "Name or title of the interview.",
+            "display_name": "Name of the interview as shown in BuildBetter.",
             "original_name": "Original name of the interview before any renaming.",
             "short_summary": "Short AI-generated summary of the interview.",
             "summary": "Full AI-generated summary of the interview.",
@@ -39,6 +40,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "summary_state": "Processing state of the AI summaries.",
             "attendees": "People who attended the interview.",
             "tags": "Tags applied to the interview.",
+            "metadata": "Metadata records linked to the interview, grouped by the source that supplied them.",
         },
     },
     "interview_attendees": {
@@ -65,6 +67,29 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "speaker": "Speaker the sentence is attributed to.",
             "start_sec": "Start time of the sentence within the recording, in seconds.",
             "end_sec": "End time of the sentence within the recording, in seconds.",
+        },
+    },
+    "interview_tags": {
+        "description": "A tag applied to a call, resolving the tag references carried on interviews.",
+        "docs_url": "https://docs.buildbetter.ai/pages/api/data-access.md",
+        "columns": {
+            "interview_id": "Identifier of the interview the tag is applied to.",
+            "interview_created_at": "Time at which the interview record was created.",
+            "interview_updated_at": "Time at which the interview record was last updated.",
+            "tag_id": "Unique identifier of the tag.",
+            "tag_name": "Name of the tag.",
+            "tag_color": "Display color of the tag.",
+        },
+    },
+    "interview_types": {
+        "description": "The call type of an interview, such as a demo call or a user interview.",
+        "docs_url": "https://docs.buildbetter.ai/pages/api/data-access.md",
+        "columns": {
+            "interview_id": "Identifier of the interview the call type is assigned to.",
+            "interview_created_at": "Time at which the interview record was created.",
+            "interview_updated_at": "Time at which the interview record was last updated.",
+            "type_id": "Unique identifier of the call type.",
+            "type_name": "Name of the call type.",
         },
     },
     "extractions": {
@@ -96,6 +121,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "extraction_created_at": "Time at which the extraction was created.",
             "topic_id": "Unique identifier of the topic.",
             "topic_text": "Text of the topic.",
+        },
+    },
+    "extraction_types": {
+        "description": "A signal type assigned to an extraction, such as a pain point or a feature request.",
+        "docs_url": "https://docs.buildbetter.ai/pages/api/data-access.md",
+        "columns": {
+            "extraction_id": "Identifier of the extraction the signal type is assigned to.",
+            "extraction_created_at": "Time at which the extraction was created.",
+            "type_id": "Unique identifier of the signal type.",
+            "type_name": "Name of the signal type.",
         },
     },
     "documents": {

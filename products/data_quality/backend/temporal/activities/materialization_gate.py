@@ -1,5 +1,6 @@
-from asgiref.sync import sync_to_async
 from temporalio import activity
+
+from posthog.sync import database_sync_to_async_pool
 
 from ...facade.contracts import MATERIALIZATION_GATE_ACTIVITY_NAME
 from ...logic.triggers import materialization_checks_needed
@@ -14,4 +15,4 @@ async def materialization_gate_activity(inputs: MaterializationGateInputs) -> bo
     workflow may not touch. Asking before the start keeps a flag-disabled org from paying for a
     child workflow and an empty suite row on every materialization.
     """
-    return await sync_to_async(materialization_checks_needed)(inputs.team_id, inputs.node_ids)
+    return await database_sync_to_async_pool(materialization_checks_needed)(inputs.team_id, inputs.node_ids)

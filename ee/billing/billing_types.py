@@ -1,6 +1,6 @@
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Literal, Optional, TypedDict, cast, get_args
+from typing import Any, Literal, NotRequired, Optional, TypedDict, cast, get_args
 
 
 class BillingProvider(StrEnum):
@@ -37,6 +37,7 @@ UsageType = Literal[
     "logs_mb_in_period",
     "apm_tracing_mb_in_period",
     "logs_retention_30d_mb_in_period",
+    "logs_retention_mb_days_in_period",
     "replay_vision_credits_used_in_period",
     "data_pipelines",
     "group_analytics",
@@ -84,6 +85,7 @@ USAGE_TYPE_OPTIONS: tuple[UsageTypeOption, ...] = (
     {"label": "Logs ingested (MB)", "value": "logs_mb_in_period"},
     {"label": "APM traces ingested (MB)", "value": "apm_tracing_mb_in_period"},
     {"label": "Logs 30-day retention (MB)", "value": "logs_retention_30d_mb_in_period"},
+    {"label": "Logs retention (MB-days)", "value": "logs_retention_mb_days_in_period"},
 )
 
 USAGE_TYPE_VALUES: tuple[UsageType, ...] = cast(tuple[UsageType, ...], get_args(UsageType))
@@ -149,6 +151,10 @@ class CustomerProduct(TypedDict):
     projected_amount_usd: Decimal
     usage_key: str
     addons: list[CustomerProductAddon]
+    # Billing refuses a customer billing limit for this product. Older billing omits the key.
+    no_billing_limit: NotRequired[bool]
+    # Set on a companion product: the type of the product it is billed under. Older billing omits the key.
+    companion_of: NotRequired[Optional[str]]
 
 
 class LicenseInfo(TypedDict):

@@ -2,8 +2,14 @@ import {
   ArrowSquareOutIcon,
   CaretDownIcon,
   CaretRightIcon,
+  InfoIcon,
 } from "@phosphor-icons/react";
 import { attributionLabel } from "@posthog/core/inbox/activityLog";
+import {
+  formatRankingLift,
+  formatRankingProbability,
+  rankingLiftBarPercent,
+} from "@posthog/core/inbox/rankingFormat";
 import type {
   ActionabilityJudgmentContent,
   AnySignalReportArtefact,
@@ -13,11 +19,16 @@ import type {
   LineReferenceContent,
   NoteContent,
   PriorityJudgmentContent,
+  RankingHead,
+  RankingModelResult,
+  RankingScoreContent,
   SafetyJudgmentContent,
   SignalFindingContent,
   SignalReportArtefactContent,
   SuggestedReviewer,
   TaskRunArtefactContent,
+  WorkClaimContent,
+  WorkReleaseContent,
 } from "@posthog/shared/types";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { ArtefactCommit } from "@posthog/ui/features/inbox/components/detail/ArtefactCommit";
@@ -29,7 +40,7 @@ import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { cachedImageUrl } from "@posthog/ui/shell/cachedImageUrl";
 import { Badge, Box, Flex, Text } from "@radix-ui/themes";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 // A chronological log of every artefact on a report. Each known type renders a
 // tailored body; unrecognized types fall back to a plain text preview (never raw
@@ -52,7 +63,16 @@ const TYPE_LABELS: Record<string, string> = {
   repo_selection: "Repo selected",
   dismissal: "Report dismissed",
   video_segment: "Video segment",
+  ranking_score: "Ranking scored",
+  work_claim: "Work claimed",
+  work_release: "Work released",
 };
+
+const WORK_RELEASE_REASON_LABELS: Record<WorkReleaseContent["reason"], string> =
+  {
+    released: "Released",
+    taken_over: "Taken over",
+  };
 
 function typeLabel(type: string): string {
   return TYPE_LABELS[type] ?? type;
@@ -236,6 +256,139 @@ function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
   );
 }
 
+function RankingLiftBar({ head }: { head: RankingHead }) {
+  return (
+    <div className="relative h-1.5 overflow-hidden rounded-full bg-(--gray-4)">
+      {head.lift !== null ? (
+        <div
+          className={`h-full rounded-full ${head.readable ? "bg-(--accent-9)" : "bg-(--gray-8)"}`}
+          style={{ width: `${rankingLiftBarPercent(head.lift)}%` }}
+        />
+      ) : null}
+      <span
+        className="absolute inset-y-0 left-1/2 w-px bg-(--gray-9)"
+        aria-hidden
+      />
+    </div>
+  );
+}
+
+function RankingHeadRows({ heads }: { heads: RankingHead[] }) {
+  return (
+    <div className="grid grid-cols-[minmax(0,max-content)_minmax(2rem,10rem)_auto_auto] items-center justify-start gap-x-2 gap-y-1 text-[12px]">
+      {heads.map((head) => {
+        const tone = head.readable ? "text-(--gray-12)" : "text-(--gray-10)";
+        return (
+          <Fragment key={head.name}>
+            <span className={`truncate ${tone}`}>{prettify(head.name)}</span>
+            <RankingLiftBar head={head} />
+            <span className={`text-right tabular-nums ${tone}`}>
+              {head.lift !== null ? formatRankingLift(head.lift) : null}
+            </span>
+            <div className="flex items-center justify-end gap-1 text-(--gray-10) tabular-nums">
+              {formatRankingProbability(head.probability)}
+              {head.readable ? (
+                <span className="size-3" aria-hidden />
+              ) : (
+                <span
+                  role="img"
+                  title="No holdout read for this head yet"
+                  aria-label="No holdout read for this head yet"
+                  className="inline-flex"
+                >
+                  <InfoIcon size={12} />
+                </span>
+              )}
+            </div>
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+function RankingModelBody({ model }: { model: RankingModelResult }) {
+  if (model.status === "skipped" || model.heads.length === 0) {
+    return (
+      <Text className="block text-(--gray-10) text-[12px]">
+        Skipped{model.skip_reason ? `: ${model.skip_reason}` : ""}
+      </Text>
+    );
+  }
+  return <RankingHeadRows heads={model.heads} />;
+}
+
+function RankingScoreBody({ content }: { content: RankingScoreContent }) {
+  const [showOthers, setShowOthers] = useState(false);
+  const { served, challengers } = content;
+  return (
+    <Flex direction="column" gap="2" className="min-w-0">
+      <RankingModelBody model={served} />
+      <Flex
+        align="center"
+        gap="1"
+        wrap="wrap"
+        className="text-(--gray-10) text-[12px]"
+      >
+        <Text className="break-all font-mono">{served.key}</Text>
+        {content.manifest_version ? (
+          <Text>· manifest {content.manifest_version}</Text>
+        ) : null}
+        {content.scored_at ? (
+          <>
+            <Text>·</Text>
+            <RelativeTimestamp timestamp={content.scored_at} />
+          </>
+        ) : null}
+      </Flex>
+      {challengers.length > 0 ? (
+        <Box>
+          <button
+            type="button"
+            onClick={() => setShowOthers((v) => !v)}
+            aria-expanded={showOthers}
+            className="-mx-1 flex items-center gap-1 rounded-md px-1 py-0.5 text-(--gray-11) text-[13px] transition-colors hover:bg-(--gray-3) hover:text-(--gray-12)"
+          >
+            {showOthers ? (
+              <CaretDownIcon size={12} className="shrink-0" />
+            ) : (
+              <CaretRightIcon size={12} className="shrink-0" />
+            )}
+            Other models ({challengers.length})
+          </button>
+          {showOthers ? (
+            <Flex direction="column" gap="3" className="mt-2 pl-3">
+              {challengers.map((model) => {
+                const role = model.roles.find((r) => r !== "served");
+                return (
+                  <Flex
+                    key={model.key}
+                    direction="column"
+                    gap="1"
+                    className="min-w-0"
+                  >
+                    <Flex align="center" gap="2" wrap="wrap">
+                      <Text className="break-all font-mono text-(--gray-11) text-[12px]">
+                        {model.key}
+                      </Text>
+                      {role ? (
+                        <Badge color="gray" variant="soft">
+                          {prettify(role)}
+                        </Badge>
+                      ) : null}
+                    </Flex>
+                    <RankingModelBody model={model} />
+                  </Flex>
+                );
+              })}
+            </Flex>
+          ) : null}
+        </Box>
+      ) : null}
+    </Flex>
+  );
+}
+
 function ArtefactBody({
   reportId,
   artefact,
@@ -248,6 +401,8 @@ function ArtefactBody({
   // Degraded rows carry a plain text preview instead of their type's content
   // shape — render that rather than feeding mismatched content to a typed body.
   if (artefact.degraded) {
+    // A score has no text, so its preview would be a JSON dump. Show only the label.
+    if (artefact.type === "ranking_score") return null;
     const text = (artefact.content as SignalReportArtefactContent | null)
       ?.content;
     return (
@@ -376,6 +531,24 @@ function ArtefactBody({
           </Badge>
           {c.note ? <RelevanceNote note={c.note} /> : null}
         </Flex>
+      );
+    }
+    case "ranking_score":
+      return (
+        <RankingScoreBody content={artefact.content as RankingScoreContent} />
+      );
+    case "work_claim": {
+      const name = (artefact.content as WorkClaimContent).display_name;
+      return name ? (
+        <Text className="block text-(--gray-11) text-[13px]">{name}</Text>
+      ) : null;
+    }
+    case "work_release": {
+      const c = artefact.content as WorkReleaseContent;
+      return (
+        <Badge color="gray" variant="soft">
+          {WORK_RELEASE_REASON_LABELS[c.reason]}
+        </Badge>
       );
     }
     default: {

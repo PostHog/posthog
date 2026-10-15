@@ -101,7 +101,10 @@ export function ReportDetailContent({
       >
         <ReportReviewersSection report={report} />
         <ReportRunsSection report={report} />
-        <ReportActivitySection reportId={report.id} />
+        <ReportActivitySection
+          reportId={report.id}
+          collapsedNoteCount={report.collapsed_note_count}
+        />
       </InboxDetailFrame>
     </ReportChatLayout>
   );

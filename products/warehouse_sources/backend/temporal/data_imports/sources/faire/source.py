@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FaireSource(ResumableSource[FaireSourceConfig, FaireResumeConfig]):
+    codebase_detection = detect(env=("^FAIRE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # Faire migrated integration partners from External API v1 to v2; this source is built
@@ -50,7 +51,7 @@ class FaireSource(ResumableSource[FaireSourceConfig, FaireResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FAIRE,
+            name=ExternalDataSourceType.FAIRE,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Faire",
             releaseStatus=ReleaseStatus.ALPHA,

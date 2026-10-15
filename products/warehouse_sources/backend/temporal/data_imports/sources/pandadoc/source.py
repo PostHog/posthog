@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PandaDocSource(ResumableSource[PandaDocSourceConfig, PandaDocResumeConfig]):
+    codebase_detection = detect(env=("^PANDADOC_",), npm=("pandadoc-node-client",), pypi=("pandadoc-python-client",))
+
     # v2 is declared so new sources are stamped with the vendor's current API generation, but the
     # endpoints this source reads are v1-only (see pandadoc.py), so both pins resolve to the same wire.
     supported_versions = (API_VERSION_V1, API_VERSION_V2)
@@ -67,7 +68,7 @@ class PandaDocSource(ResumableSource[PandaDocSourceConfig, PandaDocResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PANDA_DOC,
+            name=ExternalDataSourceType.PANDADOC,
             category=DataWarehouseSourceCategory.SALES,
             label="PandaDoc",
             caption="""Enter your PandaDoc API key to pull your PandaDoc data into the PostHog Data warehouse.
@@ -75,7 +76,7 @@ class PandaDocSource(ResumableSource[PandaDocSourceConfig, PandaDocResumeConfig]
 You can find your API key in the [PandaDoc developer dashboard](https://app.pandadoc.com/a/#/settings/api-dashboard/configuration). Use a production key — sandbox keys are heavily rate limited.""",
             iconPath="/static/services/pandadoc.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pandadoc",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

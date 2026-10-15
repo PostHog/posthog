@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FulcrumSource(ResumableSource[FulcrumSourceConfig, FulcrumResumeConfig]):
+    codebase_detection = detect(npm=("fulcrum-app",), pypi=("fulcrum",), rubygems=("fulcrum", "tofulcrum"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -49,7 +50,7 @@ class FulcrumSource(ResumableSource[FulcrumSourceConfig, FulcrumResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FULCRUM,
+            name=ExternalDataSourceType.FULCRUM,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Fulcrum",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -98,8 +99,9 @@ You can create an API token in your [Fulcrum account settings](https://web.fulcr
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only `records` carries incremental fields, so build_endpoint_schemas marks it (and only it)
-        # incremental + append and leaves the rest full-refresh — matching the per-endpoint config.
+        # Only `records` and `audit_logs` carry incremental fields, so build_endpoint_schemas marks
+        # those two incremental + append and leaves the rest full-refresh — matching the per-endpoint
+        # config.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(

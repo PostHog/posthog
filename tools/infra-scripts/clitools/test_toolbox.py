@@ -917,11 +917,48 @@ class TestToolbox(unittest.TestCase):
     @patch("toolbox.tailscale.subprocess.run")
     @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
     def test_ensure_tailscale_connected_passes_silently_when_running(self, mock_which, mock_run):
-        mock_run.return_value = self._tailscale_status_result({"BackendState": "Running"})
+        mock_run.return_value = self._tailscale_status_result(
+            {"BackendState": "Running", "CurrentTailnet": {"Name": "posthog.com"}}
+        )
         exit_code, output = self._run_tailscale_check()
 
         self.assertIsNone(exit_code)
         self.assertEqual(output, "")
+
+    @patch("builtins.input", return_value="n")
+    @patch("toolbox.tailscale.sys.stdin")
+    @patch("toolbox.tailscale.subprocess.run")
+    @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
+    def test_ensure_tailscale_connected_exits_when_switch_declined(self, mock_which, mock_run, mock_stdin, mock_input):
+        mock_stdin.isatty.return_value = True
+        mock_run.return_value = self._tailscale_status_result(
+            {"BackendState": "Running", "CurrentTailnet": {"Name": "someone@example.com"}}
+        )
+        exit_code, output = self._run_tailscale_check()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("'someone@example.com' tailnet", output)
+        self.assertIn("tailscale switch posthog.com", output)
+        self.assertEqual(mock_run.call_count, 1)
+
+    @patch("builtins.input", return_value="")
+    @patch("toolbox.tailscale.sys.stdin")
+    @patch("toolbox.tailscale.subprocess.run")
+    @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
+    def test_ensure_tailscale_connected_switches_tailnet_by_default(self, mock_which, mock_run, mock_stdin, mock_input):
+        mock_stdin.isatty.return_value = True
+        mock_run.side_effect = [
+            self._tailscale_status_result(
+                {"BackendState": "Running", "CurrentTailnet": {"Name": "someone@example.com"}}
+            ),
+            MagicMock(returncode=0),
+            self._tailscale_status_result({"BackendState": "Running", "CurrentTailnet": {"Name": "posthog.com"}}),
+        ]
+        exit_code, output = self._run_tailscale_check()
+
+        self.assertIsNone(exit_code)
+        self.assertEqual(mock_run.call_args_list[1].args[0], ["/usr/bin/tailscale", "switch", "posthog.com"])
+        self.assertIn("Connected to the posthog.com tailnet", output)
 
     @patch("toolbox.tailscale.os.path.isfile", return_value=False)
     @patch("toolbox.tailscale.shutil.which", return_value=None)
@@ -1025,42 +1062,11 @@ class TestToolbox(unittest.TestCase):
         self.assertEqual(
             toolbox_script.POOLS["flags-cache-jumphost"],
             {
-                "default_namespace": "posthog",
-                "namespace_by_environment": {
-                    "dev": "flags-cache-jumphost",
-                    "prod-eu": "flags-cache-jumphost",
-                },
+                "default_namespace": "flags-cache-jumphost",
                 "app_label": "flags-cache-jumphost",
                 "claimed_label_key": "flags-jumphost-claimed",
             },
         )
-
-    @patch.dict(os.environ, {}, clear=False)
-    def test_resolve_namespace_uses_golden_namespace_for_migrated_environments(self):
-        """dev and prod-eu run the jumphost on the golden chart, in its own namespace."""
-        os.environ.pop("KUBE_NAMESPACE", None)
-        pool = toolbox_script.POOLS["flags-cache-jumphost"]
-
-        for context in ("dev-eks", "dev-admin", "prod-eu-eks", "prod-eu-admin", "prod-eu", "dev"):
-            with self.subTest(context=context):
-                self.assertEqual(toolbox_script.resolve_namespace(pool, context), "flags-cache-jumphost")
-
-    @patch.dict(os.environ, {}, clear=False)
-    def test_resolve_namespace_keeps_unmigrated_environments_on_default(self):
-        """prod-us still runs the posthog-rust release, so it stays in `posthog`."""
-        os.environ.pop("KUBE_NAMESPACE", None)
-        pool = toolbox_script.POOLS["flags-cache-jumphost"]
-
-        for context in ("prod-us-eks", "prod-us-admin", None):
-            with self.subTest(context=context):
-                self.assertEqual(toolbox_script.resolve_namespace(pool, context), "posthog")
-
-    @patch.dict(os.environ, {"KUBE_NAMESPACE": "posthog"})
-    def test_resolve_namespace_honours_kube_namespace_override(self):
-        """KUBE_NAMESPACE wins over the per-environment mapping, which is the rollback path."""
-        pool = toolbox_script.POOLS["flags-cache-jumphost"]
-
-        self.assertEqual(toolbox_script.resolve_namespace(pool, "prod-eu-eks"), "posthog")
 
     def test_exit_for_signal_raises_systemexit_for_sigterm(self):
         """SIGTERM handler routes through sys.exit so atexit-registered cleanup fires."""
@@ -1374,9 +1380,7 @@ class TestToolbox(unittest.TestCase):
             patch.dict(os.environ, {}, clear=False),
         ):
             self._clean_env()
-            # The pool is mid-migration, so its namespace depends on the
-            # environment. Managed contexts are `<environment>-<access suffix>`,
-            # and dev is the environment already on the golden chart.
+            # Managed contexts are `<environment>-<access suffix>`.
             os.environ["KUBE_CONTEXT"] = "dev-eks"
             with self.assertRaises(SystemExit) as ctx:
                 toolbox_script.main()
@@ -1396,6 +1400,46 @@ class TestToolbox(unittest.TestCase):
         self.assertEqual(
             m_claim.call_args.kwargs,
             {"namespace": "flags-cache-jumphost", "context": "dev-eks", "resource_version": "12345"},
+        )
+
+    def test_main_jumphost_pool_without_context_uses_the_pool_namespace(self):
+        """With no KUBE_CONTEXT the jumphost namespace is known before the context is chosen.
+
+        The pool has one fixed namespace, so select_context and the pod lookup both receive it.
+        """
+        patches = self._patch_main_collaborators()
+        patches["get_current_user"] = patch.object(
+            toolbox_script,
+            "get_current_user",
+            return_value={"flags-jumphost-claimed": "user_at_posthog.com"},
+        )
+        patches["select_context"] = patch.object(toolbox_script, "select_context", return_value="prod-eu-eks")
+
+        with (
+            patches["get_current_user"],
+            patches["get_toolbox_pod"] as m_get_pod,
+            patches["claim_pod"],
+            patches["connect_to_pod"],
+            patches["delete_pod"],
+            patches["select_context"] as m_select,
+            patches["validate_context"],
+            patch.object(toolbox_script.sys, "argv", ["toolbox.py", "--pool", "flags-cache-jumphost"]),
+            patch.dict(os.environ, {}, clear=False),
+        ):
+            self._clean_env()
+            with self.assertRaises(SystemExit) as ctx:
+                toolbox_script.main()
+        self.assertEqual(ctx.exception.code, 0)
+
+        m_select.assert_called_once_with("flags-cache-jumphost")
+        m_get_pod.assert_called_once_with(
+            "user_at_posthog.com",
+            check_claimed=True,
+            app_label="flags-cache-jumphost",
+            claimed_label_key="flags-jumphost-claimed",
+            namespace="flags-cache-jumphost",
+            context="prod-eu-eks",
+            extra_selector=None,
         )
 
     def test_main_default_pool_dispatches_toolbox_django_kwargs(self):

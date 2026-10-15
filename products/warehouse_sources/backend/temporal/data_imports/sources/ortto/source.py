@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OrttoSource(ResumableSource[OrttoSourceConfig, OrttoResumeConfig]):
+    codebase_detection = detect(env=("^ORTTO_",), script_hosts=("cdn2l.ink",))
+
     api_docs_url = "https://help.ortto.com/developer/latest/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -61,7 +62,7 @@ class OrttoSource(ResumableSource[OrttoSourceConfig, OrttoResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ORTTO,
+            name=ExternalDataSourceType.ORTTO,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Ortto",
             caption="""Connect your Ortto account to pull your marketing data into the PostHog Data warehouse.

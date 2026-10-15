@@ -13,6 +13,10 @@
             "description": "The library to list, e.g. \"email\". Required.",
             "enum": ["canvas", "email"],
             "type": "string"
+        },
+        "search": {
+            "description": "Only list images whose name contains this text, ignoring case.",
+            "type": "string"
         }
     },
     "required": ["purpose"],

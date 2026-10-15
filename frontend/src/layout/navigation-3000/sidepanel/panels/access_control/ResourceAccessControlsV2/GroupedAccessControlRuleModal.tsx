@@ -12,7 +12,9 @@ import { ScopeIcon } from './ScopeIcon'
 import { GroupedAccessControlRuleModalLogicProps } from './types'
 
 export function GroupedAccessControlRuleModal(props: { state: GroupedAccessControlRuleModalLogicProps }): JSX.Element {
-    const { modalTitle, loading, canEdit } = useValues(groupedAccessControlRuleModalLogic(props.state))
+    const { modalTitle, loading, canEdit, terraformDisabledReason } = useValues(
+        groupedAccessControlRuleModalLogic(props.state)
+    )
     const { save, close } = useActions(groupedAccessControlRuleModalLogic(props.state))
 
     return (
@@ -22,7 +24,13 @@ export function GroupedAccessControlRuleModal(props: { state: GroupedAccessContr
             title={modalTitle}
             maxWidth="32rem"
             footer={
-                <GroupedAccessControlRuleModalFooter close={close} loading={loading} canEdit={canEdit} onSave={save} />
+                <GroupedAccessControlRuleModalFooter
+                    close={close}
+                    loading={loading}
+                    canEdit={canEdit}
+                    cannotEditReason={terraformDisabledReason}
+                    onSave={save}
+                />
             }
         >
             <GroupedAccessControlRuleModalContent logicProps={props.state} />
@@ -34,6 +42,7 @@ function GroupedAccessControlRuleModalFooter(props: {
     close: () => void
     loading: boolean
     canEdit: boolean
+    cannotEditReason?: string
     onSave: () => void
 }): JSX.Element {
     return (
@@ -47,7 +56,7 @@ function GroupedAccessControlRuleModalFooter(props: {
             </LemonButton>
             <LemonButton
                 type="primary"
-                disabledReason={!props.canEdit ? 'You cannot edit this rule' : undefined}
+                disabledReason={!props.canEdit ? (props.cannotEditReason ?? 'You cannot edit this rule') : undefined}
                 loading={props.loading}
                 onClick={props.onSave}
             >
@@ -68,7 +77,7 @@ function GroupedAccessControlRuleModalContent(props: {
         projectDisabledReason,
         projectInheritedReasonTooltip,
         projectLevelOptions,
-        toolsDisabledReason,
+        productsDisabledReason,
         isResourceLevelShowingInherited,
         resourceInheritedReasonTooltip,
         resourceLevelOptions,
@@ -107,17 +116,17 @@ function GroupedAccessControlRuleModalContent(props: {
 
             <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                    <h5 className="mb-2">Tools</h5>
+                    <h5 className="mb-2">Products</h5>
                     <Link
                         to="#"
                         onClick={(e) => {
                             e.preventDefault()
-                            if (!loading && !toolsDisabledReason) {
+                            if (!loading && !productsDisabledReason) {
                                 clearResourceOverrides()
                             }
                         }}
                         className={
-                            loading || toolsDisabledReason
+                            loading || productsDisabledReason
                                 ? 'cursor-not-allowed opacity-50 pointer-events-none'
                                 : 'cursor-pointer'
                         }
@@ -167,7 +176,7 @@ function GroupedAccessControlRuleModalContent(props: {
                                             type="tertiary"
                                             icon={<IconPlus />}
                                             sideIcon={null}
-                                            disabledReason={toolsDisabledReason}
+                                            disabledReason={productsDisabledReason}
                                             className="ml-auto w-36"
                                         >
                                             Add override
@@ -178,7 +187,7 @@ function GroupedAccessControlRuleModalContent(props: {
                                         className="w-36"
                                         size="small"
                                         value={formResourceLevels[resource.key]}
-                                        disabledReason={toolsDisabledReason}
+                                        disabledReason={productsDisabledReason}
                                         tooltip={resourceInheritedReasonTooltip(resource.key)}
                                         renderButtonContent={(leaf) => {
                                             const level = formResourceLevels[resource.key]

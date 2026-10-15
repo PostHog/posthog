@@ -98,6 +98,10 @@ export const EndpointsRetrieveParams = () => zod.object({
         ),
 })
 
+export const EndpointsRetrieveQueryParams = () => zod.object({
+    version: zod.number().optional().describe('Endpoint version to act on. Defaults to the current version.'),
+})
+
 /**
  * Update an existing endpoint.
  */
@@ -224,7 +228,7 @@ export const EndpointsMaterializationPreviewCreateParams = () => zod.object({
 })
 
 export const EndpointsMaterializationPreviewCreateBody = () => zod.object({
-    version: zod.number().optional(),
+    version: zod.number().optional().describe('Endpoint version to preview. Defaults to the current version.'),
     bucket_overrides: zod
         .record(zod.string(), zod.string())
         .nullish()
@@ -241,6 +245,10 @@ export const EndpointsMaterializationStatusRetrieveParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const EndpointsMaterializationStatusRetrieveQueryParams = () => zod.object({
+    version: zod.number().optional().describe('Endpoint version to act on. Defaults to the current version.'),
 })
 
 /**
@@ -277,10 +285,7 @@ export const EndpointsOpenapiSpecRetrieveParams = () => zod.object({
 })
 
 export const EndpointsOpenapiSpecRetrieveQueryParams = () => zod.object({
-    version: zod
-        .number()
-        .optional()
-        .describe('Specific endpoint version to generate the spec for. Defaults to latest.'),
+    version: zod.number().optional().describe('Endpoint version to act on. Defaults to the current version.'),
 })
 
 /**
@@ -299,6 +304,7 @@ export const endpointsRunCreateBodyDebugDefault = false
 export const endpointsRunCreateBodyFiltersOverrideOneBreakdownFilterOneBreakdownTypeDefault = `event`
 export const endpointsRunCreateBodyFiltersOverrideOneBreakdownFilterOneBreakdownsOneMax = 3
 
+export const endpointsRunCreateBodyFiltersOverrideOneCompareFilterOneCompareDefault = false
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOneOperatorDefault = `exact`
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOneTypeDefault = `event`
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwoTypeDefault = `person`
@@ -369,6 +375,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         'person',
                                         'event',
                                         'event_metadata',
+                                        'element',
                                         'group',
                                         'session',
                                         'hogql',
@@ -396,6 +403,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                                             'person',
                                                             'event',
                                                             'event_metadata',
+                                                            'element',
                                                             'group',
                                                             'session',
                                                             'hogql',
@@ -419,6 +427,24 @@ export const EndpointsRunCreateBody = () => zod.object({
                         zod.null(),
                     ])
                     .optional(),
+                compareFilter: zod
+                    .union([
+                        zod.object({
+                            compare: zod
+                                .union([zod.boolean(), zod.null()])
+                                .default(endpointsRunCreateBodyFiltersOverrideOneCompareFilterOneCompareDefault)
+                                .describe('Whether to compare the current date range to a previous date range.'),
+                            compare_to: zod
+                                .union([zod.string(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Period comparison forced onto every insight that supports one. Absent\/null = inherit.'),
                 date_from: zod.union([zod.string(), zod.null()]).optional(),
                 date_to: zod.union([zod.string(), zod.null()]).optional(),
                 explicitDate: zod.union([zod.boolean(), zod.null()]).optional(),
@@ -435,6 +461,20 @@ export const EndpointsRunCreateBody = () => zod.object({
                     ])
                     .optional()
                     .describe('Time granularity forced onto every insight that supports one. Absent\/null = inherit.'),
+                metricFilters: zod
+                    .union([
+                        zod.array(
+                            zod.object({
+                                key: zod.string(),
+                                op: zod.enum(['eq', 'neq', 'regex', 'not_regex']),
+                                scope: zod.union([zod.enum(['resource', 'attribute', 'auto']), zod.null()]).optional(),
+                                value: zod.string(),
+                            })
+                        ),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Metric label matchers ANDed into every metrics tile. Other tiles ignore them.'),
                 properties: zod
                     .union([
                         zod.array(

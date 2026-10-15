@@ -5,7 +5,14 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
-import { firstErroredScannerStep, scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+import {
+    SCANNER_EDITOR_STEPS,
+    firstErroredScannerStep,
+    isScannerEditorPath,
+    scannerEditorSceneLogic,
+    scannerStepErrors,
+    scannerStepUrl,
+} from './scannerEditorSceneLogic'
 
 describe('firstErroredScannerStep', () => {
     it.each([
@@ -15,6 +22,25 @@ describe('firstErroredScannerStep', () => {
         ['no errors maps nowhere', {}, null],
     ])('%s', (_label, errors, expected) => {
         expect(firstErroredScannerStep(errors)).toBe(expected)
+    })
+})
+
+describe('scannerStepErrors', () => {
+    it('carries the field-level messages through to each step', () => {
+        expect(
+            scannerStepErrors({
+                scanner_config: { prompt: 'Prompt is required' },
+                sampling_rate: 'Sampling rate must be between 0% and 100%',
+                duration: 'Duration filters above 1 hour match nothing',
+            })
+        ).toEqual({
+            template: [],
+            overview: [],
+            details: [],
+            configure: ['Prompt is required'],
+            triggers: ['Duration filters above 1 hour match nothing'],
+            budget: ['Sampling rate must be between 0% and 100%'],
+        })
     })
 })
 
@@ -28,7 +54,42 @@ describe('scannerEditorSceneLogic', () => {
     })
 
     afterEach(() => {
+        jest.restoreAllMocks()
         logic?.unmount()
+    })
+
+    describe('isScannerEditorPath', () => {
+        it.each<[string, boolean]>([
+            ...SCANNER_EDITOR_STEPS.map((step): [string, boolean] => [scannerStepUrl(step, 'abc'), true]),
+            [scannerStepUrl('overview', 'new'), true],
+            [`/project/123${urls.replayVisionScannerBudget('abc')}`, true],
+            [urls.replayVision('abc'), false],
+            [urls.replayVisionObservation('abc'), false],
+            [urls.replayVision(), false],
+        ])('%s → %s', (pathname, expected) => {
+            expect(isScannerEditorPath(pathname)).toBe(expected)
+        })
+    })
+
+    describe('leaveEditor', () => {
+        it('pushes the destination when the unwind lands on a fresh tab’s first entry', () => {
+            // A fresh tab's first entry has no history state, so the first push gets count 1.
+            let count = 0
+            jest.spyOn(window.history, 'state', 'get').mockImplementation(() => (count ? { count } : null))
+            jest.spyOn(window.history, 'go').mockImplementation((delta = 0) => {
+                count += delta
+                window.dispatchEvent(new PopStateEvent('popstate'))
+            })
+            count = 1
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+            count = 2
+            router.actions.push(urls.replayVisionScannerConfigure('new'))
+            const push = jest.spyOn(router.actions, 'push')
+
+            logic.actions.leaveEditor(urls.replayVision('created'))
+
+            expect(push).toHaveBeenCalledWith(urls.replayVision('created'))
+        })
     })
 
     describe('URL → state', () => {

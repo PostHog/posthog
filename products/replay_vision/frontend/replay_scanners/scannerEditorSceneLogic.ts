@@ -1,6 +1,9 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
+import type { LocationChangedPayload } from 'kea-router/lib/types'
 
+import { GuidedWizardStep } from 'lib/components/GuidedWizard/GuidedWizardStepper'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -34,6 +37,13 @@ export const STEP_LABELS: Record<ScannerEditorStep, string> = {
     budget: 'Budget',
 }
 
+export const SCANNER_STEPPER_STEPS: GuidedWizardStep<ScannerEditorStep>[] = SCANNER_EDITOR_STEPS.map((step) => ({
+    step,
+    label: STEP_LABELS[step],
+    // pinned: data-attr for autocapture, renaming breaks dashboards
+    dataAttr: `vision-editor-step-${step}`,
+}))
+
 export interface ScannerFieldErrors {
     scanner_config?: unknown
     sampling_rate?: unknown
@@ -44,22 +54,39 @@ export interface ScannerFieldErrors {
 /** Steps that mount no validated field, so leaving them must not run whole-form validation. */
 export const UNVALIDATED_SCANNER_STEPS: readonly ScannerEditorStep[] = ['template', 'details']
 
+// Fallback for error shapes that carry no message, so an errored step is never silently clean
+function fieldErrorMessages(error: unknown): string[] {
+    if (!error) {
+        return []
+    }
+    if (typeof error === 'string') {
+        return [error]
+    }
+    if (typeof error === 'object') {
+        const nested = Object.values(error).flatMap((value) => fieldErrorMessages(value))
+        if (nested.length > 0) {
+            return nested
+        }
+    }
+    return ['This step has errors to fix']
+}
+
 /** Which step mounts each validated field. The stepper badges and the post-submit jump both read this. */
-export function scannerStepErrors(errors: ScannerFieldErrors): Record<ScannerEditorStep, boolean> {
+export function scannerStepErrors(errors: ScannerFieldErrors): Record<ScannerEditorStep, string[]> {
     return {
-        template: false,
-        overview: false,
-        details: false,
-        configure: !!errors.scanner_config,
-        triggers: !!errors.duration,
-        budget: !!(errors.sampling_rate || errors.credit_limit),
+        template: [],
+        overview: [],
+        details: [],
+        configure: fieldErrorMessages(errors.scanner_config),
+        triggers: fieldErrorMessages(errors.duration),
+        budget: [...fieldErrorMessages(errors.sampling_rate), ...fieldErrorMessages(errors.credit_limit)],
     }
 }
 
 /** Earliest step rendering an errored field, so a failed submit lands where the user can fix it. */
 export function firstErroredScannerStep(errors: ScannerFieldErrors): ScannerEditorStep | null {
     const stepErrors = scannerStepErrors(errors)
-    return SCANNER_EDITOR_STEPS.find((step) => stepErrors[step]) ?? null
+    return SCANNER_EDITOR_STEPS.find((step) => stepErrors[step].length > 0) ?? null
 }
 
 /**
@@ -72,6 +99,15 @@ export function scannerStepUrlWithParams(
     searchParams: Record<string, any>
 ): string {
     return combineUrl(scannerStepUrl(step, scannerId), searchParams).url
+}
+
+export const EDITOR_RETURN_TAB_PARAM = 'return_tab'
+
+export function scannerEditUrl(scannerId: string, returnTab: string | null): string {
+    return combineUrl(
+        urls.replayVisionScannerConfigure(scannerId),
+        returnTab ? { [EDITOR_RETURN_TAB_PARAM]: returnTab } : {}
+    ).url
 }
 
 export function scannerStepUrl(step: ScannerEditorStep, scannerId: string): string {
@@ -91,6 +127,59 @@ export function scannerStepUrl(step: ScannerEditorStep, scannerId: string): stri
     }
 }
 
+/** The history entries one editor visit occupies, by kea-router's per-entry `count`. */
+interface EditorHistory {
+    scannerId: string
+    counts: number[]
+    enteredFromApp: boolean
+}
+
+interface RouterPayload {
+    method?: string
+    initial?: boolean
+}
+
+const LEAVE_EDITOR_POPSTATE_TIMEOUT_MS = 10000
+
+// The goal flow's overview sits outside the manual stepper.
+const EDITOR_PATH_SEGMENTS = new Set<string>([...SCANNER_EDITOR_STEPS, 'overview'])
+
+export function isScannerEditorPath(pathname: string): boolean {
+    const [root, , segment, ...rest] = removeProjectIdIfPresent(pathname).split('/').slice(1)
+    return root === 'replay-vision' && rest.length === 0 && EDITOR_PATH_SEGMENTS.has(segment)
+}
+
+function currentHistoryCount(): number | null {
+    const count = window.history.state?.count
+    return typeof count === 'number' ? count : null
+}
+
+function trackEditorHistory(
+    previous: EditorHistory | null,
+    scannerId: string,
+    payload: RouterPayload
+): EditorHistory | null {
+    const count = currentHistoryCount()
+    if (count === null) {
+        return null
+    }
+    // On mount kea-router reports an initial POP, so the router's last method says how we got here.
+    const method = payload.initial ? router.values.lastMethod : payload.method
+    if (!previous || previous.scannerId !== scannerId) {
+        return { scannerId, counts: [count], enteredFromApp: method === 'PUSH' }
+    }
+    if (method === 'PUSH') {
+        return { ...previous, counts: [...previous.counts, count] }
+    }
+    if (method === 'REPLACE') {
+        return { ...previous, counts: [...previous.counts.slice(0, -1), count] }
+    }
+    const index = previous.counts.indexOf(count)
+    return index === -1
+        ? { scannerId, counts: [count], enteredFromApp: false }
+        : { ...previous, counts: previous.counts.slice(0, index + 1) }
+}
+
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface scannerEditorSceneLogicValues {
     breadcrumbs: Breadcrumb[]
@@ -101,7 +190,12 @@ export interface scannerEditorSceneLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface scannerEditorSceneLogicActions {
-    loadTags: () => any // tagsModel
+    loadTags: () => {
+        value: true
+    } // tagsModel
+    leaveEditor: (destination: string) => {
+        destination: string
+    }
     setScannerId: (scannerId: string) => {
         scannerId: string
     }
@@ -120,6 +214,32 @@ export interface scannerEditorSceneLogicMeta {
             step: ScannerEditorStep,
             searchParams: Record<string, any>
         ) => Breadcrumb[]
+    }
+    __keaTypeGenInternalReducerActions: {
+        'location changed (kea.router)': ({
+            method,
+            pathname,
+            search,
+            searchParams,
+            hash,
+            hashParams,
+            initial,
+            url,
+            routerState,
+        }: LocationChangedPayload) => {
+            payload: {
+                hash: string
+                hashParams: Record<string, any>
+                initial: boolean
+                method: 'POP' | 'PUSH' | 'REPLACE'
+                pathname: string
+                routerState: Record<string, any>
+                search: string
+                searchParams: Record<string, any>
+                url: string
+            }
+            type: 'location changed (kea.router)'
+        }
     }
 }
 
@@ -140,6 +260,7 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
     actions({
         setScannerId: (scannerId: string) => ({ scannerId }),
         setStep: (step: ScannerEditorStep) => ({ step }),
+        leaveEditor: (destination: string) => ({ destination }),
     }),
 
     reducers({
@@ -191,82 +312,90 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                     }
                     return crumbs
                 }
-                // Editing an existing scanner: surface the detail page (on its Configuration tab, where the
-                // Edit button lives) as an intermediate crumb so the back arrow returns there, not to the list.
-                crumbs.push(scannerBreadcrumb(scannerId, null, { tab: 'configuration' }), {
-                    key: `scanner-${scannerId}-edit`,
-                    name: 'Edit',
-                    path: urls.replayVisionScannerConfigure(scannerId),
-                })
+                // Editing an existing scanner: the back arrow returns to the scanner tab the edit started from.
+                const returnTab = searchParams[EDITOR_RETURN_TAB_PARAM]
+                crumbs.push(
+                    scannerBreadcrumb(scannerId, null, typeof returnTab === 'string' ? { tab: returnTab } : {}),
+                    {
+                        key: `scanner-${scannerId}-edit`,
+                        name: 'Edit',
+                        path: urls.replayVisionScannerConfigure(scannerId),
+                    }
+                )
                 return crumbs
             },
         ],
     }),
 
-    urlToAction(({ actions, values }) => ({
-        [urls.replayVisionScannerTemplate(':id')]: ({ id }) => {
-            const scannerId = id || 'new'
-            if (scannerId !== 'new') {
-                router.actions.replace(urls.replayVisionScannerDetails(scannerId))
+    listeners(({ cache }) => ({
+        // Unwind the editor's history entries so browser back skips the finished wizard; replace when nothing known precedes it.
+        leaveEditor: ({ destination }) => {
+            const history: EditorHistory | null = cache.editorHistory
+            cache.editorHistory = null
+            if (!history?.enteredFromApp || history.counts[history.counts.length - 1] !== currentHistoryCount()) {
+                router.actions.replace(destination)
                 return
             }
-            if (scannerId !== values.scannerId) {
-                actions.setScannerId(scannerId)
-            }
-            if (values.step !== 'template') {
-                actions.setStep('template')
-            }
+            const depth = history.counts.length
+            // Not a disposable, because the scene unmounts during this popstate and would remove it first.
+            // The timeout drops the listener if the popstate never comes, so it can't fire on a later back.
+            const landed = new AbortController()
+            // The entry before the editor holds the count just below the editor's first entry.
+            const preEditorCount = history.counts[0] - 1
+            window.addEventListener(
+                'popstate',
+                () => {
+                    landed.abort()
+                    const target = combineUrl(destination)
+                    const landedAt = removeProjectIdIfPresent(window.location.pathname) + window.location.search
+                    // kea-router stores no count on a tab's first entry and numbers the next push 1, so null means 0.
+                    if (
+                        (currentHistoryCount() ?? 0) === preEditorCount &&
+                        landedAt !== target.pathname + target.search
+                    ) {
+                        router.actions.push(destination)
+                    }
+                },
+                { signal: landed.signal }
+            )
+            setTimeout(() => landed.abort(), LEAVE_EDITOR_POPSTATE_TIMEOUT_MS)
+            window.history.go(-depth)
         },
-        [urls.replayVisionScannerOverview(':id')]: ({ id }) => {
-            const scannerId = id || 'new'
-            if (scannerId !== values.scannerId) {
-                actions.setScannerId(scannerId)
+        [router.actionTypes.locationChanged]: ({ pathname }) => {
+            if (!isScannerEditorPath(pathname)) {
+                cache.editorHistory = null
             }
-            if (values.step !== 'overview') {
-                actions.setStep('overview')
-            }
-        },
-        [urls.replayVisionScannerDetails(':id')]: ({ id }) => {
-            const scannerId = id || 'new'
-            if (scannerId !== values.scannerId) {
-                actions.setScannerId(scannerId)
-            }
-            if (values.step !== 'details') {
-                actions.setStep('details')
-            }
-        },
-        [urls.replayVisionScannerConfigure(':id')]: ({ id }) => {
-            const scannerId = id || 'new'
-            if (scannerId !== values.scannerId) {
-                actions.setScannerId(scannerId)
-            }
-            if (values.step !== 'configure') {
-                actions.setStep('configure')
-            }
-        },
-        [urls.replayVisionScannerTriggers(':id')]: ({ id }) => {
-            const scannerId = id || 'new'
-            if (scannerId !== values.scannerId) {
-                actions.setScannerId(scannerId)
-            }
-            if (values.step !== 'triggers') {
-                actions.setStep('triggers')
-            }
-        },
-        [urls.replayVisionScannerBudget(':id')]: ({ id }) => {
-            const scannerId = id || 'new'
-            if (scannerId !== values.scannerId) {
-                actions.setScannerId(scannerId)
-            }
-            if (values.step !== 'budget') {
-                actions.setStep('budget')
-            }
-        },
-        // The self-driving toggle moved onto the configure step; old links still resolve.
-        [urls.replayVisionScannerSelfDriving(':id')]: ({ id }) => {
-            router.actions.replace(urls.replayVisionScannerConfigure(id || 'new'))
         },
     })),
+
+    urlToAction(({ actions, values, cache }) => {
+        const openStep =
+            (step: ScannerEditorStep) =>
+            ({ id }: Record<string, string | undefined>, _: unknown, __: unknown, payload: RouterPayload): void => {
+                const scannerId = id || 'new'
+                cache.editorHistory = trackEditorHistory(cache.editorHistory, scannerId, payload)
+                if (scannerId !== values.scannerId) {
+                    actions.setScannerId(scannerId)
+                }
+                if (values.step !== step) {
+                    actions.setStep(step)
+                }
+            }
+        return {
+            [urls.replayVisionScannerTemplate(':id')]: (params, searchParams, hashParams, payload) => {
+                if (params.id && params.id !== 'new') {
+                    router.actions.replace(urls.replayVisionScannerDetails(params.id))
+                    return
+                }
+                openStep('template')(params, searchParams, hashParams, payload)
+            },
+            [urls.replayVisionScannerOverview(':id')]: openStep('overview'),
+            [urls.replayVisionScannerDetails(':id')]: openStep('details'),
+            [urls.replayVisionScannerConfigure(':id')]: openStep('configure'),
+            [urls.replayVisionScannerTriggers(':id')]: openStep('triggers'),
+            [urls.replayVisionScannerBudget(':id')]: openStep('budget'),
+        }
+    }),
 
     afterMount(({ actions }) => {
         // tagsModel is lazy; load it here so a direct visit doesn't start with an empty tags autocomplete.

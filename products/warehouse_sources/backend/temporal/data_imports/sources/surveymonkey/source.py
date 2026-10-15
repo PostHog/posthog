@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -43,6 +42,14 @@ def _base_url_for(config: SurveyMonkeySourceConfig) -> str:
 
 @SourceRegistry.register
 class SurveyMonkeySource(ResumableSource[SurveyMonkeySourceConfig, SurveyMonkeyResumeConfig]):
+    codebase_detection = detect(
+        env=("^(SURVEY_MONKEY|SURVEYMONKEY)_",),
+        npm=("surveymonkey-react-native",),
+        cocoapods=("surveymonkey-ios-sdk",),
+        maven=("com.surveymonkey:surveymonkey-android-sdk",),
+        swiftpm=("github.com/surveymonkey/surveymonkey-ios-sdk",),
+    )
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://api.surveymonkey.com/v3/docs"
@@ -56,7 +63,7 @@ class SurveyMonkeySource(ResumableSource[SurveyMonkeySourceConfig, SurveyMonkeyR
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SURVEY_MONKEY,
+            name=ExternalDataSourceType.SURVEYMONKEY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="SurveyMonkey",
             caption="""Enter a SurveyMonkey access token to pull your surveys, responses, and collectors into the PostHog Data warehouse.

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailerSendSource(ResumableSource[MailerSendSourceConfig, MailerSendResumeConfig]):
+    codebase_detection = detect(
+        env=("^MAILERSEND_",),
+        npm=("mailersend",),
+        pypi=("mailersend",),
+        composer=("mailersend/mailersend", "mailersend/laravel-driver"),
+        go=("github.com/mailersend/mailersend-go",),
+        maven=("com.mailersend:java-sdk",),
+        rubygems=("mailersend-ruby",),
+    )
+
     api_docs_url = "https://developers.mailersend.com/api/v1/"
 
     @property
@@ -44,7 +53,7 @@ class MailerSendSource(ResumableSource[MailerSendSourceConfig, MailerSendResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MAILER_SEND,
+            name=ExternalDataSourceType.MAILERSEND,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="MailerSend",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -57,6 +66,8 @@ Grant the token read access to the data you want to sync:
 - Domains
 - Recipients
 - Templates
+- Suppressions (for **hard_bounces**, **spam_complaints** and **unsubscribes**)
+- Analytics (for **analytics_by_date**)
 
 Note: MailerSend retains email activity for 1-30 days depending on your plan, so the **activity** table only backfills as far as that retention window on its first sync.
 """,
@@ -98,6 +109,8 @@ Note: MailerSend retains email activity for 1-30 days depending on your plan, so
         def _description(endpoint: str) -> str | None:
             if endpoint == "activity":
                 return "Email activity events. Only backfills as far as your plan's data retention window (1-30 days) on initial sync."
+            if endpoint == "analytics_by_date":
+                return "Daily email counts (sent, delivered, opened, clicked, bounced, and more). MailerSend keeps analytics for 6 months, so the first sync backfills up to 6 months."
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:
@@ -105,7 +118,7 @@ Note: MailerSend retains email activity for 1-30 days depending on your plan, so
             return SourceSchema(
                 name=endpoint,
                 supports_incremental=endpoint_config.supports_incremental,
-                supports_append=endpoint_config.supports_incremental,
+                supports_append=endpoint_config.supports_append,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
                 description=_description(endpoint),

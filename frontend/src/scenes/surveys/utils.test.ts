@@ -23,11 +23,13 @@ import {
     buildAggregateQuery,
     buildOpenEndedQuery,
     buildSurveyExampleInvocationGlobals,
+    buildSurveyResponsesExportQuery,
     buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
     doesSurveyRepeatOnEveryEvent,
+    withIntroScreenEnabled,
     getExpressionCommentForQuestion,
     getSurveyNotificationFilters,
     getRecurringSurveyScheduleInfo,
@@ -40,6 +42,7 @@ import {
     getSurveyResponseStatus,
     transformSurveyResponseRows,
     getSurveyStartDateForQuery,
+    clampPreviewPageIndex,
     isSimpleSurveyAudienceTargeting,
     sanitizeColor,
     sanitizeSurvey,
@@ -63,6 +66,61 @@ afterEach(() => {
 })
 
 describe('survey utils', () => {
+    it('exports readable answers without table-only payloads or link questions', () => {
+        const survey = {
+            id: 'export-survey',
+            questions: [
+                { type: SurveyQuestionType.Open, question: 'What worked?\nWhat could improve?' },
+                { type: SurveyQuestionType.MultipleChoice, question: 'Tools', choices: ['Brush', 'Pen'] },
+                { type: SurveyQuestionType.Rating, question: 'Helpful?', scale: 2, display: 'emoji' },
+                { type: SurveyQuestionType.Link, question: 'Visit the guide' },
+                { type: SurveyQuestionType.Open, question: 'Tools' },
+                { type: SurveyQuestionType.Open, question: '' },
+            ],
+        } as Survey
+        const query = buildSurveyResponsesExportQuery(survey, {
+            timestampFilter: 'AND timestamp >= now() - INTERVAL 7 DAY',
+            answerFilters: [],
+            archivedResponsesFilter: "AND uuid NOT IN ('archived-response')",
+        })
+
+        expect(query.columns).toEqual([
+            'Respondent ID',
+            'Email',
+            'Submitted at (UTC)',
+            'Status',
+            'Q1: What worked? What could improve?',
+            'Q2: Tools',
+            'Q3: Helpful?',
+            'Q5: Tools',
+            'Q6',
+        ])
+        expect(query.source).toMatchObject({ kind: 'HogQLQuery' })
+        const sql = (query.source as { query: string }).query
+        expect(sql).toContain("arrayStringConcat(arrayMap(choice -> JSONExtractString(choice), q1_answer), ', ')")
+        expect(sql).toContain("'Thumbs up'")
+        expect(sql).toContain("'Thumbs down'")
+        expect(sql).toContain('GROUP BY submission_key')
+        expect(sql).toContain('AND timestamp >= now() - INTERVAL 7 DAY')
+        expect(sql).toContain("HAVING uuid NOT IN ('archived-response')")
+        expect(sql).not.toMatch(/AS response\b|AS actions\b|AS answer_\d|LIMIT 100/)
+        expect(sql).toContain(
+            "coalesce(nullIf(JSONExtractString(person_properties, '$email'), ''), nullIf(JSONExtractString(person_properties, 'email'), ''), '') AS Email"
+        )
+        expect(sql.split(' FROM (')[0]).not.toMatch(/person_properties AS|event_properties/)
+    })
+
+    it.each([
+        ['Quotes " and ` ticks \\ path', '`Q1: Quotes " and `` ticks \\\\ path`'],
+        ['Estado\n¿Todo bien?', '"Q1: Estado ¿Todo bien?"'],
+    ])('escapes export heading %s as a HogQL identifier', (question, alias) => {
+        const query = buildSurveyResponsesExportQuery(
+            { id: 'export-survey', questions: [{ type: SurveyQuestionType.Open, question }] } as Survey,
+            { timestampFilter: '', answerFilters: [], archivedResponsesFilter: '' }
+        )
+        expect((query.source as { query: string }).query).toContain(`AS ${alias}`)
+    })
+
     it.each<{ counts: [number, number, number]; percentages: number[] }>([
         { counts: [2, 1, 2], percentages: [0.4, 0.2, 0.4] },
         { counts: [0, 1, 3], percentages: [0, 0.25, 0.75] },
@@ -448,6 +506,18 @@ describe('survey utils', () => {
         })
     })
 
+    describe('clampPreviewPageIndex', () => {
+        it.each([
+            ['keeps the intro page while the intro is enabled', -1, true, -1],
+            ['falls back to question 0 when the intro is disabled', -1, false, 0],
+            ['keeps question pages regardless of the toggle', 2, false, 2],
+            ['maps a null page index to question 0', null, true, 0],
+        ] as const)('%s', (_name, pageIndex, displayIntroScreen, expected) => {
+            const survey = { appearance: { displayIntroScreen } }
+            expect(clampPreviewPageIndex(pageIndex, survey)).toBe(expected)
+        })
+    })
+
     describe('sanitizeSurveyAppearance', () => {
         it('returns null for null input', () => {
             expect(sanitizeSurveyAppearance(null)).toBeNull()
@@ -473,6 +543,32 @@ describe('survey utils', () => {
             expect(result?.submitButtonColor).toBe('#000000')
             expect(result?.submitButtonTextColor).toBe('#cccccc')
         })
+
+        it.each([
+            ['introScreenHeader', '<b>Welcome</b><script>alert(1)</script>', '<b>Welcome</b>'],
+            ['introScreenDescription', '<p onclick="alert(1)">Takes a minute</p>', '<p>Takes a minute</p>'],
+            ['introScreenHeader', undefined, ''],
+        ] as const)('sanitizes %s HTML (%s)', (field, value, expected) => {
+            const result = sanitizeSurveyAppearance({ [field]: value })
+
+            expect(result?.[field]).toBe(expected)
+        })
+
+        it.each([
+            ['text', 'a < b && c > d'],
+            ['html', 'a &lt; b &amp;&amp; c &gt; d'],
+            [undefined, 'a &lt; b &amp;&amp; c &gt; d'],
+        ] as const)(
+            'sanitizes the intro description only as HTML when its content type is %s',
+            (contentType, expected) => {
+                const result = sanitizeSurveyAppearance({
+                    introScreenDescription: 'a < b && c > d',
+                    introScreenDescriptionContentType: contentType,
+                })
+
+                expect(result?.introScreenDescription).toBe(expected)
+            }
+        )
 
         it('removes surveyPopupDelaySeconds for external surveys', () => {
             const input: SurveyAppearance = {
@@ -500,6 +596,38 @@ describe('survey utils', () => {
             expect(result?.backgroundColor).toBe('#ffffff')
             expect(result?.submitButtonColor).toBe('#000000')
             expect(result?.surveyPopupDelaySeconds).toBe(5)
+        })
+    })
+
+    describe('withIntroScreenEnabled', () => {
+        it.each([
+            ['no appearance', undefined, { displayIntroScreen: true, introScreenDescriptionContentType: 'text' }],
+            [
+                'an unset content type',
+                { introScreenHeader: 'Welcome' },
+                { displayIntroScreen: true, introScreenHeader: 'Welcome', introScreenDescriptionContentType: 'text' },
+            ],
+            [
+                'an existing html content type',
+                { introScreenDescriptionContentType: 'html' },
+                { displayIntroScreen: true, introScreenDescriptionContentType: 'html' },
+            ],
+            [
+                'an existing html description with an unset content type',
+                { introScreenDescription: '<b>Hi</b>' },
+                {
+                    displayIntroScreen: true,
+                    introScreenDescription: '<b>Hi</b>',
+                    introScreenDescriptionContentType: 'html',
+                },
+            ],
+            [
+                'an existing text description',
+                { introScreenDescription: 'Hi', introScreenDescriptionContentType: 'text' },
+                { displayIntroScreen: true, introScreenDescription: 'Hi', introScreenDescriptionContentType: 'text' },
+            ],
+        ] as [string, SurveyAppearance | undefined, SurveyAppearance][])('%s', (_name, appearance, expected) => {
+            expect(withIntroScreenEnabled(appearance)).toEqual(expected)
         })
     })
 

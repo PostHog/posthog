@@ -1,0 +1,240 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Automated lab bench safety photo check",
+  "scenario": "LabSafetyCheck runs a pre-lab agent that reviews three photos a student submits before starting a chemistry experiment (their PPE, the fume hood area, and a wide shot of the bench) and returns a structured pass/fail per photo with a summary.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1,
+      "$ai_span": 3,
+      "$ai_trace": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-python"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [
+      "openai-agents"
+    ],
+    "models": [
+      "gpt-5.6-sol"
+    ],
+    "content_types": [
+      "input_image",
+      "input_text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "environment": "prod",
+        "$is_server": true,
+        "client.source": "chatapp",
+        "source": "chatapp",
+        "$os_version": "12",
+        "$geoip_disable": true,
+        "$ai_response_id": "6M3+NYuuEf+RR/QYCWB7niFQ0z3wnpQ62MNIiytzQKNrWb/U9P2XYxeWJa4o4j8aghg0D3NYZFSTskgy9sON0vfkFoEsFxfFJl9qk2RQqDwTZslzfwXBfRdOE2dWiCHbGbNq0KvQVTVvnrncstxSFzOs4YTkCtcQzRQoMqmGnL3E4OoAHQV9otc9/KPNvXpocIRbDGBNh66RmkFDmp+HgSwcuT012aMtIUxGqzbMc9CFL5Y7M",
+        "$ai_provider": "openai",
+        "$os_distro": "Debian GNU/Linux",
+        "$ai_span_id": "span_opkNpXrAfE59svpWLWWm24NX",
+        "$ai_total_tokens": 5934,
+        "$ai_parent_id": "span_EkcjXMDYCxVt9cXrMyYEtuSa",
+        "$python_version": "3.13.11",
+        "$lib": "posthog-python",
+        "$os": "Linux",
+        "$ai_framework": "openai-agents",
+        "$ai_latency": 14.041612148284912,
+        "$ai_trace_id": "trace_mAKMpMVZPOCJJmgpxlPERBxIIW1wzYB3",
+        "$ai_model": "gpt-5.6-sol",
+        "$python_runtime": "CPython",
+        "$ai_stop_reason": "completed",
+        "$lib_version": "7.22.0",
+        "$ai_output_tokens": 1259,
+        "project_id": "vtrn-K2RHJA3H",
+        "$ai_input_tokens": 4675,
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "text": "Check these 3 photos before I\nstart the titration lab:\n\n1. Goggles on?\n2. Gloves on?\n3. Fume hood door\n   position okay?\n4. Loose hair or\n   sleeves tied back?\n\nFlag anything unsafe.",
+                "type": "input_text"
+              },
+              {
+                "detail": "auto",
+                "image_url": "data:image/jpeg;base64,⟦media:openai_agents_image_safety_check__M279350.jpg⟧",
+                "type": "input_image"
+              },
+              {
+                "detail": "auto",
+                "image_url": "data:image/jpeg;base64,⟦media:openai_agents_image_safety_check__M3592033.jpg⟧",
+                "type": "input_image"
+              },
+              {
+                "detail": "auto",
+                "image_url": "data:image/jpeg;base64,⟦media:openai_agents_image_safety_check__M1701750.jpg⟧",
+                "type": "input_image"
+              }
+            ],
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": "{\"images\":[{\"index\":0,\"subject\":\"Photo of student at the lab bench\",\"goggles\":\"on, correctly seated over the eyes\",\"gloves\":\"on, nitrile, no visible tears or stretching\",\"hair\":\"tied back in a low ponytail\",\"sleeves\":\"rolled and secured above the elbow\",\"footwear_visible\":\"closed-toe sneakers, acceptable\",\"issues\":[],\"pass\":true,\"confidence\":0.91},{\"index\":1,\"subject\":\"Photo of the fume hood area\",\"fume_hood_sash\":\"raised well above the recommended 18 inch line, roughly 30 inches\",\"chemicals_visible\":\"one open HCl bottle without a cap sitting on the bench outside the hood\",\"secondary_containment\":\"not visible in frame\",\"issues\":[\"fume_hood_sash_too_high\",\"uncapped_acid_bottle_outside_hood\"],\"pass\":false,\"confidence\":0.86},{\"index\":2,\"subject\":\"Wide shot of the full bench setup\",\"extinguisher_visible\":true,\"eyewash_station_visible\":true,\"walkway_clear\":\"mostly clear, one backpack strap crossing the main aisle\",\"floor_hazards\":\"none visible\",\"issues\":[\"backpack_in_walkway\"],\"pass\":false,\"confidence\":0.78}],\"overall_pass\":false,\"summary\":\"Two of three photos show a safety issue that should be fixed before starting: the fume hood sash is too high and an acid bottle is uncapped outside the hood, and a backpack strap is partly blocking the walkway. Photo 1 (the student's own PPE) looks fully compliant.\"}\n\nFume hood sash height matters because the sash is the primary engineering control between the operator's breathing zone and whatever vapor is generated inside the hood; every inch above the marked line reduces face velocity and lets more vapor escape into the room rather than being pulled into the exhaust duct. Most school labs mark an 18-inch working height with a strip of tape, and a sash left at the fully open position, as in this photo, effectively turns the hood into an open shelf rather than a ventilated enclosure.\n\nAn uncapped acid bottle sitting outside a fume hood is a two-part hazard: the immediate fume exposure from an open container, and the much less obvious risk of the bottle being knocked over by someone walking past the bench, since it is no longer inside the hood's spill containment tray. The correct placement for any open container of a corrosive reagent is inside the hood, on a tray, with the sash lowered to working height between uses.\n\nWalkway obstructions are graded separately from PPE and chemical handling because they affect everyone in the room, not just the student at that bench. A backpack strap across the main aisle is a trip hazard during an evacuation, which matters more in a lab than in a regular classroom because an evacuation might be triggered by exactly the kind of chemical incident this checklist is trying to prevent in the first place.\n\nGoggles are checked for correct seating, not just presence, because a pair of safety goggles pushed up onto the forehead or resting loosely on the bridge of the nose provides no real splash protection. The photo grading looks specifically for goggles positioned directly over the eyes with the strap snug against the back of the head.\n\nGlove condition is checked because a torn or overstretched nitrile glove can leak through pinholes that are not visible without close inspection, and gloves reused across multiple lab sessions without a visual check are a common source of undetected chemical exposure. Encourage students to glance at their gloves under good light before starting any step that involves a reagent.\n\nHair and loose clothing are graded together because both are ignition and entanglement risks near a Bunsen burner or a stirring hot plate, not just splash risks. A ponytail that has come loose mid-lab, or a sleeve unrolled after the initial check, is a common gap between the start-of-lab photo and actual practice ten minutes later, which is one reason some instructors ask for a second check photo partway through a long lab.\n\nEyewash stations and fire extinguishers are checked for visibility in the wide shot, not for function, since a photo cannot confirm whether an eyewash station actually flows water. The intent of this check is narrower: confirming the equipment has not been blocked by a rolling cart, a stack of boxes, or a chair pushed against it, since blocked safety equipment is a surprisingly common finding in end-of-term lab audits.\n\nWhen a check fails, the recommended next step is for the student to fix the specific issue and take one more photo of just that area, rather than re-submitting all three photos from scratch. This keeps the review loop fast and avoids re-flagging an already-compliant photo purely because it was resubmitted alongside a fixed one.\n\nFalse positives are more likely on the walkway check than on the PPE checks, since a shadow or a loose cable can look similar to a strap crossing the aisle in a lower-resolution photo. Instructors reviewing a borderline walkway flag should look at the photo directly before docking a group's start time, rather than trusting the automated flag alone for that specific category.\n\nConfidence scores below roughly 0.8 on any single finding should be treated as a prompt for a human glance rather than an automatic fail; the automated check is meant to catch the common, obvious issues quickly so the TA can spend their limited walk-around time on the photos that were flagged, not on re-checking every compliant bench from scratch.\n\nSecondary containment trays inside a fume hood exist to catch a spill before it reaches the hood's exhaust plenum or drains out through the sash gap at the base; a bottle sitting directly on the hood deck without a tray underneath is a smaller version of the same problem as a bottle sitting fully outside the hood, just with less vapor exposure. Photo checks that can see a tray edge should note its presence explicitly rather than assuming one is there.\n\nFootwear is graded only when visible in frame, since most lab bench photos are framed from the waist up and simply do not show shoes; a check that cannot see footwear should mark it as not assessed rather than passing it by default, so the record accurately reflects what was actually verified from that particular photo rather than what was merely assumed.\n\nRepeat offenders on the same finding across multiple lab sessions are worth flagging separately from a one-off miss, since a student who forgets to lower the sash every single week benefits more from a short one-on-one reminder than from another automated flag that gets treated as routine noise by that point in the term.\n\nThe three-photo format (self, hood area, wide shot) exists because a single photo cannot show both fine PPE detail and the whole room layout at a resolution useful for either purpose; asking for three purpose-specific angles keeps each individual check simpler and more reliable than trying to extract everything from one wide shot.\n\nWhen two separate findings point at the same root cause, such as a sash left open and a bottle left uncapped in the same session, it is worth noting in the summary that they may share a cause (a student who stepped away mid-setup) rather than listing them as two unrelated problems that happen to have occurred together this one time."
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 4,
+      "distinct_id": "user-1",
+      "properties": {
+        "$is_server": true,
+        "source": "chatapp",
+        "project_id": "vtrn-K2RHJA3H",
+        "client.source": "chatapp",
+        "$ai_framework": "openai-agents",
+        "$ai_span_id": "span_EkcjXMDYCxVt9cXrMyYEtuSa",
+        "$ai_trace_id": "trace_mAKMpMVZPOCJJmgpxlPERBxIIW1wzYB3",
+        "$os": "Linux",
+        "$ai_provider": "openai",
+        "$python_runtime": "CPython",
+        "$lib_version": "7.22.0",
+        "environment": "prod",
+        "$ai_span_type": "gate",
+        "$ai_span_name": "gate",
+        "$python_version": "3.13.11",
+        "$ai_span_data": {
+          "data": {
+            "agent_name": "lab-safety-reviewer",
+            "gate.decision": "gate",
+            "gate": 1,
+            "usage": {
+              "cached_input_tokens": 0,
+              "input_tokens": 4675,
+              "output_tokens": 1259
+            }
+          },
+          "name": "gate",
+          "type": "custom"
+        },
+        "$os_version": "12",
+        "$os_distro": "Debian GNU/Linux",
+        "$lib": "posthog-python",
+        "$ai_parent_id": "span_EgTO8rENdK51qXkPGeWfuDVL",
+        "$geoip_disable": true,
+        "$ai_latency": 14.049719333648682
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 5,
+      "distinct_id": "user-1",
+      "properties": {
+        "project_id": "vtrn-K2RHJA3H",
+        "$ai_parent_id": "span_fHKlY0fToVO8s77Hruna5Sd9",
+        "$geoip_disable": true,
+        "client.source": "chatapp",
+        "$os_version": "12",
+        "$is_server": true,
+        "$ai_framework": "openai-agents",
+        "$python_runtime": "CPython",
+        "$ai_span_name": "lab-safety-reviewer",
+        "$lib": "posthog-python",
+        "$os_distro": "Debian GNU/Linux",
+        "$ai_latency": 14.052010536193848,
+        "$ai_span_type": "agent",
+        "$ai_agent_output_type": "LabComplianceOutput",
+        "$lib_version": "7.22.0",
+        "$python_version": "3.13.11",
+        "environment": "prod",
+        "$ai_span_id": "span_EgTO8rENdK51qXkPGeWfuDVL",
+        "$ai_provider": "openai",
+        "$os": "Linux",
+        "source": "chatapp",
+        "$ai_trace_id": "trace_mAKMpMVZPOCJJmgpxlPERBxIIW1wzYB3"
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 6,
+      "distinct_id": "user-1",
+      "properties": {
+        "$os_version": "12",
+        "$lib_version": "7.22.0",
+        "project_id": "vtrn-K2RHJA3H",
+        "client.source": "chatapp",
+        "$os_distro": "Debian GNU/Linux",
+        "$ai_trace_id": "trace_mAKMpMVZPOCJJmgpxlPERBxIIW1wzYB3",
+        "$ai_provider": "openai",
+        "$ai_latency": 14.059793949127195,
+        "$lib": "posthog-python",
+        "$is_server": true,
+        "environment": "prod",
+        "source": "chatapp",
+        "$python_version": "3.13.11",
+        "$ai_trace_metadata": {
+          "environment": "prod",
+          "feature": "safety-checks",
+          "posthog_distinct_id": "school-district-42:classroom-7b:student-8f21a9c3-d3b6-4e09-9172-540a1b6b7078",
+          "project_id": "vtrn-K2RHJA3H",
+          "trace_id": "trace_mAKMpMVZPOCJJmgpxlPERBxIIW1wzYB3"
+        },
+        "$ai_trace_name": "lab-safety-photo-review-run",
+        "$geoip_disable": true,
+        "$ai_framework": "openai-agents",
+        "$python_runtime": "CPython",
+        "$os": "Linux"
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 6,
+      "distinct_id": "user-1",
+      "properties": {
+        "$os_distro": "Debian GNU/Linux",
+        "$ai_framework": "openai-agents",
+        "$os": "Linux",
+        "$is_server": true,
+        "$lib_version": "7.22.0",
+        "$ai_latency": 14.057414293289185,
+        "$ai_span_name": "scan",
+        "$python_runtime": "CPython",
+        "$os_version": "12",
+        "client.source": "chatapp",
+        "$geoip_disable": true,
+        "$lib": "posthog-python",
+        "$ai_trace_id": "trace_mAKMpMVZPOCJJmgpxlPERBxIIW1wzYB3",
+        "$ai_provider": "openai",
+        "$ai_parent_id": null,
+        "source": "chatapp",
+        "environment": "prod",
+        "$ai_span_data": {
+          "data": {
+            "name": "lab-safety-photo-review-run",
+            "gate.decision": "scan",
+            "usage": {
+              "cached_input_tokens": 0,
+              "input_tokens": 4675,
+              "output_tokens": 1259,
+              "requests": 1,
+              "total_tokens": 5934
+            }
+          },
+          "name": "scan",
+          "type": "custom"
+        },
+        "project_id": "vtrn-K2RHJA3H",
+        "$ai_span_id": "span_fHKlY0fToVO8s77Hruna5Sd9",
+        "$ai_span_type": "task",
+        "$python_version": "3.13.11"
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

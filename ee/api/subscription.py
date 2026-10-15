@@ -5,9 +5,25 @@ from typing import Any, ClassVar, Optional
 
 from django.conf import settings
 from django.contrib.postgres.expressions import ArraySubquery
+from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import CharField, Manager, Prefetch, Q, QuerySet, Value
+from django.db.models import (
+    BigIntegerField,
+    BooleanField,
+    CharField,
+    F,
+    Func,
+    JSONField,
+    Manager,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+    TextField,
+    Value,
+)
 from django.db.models.functions import Cast, Concat
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import get_object_or_404
@@ -32,6 +48,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.schema import SubscriptionAIContextLimit
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.ordering import StableOrderingFilter
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.cloud_utils import is_cloud
@@ -48,7 +65,7 @@ from posthog.security.url_validation import is_microsoft_teams_webhook_url
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
-from posthog.utils import str_to_bool
+from posthog.utils import human_list, str_to_bool
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -60,7 +77,7 @@ from products.exports.backend.models.subscription import (
     attribute_subscription_saves,
     unsubscribe_using_token,
 )
-from products.exports.backend.models.subscription_context import SubscriptionContext
+from products.exports.backend.models.subscription_context import SubscriptionContext, context_ref
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
     PromptRejectedError,
@@ -91,6 +108,24 @@ MAX_AI_SUBSCRIPTION_CONTEXTS: int = int(SubscriptionAIContextLimit.model_fields[
 AI_DELIVERY_DISPLAY_FIELDS = frozenset(
     {"include_images", "include_feedback", "include_manage_link", "include_posthog_hint"}
 )
+# An agent reads one field's description in isolation, so every field repeats the scope rule.
+_AI_DISPLAY_FIELD_SCOPE_NOTE = (
+    "The request is rejected when the subscription sets insight or dashboard instead of prompt. "
+    "It does not control the AI summary on an insight or dashboard subscription: use "
+    "summary_enabled and summary_prompt_guide for that."
+)
+
+
+def _capture_post_write_failure(exc: Exception) -> None:
+    """Report a failure that happens after the write is committed.
+
+    `capture_exception` reads query tags and logs, neither of which is guarded, so a fault in
+    reporting would propagate and fail a request whose write already landed.
+    """
+    try:
+        capture_exception(exc)
+    except Exception:
+        pass
 
 
 def _summary_quota_cache_key(organization_id) -> str:
@@ -123,6 +158,7 @@ class _TargetLookups:
     live_context_insight_lookup: str
     live_context_dashboard_lookup: str
     snapshot_context_ref_overlap: str | None
+    rendered_snapshot: str | None
     exported_insights: str
     no_selection: str
     insights: Manager
@@ -136,6 +172,7 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
     live_context_insight_lookup="contexts__insight_id__in",
     live_context_dashboard_lookup="contexts__dashboard_id__in",
     snapshot_context_ref_overlap=None,
+    rendered_snapshot=None,
     exported_insights="dashboard_export_insights__id__in",
     no_selection="dashboard_export_insights__isnull",
     insights=Insight.objects,
@@ -150,6 +187,7 @@ _DELIVERY_TARGETS = _TargetLookups(
     live_context_insight_lookup="subscription__contexts__insight_id__in",
     live_context_dashboard_lookup="subscription__contexts__dashboard_id__in",
     snapshot_context_ref_overlap="context_refs__overlap",
+    rendered_snapshot="content_snapshot",
     exported_insights="subscription__dashboard_export_insights__id__in",
     no_selection="subscription__dashboard_export_insights__isnull",
     insights=Insight.objects_including_soft_deleted,
@@ -285,29 +323,35 @@ class DeliveryConfigSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "Slack only: when true, upload all insight images together in the main Slack message "
-            "instead of posting the first image in the main message and the rest as threaded replies. "
-            "Defaults to false."
+            "Slack insight and dashboard subscriptions only: when true, upload all insight images "
+            "together in the main Slack message instead of posting the first image in the main "
+            "message and the rest as threaded replies. Defaults to false. The request is rejected "
+            "when target_type is not 'slack', when the subscription sets prompt instead of insight "
+            "or dashboard, or when the Slack integration does not hold the files:write permission. "
+            "Omit it unless the user asks for one combined message."
         ),
     )
     include_images = serializers.BooleanField(
         required=False,
-        help_text="AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.",
+        help_text="Prompt subscriptions only: include generated chart images. Defaults to true when omitted. "
+        + _AI_DISPLAY_FIELD_SCOPE_NOTE,
     )
     include_feedback = serializers.BooleanField(
         required=False,
-        help_text="AI prompt subscriptions only: include report feedback links. Defaults to true when omitted.",
+        help_text="Prompt subscriptions only: include report feedback links. Defaults to true when omitted. "
+        + _AI_DISPLAY_FIELD_SCOPE_NOTE,
     )
     include_manage_link = serializers.BooleanField(
         required=False,
-        help_text="AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted.",
+        help_text="Prompt subscriptions only: include a link to manage the subscription. "
+        "Defaults to true when omitted. " + _AI_DISPLAY_FIELD_SCOPE_NOTE,
     )
     include_posthog_hint = serializers.BooleanField(
         required=False,
-        help_text=(
-            "AI prompt subscriptions only: include PostHog product guidance. Slack only. "
-            "Email and Microsoft Teams reports do not include it. Defaults to true when omitted."
-        ),
+        help_text="Prompt subscriptions only: include PostHog product guidance. Defaults to true when "
+        "omitted. Only a Slack report renders the guidance. Email and Microsoft Teams reports leave it "
+        "out and accept the option without an error, unlike post_all_insights_in_main_message. "
+        + _AI_DISPLAY_FIELD_SCOPE_NOTE,
     )
 
 
@@ -412,7 +456,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
     )
     dashboard_export_insights = DashboardExportInsightsField(
         required=False,
-        help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.",
+        help_text=f"List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max {MAX_INSIGHTS}.",
     )
     ai_prompt_config = AIPromptConfigSerializer(
         required=False,
@@ -438,7 +482,12 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
     )
     delivery_config = DeliveryConfigSerializer(
         required=False,
-        help_text="Per-delivery rendering options. Each option documents which delivery targets it applies to.",
+        help_text=(
+            "Per-delivery rendering options. Every option applies to one subscription kind or delivery "
+            "target only, and each option's own description says where it applies and whether a "
+            "mismatch is rejected or ignored. Omit this field unless the user asks for one of the "
+            "options."
+        ),
     )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
@@ -754,6 +803,10 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                 )
         except ValueError as exc:
             raise ValidationError(str(exc))
+        # The prompt merge below folds the stored config into `attrs`, so keep what the caller
+        # actually sent. A stored option that the request never names must not reject the
+        # request, because that leaves the row impossible to edit.
+        submitted_delivery_config = attrs.get("delivery_config") or {}
         if (
             resource_type == Subscription.ResourceType.AI_PROMPT
             and self.partial
@@ -773,11 +826,22 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         if validate_for_resource_type is None:
             raise ValidationError({"resource_type": [f"Unsupported resource_type: {resource_type}."]})
         if resource_type != Subscription.ResourceType.AI_PROMPT and attrs.get("ai_prompt_config"):
-            raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
+            raise ValidationError(
+                {
+                    "ai_prompt_config": [
+                        "ai_prompt_config only applies to prompt subscriptions. This subscription has "
+                        f"resource_type '{resource_type}', so remove it from the request."
+                    ]
+                }
+            )
         if "contexts" in attrs:
             if resource_type != Subscription.ResourceType.AI_PROMPT:
-                raise ValidationError({"contexts": ["Context only applies to AI subscriptions."]})
-            attrs["contexts"] = self._validate_contexts(attrs["contexts"])
+                if attrs["contexts"]:
+                    raise ValidationError({"contexts": ["Context only applies to AI subscriptions."]})
+                # Every read carries an empty list here, so a client saving what it read sends one back.
+                attrs.pop("contexts")
+            else:
+                attrs["contexts"] = self._validate_contexts(attrs["contexts"])
         validate_for_resource_type(attrs, existing)
 
         self._validate_dashboard_export_subscription(attrs)
@@ -805,11 +869,38 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             if "delivery_config" in attrs
             else (self.instance.delivery_config if self.instance else None)
         ) or {}
-        if resource_type != Subscription.ResourceType.AI_PROMPT and any(
-            field in effective_delivery_config for field in AI_DELIVERY_DISPLAY_FIELDS
-        ):
+        # A prompt report never reads the gallery option, so only the value a request sends can be
+        # wrong. An insight or dashboard report does read it, so the stored value still decides: a
+        # target or permission change would break the next delivery.
+        gallery_enabled = (
+            submitted_delivery_config
+            if resource_type == Subscription.ResourceType.AI_PROMPT
+            else effective_delivery_config
+        ).get("post_all_insights_in_main_message")
+        if resource_type != Subscription.ResourceType.AI_PROMPT:
+            unsupported = sorted(AI_DELIVERY_DISPLAY_FIELDS & submitted_delivery_config.keys())
+            if unsupported:
+                verb, pronoun = ("applies", "it") if len(unsupported) == 1 else ("apply", "them")
+                raise ValidationError(
+                    {
+                        "delivery_config": [
+                            f"{human_list(unsupported)} only {verb} to prompt subscriptions. "
+                            f"This subscription has resource_type '{resource_type}', "
+                            f"so remove {pronoun} from delivery_config."
+                        ]
+                    }
+                )
+        elif gallery_enabled:
+            # The prompt Slack renderer already posts every chart in the main message and never reads this option.
             raise ValidationError(
-                {"delivery_config": ["AI delivery display options are only supported for prompt subscriptions."]}
+                {
+                    "delivery_config": [
+                        "post_all_insights_in_main_message only applies to insight and dashboard "
+                        f"subscriptions. This subscription has resource_type '{resource_type}', so "
+                        "remove it from delivery_config. A prompt report already posts all its chart "
+                        "images in the main message."
+                    ]
+                }
             )
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
@@ -874,24 +965,26 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                 )
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
-            if effective_delivery_config.get("post_all_insights_in_main_message") and SlackIntegration(
-                integration
-            ).missing_scopes({"files:write"}):
+            if gallery_enabled and SlackIntegration(integration).missing_scopes({"files:write"}):
                 raise ValidationError(
                     {
                         "delivery_config": [
-                            "Posting all insights in the main message requires the Slack files:write permission. "
-                            "Reconnect Slack to grant it."
+                            "post_all_insights_in_main_message requires the Slack files:write permission. "
+                            "Reconnect Slack to grant it, or remove the option from delivery_config to "
+                            "save the subscription now. Each delivery then posts the first image in the "
+                            "main message and the rest as threaded replies."
                         ]
                     }
                 )
 
-        if (
-            effective_delivery_config.get("post_all_insights_in_main_message")
-            and target_type != Subscription.SubscriptionTarget.SLACK
-        ):
+        if gallery_enabled and target_type != Subscription.SubscriptionTarget.SLACK:
             raise ValidationError(
-                {"delivery_config": ["post_all_insights_in_main_message is only supported for Slack subscriptions."]}
+                {
+                    "delivery_config": [
+                        "post_all_insights_in_main_message only applies to Slack subscriptions. "
+                        f"This subscription delivers to {target_type}, so remove it from delivery_config."
+                    ]
+                }
             )
 
         prompt_guide = attrs.get("summary_prompt_guide")
@@ -1110,7 +1203,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
 
     @staticmethod
     def _context_refs(identifiers: set[tuple[str, int]]) -> list[str]:
-        return sorted(f"{kind}:{identifier}" for kind, identifier in identifiers)
+        return sorted(context_ref(kind, identifier) for kind, identifier in identifiers)
 
     @staticmethod
     def _replace_contexts(instance: Subscription, contexts: list[dict[str, Insight | Dashboard]]) -> None:
@@ -1191,51 +1284,56 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         if not instance.enabled or not send_test_now:
             return instance
 
-        with slo_operation(
-            spec=SloSpec(
-                distinct_id=str(request.user.distinct_id),
-                area=SloArea.ANALYTIC_PLATFORM,
-                operation=SloOperation.SUBSCRIPTION_CREATE,
-                team_id=instance.team_id,
-                resource_id=str(instance.id),
-            ),
-            properties={
-                "subscription_id": instance.id,
-                "target_type": instance.target_type,
-                "frequency": instance.frequency,
-                "interval": instance.interval,
-                "byweekday": instance.byweekday,
-                "bysetpos": instance.bysetpos,
-                "count": instance.count,
-                "resource_type": instance.resource_type,
-                "dashboard_export_insights_count": len(dashboard_export_insight_ids),
-                "summary_enabled": instance.summary_enabled,
-                "has_summary_prompt_guide": bool(instance.summary_prompt_guide),
-                "has_until_date": instance.until_date is not None,
-                "has_invite_message": bool(invite_message),
-            },
-        ):
-            temporal = sync_connect()
-            workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-            asyncio.run(
-                temporal.start_workflow(
-                    "handle-subscription-value-change",
-                    ProcessSubscriptionWorkflowInputs(
-                        subscription_id=instance.id,
-                        team_id=instance.team_id,
-                        distinct_id=str(instance.created_by.distinct_id)
-                        if instance.created_by
-                        else str(instance.team_id),
-                        previous_target_value="",
-                        previous_value="",
-                        invite_message=invite_message,
-                        trigger_type=SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
-                        resource_type=instance.resource_type,
-                    ),
-                    id=workflow_id,
-                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+        # The row is committed above and the schedule runs off next_delivery_date, so failing the
+        # request here would hide a subscription that exists and make the retry create a second one.
+        try:
+            with slo_operation(
+                spec=SloSpec(
+                    distinct_id=str(request.user.distinct_id),
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    operation=SloOperation.SUBSCRIPTION_CREATE,
+                    team_id=instance.team_id,
+                    resource_id=str(instance.id),
+                ),
+                properties={
+                    "subscription_id": instance.id,
+                    "target_type": instance.target_type,
+                    "frequency": instance.frequency,
+                    "interval": instance.interval,
+                    "byweekday": instance.byweekday,
+                    "bysetpos": instance.bysetpos,
+                    "count": instance.count,
+                    "resource_type": instance.resource_type,
+                    "dashboard_export_insights_count": len(dashboard_export_insight_ids),
+                    "summary_enabled": instance.summary_enabled,
+                    "has_summary_prompt_guide": bool(instance.summary_prompt_guide),
+                    "has_until_date": instance.until_date is not None,
+                    "has_invite_message": bool(invite_message),
+                },
+            ):
+                temporal = sync_connect()
+                workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
+                asyncio.run(
+                    temporal.start_workflow(
+                        "handle-subscription-value-change",
+                        ProcessSubscriptionWorkflowInputs(
+                            subscription_id=instance.id,
+                            team_id=instance.team_id,
+                            distinct_id=str(instance.created_by.distinct_id)
+                            if instance.created_by
+                            else str(instance.team_id),
+                            previous_target_value="",
+                            previous_value="",
+                            invite_message=invite_message,
+                            trigger_type=SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
+                            resource_type=instance.resource_type,
+                        ),
+                        id=workflow_id,
+                        task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                    )
                 )
-            )
+        except Exception as exc:
+            _capture_post_write_failure(exc)
 
         return instance
 
@@ -1340,7 +1438,6 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         if not delivery_triggered:
             return instance
 
-        temporal = sync_connect()
         if send_test_now:
             # Explicit ask: deterministic ID so a caller spamming send_test_now dedupes to one
             # in-flight delivery per subscription instead of fanning out real sends. Kept distinct
@@ -1351,6 +1448,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             # consecutive edits both deliver instead of the second silently deduping.
             workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
         try:
+            temporal = sync_connect()
             asyncio.run(
                 temporal.start_workflow(
                     "handle-subscription-value-change",
@@ -1374,6 +1472,8 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             # A delivery for this subscription is already in flight; the update itself
             # succeeded, so skip the duplicate send rather than failing the request.
             pass
+        except Exception as exc:
+            _capture_post_write_failure(exc)
 
         return instance
 
@@ -1404,6 +1504,26 @@ def _context_ref_subquery(kind: str, blocked_ids: QuerySet, *, id_field: str = "
         context_ref=Concat(Value(f"{kind}:"), Cast(id_field, output_field=CharField()))
     ).values("context_ref")
     return ArraySubquery(references)
+
+
+def _snapshot_renders_any_of(snapshot_field: str, json_path: str, target_ids: QuerySet) -> Func:
+    return Func(
+        F(snapshot_field),
+        Func(Value(json_path), template="%(expressions)s::jsonpath", output_field=CharField()),
+        Func(
+            Cast(Value("ids"), output_field=TextField()),
+            # An empty target set compiles to a bare NULL, which Postgres cannot type without the cast.
+            Func(
+                Cast(ArraySubquery(target_ids), output_field=ArrayField(BigIntegerField())),
+                function="to_jsonb",
+                output_field=JSONField(),
+            ),
+            function="jsonb_build_object",
+            output_field=JSONField(),
+        ),
+        function="jsonb_path_exists",
+        output_field=BooleanField(),
+    )
 
 
 def _viewable_subscription_filter(user_access_control: UserAccessControl, team_id: int) -> Q:
@@ -1459,12 +1579,20 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
             }
         )
 
+    # The subscription can point somewhere else now, so also check what the delivery rendered.
+    rendered_a_blocked_target = Q()
+    if targets.rendered_snapshot is not None:
+        rendered_a_blocked_target = _snapshot_renders_any_of(
+            targets.rendered_snapshot, "$.insights[*] ? (@.id == $ids[*])", blocked_insights
+        ) | _snapshot_renders_any_of(targets.rendered_snapshot, "$.dashboard ? (@.id == $ids[*])", blocked_dashboards)
+
     return ~(
         targets_a_blocked_insight
         | targets_a_blocked_dashboard
         | exports_a_blocked_insight
         | renders_a_blocked_tile
         | references_a_blocked_context
+        | rendered_a_blocked_target
     )
 
 
@@ -1496,6 +1624,66 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
         .exclude(prompt="")
         .exists()
     )
+
+
+class SubscriptionSummariesQuerySerializer(serializers.Serializer):
+    insight = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Insight ID. Returns summaries from the subscriptions on this insight. Set either insight or dashboard.",
+    )
+    dashboard = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Dashboard ID. Returns summaries from the subscriptions on this dashboard. Set either dashboard or insight.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if ("insight" in attrs) == ("dashboard" in attrs):
+            raise ValidationError("Set exactly one of insight or dashboard.")
+        return attrs
+
+
+class SubscriptionSummarySerializer(serializers.ModelSerializer):
+    subscription_title = serializers.CharField(
+        source="subscription.title",
+        allow_null=True,
+        read_only=True,
+        help_text="Title of the subscription that generated this summary. Null when the subscription has no title.",
+    )
+    period_start = serializers.DateTimeField(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "Start of the period this summary covers: the time of the previous completed delivery of the same "
+            "subscription. Null for the first delivery, which has no earlier data to compare with."
+        ),
+    )
+
+    class Meta:
+        model = SubscriptionDelivery
+        fields = [
+            "id",
+            "subscription",
+            "subscription_title",
+            "target_type",
+            "change_summary",
+            "period_start",
+            "created_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "id": {"help_text": "ID of the delivery that included this summary."},
+            "subscription": {"help_text": "ID of the subscription that generated this summary."},
+            "target_type": {"help_text": "Channel the summary was sent to: email, slack, or teams."},
+            "change_summary": {"help_text": "AI-generated summary text included in the delivery."},
+            "created_at": {"help_text": "When the delivery started. This is also the end of the covered period."},
+        }
+
+
+class SubscriptionSummaryCursorPagination(CursorPagination):
+    page_size = 20
+    ordering = "-created_at"
 
 
 @extend_schema_view(
@@ -1578,7 +1766,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     scope_object = "subscription"
     queryset = Subscription.objects.all()
     serializer_class = SubscriptionSerializer
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [filters.SearchFilter, StableOrderingFilter]
     search_fields = [
         "title",
         "insight__name",
@@ -1782,9 +1970,85 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},
+        summary="List AI summaries for an insight or dashboard",
+        description=(
+            "Completed deliveries that include an AI summary, across every active subscription on one insight or "
+            "dashboard, newest first. Requires viewer access to the insight or dashboard."
+        ),
+        parameters=[SubscriptionSummariesQuerySerializer],
+        responses={200: SubscriptionSummarySerializer(many=True)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="summaries",
+        required_scopes=["subscription:read"],
+        pagination_class=SubscriptionSummaryCursorPagination,
+        filter_backends=[],
+    )
+    def summaries(self, request, **kwargs):
+        query = SubscriptionSummariesQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        if "insight" in query.validated_data:
+            live_insights = [
+                insight
+                for insight in insights_including_soft_deleted_for_team(
+                    team_id=self.team_id, insight_ids=[query.validated_data["insight"]]
+                )
+                if not insight.deleted
+            ]
+            if not live_insights:
+                raise exceptions.NotFound()
+            source: Insight | Dashboard = live_insights[0]
+            # A subscription can change its source, so also match the source in the delivery snapshot.
+            source_filter = Q(subscription__insight_id=source.pk, content_snapshot__insights__0__id=source.pk)
+        else:
+            source = get_object_or_404(
+                Dashboard.objects.filter(team_id=self.team_id), pk=query.validated_data["dashboard"]
+            )
+            source_filter = Q(subscription__dashboard_id=source.pk, content_snapshot__dashboard__id=source.pk)
+        if not self.user_access_control.check_access_level_for_object(source, "viewer"):
+            raise exceptions.PermissionDenied("You do not have access to this resource.")
+
+        previous_delivery_at = (
+            SubscriptionDelivery.objects.filter(
+                subscription_id=OuterRef("subscription_id"),
+                status=SubscriptionDelivery.Status.COMPLETED,
+                content_snapshot__isnull=False,
+                created_at__lt=OuterRef("created_at"),
+            )
+            .order_by("-created_at")
+            .values("created_at")[:1]
+        )
+        visible_ids = (
+            SubscriptionDelivery.objects.filter(
+                source_filter,
+                team_id=self.team_id,
+                subscription__deleted=False,
+                status=SubscriptionDelivery.Status.COMPLETED,
+                change_summary__isnull=False,
+            )
+            .exclude(change_summary="")
+            .filter(_viewable_delivery_filter(self.user_access_control, self.team_id))
+            .values("id")
+        )
+        # An id subquery instead of DISTINCT lets Postgres compute period_start only for the rows on the page.
+        deliveries = (
+            SubscriptionDelivery.objects.filter(team_id=self.team_id, id__in=visible_ids)
+            .select_related("subscription")
+            # content_snapshot holds full query results, so load only the fields the serializer returns.
+            .only("id", "subscription_id", "subscription__title", "target_type", "change_summary", "created_at")
+            .annotate(period_start=Subquery(previous_delivery_at))
+        )
+        page = self.paginate_queryset(deliveries)
+        return self.get_paginated_response(SubscriptionSummarySerializer(page, many=True).data)
+
+    @extend_schema(
+        extensions={"x-product": "subscriptions"},
         request=None,
         responses={202: OpenApiResponse(description="Test delivery workflow started")},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["POST"],
         detail=True,

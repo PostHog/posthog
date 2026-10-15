@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -7,6 +9,7 @@ import { ApiError, NETWORK_ERROR_MESSAGES, NetworkError } from 'lib/api-error'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import type { LLMTrace } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { summaryViewLogic } from './summaryViewLogic'
 
@@ -78,6 +81,24 @@ describe('summaryViewLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.generateSummary({ mode: 'minimal' })
         }).toFinishAllListeners()
+    }
+
+    /**
+     * Consent approved and a chosen access level on `llm_analytics`, which is what decides whether
+     * the panel looks for a cached summary when it mounts.
+     */
+    function initWithSummarizationAccess(level: AccessControlLevel): void {
+        initKeaTests(true, undefined, undefined, {
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: true,
+        })
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.LlmAnalytics]: level,
+            },
+        } as AppContext
     }
 
     beforeEach(() => {
@@ -200,6 +221,22 @@ describe('summaryViewLogic', () => {
         logic.unmount()
 
         expect(summarizationOptions().at(-1)?.signal?.aborted).toBe(true)
+    })
+
+    // Reading a trace needs the read level, and the cached-summary lookup is a POST, so it needs
+    // the write level. Without the guard the panel opens a readable trace with a denial banner.
+    test.each([
+        [AccessControlLevel.Editor, 1],
+        [AccessControlLevel.Viewer, 0],
+    ])('mounting with %s access sends %i cached-summary request(s)', async (level, expectedRequests) => {
+        initWithSummarizationAccess(level)
+
+        logic = summaryViewLogic({ trace, tree: [] })
+        logic.mount()
+        await flushMicrotasks()
+
+        expect(summarizationOptions()).toHaveLength(expectedRequests)
+        expect(logic.values.summaryError).toBeNull()
     })
 
     it('clears a stale summary when regeneration fails', async () => {

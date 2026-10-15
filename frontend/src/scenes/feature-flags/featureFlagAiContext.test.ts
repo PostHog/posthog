@@ -2,23 +2,30 @@ import {
     AccessControlLevel,
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
+    FeatureFlagFilters,
     FeatureFlagGroupType,
     FeatureFlagType,
+    FeatureFlagWithV1Config,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
 
 import { wrapWithPosthogContext } from 'products/posthog_ai/frontend/utils/posthogContextBlock'
 
-import { featureFlagContextItems } from './featureFlagAiContext'
+import {
+    FEATURE_FLAG_CLEANUP_SKILL,
+    featureFlagCleanupAssessmentContextItems,
+    featureFlagContextItems,
+    mutationTargetsFeatureFlag,
+} from './featureFlagAiContext'
 
 // The backend's own cap on a text attachment (MAX_TEXT_LENGTH in the posthog_ai backend). Asserting
 // the literal rather than importing the frontend constant is deliberate: raising the frontend cap
 // past what the backend accepts is exactly the regression these cases guard against.
 const MAX_BACKEND_TEXT_LENGTH = 4096
 
-describe('featureFlagContextItems', () => {
-    const baseFeatureFlag: FeatureFlagType = {
+describe('featureFlagAiContext', () => {
+    const baseFeatureFlag: FeatureFlagWithV1Config = {
         id: 1,
         key: 'test-flag',
         name: '',
@@ -55,7 +62,7 @@ describe('featureFlagContextItems', () => {
         variant: null,
     }
 
-    function withFilters(filters: Partial<FeatureFlagType['filters']>): FeatureFlagType {
+    function withFilters(filters: Partial<FeatureFlagFilters>): FeatureFlagType {
         return { ...baseFeatureFlag, filters: { ...baseFeatureFlag.filters, ...filters } }
     }
 
@@ -112,9 +119,27 @@ describe('featureFlagContextItems', () => {
         ],
     })
 
+    function rulesV2Flag(ruleCount: number): FeatureFlagType {
+        return {
+            ...baseFeatureFlag,
+            filters: {
+                version: 2,
+                return_type: 'boolean',
+                default_value: false,
+                rules: Array.from({ length: ruleCount }, (_, index) => ({
+                    id: `rule-${index}`,
+                    rule_type: 'targeted_release' as const,
+                    targeting: { properties: personCondition.properties ?? [] },
+                    value: true,
+                })),
+            },
+        }
+    }
+
     const oversized: [string, FeatureFlagType][] = [
         ['a condition holding hundreds of pasted values', flagWithPastedValues],
         ['a very long description', { ...withFilters({ groups: [personCondition] }), name: 'x'.repeat(20000) }],
+        ['a rules v2 document with hundreds of rules', rulesV2Flag(300)],
     ]
 
     test.each(oversized)('keeps the attachment under the backend limit with %s', (_name, featureFlag) => {
@@ -131,5 +156,84 @@ describe('featureFlagContextItems', () => {
         // Without the count the agent can't tell a flag with no targeting from one whose targeting
         // was too large to send.
         expect(JSON.parse(value).release_condition_count).toBe(1)
+    })
+
+    it('attaches a rules v2 document whole, and only its config version once it is too large', () => {
+        const small = rulesV2Flag(1)
+
+        expect(JSON.parse(targetingValue(small)).config).toEqual(small.filters)
+        expect(JSON.parse(targetingValue(rulesV2Flag(300)))).toEqual({
+            key: 'test-flag',
+            active: true,
+            config_version: 2,
+        })
+    })
+
+    describe('featureFlagCleanupAssessmentContextItems', () => {
+        it('includes the cleanup skill for the agent', () => {
+            const items = featureFlagCleanupAssessmentContextItems(baseFeatureFlag, 123)
+
+            expect(items).toContainEqual(expect.objectContaining({ type: 'skill', key: FEATURE_FLAG_CLEANUP_SKILL }))
+        })
+
+        it('tells the agent this request is assessment only and not a green light to change the flag', () => {
+            const instructions = featureFlagCleanupAssessmentContextItems(baseFeatureFlag, 123).find(
+                (item) => item.type === 'instructions'
+            )
+
+            expect(instructions?.value).toContain(FEATURE_FLAG_CLEANUP_SKILL)
+            expect(instructions?.value).toMatch(/assessment only/i)
+            expect(instructions?.value).toMatch(/re-fetch its current definition/i)
+            expect(instructions?.value).toMatch(/do not.*change this flag/i)
+        })
+
+        it('never puts the flag key or description inside the trusted instruction text', () => {
+            // The flag's own key/name are project-authored strings a customer chose, so they must stay
+            // in the untrusted `feature_flag_cleanup_target` item, never interpolated into the trusted
+            // block the agent is told to follow unconditionally.
+            const flag = { ...baseFeatureFlag, key: 'a-distinctive-flag-key', name: 'a distinctive description' }
+            const instructions = featureFlagCleanupAssessmentContextItems(flag, 123).find(
+                (item) => item.type === 'instructions'
+            )
+
+            expect(instructions?.value).not.toContain('a-distinctive-flag-key')
+            expect(instructions?.value).not.toContain('a distinctive description')
+        })
+
+        it('carries the saved project, id, and key as untrusted data the agent can act on', () => {
+            const block = wrapWithPosthogContext(
+                'assess this flag',
+                featureFlagCleanupAssessmentContextItems(baseFeatureFlag, 123)
+            )
+            const target = featureFlagCleanupAssessmentContextItems(baseFeatureFlag, 123).find(
+                (item) => item.type === 'feature_flag_cleanup_target'
+            )
+
+            expect(JSON.parse(target?.value ?? '')).toEqual({
+                project_id: 123,
+                id: baseFeatureFlag.id,
+                key: baseFeatureFlag.key,
+            })
+            // The trusted block may name the item ("the feature_flag_cleanup_target item") without
+            // leaking its data - the flag's own key is the thing that must stay out of it.
+            const trustedBlock = block.match(/<posthog_trusted_context>[\s\S]*?<\/posthog_trusted_context>/)?.[0] ?? ''
+            expect(trustedBlock).not.toContain(baseFeatureFlag.key)
+            expect(block).toContain(baseFeatureFlag.key)
+        })
+    })
+
+    test.each([
+        ['the same id as a number', { id: 1 }, true],
+        ['the same id as a string', { id: '1' }, true],
+        // Every mutation tool declares these spellings as aliases for `id`, and the server resolves
+        // them after this matcher has already seen the raw arguments the model wrote.
+        ['the flagId alias', { flagId: 1 }, true],
+        ['the feature_flag_id alias', { feature_flag_id: '1' }, true],
+        ['an alias naming another flag', { flagId: 2 }, false],
+        ['another flag', { id: 2 }, false],
+        ['no id', { key: 'test-flag' }, false],
+        ['unparseable args', null, false],
+    ])('matches a mutation against the open flag with %s', (_name, innerInput, expected) => {
+        expect(mutationTargetsFeatureFlag(innerInput, 1)).toBe(expected)
     })
 })

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -32,6 +31,22 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MollieSource(ResumableSource[MollieSourceConfig, MollieResumeConfig]):
+    codebase_detection = detect(
+        env=("^MOLLIE_",),
+        script_hosts=("js.mollie.com",),
+        npm=("@mollie/api-client",),
+        pypi=("mollie-api-python",),
+        composer=(
+            "mollie/mollie-api-php",
+            "mollie/laravel-mollie",
+            "mollie/laravel-cashier-mollie",
+            "mollie/mollie-oxid",
+            "mollie/mollie-oxid7",
+            "mollie/oauth2-mollie-php",
+        ),
+        rubygems=("mollie-api-ruby", "mollie", "spree_mollie_gateway"),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://docs.mollie.com"
@@ -56,15 +71,17 @@ class MollieSource(ResumableSource[MollieSourceConfig, MollieResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MOLLIE,
+            name=ExternalDataSourceType.MOLLIE,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Mollie",
             caption="""Enter your Mollie API key to pull your Mollie payments data into the PostHog Data warehouse.
 
-You can find your API key in the [Mollie dashboard](https://my.mollie.com/dashboard/developers/api-keys) under Developers > API keys. Use a live key (`live_...`) for production data — test keys only return test-mode data.""",
+You can find your API key in the [Mollie dashboard](https://my.mollie.com/dashboard/developers/api-keys) under Developers > API keys. Use a live key (`live_...`) for production data — test keys only return test-mode data.
+
+The balances, balance transactions, settlements, settlement payments, invoices and profiles tables are organization-level data that Mollie only shares with an [organization access token](https://docs.mollie.com/docs/authentication). To sync them, connect an access token (`access_...`) that is scoped to your payment profile and has read permissions for those resources.""",
             iconPath="/static/services/mollie.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mollie",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

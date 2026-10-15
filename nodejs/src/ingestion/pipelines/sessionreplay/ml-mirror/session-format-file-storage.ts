@@ -5,22 +5,26 @@ import {
     WriteSessionResult,
 } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-file-storage'
 
-import { sessionStartMonth, usesRawSessionIdentifiers } from './session-identifier-format'
+import { sessionStartMonth, usesRawSessionIdentifiers, usesV3Dataset } from './session-identifier-format'
 
 class SessionFormatFileWriter implements SessionBatchFileWriter {
     private readonly writers = new Map<string, SessionBatchFileWriter>()
 
     constructor(
         private readonly legacyStorage: SessionBatchFileStorage,
-        private readonly rawStorage: (month?: string) => SessionBatchFileStorage
+        private readonly rawStorage: (month?: string) => SessionBatchFileStorage,
+        private readonly v3Storage: (month?: string) => SessionBatchFileStorage
     ) {}
 
     public writeSession(data: WriteSessionData): Promise<WriteSessionResult> {
-        const rawIdentifiers = usesRawSessionIdentifiers(data.sessionId)
-        const partition = rawIdentifiers ? sessionStartMonth(data.sessionId) : 'legacy'
+        const v3 = usesV3Dataset(data.sessionId)
+        const rawIdentifiers = v3 || usesRawSessionIdentifiers(data.sessionId)
+        const month = rawIdentifiers ? sessionStartMonth(data.sessionId) : undefined
+        const partition = v3 ? `v3/${month}` : (month ?? 'legacy')
         let writer = this.writers.get(partition)
         if (!writer) {
-            writer = (rawIdentifiers ? this.rawStorage(partition) : this.legacyStorage).newBatch()
+            const storage = v3 ? this.v3Storage(month) : rawIdentifiers ? this.rawStorage(month) : this.legacyStorage
+            writer = storage.newBatch()
             this.writers.set(partition, writer)
         }
         return writer.writeSession(data)
@@ -39,15 +43,20 @@ class SessionFormatFileWriter implements SessionBatchFileWriter {
 export class SessionFormatFileStorage implements SessionBatchFileStorage {
     constructor(
         private readonly legacyStorage: SessionBatchFileStorage,
-        private readonly rawStorage: (month?: string) => SessionBatchFileStorage
+        private readonly rawStorage: (month?: string) => SessionBatchFileStorage,
+        private readonly v3Storage: (month?: string) => SessionBatchFileStorage
     ) {}
 
     public newBatch(): SessionBatchFileWriter {
-        return new SessionFormatFileWriter(this.legacyStorage, this.rawStorage)
+        return new SessionFormatFileWriter(this.legacyStorage, this.rawStorage, this.v3Storage)
     }
 
     public async checkHealth(): Promise<boolean> {
-        const health = await Promise.all([this.legacyStorage.checkHealth(), this.rawStorage().checkHealth()])
+        const health = await Promise.all([
+            this.legacyStorage.checkHealth(),
+            this.rawStorage().checkHealth(),
+            this.v3Storage().checkHealth(),
+        ])
         return health.every(Boolean)
     }
 }

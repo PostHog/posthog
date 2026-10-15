@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -33,6 +32,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShippoSource(ResumableSource[ShippoSourceConfig, ShippoResumeConfig]):
+    codebase_detection = detect(
+        env=("^SHIPPO_",),
+        npm=("shippo",),
+        pypi=("shippo",),
+        composer=("shippo/shippo-php",),
+        maven=("com.goshippo:shippo-sdk", "com.goshippo:shippo-java-client"),
+        rubygems=("shippo",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.goshippo.com/api-reference"
 
@@ -43,7 +51,7 @@ class ShippoSource(ResumableSource[ShippoSourceConfig, ShippoResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SHIPPO,
+            name=ExternalDataSourceType.SHIPPO,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Shippo",
             keywords=["shipping", "shipping labels", "logistics", "goshippo"],

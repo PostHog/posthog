@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.bigeye import (
     WORKSPACE_ID_REQUIRED_MESSAGE,
     BigeyeResumeConfig,
@@ -36,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BigeyeSource(ResumableSource[BigeyeSourceConfig, BigeyeResumeConfig]):
+    codebase_detection = detect(env=("^BIGEYE_",), pypi=("bigeye-sdk", "bigeye-cli"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # Bigeye's REST API has no dated or numbered version token (see docs.bigeye.com/reference) —
@@ -109,7 +110,7 @@ class BigeyeSource(ResumableSource[BigeyeSourceConfig, BigeyeResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BIGEYE,
+            name=ExternalDataSourceType.BIGEYE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Bigeye",
             releaseStatus=ReleaseStatus.ALPHA,

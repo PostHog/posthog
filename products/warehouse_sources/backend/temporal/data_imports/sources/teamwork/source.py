@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -42,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TeamworkSource(ResumableSource[TeamworkSourceConfig, TeamworkResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://apidocs.teamwork.com"
@@ -53,7 +54,7 @@ class TeamworkSource(ResumableSource[TeamworkSourceConfig, TeamworkResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TEAMWORK,
+            name=ExternalDataSourceType.TEAMWORK,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Teamwork",
             releaseStatus=ReleaseStatus.ALPHA,

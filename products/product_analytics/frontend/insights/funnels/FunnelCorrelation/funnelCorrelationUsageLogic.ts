@@ -129,6 +129,7 @@ export interface funnelCorrelationUsageLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | null
+            | import('~/queries/schema').TraceSpansTreeQueryResponse
             | undefined,
         payload?:
             | {
@@ -160,6 +161,7 @@ export interface funnelCorrelationUsageLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | null
+            | import('~/queries/schema').TraceSpansTreeQueryResponse
             | undefined
     } // insightVizDataLogic
 }

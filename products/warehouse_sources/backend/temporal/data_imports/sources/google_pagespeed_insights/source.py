@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -33,6 +32,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GooglePageSpeedInsightsSource(SimpleSource[GooglePageSpeedInsightsSourceConfig]):
+    codebase_detection = detect(
+        env=("^(GOOGLE_PAGE_SPEED_INSIGHTS|GOOGLEPAGESPEEDINSIGHTS)_",),
+        npm=("@googleapis/pagespeedonline",),
+        maven=("com.google.apis:google-api-services-pagespeedonline",),
+        rubygems=("google-apis-pagespeedonline_v5",),
+    )
+
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to render
     # in public docs without credentials.
     lists_tables_without_credentials = True
@@ -47,7 +53,7 @@ class GooglePageSpeedInsightsSource(SimpleSource[GooglePageSpeedInsightsSourceCo
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GOOGLE_PAGE_SPEED_INSIGHTS,
+            name=ExternalDataSourceType.GOOGLEPAGESPEEDINSIGHTS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Google PageSpeed Insights",
             releaseStatus=ReleaseStatus.ALPHA,

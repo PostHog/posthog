@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WatchmodeSource(ResumableSource[WatchmodeSourceConfig, WatchmodeResumeConfig]):
+    codebase_detection = detect(env=("^WATCHMODE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://api.watchmode.com/docs/"
 
@@ -97,7 +98,7 @@ class WatchmodeSource(ResumableSource[WatchmodeSourceConfig, WatchmodeResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.WATCHMODE,
+            name=ExternalDataSourceType.WATCHMODE,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Watchmode",
             caption="Sync Watchmode's streaming catalog: titles, releases, streaming sources, regions, networks and genres.\n\nYou can find your API key in your [Watchmode dashboard](https://api.watchmode.com/). Syncs count against your Watchmode monthly request quota.",

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import is_dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import IntegrityError, models
-from django.db.models import Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -109,7 +109,7 @@ def recent_view_logs(
     user_id: int,
     surface: str = DEFAULT_SURFACE,
     type: Optional[str] = None,
-    exclude_types: Optional[Sequence[str]] = None,
+    exclude_types: Optional[Collection[str]] = None,
     limit: Optional[int] = None,
     descending: bool = True,
 ) -> QuerySet[FileSystemViewLog]:
@@ -152,16 +152,19 @@ def get_recent_file_system_items(
     before the ``(type, ref)`` keys are matched. ``descending`` is threaded down to the view-log
     query so the ``limit`` slice picks the globally oldest/newest views, not a re-sorted page.
     """
-    log_rows = list(
-        recent_view_logs(
-            team_id=team_id,
-            user_id=user_id,
-            surface=surface,
-            exclude_types=exclude_types,
-            limit=limit,
-            descending=descending,
-        ).values_list("type", "ref", "viewed_at")
-    )
+    entries = FileSystem.objects.filter(
+        surface_q(surface), team_id=team_id, type=OuterRef("type"), ref=OuterRef("ref")
+    ).exclude(shortcut=True)
+    log_queryset = recent_view_logs(
+        team_id=team_id,
+        user_id=user_id,
+        surface=surface,
+        exclude_types=exclude_types,
+        descending=descending,
+    ).filter(Exists(entries))
+    if limit is not None:
+        log_queryset = log_queryset[:limit]
+    log_rows = list(log_queryset.values_list("type", "ref", "viewed_at"))
     if not log_rows:
         return []
 

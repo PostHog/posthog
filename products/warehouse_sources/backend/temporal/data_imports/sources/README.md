@@ -15,19 +15,21 @@ has one. Optionally set `keywords` (a list of lowercase search aliases, e.g. `["
 alternate spellings users might search.
 
 ```python
-from posthog.schema import DataWarehouseSourceCategory
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 return SourceConfig(
-    name=SchemaExternalDataSourceType.STRIPE,
+    name=ExternalDataSourceType.STRIPE,
     category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
     keywords=["billing", "subscriptions"],
     ...
 )
 ```
 
-The category list lives in `frontend/src/queries/schema/schema-general.ts` (`dataWarehouseSourceCategories`);
-`pnpm run schema:build` regenerates the Python enum. See the `implementing-warehouse-sources` skill for the
-full list of buckets and guidance on picking one.
+The category list is backend-owned: `DataWarehouseSourceCategory` in
+`products/warehouse_sources/backend/facade/source_config.py` is the source of truth, and `hogli build:openapi`
+regenerates the frontend type from it. See the `implementing-warehouse-sources` skill for the full list of
+buckets and guidance on picking one.
 
 ## Source fields
 
@@ -35,7 +37,7 @@ The fields shown on the frontend are all backend driven. We have a collection of
 
 The frontend logic for rendering the below fields can be found in `frontend/src/scenes/data-warehouse/external/forms/SourceForm.tsx`.
 
-All of the below are defined in `posthog/schema.py` with a union of them defined as `FieldType` in `products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py`. Check out the other sources for examples of how we implement these.
+All of the below are defined in `products/warehouse_sources/backend/facade/source_config.py` with a union of them defined as `FieldType` in `products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py`. Check out the other sources for examples of how we implement these.
 
 #### `SourceFieldInputConfig`
 
@@ -115,6 +117,8 @@ For database sources, we recommend setting `partition_count` and `partition_size
 - `partition_count` refers to how many partitions there should exist for the `md5` mode
 - `partition_size` refers to how many rows should be bucketed together in a single partition for the `numerical` mode
 
+When a source sets no `partition_mode`, a new append-only table with a date or timestamp cursor uses `datetime` on that cursor. An append-only sync never merges rows, so a hash of the primary key helps nothing, and date partitions let a query that filters on the cursor skip the rest. A table that already has a layout keeps it.
+
 ## OAuth Configuration
 
 If your source uses OAuth (SourceFieldOauthConfig):
@@ -190,7 +194,7 @@ If your source uses OAuth (SourceFieldOauthConfig):
 
 - "Kind not configured" → Check environment variables are set
 - Source not listed → Verify step 8 (source registration)
-- Frontend errors → Run `pnpm schema:build`
+- Frontend errors → Run `hogli build:openapi`
 
 ## Mixins
 
@@ -208,7 +212,7 @@ Provides a simple `get_oauth_integration()` method to pull the `Integration` obj
 
 #### `ValidateDatabaseHostMixin`
 
-Provides `is_database_host_valid()` to validate that the source isn't trying to access local IP addresses in our internal VPC on AWS (unless if the user is using a SSH tunnel). This runs when a source is created or updated; the connection-time check lives in `with_ssh_tunnel()` above.
+Provides `is_database_host_valid()` to validate that the source isn't trying to access local IP addresses in our internal VPC on AWS (unless if the user is using a SSH tunnel). This runs when a source is created or updated; the connection-time check lives in `with_ssh_tunnel()` above. A source that dials the host itself, without the tunnel mixin, calls `pinned_connect_host()` on its connect path instead. A raw socket has no egress proxy in front of it, so a stored host is otherwise never re-checked. `TemporalIOSource` is the example.
 
 ## Non-Retryable Errors
 

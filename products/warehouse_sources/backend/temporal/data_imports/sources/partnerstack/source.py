@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -34,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PartnerStackSource(ResumableSource[PartnerStackSourceConfig, PartnerStackResumeConfig]):
+    codebase_detection = detect(env=("^(PARTNER_STACK|PARTNERSTACK)_",), script_hosts=("snippet.growsumo.com",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://docs.partnerstack.com"
@@ -47,7 +48,7 @@ class PartnerStackSource(ResumableSource[PartnerStackSourceConfig, PartnerStackR
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PARTNER_STACK,
+            name=ExternalDataSourceType.PARTNERSTACK,
             category=DataWarehouseSourceCategory.SALES,
             label="PartnerStack",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -16,6 +16,7 @@ import {
     mockReviewers,
     mockSignals,
     mockSourceConfigs,
+    mockSourceMetadata,
     mockTask,
     mockTeamConfig,
     pullRequestReports,
@@ -41,6 +42,14 @@ function routeTo(pathname: string, searchParams: Record<string, string> = {}): D
 
 const sceneMocks = mswDecorator({
     get: {
+        '/api/projects/:id/integrations/github/available_installations/': {
+            discovery_id: '11111111-1111-4111-8111-111111111111',
+            discovered_at: '2026-06-11T00:00:00Z',
+            installations: [],
+            personal_github_connected: false,
+            personal_github_login: null,
+            personal_discovery_status: 'not_connected',
+        },
         '/api/projects/:id/signals/reports': () => [
             200,
             { results: allReports, count: allReports.length, next: null, previous: null },
@@ -68,6 +77,9 @@ const sceneMocks = mswDecorator({
         '/api/projects/:id/signals/scout/runs/recent-per-scout': () => [200, []],
         '/api/projects/:id/external_data_sources': () => [200, { results: [], count: 0 }],
         '/api/projects/:id/external_data_sources/': () => [200, { results: [], count: 0 }],
+    },
+    post: {
+        '/api/projects/:id/signals/reports/source_metadata/': mockSourceMetadata(allReports),
     },
 })
 
@@ -147,7 +159,12 @@ const LEGACY_FLAGS = {
 export const Legacy: Story = {
     parameters: {
         featureFlags: LEGACY_FLAGS,
-        testOptions: { waitForLoadersToDisappear: true },
+        testOptions: {
+            waitForLoadersToDisappear: true,
+            // The setup rail loads its own team config and integrations, sometimes after the loader wait.
+            // This button renders only after both loads finish.
+            waitForSelector: '[data-attr="signals-issue-tracker-connect"]',
+        },
     },
     decorators: [routeTo(urls.inbox('pulls'))],
 }

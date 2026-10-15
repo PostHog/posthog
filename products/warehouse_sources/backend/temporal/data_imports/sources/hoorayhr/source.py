@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -32,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HoorayHRSource(SimpleSource[HoorayHRSourceConfig]):
+    codebase_detection = detect(env=("^(HOORAY_HR|HOORAYHR)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://api.hoorayhr.io/documentation"
 
@@ -42,7 +43,7 @@ class HoorayHRSource(SimpleSource[HoorayHRSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HOORAY_HR,
+            name=ExternalDataSourceType.HOORAYHR,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="HoorayHR",
             releaseStatus=ReleaseStatus.ALPHA,

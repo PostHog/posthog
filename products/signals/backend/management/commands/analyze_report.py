@@ -244,9 +244,6 @@ class Command(BaseCommand):
                 previous_report_research=previous_report_research,
                 verbose=verbose,
                 output_fn=self._flushing_write,
-                # Local debug tool: always exercise both visual-authoring paths, mirroring the
-                # DEBUG-on defaults of their production rollout gates.
-                charts_enabled=True,
                 metrics_enabled=True,
             )
         )

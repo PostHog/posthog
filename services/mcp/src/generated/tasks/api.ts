@@ -3,736 +3,10 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 24 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
-
-/**
- * List loops visible to the caller: personal loops they own, plus every team loop. The response also carries `max_loops_per_team` and `total_loop_count` so a client can show remaining capacity and disable creation at the cap without hardcoding the limit.
- * @summary List loops
- */
-export const LoopsListParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const LoopsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
-/**
- * API for managing loops — named, cloud-executed agent automations triggered by
- * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
- * @summary Create a loop
- */
-export const LoopsCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const loopsCreateBodyNameMax = 400
-
-export const loopsCreateBodyDescriptionDefault = ``
-export const loopsCreateBodyTakeOwnershipDefault = false
-export const loopsCreateBodyVisibilityDefault = `personal`
-export const loopsCreateBodyModelDefault = ``
-export const loopsCreateBodyRepositoriesItemFullNameMax = 255
-
-export const loopsCreateBodyRepositoriesMax = 1
-
-export const loopsCreateBodyEnabledDefault = true
-export const loopsCreateBodyOverlapPolicyDefault = `skip`
-export const loopsCreateBodyBehaviorsOneCreatePrsDefault = false
-export const loopsCreateBodyBehaviorsOneWatchCiDefault = false
-export const loopsCreateBodyBehaviorsOneFixReviewCommentsDefault = false
-export const loopsCreateBodyBehaviorsOneMaxFixIterationsDefault = 3
-export const loopsCreateBodyBehaviorsOneMaxFixIterationsMin = 0
-export const loopsCreateBodyBehaviorsOneMaxFixIterationsMax = 10
-
-export const loopsCreateBodyConnectorsOnePosthogMcpScopesDefault = `read_only`
-export const loopsCreateBodyNotificationsOnePushOneEnabledDefault = false
-export const loopsCreateBodyNotificationsOneEmailOneEnabledDefault = false
-export const loopsCreateBodyNotificationsOneSlackOneEnabledDefault = false
-export const loopsCreateBodyContextTargetOneNameMax = 128
-
-export const loopsCreateBodyContextTargetOneOutputsOnePostToFeedDefault = false
-export const loopsCreateBodyContextTargetOneOutputsOneUpdateContextDefault = false
-export const loopsCreateBodyTriggersItemEnabledDefault = true
-
-export const LoopsCreateBody = () => zod
-    .object({
-        name: zod.string().max(loopsCreateBodyNameMax).describe('Display name for the loop.'),
-        description: zod
-            .string()
-            .default(loopsCreateBodyDescriptionDefault)
-            .describe('Free-form description of what this loop does.'),
-        take_ownership: zod
-            .boolean()
-            .default(loopsCreateBodyTakeOwnershipDefault)
-            .describe(
-                'On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create.'
-            ),
-        visibility: zod
-            .enum(['personal', 'team'])
-            .describe('\* `personal` - personal\n\* `team` - team')
-            .default(loopsCreateBodyVisibilityDefault)
-            .describe(
-                '`personal` (owner-only) or `team` (visible and fireable by any team member).\n\n\* `personal` - personal\n\* `team` - team'
-            ),
-        instructions: zod.string().describe('The prompt delivered to the agent on every run.'),
-        runtime_adapter: zod
-            .enum(['claude', 'codex'])
-            .describe('\* `claude` - claude\n\* `codex` - codex')
-            .describe("Runtime adapter: 'claude' or 'codex'.\n\n\* `claude` - claude\n\* `codex` - codex"),
-        model: zod
-            .string()
-            .default(loopsCreateBodyModelDefault)
-            .describe(
-                "LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time."
-            ),
-        reasoning_effort: zod
-            .union([
-                zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
-                    .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "Reasoning effort, validated against `runtime_adapter`\/`model`'s supported set.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode"
-            ),
-        repositories: zod
-            .array(
-                zod.object({
-                    github_integration_id: zod
-                        .number()
-                        .describe('GitHub integration id this repository is accessed through.'),
-                    full_name: zod
-                        .string()
-                        .max(loopsCreateBodyRepositoriesItemFullNameMax)
-                        .describe('Repository in `organization\/repo` format, e.g. `posthog\/posthog`.'),
-                })
-            )
-            .max(loopsCreateBodyRepositoriesMax)
-            .optional()
-            .describe(
-                'Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.'
-            ),
-        sandbox_environment: zod
-            .string()
-            .nullish()
-            .describe('Sandbox environment carrying encrypted env vars and the network allowlist into every run.'),
-        enabled: zod
-            .boolean()
-            .default(loopsCreateBodyEnabledDefault)
-            .describe("Whether the loop's triggers are active. Pausing disables all triggers."),
-        overlap_policy: zod
-            .enum(['skip', 'allow', 'cancel_previous'])
-            .describe('\* `skip` - skip\n\* `allow` - allow\n\* `cancel_previous` - cancel_previous')
-            .default(loopsCreateBodyOverlapPolicyDefault)
-            .describe(
-                "What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.\n\n\* `skip` - skip\n\* `allow` - allow\n\* `cancel_previous` - cancel_previous"
-            ),
-        behaviors: zod
-            .object({
-                create_prs: zod
-                    .boolean()
-                    .default(loopsCreateBodyBehaviorsOneCreatePrsDefault)
-                    .describe('Whether the agent may push branches and open PRs. False makes this a report-only loop.'),
-                watch_ci: zod
-                    .boolean()
-                    .default(loopsCreateBodyBehaviorsOneWatchCiDefault)
-                    .describe('Whether to watch CI on loop-created PRs and report status.'),
-                fix_review_comments: zod
-                    .boolean()
-                    .default(loopsCreateBodyBehaviorsOneFixReviewCommentsDefault)
-                    .describe('Whether to automatically address review comments on loop-created PRs.'),
-                max_fix_iterations: zod
-                    .number()
-                    .min(loopsCreateBodyBehaviorsOneMaxFixIterationsMin)
-                    .max(loopsCreateBodyBehaviorsOneMaxFixIterationsMax)
-                    .default(loopsCreateBodyBehaviorsOneMaxFixIterationsDefault)
-                    .describe('Ceiling on automatic CI\/review-comment fix iterations, capped at 10.'),
-            })
-            .optional()
-            .describe('PR \/ CI-follow-up behavior configuration.'),
-        connectors: zod
-            .object({
-                mcp_installation_ids: zod
-                    .array(zod.string())
-                    .optional()
-                    .describe("MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs."),
-                posthog_mcp_scopes: zod
-                    .enum(['read_only', 'full'])
-                    .describe('\* `read_only` - read_only\n\* `full` - full')
-                    .default(loopsCreateBodyConnectorsOnePosthogMcpScopesDefault)
-                    .describe(
-                        "Scope of the PostHog MCP access injected into this loop's runs.\n\n\* `read_only` - read_only\n\* `full` - full"
-                    ),
-            })
-            .optional()
-            .describe("MCP connector configuration for this loop's runs."),
-        notifications: zod
-            .object({
-                push: zod
-                    .object({
-                        enabled: zod
-                            .boolean()
-                            .default(loopsCreateBodyNotificationsOnePushOneEnabledDefault)
-                            .describe('Whether this channel is active.'),
-                        events: zod
-                            .array(
-                                zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
-                                    .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
-                                    )
-                            )
-                            .optional()
-                            .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
-                            ),
-                        params: zod
-                            .record(zod.string(), zod.unknown())
-                            .optional()
-                            .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
-                    })
-                    .optional()
-                    .describe('Push notification settings.'),
-                email: zod
-                    .object({
-                        enabled: zod
-                            .boolean()
-                            .default(loopsCreateBodyNotificationsOneEmailOneEnabledDefault)
-                            .describe('Whether this channel is active.'),
-                        events: zod
-                            .array(
-                                zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
-                                    .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
-                                    )
-                            )
-                            .optional()
-                            .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
-                            ),
-                        params: zod
-                            .record(zod.string(), zod.unknown())
-                            .optional()
-                            .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
-                    })
-                    .optional()
-                    .describe('Email notification settings.'),
-                slack: zod
-                    .object({
-                        enabled: zod
-                            .boolean()
-                            .default(loopsCreateBodyNotificationsOneSlackOneEnabledDefault)
-                            .describe('Whether this channel is active.'),
-                        events: zod
-                            .array(
-                                zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
-                                    .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
-                                    )
-                            )
-                            .optional()
-                            .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
-                            ),
-                        params: zod
-                            .record(zod.string(), zod.unknown())
-                            .optional()
-                            .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
-                    })
-                    .optional()
-                    .describe('Slack notification settings.'),
-            })
-            .optional()
-            .describe('Per-channel notification configuration.'),
-        context_target: zod
-            .union([
-                zod.object({
-                    channel_id: zod.string().describe('Id of the channel (context) this loop is attached to.'),
-                    name: zod
-                        .string()
-                        .max(loopsCreateBodyContextTargetOneNameMax)
-                        .describe("Display name of the context, shown in the loop's publish prompt."),
-                    outputs: zod
-                        .object({
-                            post_to_feed: zod
-                                .boolean()
-                                .default(loopsCreateBodyContextTargetOneOutputsOnePostToFeedDefault)
-                                .describe(
-                                    "Whether each run is filed into the context's feed as a card (sets the run's channel)."
-                                ),
-                            update_context: zod
-                                .boolean()
-                                .default(loopsCreateBodyContextTargetOneOutputsOneUpdateContextDefault)
-                                .describe(
-                                    "Whether each run reads and republishes the context's context.md to reflect the latest state."
-                                ),
-                            canvas_id: zod
-                                .string()
-                                .nullish()
-                                .describe(
-                                    'Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.'
-                                ),
-                        })
-                        .optional()
-                        .describe('What the loop maintains in this context each run.'),
-                }),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md \/ canvas it keeps up to date.'
-            ),
-        triggers: zod
-            .array(
-                zod.object({
-                    id: zod
-                        .string()
-                        .optional()
-                        .describe('Existing trigger id to update in place. Omit to create a new trigger.'),
-                    type: zod
-                        .enum(['schedule', 'github', 'api'])
-                        .describe('\* `schedule` - schedule\n\* `github` - github\n\* `api` - api')
-                        .describe(
-                            'Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), or `api` (POST to `trigger\/`).\n\n\* `schedule` - schedule\n\* `github` - github\n\* `api` - api'
-                        ),
-                    enabled: zod
-                        .boolean()
-                        .default(loopsCreateBodyTriggersItemEnabledDefault)
-                        .describe('Whether this trigger is active. Disabling pauses only this trigger.'),
-                    config: zod
-                        .unknown()
-                        .optional()
-                        .describe(
-                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. API triggers take no config.'
-                        ),
-                })
-            )
-            .optional()
-            .describe(
-                'Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop.'
-            ),
-    })
-    .describe(
-        'Request body for creating or updating a loop. Field required\/default semantics match\nthe `Loop` model; partial updates only touch keys present in the payload.'
-    )
-
-/**
- * API for managing loops — named, cloud-executed agent automations triggered by
- * schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.
- * @summary Get a loop
- */
-export const LoopsRetrieveParams = () => zod.object({
-    id: zod.string(),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-/**
- * Partial update. Identity-bearing fields (instructions, repositories, connectors, behaviors, model config, triggers) are owner-only on team loops; name, description, notifications and enable/pause are editable by any team member.
- * @summary Update a loop
- */
-export const LoopsPartialUpdateParams = () => zod.object({
-    id: zod.string(),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const loopsPartialUpdateBodyNameMax = 400
-
-export const loopsPartialUpdateBodyRepositoriesItemFullNameMax = 255
-
-export const loopsPartialUpdateBodyRepositoriesMax = 1
-
-export const loopsPartialUpdateBodyBehaviorsOneCreatePrsDefault = false
-export const loopsPartialUpdateBodyBehaviorsOneWatchCiDefault = false
-export const loopsPartialUpdateBodyBehaviorsOneFixReviewCommentsDefault = false
-export const loopsPartialUpdateBodyBehaviorsOneMaxFixIterationsDefault = 3
-export const loopsPartialUpdateBodyBehaviorsOneMaxFixIterationsMin = 0
-export const loopsPartialUpdateBodyBehaviorsOneMaxFixIterationsMax = 10
-
-export const loopsPartialUpdateBodyConnectorsOnePosthogMcpScopesDefault = `read_only`
-export const loopsPartialUpdateBodyNotificationsOnePushOneEnabledDefault = false
-export const loopsPartialUpdateBodyNotificationsOneEmailOneEnabledDefault = false
-export const loopsPartialUpdateBodyNotificationsOneSlackOneEnabledDefault = false
-export const loopsPartialUpdateBodyContextTargetOneNameMax = 128
-
-export const loopsPartialUpdateBodyContextTargetOneOutputsOnePostToFeedDefault = false
-export const loopsPartialUpdateBodyContextTargetOneOutputsOneUpdateContextDefault = false
-export const loopsPartialUpdateBodyTriggersItemEnabledDefault = true
-
-export const LoopsPartialUpdateBody = () => zod
-    .object({
-        name: zod.string().max(loopsPartialUpdateBodyNameMax).optional().describe('Display name for the loop.'),
-        description: zod.string().optional().describe('Free-form description of what this loop does.'),
-        take_ownership: zod
-            .boolean()
-            .optional()
-            .describe(
-                'On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create.'
-            ),
-        visibility: zod
-            .enum(['personal', 'team'])
-            .describe('\* `personal` - personal\n\* `team` - team')
-            .optional()
-            .describe(
-                '`personal` (owner-only) or `team` (visible and fireable by any team member).\n\n\* `personal` - personal\n\* `team` - team'
-            ),
-        instructions: zod.string().optional().describe('The prompt delivered to the agent on every run.'),
-        runtime_adapter: zod
-            .enum(['claude', 'codex'])
-            .describe('\* `claude` - claude\n\* `codex` - codex')
-            .optional()
-            .describe("Runtime adapter: 'claude' or 'codex'.\n\n\* `claude` - claude\n\* `codex` - codex"),
-        model: zod
-            .string()
-            .optional()
-            .describe(
-                "LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time."
-            ),
-        reasoning_effort: zod
-            .union([
-                zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
-                    .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "Reasoning effort, validated against `runtime_adapter`\/`model`'s supported set.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode"
-            ),
-        repositories: zod
-            .array(
-                zod.object({
-                    github_integration_id: zod
-                        .number()
-                        .describe('GitHub integration id this repository is accessed through.'),
-                    full_name: zod
-                        .string()
-                        .max(loopsPartialUpdateBodyRepositoriesItemFullNameMax)
-                        .describe('Repository in `organization\/repo` format, e.g. `posthog\/posthog`.'),
-                })
-            )
-            .max(loopsPartialUpdateBodyRepositoriesMax)
-            .optional()
-            .describe(
-                'Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.'
-            ),
-        sandbox_environment: zod
-            .string()
-            .nullish()
-            .describe('Sandbox environment carrying encrypted env vars and the network allowlist into every run.'),
-        enabled: zod
-            .boolean()
-            .optional()
-            .describe("Whether the loop's triggers are active. Pausing disables all triggers."),
-        overlap_policy: zod
-            .enum(['skip', 'allow', 'cancel_previous'])
-            .describe('\* `skip` - skip\n\* `allow` - allow\n\* `cancel_previous` - cancel_previous')
-            .optional()
-            .describe(
-                "What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.\n\n\* `skip` - skip\n\* `allow` - allow\n\* `cancel_previous` - cancel_previous"
-            ),
-        behaviors: zod
-            .object({
-                create_prs: zod
-                    .boolean()
-                    .default(loopsPartialUpdateBodyBehaviorsOneCreatePrsDefault)
-                    .describe('Whether the agent may push branches and open PRs. False makes this a report-only loop.'),
-                watch_ci: zod
-                    .boolean()
-                    .default(loopsPartialUpdateBodyBehaviorsOneWatchCiDefault)
-                    .describe('Whether to watch CI on loop-created PRs and report status.'),
-                fix_review_comments: zod
-                    .boolean()
-                    .default(loopsPartialUpdateBodyBehaviorsOneFixReviewCommentsDefault)
-                    .describe('Whether to automatically address review comments on loop-created PRs.'),
-                max_fix_iterations: zod
-                    .number()
-                    .min(loopsPartialUpdateBodyBehaviorsOneMaxFixIterationsMin)
-                    .max(loopsPartialUpdateBodyBehaviorsOneMaxFixIterationsMax)
-                    .default(loopsPartialUpdateBodyBehaviorsOneMaxFixIterationsDefault)
-                    .describe('Ceiling on automatic CI\/review-comment fix iterations, capped at 10.'),
-            })
-            .optional()
-            .describe('PR \/ CI-follow-up behavior configuration.'),
-        connectors: zod
-            .object({
-                mcp_installation_ids: zod
-                    .array(zod.string())
-                    .optional()
-                    .describe("MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs."),
-                posthog_mcp_scopes: zod
-                    .enum(['read_only', 'full'])
-                    .describe('\* `read_only` - read_only\n\* `full` - full')
-                    .default(loopsPartialUpdateBodyConnectorsOnePosthogMcpScopesDefault)
-                    .describe(
-                        "Scope of the PostHog MCP access injected into this loop's runs.\n\n\* `read_only` - read_only\n\* `full` - full"
-                    ),
-            })
-            .optional()
-            .describe("MCP connector configuration for this loop's runs."),
-        notifications: zod
-            .object({
-                push: zod
-                    .object({
-                        enabled: zod
-                            .boolean()
-                            .default(loopsPartialUpdateBodyNotificationsOnePushOneEnabledDefault)
-                            .describe('Whether this channel is active.'),
-                        events: zod
-                            .array(
-                                zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
-                                    .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
-                                    )
-                            )
-                            .optional()
-                            .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
-                            ),
-                        params: zod
-                            .record(zod.string(), zod.unknown())
-                            .optional()
-                            .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
-                    })
-                    .optional()
-                    .describe('Push notification settings.'),
-                email: zod
-                    .object({
-                        enabled: zod
-                            .boolean()
-                            .default(loopsPartialUpdateBodyNotificationsOneEmailOneEnabledDefault)
-                            .describe('Whether this channel is active.'),
-                        events: zod
-                            .array(
-                                zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
-                                    .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
-                                    )
-                            )
-                            .optional()
-                            .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
-                            ),
-                        params: zod
-                            .record(zod.string(), zod.unknown())
-                            .optional()
-                            .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
-                    })
-                    .optional()
-                    .describe('Email notification settings.'),
-                slack: zod
-                    .object({
-                        enabled: zod
-                            .boolean()
-                            .default(loopsPartialUpdateBodyNotificationsOneSlackOneEnabledDefault)
-                            .describe('Whether this channel is active.'),
-                        events: zod
-                            .array(
-                                zod
-                                    .enum(['run_completed', 'run_failed', 'pr_created', 'needs_attention'])
-                                    .describe(
-                                        '\* `run_completed` - run_completed\n\* `run_failed` - run_failed\n\* `pr_created` - pr_created\n\* `needs_attention` - needs_attention'
-                                    )
-                            )
-                            .optional()
-                            .describe(
-                                'Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention.'
-                            ),
-                        params: zod
-                            .record(zod.string(), zod.unknown())
-                            .optional()
-                            .describe("Channel-specific parameters, e.g. Slack's `integration_id` and `channel`."),
-                    })
-                    .optional()
-                    .describe('Slack notification settings.'),
-            })
-            .optional()
-            .describe('Per-channel notification configuration.'),
-        context_target: zod
-            .union([
-                zod.object({
-                    channel_id: zod.string().describe('Id of the channel (context) this loop is attached to.'),
-                    name: zod
-                        .string()
-                        .max(loopsPartialUpdateBodyContextTargetOneNameMax)
-                        .describe("Display name of the context, shown in the loop's publish prompt."),
-                    outputs: zod
-                        .object({
-                            post_to_feed: zod
-                                .boolean()
-                                .default(loopsPartialUpdateBodyContextTargetOneOutputsOnePostToFeedDefault)
-                                .describe(
-                                    "Whether each run is filed into the context's feed as a card (sets the run's channel)."
-                                ),
-                            update_context: zod
-                                .boolean()
-                                .default(loopsPartialUpdateBodyContextTargetOneOutputsOneUpdateContextDefault)
-                                .describe(
-                                    "Whether each run reads and republishes the context's context.md to reflect the latest state."
-                                ),
-                            canvas_id: zod
-                                .string()
-                                .nullish()
-                                .describe(
-                                    'Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.'
-                                ),
-                        })
-                        .optional()
-                        .describe('What the loop maintains in this context each run.'),
-                }),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md \/ canvas it keeps up to date.'
-            ),
-        triggers: zod
-            .array(
-                zod.object({
-                    id: zod
-                        .string()
-                        .optional()
-                        .describe('Existing trigger id to update in place. Omit to create a new trigger.'),
-                    type: zod
-                        .enum(['schedule', 'github', 'api'])
-                        .describe('\* `schedule` - schedule\n\* `github` - github\n\* `api` - api')
-                        .describe(
-                            'Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), or `api` (POST to `trigger\/`).\n\n\* `schedule` - schedule\n\* `github` - github\n\* `api` - api'
-                        ),
-                    enabled: zod
-                        .boolean()
-                        .default(loopsPartialUpdateBodyTriggersItemEnabledDefault)
-                        .describe('Whether this trigger is active. Disabling pauses only this trigger.'),
-                    config: zod
-                        .unknown()
-                        .optional()
-                        .describe(
-                            'Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. API triggers take no config.'
-                        ),
-                })
-            )
-            .optional()
-            .describe(
-                'Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop.'
-            ),
-    })
-    .describe(
-        'Request body for creating or updating a loop. Field required\/default semantics match\nthe `Loop` model; partial updates only touch keys present in the payload.'
-    )
-
-/**
- * Soft delete. Pauses every trigger's schedule. Owner or a project admin only.
- * @summary Delete a loop
- */
-export const LoopsDestroyParams = () => zod.object({
-    id: zod.string(),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-/**
- * Dry run: renders the assembled instructions and trigger context for a supplied sample payload (or a synthetic schedule fire when omitted), without creating a task, run, or any other side effect.
- * @summary Preview a loop fire
- */
-export const LoopsPreviewCreateParams = () => zod.object({
-    id: zod.string(),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const loopsPreviewCreateBodyTriggerTypeDefault = `schedule`
-
-export const LoopsPreviewCreateBody = () => zod.object({
-    trigger_type: zod
-        .enum(['schedule', 'github', 'api'])
-        .describe('\* `schedule` - schedule\n\* `github` - github\n\* `api` - api')
-        .default(loopsPreviewCreateBodyTriggerTypeDefault)
-        .describe(
-            'Trigger type to simulate. Defaults to a synthetic schedule fire.\n\n\* `schedule` - schedule\n\* `github` - github\n\* `api` - api'
-        ),
-    payload: zod
-        .unknown()
-        .optional()
-        .describe('Sample trigger payload, e.g. a GitHub webhook body or an API trigger body, to render into context.'),
-})
-
-/**
- * Manual fire from the UI. Owner-only for personal loops; any team member for team loops.
- * @summary Run a loop manually
- */
-export const LoopsRunCreateParams = () => zod.object({
-    id: zod.string(),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-/**
- * Run history for a loop, newest first, cursor-paginated.
- * @summary List loop runs
- */
-export const LoopsRunsRetrieveParams = () => zod.object({
-    id: zod.string(),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const loopsRunsRetrieveQueryLimitDefault = 50
-export const loopsRunsRetrieveQueryLimitMax = 100
-
-export const LoopsRunsRetrieveQueryParams = () => zod.object({
-    cursor: zod
-        .string()
-        .min(1)
-        .optional()
-        .describe("Opaque pagination cursor from a previous response's `next_cursor`."),
-    limit: zod
-        .number()
-        .min(1)
-        .max(loopsRunsRetrieveQueryLimitMax)
-        .default(loopsRunsRetrieveQueryLimitDefault)
-        .describe('Max results per page (default 50, max 100).'),
-})
 
 /**
  * List channels the requester can access, sorted by name and ID. Includes public channels, their personal #me channel, and private channels they belong to. Call provision_defaults to create missing default channels. Send limit and offset to get a page with count, next, previous, and results. Without limit, the response is an array of all accessible channels.
@@ -899,6 +173,12 @@ export const TasksListQueryParams = () => zod.object({
         .describe(
             "Filter tasks by the CI check rollup on their most recent run's pull request, as last observed from GitHub. 'none' means the PR has no checks.\n\n\* `passing` - passing\n\* `failing` - failing\n\* `pending` - pending\n\* `none` - none"
         ),
+    client_provenance: zod
+        .enum(['posthog_desktop', 'posthog_mobile', 'posthog_web'])
+        .optional()
+        .describe(
+            'Filter by the client that created the task\n\n\* `posthog_desktop` - PostHog Desktop\n\* `posthog_mobile` - PostHog Mobile\n\* `posthog_web` - PostHog Web'
+        ),
     commented_by: zod
         .number()
         .optional()
@@ -907,6 +187,7 @@ export const TasksListQueryParams = () => zod.object({
     exclude_origin_product: zod
         .enum([
             'onboarding',
+            'account_audit',
             'error_tracking',
             'eval_clusters',
             'user_created',
@@ -916,6 +197,7 @@ export const TasksListQueryParams = () => zod.object({
             'posthog_ai',
             'experiments',
             'signal_report',
+            'autoresearch',
             'signals_scout',
             'scout_suggestions',
             'support_reply',
@@ -927,10 +209,13 @@ export const TasksListQueryParams = () => zod.object({
             'signals_chat',
             'task_analysis',
             'workflow',
+            'space_setup',
+            'business_knowledge',
+            'metrics_import',
         ])
         .optional()
         .describe(
-            'Exclude tasks with this origin product from the results\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+            'Exclude tasks with this origin product from the results\n\n\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import'
         ),
     hog_flow_id: zod
         .string()
@@ -976,6 +261,44 @@ export const TasksListQueryParams = () => zod.object({
         .describe(
             'Case-insensitive substring search over task title and description. A numeric value also matches the task number. An empty value disables the filter.'
         ),
+    sources: zod
+        .array(
+            zod
+                .enum([
+                    'autoresearch',
+                    'error_tracking',
+                    'eval_clusters',
+                    'experiments',
+                    'hogdesk',
+                    'image_builder',
+                    'loop',
+                    'mcp_analytics',
+                    'onboarding',
+                    'posthog_ai',
+                    'posthog_desktop',
+                    'posthog_mobile',
+                    'posthog_web',
+                    'review_hog',
+                    'scout_suggestions',
+                    'session_summaries',
+                    'signal_report',
+                    'signals_chat',
+                    'signals_scout',
+                    'slack',
+                    'space_setup',
+                    'support_queue',
+                    'support_reply',
+                    'task_analysis',
+                    'workflow',
+                ])
+                .describe(
+                    '\* `autoresearch` - autoresearch\n\* `error_tracking` - error_tracking\n\* `eval_clusters` - eval_clusters\n\* `experiments` - experiments\n\* `hogdesk` - hogdesk\n\* `image_builder` - image_builder\n\* `loop` - loop\n\* `mcp_analytics` - mcp_analytics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai\n\* `posthog_desktop` - posthog_desktop\n\* `posthog_mobile` - posthog_mobile\n\* `posthog_web` - posthog_web\n\* `review_hog` - review_hog\n\* `scout_suggestions` - scout_suggestions\n\* `session_summaries` - session_summaries\n\* `signal_report` - signal_report\n\* `signals_chat` - signals_chat\n\* `signals_scout` - signals_scout\n\* `slack` - slack\n\* `space_setup` - space_setup\n\* `support_queue` - support_queue\n\* `support_reply` - support_reply\n\* `task_analysis` - task_analysis\n\* `workflow` - workflow'
+                )
+        )
+        .optional()
+        .describe(
+            "Only tasks from any of these sources. Repeat the parameter for each source, or send one comma-joined value or a JSON array. 'posthog_desktop', 'posthog_mobile' and 'posthog_web' match user-created tasks by the client that created them, and a user-created task from no other known client counts as desktop. 'posthog_web' also matches PostHog AI tasks. Any other value matches the task's origin product."
+        ),
     stage: zod.string().min(1).optional().describe('Filter by task run stage'),
     status: zod
         .enum(['not_started', 'queued', 'in_progress', 'completed', 'failed', 'cancelled'])
@@ -997,6 +320,10 @@ export const TasksCreateParams = () => zod.object({
 })
 
 export const TasksCreateHeader = () => zod.object({
+    'X-PostHog-Client-Provenance': zod
+        .enum(['posthog_desktop', 'posthog_mobile', 'posthog_web'])
+        .optional()
+        .describe('First-party client creating the task. Accepted only with an interactive PostHog OAuth grant.'),
     'X-PostHog-Warm-Retry': zod
         .string()
         .optional()
@@ -1017,6 +344,7 @@ export const tasksCreateBodyBranchMax = 255
 
 export const tasksCreateBodyPendingUserArtifactIdsItemMax = 128
 
+export const tasksCreateBodyStartRunDefault = false
 export const tasksCreateBodySignalReportDiscussionQuestionMax = 4000
 
 export const TasksCreateBody = () => zod.object({
@@ -1036,6 +364,7 @@ export const TasksCreateBody = () => zod.object({
     origin_product: zod
         .enum([
             'onboarding',
+            'account_audit',
             'error_tracking',
             'eval_clusters',
             'user_created',
@@ -1045,6 +374,7 @@ export const TasksCreateBody = () => zod.object({
             'posthog_ai',
             'experiments',
             'signal_report',
+            'autoresearch',
             'signals_scout',
             'scout_suggestions',
             'support_reply',
@@ -1056,13 +386,16 @@ export const TasksCreateBody = () => zod.object({
             'signals_chat',
             'task_analysis',
             'workflow',
+            'space_setup',
+            'business_knowledge',
+            'metrics_import',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+            '\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import'
         ),
     repository: zod
         .string()
@@ -1095,20 +428,18 @@ export const TasksCreateBody = () => zod.object({
         .max(tasksCreateBodyBranchMax)
         .nullish()
         .describe(
-            'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
+            "Base branch for the first run when start_run is true, or for matching a pre-warmed run. Omit to use the repository's default branch. Write-only and not persisted on the task."
         ),
     runtime_adapter: zod
         .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
         .optional()
         .describe(
-            "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
+            "Runtime adapter ('claude' or 'codex') for the first run when start_run is true, or for matching a pre-warmed run. A different adapter prevents warm reuse. Write-only and not persisted on the task.\n\n\* `claude` - claude\n\* `codex` - codex"
         ),
     model: zod
         .string()
         .nullish()
-        .describe(
-            'Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.'
-        ),
+        .describe('LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.'),
     reasoning_effort: zod
         .union([
             zod
@@ -1120,7 +451,7 @@ export const TasksCreateBody = () => zod.object({
         ])
         .optional()
         .describe(
-            'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            'Reasoning effort for the first run when start_run is true, or for matching a pre-warmed run. Write-only.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
         ),
     initial_permission_mode: zod
         .union([
@@ -1133,27 +464,37 @@ export const TasksCreateBody = () => zod.object({
         ])
         .optional()
         .describe(
-            'Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+            'Agent permission mode for the first run when start_run is true, or for matching a pre-warmed run. Omit to match any warm permission mode. Write-only.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
         ),
     pending_user_message: zod
         .string()
         .nullish()
         .describe(
-            'First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.'
+            'First user message when start_run is true or creation reuses a pre-warmed run. This message can differ from description. Ignored if creation does not start a run. Write-only and not persisted on the task.'
         ),
     pending_user_artifact_ids: zod
         .array(zod.string().max(tasksCreateBodyPendingUserArtifactIdsItemMax))
         .optional()
         .describe(
-            "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched."
+            "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched. Not supported when start_run is true."
         ),
     auto_publish: zod
         .boolean()
         .nullish()
         .describe(
-            "When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead."
+            'When true, the agent pushes its work and opens a draft pull request on completion without an explicit request. Applies when start_run is true or creation reuses a pre-warmed run. Resumed runs keep this setting. Ignored if creation does not start a run. Write-only and not persisted on the task.'
         ),
     channel: zod.string().nullish().describe('Channel this task is owned by (the channel it was kicked off in).'),
+    scheduled_at: zod
+        .string()
+        .nullish()
+        .describe(
+            'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
+        ),
+    start_run: zod
+        .boolean()
+        .default(tasksCreateBodyStartRunDefault)
+        .describe('Create the first cloud run. It starts immediately unless scheduled_at is set.'),
     signal_report_discussion_question: zod
         .string()
         .max(tasksCreateBodySignalReportDiscussionQuestionMax)
@@ -1170,11 +511,15 @@ export const TasksCreateBody = () => zod.object({
     sandbox_environment_id: zod
         .string()
         .nullish()
-        .describe('Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.'),
+        .describe(
+            'Sandbox environment for the first run when start_run is true, or for matching a pre-warmed run. Not persisted on the task.'
+        ),
     custom_image_id: zod
         .string()
         .nullish()
-        .describe('Custom image selected for matching a pre-warmed cloud run. Not persisted on the task.'),
+        .describe(
+            'Custom image for the first run when start_run is true, or for matching a pre-warmed run. Not persisted on the task.'
+        ),
     runtime: zod
         .enum(['acp', 'pi'])
         .describe('\* `acp` - ACP\n\* `pi` - Pi')
@@ -1188,14 +533,509 @@ export const TasksCreateBody = () => zod.object({
  * Retrieve a single task by ID.
  * @summary Get task
  */
+export const tasksRetrievePathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
 export const TasksRetrieveParams = () => zod.object({
-    id: zod.string(),
+    id: zod.string().regex(tasksRetrievePathIdRegExp),
     project_id: zod
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+/**
+ * Create a new task run and kick off the workflow. The response is the refreshed task with the created run under the top-level `run` key: read `run.id` for anything run-scoped, such as the run's stream and command endpoints. The top-level `id` is the task's, and `latest_run` mirrors `run` only as long as nothing newer starts — reading either of those as the created run is deprecated.
+ * @summary Run task
+ */
+export const tasksRunCreatePathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
+export const TasksRunCreateParams = () => zod.object({
+    id: zod.string().regex(tasksRunCreatePathIdRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const TasksRunCreateHeader = () => zod.object({
+    'X-PostHog-Warm-Retry': zod
+        .string()
+        .optional()
+        .describe('Retry token from a warm_run_activation_unavailable response; prevents creating a replacement run.'),
+})
+
+export const tasksRunCreateBodyOneImportedMcpServersItemNameMax = 64
+
+export const tasksRunCreateBodyOneImportedMcpServersItemUrlMax = 2048
+
+export const tasksRunCreateBodyOneImportedMcpServersItemHeadersItemNameMax = 256
+
+export const tasksRunCreateBodyOneImportedMcpServersItemHeadersItemValueMax = 4096
+
+export const tasksRunCreateBodyOneRelayedMcpServersItemNameMax = 64
+
+export const tasksRunCreateBodyOneModeDefault = `background`
+export const tasksRunCreateBodyOneBranchMax = 255
+
+export const tasksRunCreateBodyOnePendingUserArtifactIdsItemMax = 128
+
+export const tasksRunCreateBodyTwoImportedMcpServersItemNameMax = 64
+
+export const tasksRunCreateBodyTwoImportedMcpServersItemUrlMax = 2048
+
+export const tasksRunCreateBodyTwoImportedMcpServersItemHeadersItemNameMax = 256
+
+export const tasksRunCreateBodyTwoImportedMcpServersItemHeadersItemValueMax = 4096
+
+export const tasksRunCreateBodyTwoRelayedMcpServersItemNameMax = 64
+
+export const tasksRunCreateBodyTwoModeDefault = `background`
+export const tasksRunCreateBodyTwoBranchMax = 255
+
+export const tasksRunCreateBodyTwoPendingUserArtifactIdsItemMax = 128
+
+export const tasksRunCreateBodyThreeModeDefault = `background`
+export const tasksRunCreateBodyThreeBranchMax = 255
+
+export const TasksRunCreateBody = () => zod.union([
+    zod
+        .object({
+            imported_mcp_servers: zod
+                .array(
+                    zod
+                        .object({
+                            type: zod.enum(['http', 'sse']).describe('\* `http` - http\n\* `sse` - sse'),
+                            name: zod.string().max(tasksRunCreateBodyOneImportedMcpServersItemNameMax),
+                            url: zod.url().max(tasksRunCreateBodyOneImportedMcpServersItemUrlMax),
+                            headers: zod
+                                .array(
+                                    zod.object({
+                                        name: zod
+                                            .string()
+                                            .max(tasksRunCreateBodyOneImportedMcpServersItemHeadersItemNameMax),
+                                        value: zod
+                                            .string()
+                                            .max(tasksRunCreateBodyOneImportedMcpServersItemHeadersItemValueMax),
+                                    })
+                                )
+                                .optional(),
+                        })
+                        .describe("One client-imported MCP server, in the agent server's --mcpServers entry shape.")
+                )
+                .nullish()
+                .describe(
+                    'Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.'
+                ),
+            relayed_mcp_servers: zod
+                .array(
+                    zod
+                        .object({
+                            name: zod.string().max(tasksRunCreateBodyOneRelayedMcpServersItemNameMax),
+                        })
+                        .describe(
+                            'One desktop-only MCP server relayed into the run — a name only, never configuration.'
+                        )
+                )
+                .nullish()
+                .describe(
+                    'Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event\/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.'
+                ),
+            rtk_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
+                ),
+            benjamin_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.'
+                ),
+            claude_model_access: zod
+                .union([
+                    zod
+                        .enum(['posthog-gateway', 'own-subscription'])
+                        .describe('\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from whoever started the run; Desktop relays it interactively and an API key caller relays it unattended. The token is sent in flight and never stored on PostHog servers. Only PostHog Desktop and API keys can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                ),
+            codex_model_access: zod
+                .union([
+                    zod
+                        .enum(['posthog-gateway', 'own-subscription'])
+                        .describe('\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                ),
+            scheduled_at: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
+                ),
+            mode: zod
+                .enum(['interactive', 'background'])
+                .describe('\* `interactive` - interactive\n\* `background` - background')
+                .default(tasksRunCreateBodyOneModeDefault)
+                .describe(
+                    "Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs\n\n\* `interactive` - interactive\n\* `background` - background"
+                ),
+            branch: zod
+                .string()
+                .max(tasksRunCreateBodyOneBranchMax)
+                .nullish()
+                .describe('Git branch to checkout in the sandbox'),
+            resume_from_run_id: zod
+                .string()
+                .optional()
+                .describe('ID of a previous run to resume from. Must belong to the same task.'),
+            pending_user_message: zod
+                .string()
+                .optional()
+                .describe('Initial or follow-up user message to include in the run prompt.'),
+            pending_user_artifact_ids: zod
+                .array(zod.string().max(tasksRunCreateBodyOnePendingUserArtifactIdsItemMax))
+                .optional()
+                .describe('Identifiers for staged task artifacts that should be attached to the initial run prompt.'),
+            sandbox_environment_id: zod
+                .string()
+                .optional()
+                .describe('Optional sandbox environment to apply for this cloud run.'),
+            custom_image_id: zod
+                .string()
+                .optional()
+                .describe(
+                    "Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image."
+                ),
+            pr_authorship_mode: zod
+                .enum(['user', 'bot'])
+                .describe('\* `user` - user\n\* `bot` - bot')
+                .optional()
+                .describe(
+                    'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
+                ),
+            auto_publish: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.'
+                ),
+            run_source: zod
+                .enum(['manual', 'signal_report', 'agent'])
+                .describe('\* `manual` - manual\n\* `signal_report` - signal_report\n\* `agent` - agent')
+                .optional()
+                .describe(
+                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report\n\* `agent` - agent'
+                ),
+            signal_report_id: zod
+                .string()
+                .optional()
+                .describe('Optional signal report identifier when this run was started from Inbox.'),
+            runtime_adapter: zod
+                .enum(['claude'])
+                .describe('\* `claude` - claude')
+                .describe(
+                    "Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.\n\n\* `claude` - claude"
+                ),
+            model: zod.string().describe('LLM model identifier to run in the Claude runtime.'),
+            reasoning_effort: zod
+                .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                .describe(
+                    '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                )
+                .optional()
+                .describe(
+                    'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                ),
+            context_window: zod
+                .enum(['200k', '1m'])
+                .describe('\* `200k` - 200k\n\* `1m` - 1m')
+                .optional()
+                .describe(
+                    'Context window size for models that support the 1M window.\n\n\* `200k` - 200k\n\* `1m` - 1m'
+                ),
+            fast_mode: zod.boolean().nullish().describe('Enable fast mode for models that support it.'),
+            github_user_token: zod
+                .string()
+                .optional()
+                .describe(
+                    'Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens.'
+                ),
+            initial_permission_mode: zod
+                .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto'])
+                .describe(
+                    '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto'
+                )
+                .optional()
+                .describe(
+                    'Initial permission mode for Claude runtimes.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto'
+                ),
+        })
+        .describe('Request body for creating a new task run'),
+    zod
+        .object({
+            imported_mcp_servers: zod
+                .array(
+                    zod
+                        .object({
+                            type: zod.enum(['http', 'sse']).describe('\* `http` - http\n\* `sse` - sse'),
+                            name: zod.string().max(tasksRunCreateBodyTwoImportedMcpServersItemNameMax),
+                            url: zod.url().max(tasksRunCreateBodyTwoImportedMcpServersItemUrlMax),
+                            headers: zod
+                                .array(
+                                    zod.object({
+                                        name: zod
+                                            .string()
+                                            .max(tasksRunCreateBodyTwoImportedMcpServersItemHeadersItemNameMax),
+                                        value: zod
+                                            .string()
+                                            .max(tasksRunCreateBodyTwoImportedMcpServersItemHeadersItemValueMax),
+                                    })
+                                )
+                                .optional(),
+                        })
+                        .describe("One client-imported MCP server, in the agent server's --mcpServers entry shape.")
+                )
+                .nullish()
+                .describe(
+                    'Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.'
+                ),
+            relayed_mcp_servers: zod
+                .array(
+                    zod
+                        .object({
+                            name: zod.string().max(tasksRunCreateBodyTwoRelayedMcpServersItemNameMax),
+                        })
+                        .describe(
+                            'One desktop-only MCP server relayed into the run — a name only, never configuration.'
+                        )
+                )
+                .nullish()
+                .describe(
+                    'Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event\/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.'
+                ),
+            rtk_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
+                ),
+            benjamin_enabled: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.'
+                ),
+            claude_model_access: zod
+                .union([
+                    zod
+                        .enum(['posthog-gateway', 'own-subscription'])
+                        .describe('\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from whoever started the run; Desktop relays it interactively and an API key caller relays it unattended. The token is sent in flight and never stored on PostHog servers. Only PostHog Desktop and API keys can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                ),
+            codex_model_access: zod
+                .union([
+                    zod
+                        .enum(['posthog-gateway', 'own-subscription'])
+                        .describe('\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                ),
+            scheduled_at: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
+                ),
+            mode: zod
+                .enum(['interactive', 'background'])
+                .describe('\* `interactive` - interactive\n\* `background` - background')
+                .default(tasksRunCreateBodyTwoModeDefault)
+                .describe(
+                    "Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs\n\n\* `interactive` - interactive\n\* `background` - background"
+                ),
+            branch: zod
+                .string()
+                .max(tasksRunCreateBodyTwoBranchMax)
+                .nullish()
+                .describe('Git branch to checkout in the sandbox'),
+            resume_from_run_id: zod
+                .string()
+                .optional()
+                .describe('ID of a previous run to resume from. Must belong to the same task.'),
+            pending_user_message: zod
+                .string()
+                .optional()
+                .describe('Initial or follow-up user message to include in the run prompt.'),
+            pending_user_artifact_ids: zod
+                .array(zod.string().max(tasksRunCreateBodyTwoPendingUserArtifactIdsItemMax))
+                .optional()
+                .describe('Identifiers for staged task artifacts that should be attached to the initial run prompt.'),
+            sandbox_environment_id: zod
+                .string()
+                .optional()
+                .describe('Optional sandbox environment to apply for this cloud run.'),
+            custom_image_id: zod
+                .string()
+                .optional()
+                .describe(
+                    "Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image."
+                ),
+            pr_authorship_mode: zod
+                .enum(['user', 'bot'])
+                .describe('\* `user` - user\n\* `bot` - bot')
+                .optional()
+                .describe(
+                    'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
+                ),
+            auto_publish: zod
+                .boolean()
+                .nullish()
+                .describe(
+                    'When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.'
+                ),
+            run_source: zod
+                .enum(['manual', 'signal_report', 'agent'])
+                .describe('\* `manual` - manual\n\* `signal_report` - signal_report\n\* `agent` - agent')
+                .optional()
+                .describe(
+                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report\n\* `agent` - agent'
+                ),
+            signal_report_id: zod
+                .string()
+                .optional()
+                .describe('Optional signal report identifier when this run was started from Inbox.'),
+            runtime_adapter: zod
+                .enum(['codex'])
+                .describe('\* `codex` - codex')
+                .describe(
+                    "Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.\n\n\* `codex` - codex"
+                ),
+            model: zod.string().describe('LLM model identifier to run in the Codex runtime.'),
+            reasoning_effort: zod
+                .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                .describe(
+                    '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                )
+                .optional()
+                .describe(
+                    'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                ),
+            context_window: zod
+                .enum(['200k', '1m'])
+                .describe('\* `200k` - 200k\n\* `1m` - 1m')
+                .optional()
+                .describe(
+                    'Context window size for models that support the 1M window.\n\n\* `200k` - 200k\n\* `1m` - 1m'
+                ),
+            fast_mode: zod.boolean().nullish().describe('Enable fast mode for models that support it.'),
+            github_user_token: zod
+                .string()
+                .optional()
+                .describe(
+                    'Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens.'
+                ),
+            initial_permission_mode: zod
+                .enum(['plan', 'auto', 'read-only', 'full-access'])
+                .describe(
+                    '\* `plan` - plan\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                )
+                .optional()
+                .describe(
+                    'Initial permission mode for Codex runtimes.\n\n\* `plan` - plan\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                ),
+        })
+        .describe('Request body for creating a new task run'),
+    zod.object({
+        scheduled_at: zod
+            .string()
+            .nullish()
+            .describe(
+                'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
+            ),
+        model: zod.string().optional(),
+        reasoning_effort: zod
+            .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+            .optional()
+            .describe(
+                '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+        mode: zod
+            .enum(['interactive', 'background'])
+            .describe('\* `interactive` - interactive\n\* `background` - background')
+            .default(tasksRunCreateBodyThreeModeDefault)
+            .describe(
+                "Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs\n\n\* `interactive` - interactive\n\* `background` - background"
+            ),
+        branch: zod
+            .string()
+            .max(tasksRunCreateBodyThreeBranchMax)
+            .nullish()
+            .describe('Git branch to checkout in the sandbox'),
+        resume_from_run_id: zod
+            .string()
+            .optional()
+            .describe('ID of a previous run to resume from. Must belong to the same task.'),
+        pending_user_message: zod
+            .string()
+            .optional()
+            .describe('Initial or follow-up user message to include in the run prompt.'),
+        sandbox_environment_id: zod
+            .string()
+            .optional()
+            .describe('Optional sandbox environment to apply for this cloud run.'),
+        custom_image_id: zod
+            .string()
+            .optional()
+            .describe(
+                "Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image."
+            ),
+        pr_authorship_mode: zod
+            .enum(['user', 'bot'])
+            .describe('\* `user` - user\n\* `bot` - bot')
+            .optional()
+            .describe(
+                'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
+            ),
+        run_source: zod
+            .enum(['manual', 'signal_report', 'agent'])
+            .describe('\* `manual` - manual\n\* `signal_report` - signal_report\n\* `agent` - agent')
+            .optional()
+            .describe(
+                'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report\n\* `agent` - agent'
+            ),
+        signal_report_id: zod
+            .string()
+            .optional()
+            .describe('Optional signal report identifier when this run was started from Inbox.'),
+        github_user_token: zod
+            .string()
+            .optional()
+            .describe(
+                'Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens.'
+            ),
+    }),
+])
 
 /**
  * Get a list of runs for a specific task.
@@ -1292,11 +1132,6 @@ export const TasksMeConfigListParams = () => zod.object({
         ),
 })
 
-export const TasksMeConfigListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
 /**
  * Set your per-project default AI run preferences; they override the project default wholesale. Send all fields as null to clear and inherit the project default.
  */
@@ -1310,33 +1145,65 @@ export const TasksMeConfigCreateParams = () => zod.object({
 
 export const TasksMeConfigCreateBody = () => zod
     .object({
+        runtime: zod
+            .union([zod.enum(['acp', 'pi']).describe('\* `acp` - ACP\n\* `pi` - Pi'), zod.null()])
+            .optional()
+            .describe(
+                "Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the Pi harness. Defaults to 'acp' when omitted.\n\n\* `acp` - ACP\n\* `pi` - Pi"
+            ),
         runtime_adapter: zod
             .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
             .optional()
             .describe(
-                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.\n\n\* `claude` - claude\n\* `codex` - codex"
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.\n\n\* `claude` - claude\n\* `codex` - codex"
             ),
         model: zod
             .string()
             .nullish()
-            .describe('Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.'),
+            .describe(
+                'Default LLM model identifier for new task runs. Must be set together with `runtime_adapter` on the ACP harness, and is required on its own for a Pi default.'
+            ),
         reasoning_effort: zod
             .union([
                 zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                    .enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
                     .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                        '\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Default reasoning effort for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                "Default reasoning effort for models that expose an effort control. A Pi default stores a Pi thinking level here, which also allows 'off' and 'minimal'.\n\n\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode"
             ),
     })
     .describe(
-        'The default AI run triple stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. `runtime_adapter` and `model` must be set together; send all three\nas null to clear a stored preference.'
+        'The default AI run selection stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. What a complete selection is depends on the harness: an ACP default\nsets `runtime_adapter` and `model` together, a Pi default sets `model` alone. Send\nevery field as null to clear a stored preference.'
     )
+
+/**
+ * Set your personal instructions, which PostHog cloud agents load in Tasks runs you start, after the project instructions. Autonomous runs never get them. Anyone who continues a task you started can see them, so leave out anything private. Send an empty string to clear.
+ */
+export const TasksMeConfigAgentInstructionsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const tasksMeConfigAgentInstructionsCreateBodyAgentInstructionsMax = 20000
+
+export const TasksMeConfigAgentInstructionsCreateBody = () => zod
+    .object({
+        agent_instructions: zod
+            .string()
+            .max(tasksMeConfigAgentInstructionsCreateBodyAgentInstructionsMax)
+            .describe(
+                'Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.'
+            ),
+    })
+    .describe('Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.')
 
 /**
  * Retrieve the project-wide default AI run preferences for task runs.
@@ -1367,33 +1234,65 @@ export const TasksConfigCreateParams = () => zod.object({
 
 export const TasksConfigCreateBody = () => zod
     .object({
+        runtime: zod
+            .union([zod.enum(['acp', 'pi']).describe('\* `acp` - ACP\n\* `pi` - Pi'), zod.null()])
+            .optional()
+            .describe(
+                "Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the Pi harness. Defaults to 'acp' when omitted.\n\n\* `acp` - ACP\n\* `pi` - Pi"
+            ),
         runtime_adapter: zod
             .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
             .optional()
             .describe(
-                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.\n\n\* `claude` - claude\n\* `codex` - codex"
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`, and must be null when `runtime` is 'pi'.\n\n\* `claude` - claude\n\* `codex` - codex"
             ),
         model: zod
             .string()
             .nullish()
-            .describe('Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.'),
+            .describe(
+                'Default LLM model identifier for new task runs. Must be set together with `runtime_adapter` on the ACP harness, and is required on its own for a Pi default.'
+            ),
         reasoning_effort: zod
             .union([
                 zod
-                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                    .enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
                     .describe(
-                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                        '\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Default reasoning effort for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                "Default reasoning effort for models that expose an effort control. A Pi default stores a Pi thinking level here, which also allows 'off' and 'minimal'.\n\n\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode"
             ),
     })
     .describe(
-        'The default AI run triple stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. `runtime_adapter` and `model` must be set together; send all three\nas null to clear a stored preference.'
+        'The default AI run selection stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. What a complete selection is depends on the harness: an ACP default\nsets `runtime_adapter` and `model` together, a Pi default sets `model` alone. Send\nevery field as null to clear a stored preference.'
     )
+
+/**
+ * Set the project instructions that PostHog cloud agents load as their user-level AGENTS.md in every eligible Tasks run, including autonomous runs. Send an empty string to clear.
+ */
+export const TasksConfigAgentInstructionsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const tasksConfigAgentInstructionsCreateBodyAgentInstructionsMax = 20000
+
+export const TasksConfigAgentInstructionsCreateBody = () => zod
+    .object({
+        agent_instructions: zod
+            .string()
+            .max(tasksConfigAgentInstructionsCreateBodyAgentInstructionsMax)
+            .describe(
+                'Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.'
+            ),
+    })
+    .describe('Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.')
 
 /**
  * Return the models a task run may use, with the reasoning efforts each one supports. Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. An empty list means the gateway is unreachable — clients should fall back to their own default rather than treating it as 'no models exist'.

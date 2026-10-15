@@ -10,9 +10,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source import (
+    _CONNECTION_CHECK_ERROR,
+    _MISSING_INTEGRATION_ERROR,
     LINKEDIN_ADS_VERSION_202606,
     LINKEDIN_ADS_VERSION_202607,
     LINKEDIN_ADS_VERSION_202608,
+    LINKEDIN_ADS_VERSION_202609,
     LinkedInAdsSource,
 )
 
@@ -30,6 +33,10 @@ class TestLinkedInAdsSource:
         "observed_error",
         [
             'LinkedIn API error (404): {"status":404,"code":"RESOURCE_NOT_FOUND","message":"No virtual resource found"}',
+            # A plain 404 with the generic "NOT_FOUND" code (no "RESOURCE_" prefix) — same
+            # underlying condition (deleted/inaccessible account) under a different LinkedIn
+            # error code.
+            'LinkedIn API error (404): {"code":"NOT_FOUND","message":"Not Found.","status":404}',
             "REVOKED_ACCESS_TOKEN",
             "The token used in the request has expired",
             "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration.",
@@ -82,19 +89,20 @@ class TestLinkedInAdsSource:
         retryable_errors = self.source.get_retryable_errors()
         assert not any(pattern in other_error for pattern in retryable_errors)
 
-    def test_defaults_new_sources_to_202608(self):
-        assert self.source.default_version == LINKEDIN_ADS_VERSION_202608
+    def test_defaults_new_sources_to_202609(self):
+        assert self.source.default_version == LINKEDIN_ADS_VERSION_202609
         assert set(self.source.supported_versions) == {
             "v1",
             LINKEDIN_ADS_VERSION_202606,
             LINKEDIN_ADS_VERSION_202607,
             LINKEDIN_ADS_VERSION_202608,
+            LINKEDIN_ADS_VERSION_202609,
         }
 
     def test_deprecated_versions_carry_sunset_dates(self):
         # "v1" backs the sunset 202508 header (see client.API_VERSION); 202606 sunsets 2027-06-15.
         # The in-product deprecation banner depends on this metadata staying declared, and the default
-        # (202608) must never appear here.
+        # (202609) must never appear here.
         assert self.source.deprecated_versions == (
             VersionDeprecation(version="v1", sunset_at=date(2026, 8, 1)),
             VersionDeprecation(version=LINKEDIN_ADS_VERSION_202606, sunset_at=date(2027, 6, 15)),
@@ -110,8 +118,9 @@ class TestLinkedInAdsSource:
             (LINKEDIN_ADS_VERSION_202606, "202606"),
             (LINKEDIN_ADS_VERSION_202607, "202607"),
             (LINKEDIN_ADS_VERSION_202608, "202608"),
+            (LINKEDIN_ADS_VERSION_202609, "202609"),
             # No pin resolves to the new default.
-            (None, "202608"),
+            (None, "202609"),
             # An undeclared pin is honored verbatim and passed straight through for LinkedIn to validate.
             ("209901", "209901"),
         ],
@@ -140,7 +149,7 @@ class TestLinkedInAdsSource:
 
         self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
 
-        assert mock_client_for_integration.call_args.kwargs["api_version"] == "202608"
+        assert mock_client_for_integration.call_args.kwargs["api_version"] == "202609"
 
     def test_demographic_breakdowns_are_offered_but_not_enabled_by_default(self):
         # These fan out to one row per day per demographic value on top of the performance tables,
@@ -202,8 +211,7 @@ class TestLinkedInAdsSource:
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
-        assert error_message is not None
-        assert "LinkedIn Ads integration not found" in error_message
+        assert error_message == _MISSING_INTEGRATION_ERROR
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.Integration")
     @mock.patch(
@@ -220,9 +228,9 @@ class TestLinkedInAdsSource:
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
-        assert error_message is not None
-        assert "Failed to validate LinkedIn Ads credentials" in error_message
-        assert "Database error" in error_message
+        # The raw exception text is a database internal the user can do nothing with; it belongs in
+        # error tracking, not in the wizard.
+        assert error_message == _CONNECTION_CHECK_ERROR
         mock_capture_exception.assert_called_once()
 
     @pytest.mark.parametrize(

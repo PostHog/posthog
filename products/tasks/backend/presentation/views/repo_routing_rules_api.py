@@ -4,19 +4,23 @@ from django.db import connection, transaction
 from django.db.models import Max, QuerySet
 
 from rest_framework import serializers, viewsets
-from rest_framework.authentication import SessionAuthentication
+from rest_framework.authentication import BaseAuthentication
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade.client_provenance import is_sandbox_oauth_request
 
-_AUTH_CLASSES = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+_AUTH_CLASSES: list[type[BaseAuthentication]] = [
+    SessionAuthentication,
+    PersonalAPIKeyAuthentication,
+    OAuthAccessTokenAuthentication,
+]
 
 # The repo selection prompt truncates each rendered rule at this length, so a longer rule
 # would silently lose its distinguishing terms. The Slack `rules add` path enforces the
@@ -74,7 +78,7 @@ class RepoRoutingRuleSerializer(serializers.ModelSerializer):
 class RepoRoutingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Team routing rules that steer agent repo selection (`RepoRoutingRule`).
 
-    The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+    The same rows the Slack `/posthog rules` commands manage; the repo selection agent
     reads them ordered by priority when picking a repository for a task. Rules whose
     repository is not connected to the project are ignored at selection time, so a
     stale rule is inert rather than harmful — which is why writes here don't check the

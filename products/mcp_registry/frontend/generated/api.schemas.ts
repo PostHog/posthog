@@ -146,8 +146,18 @@ export interface MCPDiscoverCandidateApi {
     title: string
     /** What the server does. */
     description: string
-    /** Rank score in [0, 1] under the ranking version used. */
+    /** The server's own standing in [0, 1] under the ranking version used: liveness x trust, independent of the query. */
     score: number
+    /**
+     * How well the server's own text answered `intent`, in [0, 1]. Null when the intent held no words worth matching on.
+     * @nullable
+     */
+    relevance: number | null
+    /**
+     * The value candidates are ordered by: relevance and score combined, weighted toward relevance. Null in two cases. When the intent held no words worth matching on, ordering falls back to `score`. When the ranking version has no completed run, `score` is 0 for every candidate and ordering falls back to `relevance`.
+     * @nullable
+     */
+    combined_score: number | null
     /** Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether real usage signal contributed. */
     why: MCPDiscoverCandidateApiWhy
     /** Probed liveness state (alive_open, alive_auth, dead, ...). */

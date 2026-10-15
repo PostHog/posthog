@@ -3,6 +3,7 @@ use sqlx::Row;
 
 use crate::storage::error::StorageResult;
 use crate::storage::types::DistinctIdMapping;
+use personhog_common::query_tag;
 
 /// Expand person ids to live distinct id rows on the primary. With a
 /// per-person limit, identified ids survive the cut (the regex mirrors
@@ -39,7 +40,7 @@ pub(super) async fn get_distinct_ids_for_persons(
                 ) l
                 "#
             );
-            sqlx::query(&sql)
+            sqlx::query(&query_tag!("distinct_ids_capped", sql))
                 .bind(team_id as i32)
                 .bind(person_ids)
                 .bind(limit)
@@ -54,7 +55,7 @@ pub(super) async fn get_distinct_ids_for_persons(
                 WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = false
                 "#
             );
-            sqlx::query(&sql)
+            sqlx::query(&query_tag!("distinct_ids", sql))
                 .bind(team_id as i32)
                 .bind(person_ids)
                 .fetch_all(pool)

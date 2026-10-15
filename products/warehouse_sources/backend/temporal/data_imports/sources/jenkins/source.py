@@ -1,16 +1,15 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from posthog.cloud_utils import is_cloud
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
-from posthog.cloud_utils import is_cloud
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JenkinsSource(ResumableSource[JenkinsSourceConfig, JenkinsResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^JENKINS_",),
+        npm=("jenkins",),
+        pypi=("python-jenkins", "api4jenkins"),
+        go=("github.com/bndr/gojenkins",),
+        maven=("com.offbytwo.jenkins:jenkins-client",),
+        rubygems=("jenkins_api_client", "jenkins_launcher"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -48,7 +56,7 @@ class JenkinsSource(ResumableSource[JenkinsSourceConfig, JenkinsResumeConfig], V
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.JENKINS,
+            name=ExternalDataSourceType.JENKINS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["ci", "cd", "continuous integration"],
             label="Jenkins",

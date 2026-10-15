@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShopWiredSource(ResumableSource[ShopWiredSourceConfig, ShopWiredResumeConfig]):
+    codebase_detection = detect(env=("^(SHOP_WIRED|SHOPWIRED)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://help.shopwired.co.uk/api/api-home"
 
@@ -48,7 +49,7 @@ class ShopWiredSource(ResumableSource[ShopWiredSourceConfig, ShopWiredResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SHOP_WIRED,
+            name=ExternalDataSourceType.SHOPWIRED,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="ShopWired",
             releaseStatus=ReleaseStatus.ALPHA,

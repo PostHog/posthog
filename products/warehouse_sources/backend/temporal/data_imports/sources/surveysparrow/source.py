@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -47,6 +46,16 @@ def _base_url_for(config: SurveySparrowSourceConfig) -> str:
 
 @SourceRegistry.register
 class SurveySparrowSource(ResumableSource[SurveySparrowSourceConfig, SurveySparrowResumeConfig]):
+    codebase_detection = detect(
+        env=("^(SURVEY_SPARROW|SURVEYSPARROW)_",),
+        npm=("surveysparrow-react-native-sdk", "surveysparrow-ionic-plugin"),
+        pub=("surveysparrow_flutter_sdk",),
+        swiftpm=(
+            "github.com/surveysparrow/surveysparrow-ios-sdk",
+            "github.com/surveysparrow/surveysparrow-ionic-plugin",
+        ),
+    )
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://developers.surveysparrow.com/rest-apis/"
@@ -59,7 +68,7 @@ class SurveySparrowSource(ResumableSource[SurveySparrowSourceConfig, SurveySparr
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SURVEY_SPARROW,
+            name=ExternalDataSourceType.SURVEYSPARROW,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="SurveySparrow",
             caption="""Enter a SurveySparrow access token to pull your surveys, responses, questions, and contacts into the PostHog Data warehouse.

@@ -1,18 +1,17 @@
 import re
 from typing import Optional, cast
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
-from posthog.exceptions_capture import capture_exception
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VitallySource(SimpleSource[VitallySourceConfig]):
+    codebase_detection = detect(env=("^VITALLY_",), script_hosts=("cdn.vitally.io",))
+
     api_docs_url = "https://docs.vitally.io"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -172,7 +173,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.VITALLY,
+            name=ExternalDataSourceType.VITALLY,
             category=DataWarehouseSourceCategory.CRM,
             iconPath="/static/services/vitally.png",
             docsUrl="https://posthog.com/docs/cdp/sources/vitally",

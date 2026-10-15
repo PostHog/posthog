@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import {
     webAnalyticsAchievementsAcknowledgeCelebration,
@@ -361,7 +362,7 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
         [eventUsageLogic.actionTypes.reportWebAnalyticsFilterRemoved]: () => {
             actions.recordInteraction(InteractionKindEnumApi.Data)
         },
-        [eventUsageLogic.actionTypes.reportWebAnalyticsDateRangeChanged]: () => {
+        [webAnalyticsLogic.actionTypes.reportWebAnalyticsDateRangeChanged]: () => {
             actions.recordInteraction(InteractionKindEnumApi.Data)
         },
         [eventUsageLogic.actionTypes.reportWebAnalyticsCompareToggled]: () => {

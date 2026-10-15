@@ -8,13 +8,13 @@ from django.db import transaction
 from structlog.contextvars import bind_contextvars
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.asyncpa import INVALID_MESSAGE_FORMAT_ERROR, InvalidMessageFormat
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.preempt_dag_run import ABANDONED_ERROR
 
 from products.data_modeling.backend.facade.api import (
     clear_node_suspension,
     is_node_suspended,
-    is_suspension_enforced,
     mark_node_suspended,
     query_fingerprint,
     suspension_reset_at,
@@ -38,7 +38,6 @@ __all__ = [
     "get_previous_jobs",
     "is_externally_aborted",
     "is_node_suspended",
-    "is_suspension_enforced",
     "mark_node_suspended",
     "maybe_suspend_node_for_engine",
     "starts_a_failure_streak",
@@ -108,9 +107,23 @@ EXTERNALLY_ABORTED_MARKERS = (
     QUALITY_BLOCKED_ERROR_PREFIX,
 )
 
+STREAM_FAULT_ERROR_PREFIXES = (
+    # the Arrow stream broke and carried no ClickHouse error, so nothing says the query failed
+    f"{InvalidMessageFormat.__name__}: {INVALID_MESSAGE_FORMAT_ERROR}: ",
+    # older job rows record the same stream fault with this text
+    f"{InvalidMessageFormat.__name__}: Encapsulated IPC message format must begin with continuation bytes, received: ",
+)
+
+SUSPENDED_ERROR_PREFIX = (
+    f"This model has been suspended after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failed "
+    "materializations. Error: "
+)
+
 
 def is_externally_aborted(error: str) -> bool:
-    return any(marker in error for marker in EXTERNALLY_ABORTED_MARKERS)
+    return any(marker in error for marker in EXTERNALLY_ABORTED_MARKERS) or error.removeprefix(
+        SUSPENDED_ERROR_PREFIX
+    ).startswith(STREAM_FAULT_ERROR_PREFIXES)
 
 
 def bind_data_modeling_log_context(team_id: int, saved_query_id: UUID | str) -> None:
@@ -216,14 +229,11 @@ def maybe_suspend_node_for_engine(
         )
         mark_node_suspended(node, engine=engine, reason=reason, job_id=job_id, fingerprint=fingerprint)
         node.save()
-    # Without enforcement the node keeps materializing every tick, so telling the customer it stopped
-    # would be false.
-    if str(engine) == DataModelingJobEngine.CLICKHOUSE.value and is_suspension_enforced(team_id):
+    # Only ClickHouse serves queries, so a marker on a shadow engine stopped the comparison run,
+    # not the model the customer reads.
+    if str(engine) == DataModelingJobEngine.CLICKHOUSE.value:
         job = DataModelingJob.objects.get(id=job_id)
-        job.error = (
-            f"This model has been suspended after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failed "
-            f"materializations. Error: {job.error}"
-        )
+        job.error = f"{SUSPENDED_ERROR_PREFIX}{job.error}"
         job.save(update_fields=["error"])
     return True
 

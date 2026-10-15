@@ -12,7 +12,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import type { CdpConfig } from './config'
-import { WarehouseSourceWebhooksOutput } from './outputs/outputs'
+import { CdpEventsDlqOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
@@ -55,7 +55,12 @@ import { PosthogJwtAudience } from './utils/jwt-utils'
 import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 
 /** Union of every output name resolved by `createCdpOutputsRegistry()`. */
-export type CdpOutput = AppMetricsOutput | LogEntriesOutput | HogInvocationResultsOutput | WarehouseSourceWebhooksOutput
+export type CdpOutput =
+    | AppMetricsOutput
+    | LogEntriesOutput
+    | HogInvocationResultsOutput
+    | WarehouseSourceWebhooksOutput
+    | CdpEventsDlqOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
 
@@ -181,6 +186,10 @@ export type CdpCoreServicesConfig = Pick<
         | 'MESSAGE_ASSETS_PRODUCER'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
+        | 'CDP_DLQ_ENABLED'
+        | 'CDP_DLQ_BATCH_FAIL_RATIO'
+        | 'CDP_EVENTS_DLQ_TOPIC'
+        | 'CDP_EVENTS_DLQ_PRODUCER'
     >
 
 export interface CdpCoreServicesDeps {
@@ -199,6 +208,11 @@ export interface CdpCoreServicesDeps {
      * open connections against the SES Valkey instance.
      */
     emailValidationValkey: RedisV2 | null
+    /**
+     * Dedicated frequency cap Valkey pool, opened only on the same pods as `emailValidationValkey`.
+     * `null` elsewhere, and when no host is configured, which turns the cap off.
+     */
+    frequencyCapValkey: RedisV2 | null
 }
 
 /**
@@ -507,7 +521,13 @@ export function createCdpCoreServices(
         hogExecutorAsync
     )
 
-    const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
+    const recipientPreferencesService = new RecipientPreferencesService(
+        recipientsManager,
+        emailSuppressionService,
+        deps.frequencyCapValkey
+            ? { teamWorkflowsConfig: teamWorkflowsConfigService, valkey: deps.frequencyCapValkey }
+            : undefined
+    )
     // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
     // limiter, separate pool). The pool is created by the server only on pods
     // whose capabilities execute email actions; everywhere else this is null

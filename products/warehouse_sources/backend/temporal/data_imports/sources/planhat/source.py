@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlanhatSource(ResumableSource[PlanhatSourceConfig, PlanhatResumeConfig]):
+    codebase_detection = detect(env=("^PLANHAT_",))
+
     api_docs_url = "https://docs.planhat.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -49,7 +50,7 @@ class PlanhatSource(ResumableSource[PlanhatSourceConfig, PlanhatResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PLANHAT,
+            name=ExternalDataSourceType.PLANHAT,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Planhat",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RootlySource(ResumableSource[RootlySourceConfig, RootlyResumeConfig]):
+    codebase_detection = detect(
+        env=("^ROOTLY_",),
+        npm=("@rootly/pulumi",),
+        pypi=("rootly",),
+        go=(
+            "github.com/rootlyhq/rootly-go",
+            "github.com/rootlyhq/rootly-catalog-sync",
+            "github.com/rootlyhq/rootly-cli",
+            "github.com/rootlyhq/rootly-tui",
+        ),
+        swiftpm=("github.com/rootlyhq/rootly-swift",),
+    )
+
     api_docs_url = "https://docs.rootly.com/api-reference"
 
     @property
@@ -48,7 +60,7 @@ class RootlySource(ResumableSource[RootlySourceConfig, RootlyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ROOTLY,
+            name=ExternalDataSourceType.ROOTLY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Rootly",
             releaseStatus=ReleaseStatus.ALPHA,

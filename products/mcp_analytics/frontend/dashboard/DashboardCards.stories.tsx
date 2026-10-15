@@ -5,7 +5,7 @@ import { type ChartTheme } from '@posthog/quill-charts'
 import { buildTheme } from 'lib/charts/utils/theme'
 
 import { mswDecorator } from '~/mocks/browser'
-import { MCPModelBreakdownQuery } from '~/queries/schema/schema-general'
+import { MCPModelBreakdownQuery, MCPProtocolVersionBreakdownItem } from '~/queries/schema/schema-general'
 
 import { MCPAnalyticsDashboardOverview } from '../MCPAnalyticsDashboardOverview'
 import {
@@ -23,6 +23,7 @@ import { HarnessBarChart } from './HarnessBarChart'
 import { KpiTiles } from './KpiTiles'
 import { ModelBarChart } from './ModelBarChart'
 import { NotableSessionsTable } from './NotableSessionsTable'
+import { ProtocolVersionStrip } from './ProtocolVersionStrip'
 import { ToolErrorRateChart } from './ToolErrorRateChart'
 import { ToolUsageChart } from './ToolUsageChart'
 
@@ -69,6 +70,12 @@ const HARNESS_ROWS: HarnessRow[] = [
     { category: 'Cowork', total_calls: 800, errors: 8, error_rate_pct: 1, sessions: 120 },
     { category: 'Claude.ai', total_calls: 400, errors: 12, error_rate_pct: 3, sessions: 80 },
     { category: 'Other', total_calls: 200, errors: 10, error_rate_pct: 5, sessions: 50 },
+    { category: 'PostHog CLI', total_calls: 125, errors: 5, error_rate_pct: 4, sessions: 20 },
+    { category: 'Windsurf', total_calls: 90, errors: 0, error_rate_pct: 0, sessions: 15 },
+    { category: 'Replit', total_calls: 70, errors: 0, error_rate_pct: 0, sessions: 12 },
+    { category: 'Lovable', total_calls: 50, errors: 1, error_rate_pct: 2, sessions: 10 },
+    { category: 'Kiro', total_calls: 30, errors: 0, error_rate_pct: 0, sessions: 6 },
+    { category: 'Notion', total_calls: 10, errors: 0, error_rate_pct: 0, sessions: 2 },
 ]
 
 const MODEL_ROWS: ModelRow[] = [
@@ -106,6 +113,15 @@ const modelPagesDecorator = mswDecorator({
         },
     },
 })
+
+const PROTOCOL_VERSION_ROWS: MCPProtocolVersionBreakdownItem[] = [
+    { protocol_version: '2026-07-28', is_current: true, total_calls: 5832 },
+    { protocol_version: '2025-11-25', is_current: false, total_calls: 2256 },
+    { protocol_version: '2025-06-18', is_current: false, total_calls: 13296 },
+    { protocol_version: '2025-03-26', is_current: false, total_calls: 15 },
+    { protocol_version: '2024-11-05', is_current: false, total_calls: 20 },
+    { protocol_version: 'Unknown', is_current: false, total_calls: 982 },
+]
 
 const NOTABLE_SESSIONS: NotableSession[] = [
     {
@@ -280,7 +296,16 @@ export const ShareByHarnessNarrow: Story = {
     ),
 }
 
+export const ShareByHarnessExpandedNarrow: Story = {
+    ...ShareByHarnessNarrow,
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonModal', waitForSelector: '.LemonModal' } },
+    play: async ({ canvas, userEvent }): Promise<void> => {
+        await userEvent.click(await canvas.findByRole('button', { name: 'Show all harnesses' }))
+    },
+}
+
 export const ShareByHarnessLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
     render: withTheme((theme) => <HarnessBarChart rows={[]} loading theme={theme} />),
 }
 
@@ -304,6 +329,10 @@ export const ShareByModel: Story = {
 }
 
 export const ShareByModelExpandedNarrow: Story = {
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonModal', waitForSelector: '.LemonModal' } },
+    play: async ({ canvas, userEvent }): Promise<void> => {
+        await userEvent.click(await canvas.findByRole('button', { name: 'Show all models' }))
+    },
     decorators: [modelPagesDecorator],
     render: () => (
         <div className="w-80">
@@ -366,6 +395,29 @@ export const ShareByModelEmpty: Story = {
     render: withTheme((theme) => <ModelBarChart rows={[]} theme={theme} />),
 }
 
+export const ShareByProtocolVersion: Story = {
+    render: withTheme((theme) => <ProtocolVersionStrip rows={PROTOCOL_VERSION_ROWS} theme={theme} />),
+}
+
+export const ShareByProtocolVersionManyLegacy: Story = {
+    render: withTheme((theme) => (
+        <ProtocolVersionStrip
+            rows={[
+                { protocol_version: 'draft', is_current: true, total_calls: 120 },
+                { protocol_version: '2026-07-28', is_current: true, total_calls: 5832 },
+                { protocol_version: '2025-11-25', is_current: false, total_calls: 2256 },
+                { protocol_version: '2025-06-18', is_current: false, total_calls: 13296 },
+                { protocol_version: '2025-03-26', is_current: false, total_calls: 415 },
+                { protocol_version: '2024-11-05', is_current: false, total_calls: 220 },
+                { protocol_version: 'v2', is_current: false, total_calls: 90 },
+                { protocol_version: 'Other', is_current: false, total_calls: 60 },
+                { protocol_version: 'Unknown', is_current: false, total_calls: 982 },
+            ]}
+            theme={theme}
+        />
+    )),
+}
+
 export const ErrorRateByTool: Story = {
     render: withTheme((theme) => <ToolErrorRateChart rows={TOOL_ROWS} loading={false} theme={theme} />),
 }
@@ -401,5 +453,9 @@ export const OverviewUnknownModels: Story = {
             },
         }),
     ],
-    render: () => <MCPAnalyticsDashboardOverview />,
+    render: () => (
+        <div className="w-[960px]">
+            <MCPAnalyticsDashboardOverview />
+        </div>
+    ),
 }

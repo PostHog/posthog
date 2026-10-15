@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HuntrSource(ResumableSource[HuntrSourceConfig, HuntrResumeConfig]):
+    codebase_detection = detect(env=("^HUNTR_",))
+
     api_docs_url = "https://docs.huntr.co"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -47,13 +48,13 @@ class HuntrSource(ResumableSource[HuntrSourceConfig, HuntrResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HUNTR,
+            name=ExternalDataSourceType.HUNTR,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Huntr",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Huntr organization access token to pull your Organization API data into the PostHog Data warehouse.
 
-You can generate an access token in your Huntr organization admin dashboard. The token grants read access to your members, advisors, candidates, jobs, job posts, employers, activities, and actions.
+You can generate an access token in your Huntr organization admin dashboard. The token grants read access to your members, advisors, candidates, jobs, job posts, employers, activities, actions, activity categories, tags, and candidate action metrics.
 """,
             iconPath="/static/services/huntr.png",
             docsUrl="https://posthog.com/docs/cdp/sources/huntr",

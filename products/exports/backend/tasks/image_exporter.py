@@ -504,7 +504,10 @@ def _screenshot_asset_browserless(
                 int(page.evaluate(f"() => {{ {MEASURE_CONTENT_HEIGHT_JS} }}")), effective_max, url_to_render, final=True
             )
 
-            page.set_viewport_size({"width": width, "height": final_height})
+            if final_height != height:
+                page.set_viewport_size({"width": width, "height": final_height})
+                # Charts redraw their canvas after a resize, so a screenshot taken at once can catch them blank.
+                page.wait_for_timeout(500)
             page.screenshot(path=image_path)
         except BrowserlessUnavailable:
             raise
@@ -591,10 +594,11 @@ def export_image(
                         analytics_props=export_analytics_props,
                     )
                 elif exported_asset.insight.query is None:
-                    # Nothing to warm: the insight stores only legacy filters, which the render
-                    # converts in the browser. Failing here would lose an export the browser can
-                    # still produce, so the render just starts without a warm cache. The dashboard
-                    # branch below skips such a tile for the same reason.
+                    # Nothing to warm: the insight stores only legacy filters, and nothing converts
+                    # those into a query, so the insight renders blank. Raising here would fail the
+                    # whole export instead of producing it with one blank insight, so the render
+                    # starts without a warm cache. The dashboard branch below skips such a tile for
+                    # the same reason.
                     logger.info(
                         "export_image.skip_warming_insight_without_query",
                         insight_id=exported_asset.insight.id,

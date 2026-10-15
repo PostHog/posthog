@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class Rapid7InsightvmSource(ResumableSource[Rapid7InsightvmSourceConfig, Rapid7InsightvmResumeConfig]):
+    codebase_detection = detect(env=("^(RAPID7_INSIGHTVM|RAPID7INSIGHTVM)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v4",)
     default_version = "v4"
@@ -109,7 +110,7 @@ class Rapid7InsightvmSource(ResumableSource[Rapid7InsightvmSourceConfig, Rapid7I
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.RAPID7_INSIGHTVM,
+            name=ExternalDataSourceType.RAPID7INSIGHTVM,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Rapid7 InsightVM",
             caption=(

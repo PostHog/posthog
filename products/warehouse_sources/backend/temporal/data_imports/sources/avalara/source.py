@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.avalara.avalara import (
     AvalaraResumeConfig,
     avalara_source,
@@ -39,6 +38,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AvalaraSource(ResumableSource[AvalaraSourceConfig, AvalaraResumeConfig]):
+    codebase_detection = detect(
+        env=("^AVALARA_",),
+        npm=("avatax",),
+        pypi=("avalara",),
+        composer=("avalara/avataxclient", "avalara/avalara_sdk", "avalara/avatax", "avalara/avatax-magento"),
+        maven=("net.avalara.avatax:avatax-rest-v2-api-java_2.11",),
+        rubygems=("avatax", "Avatax_AddressService", "Avatax_TaxService", "avalara_sdk"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -64,7 +72,7 @@ class AvalaraSource(ResumableSource[AvalaraSourceConfig, AvalaraResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AVALARA,
+            name=ExternalDataSourceType.AVALARA,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Avalara AvaTax",
             caption="""Connect your Avalara AvaTax account to pull tax transactions, companies, nexus, customers and exemption certificates into the PostHog Data warehouse.

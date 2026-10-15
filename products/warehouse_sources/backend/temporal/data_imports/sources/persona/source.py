@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,24 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PersonaSource(ResumableSource[PersonaSourceConfig, PersonaResumeConfig]):
+    codebase_detection = detect(
+        env=("^PERSONA_",),
+        script_hosts=("cdn.withpersona.com",),
+        npm=("persona", "persona-react", "react-native-persona"),
+        cocoapods=(
+            "PersonaInquirySDK2",
+            "Persona-OpenSSL-Universal",
+            "PersonaInquiryAnywhereSDK",
+            "PersonaInquirySDK",
+            "PersonaNfc",
+            "PersonaSentinel",
+            "PersonaSna",
+            "PersonaWebRtc",
+        ),
+        maven=("com.withpersona.sdk2:inquiry",),
+        swiftpm=("github.com/persona-id/inquiry-ios-2",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.withpersona.com/reference"
 
@@ -45,7 +62,7 @@ class PersonaSource(ResumableSource[PersonaSourceConfig, PersonaResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PERSONA,
+            name=ExternalDataSourceType.PERSONA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Persona",
             releaseStatus=ReleaseStatus.ALPHA,

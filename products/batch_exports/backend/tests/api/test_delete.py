@@ -52,14 +52,14 @@ async def wait_for_workflow_in_status(
     temporal: temporalio.client.Client,
     workflow_id: str,
     status: temporalio.client.WorkflowExecutionStatus,
-    sleep: int = 1,
-    timeout: int = 30,
+    sleep: float = 0.2,
+    timeout: float = 30,
 ):
     """Wait for a Workflow to be in a given status."""
     handle = temporal.get_workflow_handle(workflow_id)
     workflow = await handle.describe()
 
-    total = 0
+    total = 0.0
     while workflow.status != status:
         total += sleep
 

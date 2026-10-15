@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RetentlySource(ResumableSource[RetentlySourceConfig, RetentlyResumeConfig]):
+    codebase_detection = detect(env=("^RETENTLY_",), script_hosts=("cdn.retently.com",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://www.retently.com/api/"
@@ -51,7 +52,7 @@ class RetentlySource(ResumableSource[RetentlySourceConfig, RetentlyResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.RETENTLY,
+            name=ExternalDataSourceType.RETENTLY,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Retently",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -33,6 +33,7 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 import { JourneysExclusions } from 'products/product_analytics/frontend/insights/journeys/JourneysExclusions'
 import { JourneysSettings } from 'products/product_analytics/frontend/insights/journeys/JourneysSettings'
 import { JourneysStepSourcePicker } from 'products/product_analytics/frontend/insights/journeys/JourneysStepSourcePicker'
+import { LifecycleToggles } from 'products/product_analytics/frontend/insights/lifecycle/LifecycleToggles'
 import { PathsAdvanced } from 'products/product_analytics/frontend/insights/paths/editor/PathsAdvanced'
 import { PathsEventsTypes } from 'products/product_analytics/frontend/insights/paths/editor/PathsEventTypes'
 import { PathsExclusions } from 'products/product_analytics/frontend/insights/paths/editor/PathsExclusions'
@@ -49,7 +50,6 @@ import { EditorFilterGroup } from './EditorFilterGroup'
 import { EditorFiltersShell } from './EditorFiltersShell'
 import { getBreakdownSummary, getFiltersSummary, getSeriesSummary, visibleFilters } from './editorFilterUtils'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
-import { LifecycleToggles } from './LifecycleToggles'
 import { TrendsSeries } from './TrendsSeries'
 
 export interface EditorFiltersProps {

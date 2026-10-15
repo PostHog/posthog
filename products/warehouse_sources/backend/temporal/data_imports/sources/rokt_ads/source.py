@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -42,6 +41,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
+    codebase_detection = detect(
+        env=("^(ROKT_ADS|ROKTADS)_",), script_hosts=("apps.rokt.com", "apps.rokt-api.com", "apps.roktecommerce.com")
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Rokt's Query API carries a single `/v1/` path segment with no documented version choice, so
     # there is nothing to pin beyond the docs link.
@@ -167,7 +170,7 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ROKT_ADS,
+            name=ExternalDataSourceType.ROKTADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Rokt Ads",
             caption="Generate an app ID and app secret on the Profile Settings page in [One Platform](https://my.rokt.com). Both the advertiser and partner reports read through the Rokt Query API.",

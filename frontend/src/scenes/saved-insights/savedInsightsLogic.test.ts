@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
@@ -14,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
-import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { InsightModel, SavedInsightsTabs } from '~/types'
 
 import {
     INSIGHTS_PER_PAGE,
@@ -30,7 +32,7 @@ jest.spyOn(api, 'create')
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
 const scenes: any = { [Scene.SavedInsights]: blankScene }
 
-const createInsight = (id: number, string = 'hi'): QueryBasedInsightModel =>
+const createInsight = (id: number, string = 'hi'): InsightModel =>
     ({
         id: id || 1,
         name: `${string} ${id || 1}`,
@@ -49,7 +51,7 @@ const createInsight = (id: number, string = 'hi'): QueryBasedInsightModel =>
         deleted: false,
         saved: true,
         query: {},
-    }) as any as QueryBasedInsightModel
+    }) as any as InsightModel
 const createSavedInsights = (string = 'hello', offset: number): InsightsResult => ({
     count: 3,
     results: [createInsight(1, string), createInsight(2, string), createInsight(3, string)].slice(offset),
@@ -80,6 +82,7 @@ describe('savedInsightsLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], {})
         sceneLogic({ scenes }).mount()
         router.actions.push(urls.project(MOCK_TEAM_ID, urls.savedInsights()))
         logic = savedInsightsLogic({ tabId: '1' })
@@ -89,6 +92,88 @@ describe('savedInsightsLogic', () => {
     beforeEach(async () => {
         // wait for the initial load, and assure it fetches results after mount
         await expectLogic(logic).toDispatchActions(['setSavedInsightsFilters', 'loadInsights', 'loadInsightsSuccess'])
+    })
+
+    describe('default tab', () => {
+        const savedInsightsUrl = urls.project(MOCK_TEAM_ID, urls.savedInsights())
+
+        it.each([
+            ['missing flag', undefined, SavedInsightsTabs.All],
+            ['test variant', 'test', SavedInsightsTabs.Home],
+            ['boolean enabled', true, SavedInsightsTabs.Home],
+            ['control variant', 'control', SavedInsightsTabs.All],
+            ['boolean disabled', false, SavedInsightsTabs.All],
+        ])('uses the correct default for %s', async (_, flagValue, expectedTab) => {
+            if (flagValue !== undefined) {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: flagValue,
+                })
+            }
+
+            router.actions.push(savedInsightsUrl)
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    filters: partial({ tab: expectedTab }),
+                })
+        })
+
+        it('keeps tab-less filtered links on All insights when Home is enabled', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: 'test',
+            })
+
+            router.actions.push(savedInsightsUrl, { search: 'revenue' })
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    filters: partial({ tab: SavedInsightsTabs.All, search: 'revenue' }),
+                })
+            expect(router.values.searchParams).toEqual({ search: 'revenue' })
+        })
+
+        it('preserves an explicit tab when Home is enabled', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: 'test',
+            })
+
+            router.actions.push(savedInsightsUrl, { tab: SavedInsightsTabs.Yours })
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    filters: partial({ tab: SavedInsightsTabs.Yours }),
+                })
+        })
+
+        it('falls back to All insights when a Home link opens without the flag', async () => {
+            router.actions.push(savedInsightsUrl, { tab: SavedInsightsTabs.Home })
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    filters: partial({ tab: SavedInsightsTabs.All }),
+                })
+            expect(router.values.searchParams).toEqual({})
+        })
+
+        it('keeps All insights explicit when a flagged user selects it', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: 'test',
+            })
+            router.actions.push(savedInsightsUrl)
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSavedInsightsFilters({ tab: SavedInsightsTabs.All })
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    filters: partial({ tab: SavedInsightsTabs.All }),
+                })
+            expect(router.values.searchParams).toEqual({ tab: SavedInsightsTabs.All })
+        })
+    })
+
+    it('always asks the API to exclude auto-generated feature flag insights', () => {
+        expect(logic.values.paramsFromFilters).toMatchObject({ hide_feature_flag_insights: true })
     })
 
     it('can filter the insights', async () => {
@@ -236,8 +321,9 @@ describe('savedInsightsLogic', () => {
         sourceInsight.name = ''
         sourceInsight.derived_name = 'should be copied'
         await logic.asyncActions.duplicateInsight(sourceInsight)
+        // Duplication runs through api.insights.create, which still builds the environments path.
         expect(api.create).toHaveBeenCalledWith(
-            `api/environments/${MOCK_TEAM_ID}/insights`,
+            `api/projects/${MOCK_TEAM_ID}/insights`,
             expect.objectContaining({ name: '' }),
             expect.objectContaining({})
         )
@@ -248,8 +334,9 @@ describe('savedInsightsLogic', () => {
         sourceInsight.name = 'should be copied'
         sourceInsight.derived_name = ''
         await logic.asyncActions.duplicateInsight(sourceInsight)
+        // Duplication runs through api.insights.create, which still builds the environments path.
         expect(api.create).toHaveBeenCalledWith(
-            `api/environments/${MOCK_TEAM_ID}/insights`,
+            `api/projects/${MOCK_TEAM_ID}/insights`,
             expect.objectContaining({ name: 'should be copied (copy)' }),
             expect.objectContaining({})
         )
@@ -419,7 +506,6 @@ describe('savedInsightsLogic', () => {
             ['created by', { createdBy: [1] }],
             ['favorites', { favorited: true }],
             ['a date range', { dateFrom: '-7d' }],
-            ['the feature flag insights toggle', { hideFeatureFlagInsights: true }],
             ['a dashboard', { dashboardId: 5 }],
         ])('counts %s as a narrowing filter', (_label, overrides) => {
             expect(hasNarrowingFilters(cleanFilters(overrides))).toBe(true)

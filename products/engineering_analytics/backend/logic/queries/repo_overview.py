@@ -441,6 +441,8 @@ class _CostHeadlines:
     cost_per_merge_usd_prev: float | None
     merge_queue_billable_minutes: float | None
     merge_queue_billable_minutes_prev: float | None
+    depot_ci_billable_minutes: float | None
+    depot_ci_billable_minutes_prev: float | None
 
 
 def _derive_cost_headlines(costs: WindowCostsWithPrev, *, merged_count: int, merged_count_prev: int) -> _CostHeadlines:
@@ -459,9 +461,11 @@ def _derive_cost_headlines(costs: WindowCostsWithPrev, *, merged_count: int, mer
         cost_per_merge_usd_prev=opt_float(cost_usd_prev / merged_count_prev)
         if cost_usd_prev is not None and merged_count_prev
         else None,
-        # The queue slice mirrors billable_minutes' null gating so both go null together.
+        # The queue and Depot CI slices mirror billable_minutes' null gating so all go null together.
         merge_queue_billable_minutes=costs.merge_queue_billable_seconds / 60 if cost_cur else None,
         merge_queue_billable_minutes_prev=costs.merge_queue_billable_seconds_prev / 60 if cost_prev else None,
+        depot_ci_billable_minutes=costs.depot_ci_billable_seconds / 60 if cost_cur else None,
+        depot_ci_billable_minutes_prev=costs.depot_ci_billable_seconds_prev / 60 if cost_prev else None,
     )
 
 
@@ -475,18 +479,44 @@ def query_repo_overview(
     end = date_to or datetime.now(tz=date_from.tzinfo)
     prev_from = date_from - (end - date_from)
 
-    runs = _query_run_headlines(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
-    merges = _query_merge_headlines(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
-    queue = query_merge_queue_overview(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
-    trunk = query_merge_queue_trunk_outcomes(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
-    time_to_green = query_time_to_green_window(
-        curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
-    )
-    pipeline = query_delivery_pipeline(curated=curated, date_from=date_from, date_to=date_to)
+    with curated.concurrent_reads() as reads:
+        runs_read = reads.submit(
+            lambda: _query_run_headlines(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
+        )
+        merges_read = reads.submit(
+            lambda: _query_merge_headlines(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
+        )
+        queue_read = reads.submit(
+            lambda: query_merge_queue_overview(
+                curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
+            )
+        )
+        trunk_read = reads.submit(
+            lambda: query_merge_queue_trunk_outcomes(
+                curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
+            )
+        )
+        time_to_green_read = reads.submit(
+            lambda: query_time_to_green_window(
+                curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
+            )
+        )
+        pipeline_read = reads.submit(
+            lambda: query_delivery_pipeline(curated=curated, date_from=date_from, date_to=date_to)
+        )
+        costs_read = reads.submit(
+            lambda: query_workflow_window_costs_with_prev(
+                curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
+            )
+        )
+    runs = runs_read.result()
+    merges = merges_read.result()
+    queue = queue_read.result()
+    trunk = trunk_read.result()
+    time_to_green = time_to_green_read.result()
+    pipeline = pipeline_read.result()
     costs = _derive_cost_headlines(
-        query_workflow_window_costs_with_prev(
-            curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
-        ),
+        costs_read.result(),
         merged_count=merges.merged_count,
         merged_count_prev=merges.merged_count_prev,
     )
@@ -512,6 +542,8 @@ def query_repo_overview(
         cost_per_merge_usd_prev=costs.cost_per_merge_usd_prev,
         merge_queue_billable_minutes=costs.merge_queue_billable_minutes,
         merge_queue_billable_minutes_prev=costs.merge_queue_billable_minutes_prev,
+        depot_ci_billable_minutes=costs.depot_ci_billable_minutes,
+        depot_ci_billable_minutes_prev=costs.depot_ci_billable_minutes_prev,
         merge_queue_merged_pr_count=queue.merged_pr_count,
         merge_queue_merged_pr_count_prev=queue.merged_pr_count_prev,
         merge_queue_median_first_gate_to_merge_seconds=queue.median_first_gate_to_merge_seconds,

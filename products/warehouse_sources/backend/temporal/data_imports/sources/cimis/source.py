@@ -2,9 +2,9 @@ from typing import Optional, cast
 
 import structlog
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -12,7 +12,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.cimis import (
     cimis_source,
     parse_targets,
@@ -36,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CimisSource(SimpleSource[CimisSourceConfig]):
+    codebase_detection = detect(env=("^CIMIS_",))
+
     # get_schemas iterates a static endpoint catalog with no I/O, so the table list is safe to surface
     # in public docs without credentials.
     lists_tables_without_credentials = True
@@ -48,7 +49,7 @@ class CimisSource(SimpleSource[CimisSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CIMIS,
+            name=ExternalDataSourceType.CIMIS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="CIMIS",
             releaseStatus=ReleaseStatus.ALPHA,

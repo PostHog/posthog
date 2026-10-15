@@ -5,8 +5,7 @@ import hashlib
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.webhook_template import template
 
 SOURCE_ID = "source_test_123"
@@ -173,7 +172,7 @@ class TestCustomerIOWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
             ("empty_string", ""),
         ]
     )
-    def test_missing_signing_secret_returns_400(self, _name, signing_secret):
+    def test_missing_signing_secret_drops_delivery(self, _name, signing_secret):
         globals = {
             "request": {
                 "method": "POST",
@@ -191,7 +190,10 @@ class TestCustomerIOWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
             },
             globals=globals,
         )
-        assert res.result == {"httpResponse": {"status": 400, "body": "Signing secret not configured"}}
+        assert res.result == {
+            "httpResponse": {"status": 200, "body": "Signing secret not configured, delivery dropped"},
+            "appMetric": "missing_credential",
+        }
 
     @parameterized.expand(
         [

@@ -18,7 +18,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 DISCOVER_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.discover_report_types"
 )
-_STATIC_SCHEMAS = ["disputes", "reports", "payments", "payment_actions", "customers", "instruments"]
+_STATIC_SCHEMAS = [
+    "disputes",
+    "reports",
+    "payments",
+    "payment_actions",
+    "financial_actions",
+    "customers",
+    "instruments",
+]
 
 
 def _http_error(status: int) -> requests.HTTPError:
@@ -119,6 +127,7 @@ class TestCheckoutComSource:
             "reports": ["created_on"],
             "payments": ["requested_on"],
             "payment_actions": ["payment_requested_on"],
+            "financial_actions": ["payment_requested_on"],
             "customers": ["payment_requested_on"],
             "instruments": ["payment_requested_on"],
         }
@@ -267,7 +276,9 @@ class TestCheckoutComSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05Z"
 
-    @pytest.mark.parametrize("schema_name", ["payments", "payment_actions", "customers", "instruments"])
+    @pytest.mark.parametrize(
+        "schema_name", ["payments", "payment_actions", "financial_actions", "customers", "instruments"]
+    )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.checkout_com_payments_source"
     )

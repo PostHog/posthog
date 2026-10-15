@@ -3,7 +3,7 @@ import type {
   TaskActivityKind,
   UserBasic,
 } from "@posthog/shared/domain-types";
-import type { CommentTarget } from "../comments/anchors";
+import { type CommentTarget, commentScopeFromWire } from "../comments/anchors";
 import { channelDisplayName } from "./channelName";
 
 /**
@@ -15,7 +15,7 @@ import { channelDisplayName } from "./channelName";
 
 export interface TaskActivityItem {
   id: string;
-  taskId: string;
+  taskId: string | null;
   taskTitle: string;
   /** Backend channel (tasks product Channel UUID); null for channel-less tasks. */
   channelId: string | null;
@@ -32,29 +32,41 @@ export interface TaskActivityItem {
   isUnread: boolean;
 }
 
+/**
+ * The canvas a row is about, or null for a task row. A canvas comment row
+ * carries the canvas's name and space but the generating task's id, so links
+ * and actions built from `taskId` would name a task that may live in another
+ * space, or one the reader can't open.
+ */
+export function activityCanvasId(item: TaskActivityItem): string | null {
+  return item.commentTarget?.scope === "canvas"
+    ? item.commentTarget.itemId
+    : null;
+}
+
 /** Map activity DTOs (already newest-first from the backend) to feed items. */
 export function toTaskActivityItems(
   activity: readonly TaskActivity[],
 ): TaskActivityItem[] {
-  return activity.map((row) => ({
-    id: row.id,
-    taskId: row.task_id,
-    taskTitle: row.task_title || "Untitled task",
-    channelId: row.channel_id ?? null,
-    channelName: channelDisplayName(row.channel_name ?? null),
-    activityAt: row.activity_at,
-    activityKind: row.activity_kind,
-    snippet: row.snippet,
-    author: row.latest_author ?? null,
-    messageId: row.latest_message_id ?? null,
-    commentId: row.latest_comment_id ?? null,
-    commentTarget:
-      row.latest_comment_scope && row.latest_comment_item_id
-        ? {
-            scope: row.latest_comment_scope as CommentTarget["scope"],
-            itemId: row.latest_comment_item_id,
-          }
-        : null,
-    isUnread: row.is_unread,
-  }));
+  return activity.map((row) => {
+    const scope = commentScopeFromWire(row.latest_comment_scope);
+    return {
+      id: row.id,
+      taskId: row.task_id,
+      taskTitle: row.task_title || "Untitled task",
+      channelId: row.channel_id ?? null,
+      channelName: channelDisplayName(row.channel_name ?? null),
+      activityAt: row.activity_at,
+      activityKind: row.activity_kind,
+      snippet: row.snippet,
+      author: row.latest_author ?? null,
+      messageId: row.latest_message_id ?? null,
+      commentId: row.latest_comment_id ?? null,
+      commentTarget:
+        scope && row.latest_comment_item_id
+          ? { scope, itemId: row.latest_comment_item_id }
+          : null,
+      isUnread: row.is_unread,
+    };
+  });
 }

@@ -3,9 +3,9 @@ from typing import Optional, cast
 import requests
 import structlog
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -13,7 +13,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
     ENDPOINTS,
     CheckoutComResumeConfig,
@@ -22,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
     FANOUT_INCREMENTAL_FIELD,
+    FINANCIAL_ACTIONS_UNAVAILABLE_MARKER,
     PAYMENTS_ENDPOINTS,
     PAYMENTS_INCREMENTAL_FIELD,
     SYNC_BUDGET_EXCEEDED_MARKER,
@@ -73,6 +73,7 @@ _REPORT_ROWS_INCREMENTAL_FIELDS: list[IncrementalField] = [incremental_field("re
 _PAYMENTS_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "payments": [incremental_field(PAYMENTS_INCREMENTAL_FIELD)],
     "payment_actions": [incremental_field(FANOUT_INCREMENTAL_FIELD)],
+    "financial_actions": [incremental_field(FANOUT_INCREMENTAL_FIELD)],
     "customers": [incremental_field(FANOUT_INCREMENTAL_FIELD)],
     "instruments": [incremental_field(FANOUT_INCREMENTAL_FIELD)],
 }
@@ -80,6 +81,7 @@ _PAYMENTS_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 _PAYMENTS_ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "payments": "Payment requests (approved and declined) from the payments search API.",
     "payment_actions": "Authorization, capture, refund and void actions for each payment.",
+    "financial_actions": "Settlement ledger entries for each payment: captures, refunds, chargebacks and fee breakdowns. Actions added after a payment syncs need a full refresh to appear.",
     "customers": "Customer records referenced by your payments.",
     "instruments": "Stored payment instruments referenced by your payments.",
 }
@@ -87,6 +89,64 @@ _PAYMENTS_ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResumeConfig]):
+    # Checkout.com's own convention is the CKO_ prefix.
+    codebase_detection = detect(
+        env=("^CKO_", "^CHECKOUT_COM_"),
+        script_hosts=("cdn.checkout.com", "checkout-web-components.checkout.com"),
+        npm=("checkout-sdk-node", "@checkout.com/checkout-web-components", "frames-react"),
+        pypi=("checkout-sdk",),
+        composer=("checkout/checkout-sdk-php", "checkout/checkout-php-api", "checkout/checkout-sdk-php-beta"),
+        go=("github.com/checkout/checkout-sdk-go",),
+        maven=(
+            "com.checkout:checkout-sdk-java",
+            "com.checkout:checkout-android-components",
+            "com.checkout:checkout-android-components-address",
+            "com.checkout:checkout-android-components-card",
+            "com.checkout:checkout-android-components-card-cvv",
+            "com.checkout:checkout-android-components-core",
+            "com.checkout:checkout-android-components-insight",
+            "com.checkout:checkout-android-components-interfaces",
+            "com.checkout:checkout-android-components-kmp-rememberme",
+            "com.checkout:checkout-android-components-merchant-stored-cards",
+            "com.checkout:checkout-android-components-payment-methods-core",
+            "com.checkout:checkout-android-components-payment-methods-klarna",
+            "com.checkout:checkout-android-components-payment-methods-redirect",
+            "com.checkout:checkout-android-components-reactnative",
+            "com.checkout:checkout-android-components-reactnative-address",
+            "com.checkout:checkout-android-components-reactnative-card",
+            "com.checkout:checkout-android-components-reactnative-card-cvv",
+            "com.checkout:checkout-android-components-reactnative-core",
+            "com.checkout:checkout-android-components-reactnative-insight",
+            "com.checkout:checkout-android-components-reactnative-interfaces",
+            "com.checkout:checkout-android-components-reactnative-merchant-stored-cards",
+            "com.checkout:checkout-android-components-reactnative-payment-methods-core",
+            "com.checkout:checkout-android-components-reactnative-payment-methods-klarna",
+            "com.checkout:checkout-android-components-reactnative-payment-methods-redirect",
+            "com.checkout:checkout-android-components-reactnative-redirect-handler",
+            "com.checkout:checkout-android-components-reactnative-rememberme",
+            "com.checkout:checkout-android-components-reactnative-ui",
+            "com.checkout:checkout-android-components-reactnative-wallet",
+            "com.checkout:checkout-android-components-redirect-handler",
+            "com.checkout:checkout-android-components-rememberme",
+            "com.checkout:checkout-android-components-ui",
+            "com.checkout:checkout-android-components-wallet",
+            "com.checkout:checkout-sdk-3ds-android",
+            "com.checkout:checkout-sdk-card-management-android",
+            "com.checkout:checkout-sdk-card-network-android",
+            "com.checkout:checkout-sdk-crash",
+            "com.checkout:checkout-sdk-event-logger-android",
+            "com.checkout:checkout-sdk-oob-android",
+        ),
+        rubygems=("checkout_sdk",),
+        swiftpm=(
+            "github.com/checkout/checkout-3ds-sdk-ios",
+            "github.com/checkout/checkout-event-logger-ios-framework",
+            "github.com/checkout/checkout-ios-components",
+            "github.com/checkout/checkout-risk-sdk-ios",
+            "github.com/checkout/checkoutcardmanagement-ios",
+        ),
+    )
+
     # The catalog listed without credentials is the static part (disputes + reports);
     # the per-report-type tables need credentials to discover, so `get_schemas` only
     # reaches the API when the config carries real keys.
@@ -115,6 +175,14 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
                 "identifier, so the referenced records can't be fetched and this table can't be filled. "
                 "Re-enable syncing to skip those payments and continue with newer ones."
             ),
+            # Checkout.com documents the financial actions endpoint on a per-account base
+            # URL, so an account not served on the standard host 404s every lookup no
+            # matter how often it retries.
+            FINANCIAL_ACTIONS_UNAVAILABLE_MARKER: (
+                "Checkout.com returned no financial actions for any of your payments. Financial actions may not be "
+                "enabled for your account. Sync the financial actions report table instead, or contact "
+                "Checkout.com support to enable the financial actions API."
+            ),
         }
         for host in ("https://api.checkout.com", "https://api.sandbox.checkout.com"):
             errors[f"403 Client Error: Forbidden for url: {host}/disputes"] = (
@@ -134,6 +202,9 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
             )
             errors[f"403 Client Error: Forbidden for url: {host}/payments/pay_"] = (
                 "Checkout.com denied access to payment details. Please check that your access key has the gateway scope."
+            )
+            errors[f"403 Client Error: Forbidden for url: {host}/financial-actions"] = (
+                "Checkout.com denied access to financial actions. Please check that your access key has the financial-actions scope."
             )
             errors[f"403 Client Error: Forbidden for url: {host}/customers"] = (
                 "Checkout.com denied access to customers. Please check that your access key has the vault scope."
@@ -167,14 +238,14 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CHECKOUT_COM,
+            name=ExternalDataSourceType.CHECKOUTCOM,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Checkout.com",
             caption="""Enter your Checkout.com API access keys to pull your payments data into the PostHog Data warehouse.
 
-Create an access key in the [Checkout.com dashboard](https://dashboard.checkout.com/) under Settings > Access keys. Grant it the scopes for the tables you want to sync: `disputes`, `reports`, `payments` (search), `gateway` (payment actions and instruments), and `vault` (customers and instruments).
+Create an access key in the [Checkout.com dashboard](https://dashboard.checkout.com/) under Settings > Access keys. Grant it the scopes for the tables you want to sync: `disputes`, `reports`, `payments` (search), `gateway` (payment actions and instruments), `financial-actions` (the settlement ledger), and `vault` (customers and instruments).
 
-Payments, payment actions, customers and instruments sync from the payments search API. It reaches back 90 days by default. Set a start date to sync more history. Financial reporting data (financial actions, payouts, balances) syncs from your generated report files: each report type available for your account becomes a table. If no report tables show up, set up scheduled reports in your Checkout.com dashboard first.""",
+Payments, payment actions, financial actions, customers and instruments sync from the payments search API. It reaches back 90 days by default. Set a start date to sync more history. Financial reporting data (financial actions, payouts, balances) syncs from your generated report files: each report type available for your account becomes a table. If no report tables show up, set up scheduled reports in your Checkout.com dashboard first.""",
             iconPath="/static/services/checkout_com.png",
             docsUrl="https://posthog.com/docs/cdp/sources/checkout-com",
             releaseStatus=ReleaseStatus.ALPHA,

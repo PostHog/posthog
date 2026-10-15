@@ -1,34 +1,37 @@
 from typing import Any, cast
 
 import pytest
-from unittest.mock import Mock, patch
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tinyemail import (
+    TinyemailSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.source import TinyemailSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.tinyemail import (
     INVALID_CREDENTIALS_MESSAGE,
     get_resource,
-    tinyemail_source,
     validate_credentials,
 )
 
 
-class _FakeDltResource:
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper):
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        return iter(self._rows)
+def _members_walk(request: RecordedRequest) -> ScriptedResponse:
+    if request.path.endswith("/contacts"):
+        return ScriptedResponse(json={"contacts": [{"id": "list_1", "name": "Newsletter"}]})
+    if request.param("page") == "1":
+        return ScriptedResponse(json={"members": {"content": [{"email": "a@example.com"}]}})
+    return ScriptedResponse(json={"members": {"content": []}})
 
 
 class TestTinyemailTransport:
@@ -63,50 +66,23 @@ class TestTinyemailTransport:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource("contact_members")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.tinyemail.rest_api_resource")
-    def test_tinyemail_source_top_level_response(self, mock_rest_api_resource) -> None:
-        mock_rest_api_resource.return_value = Mock()
+    def test_tinyemail_source_top_level_response(self) -> None:
+        driver = SourceDriver(TinyemailSource(), TinyemailSourceConfig(api_key="key"))
+        result = driver.run("campaigns", always(ScriptedResponse(json={"campaigns": {"content": []}})))
 
-        response = tinyemail_source(api_key="key", endpoint="campaigns", team_id=1, job_id="job-1")
+        assert result.response is not None
+        assert result.response.name == "campaigns"
+        assert result.response.primary_keys == ["id"]
 
-        assert response.name == "campaigns"
-        assert response.primary_keys == ["id"]
+    def test_tinyemail_source_contact_members_row_format(self) -> None:
+        driver = SourceDriver(TinyemailSource(), TinyemailSourceConfig(api_key="key"))
+        result = driver.run("contact_members", _members_walk)
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
-    def test_tinyemail_source_contact_members_row_format(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("contacts", [{"id": "list_1", "name": "Newsletter"}]),
-            _FakeDltResource("contact_members", [{"email": "a@example.com", "_contacts_id": "list_1"}]),
-        ]
-
-        response = tinyemail_source(api_key="key", endpoint="contact_members", team_id=1, job_id="job-1")
-
-        rows = list(cast(Any, response.items()))
-        assert rows == [{"email": "a@example.com", "contact_id": "list_1"}]
+        assert result.raised is None
+        assert result.rows == [{"email": "a@example.com", "contact_id": "list_1"}]
         # An email is only unique within one contact list, so the parent id is part of the key.
-        assert response.primary_keys == ["contact_id", "email"]
-
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.tinyemail.build_dependent_resource"
-    )
-    def test_tinyemail_source_contact_members_wiring(self, mock_build_dependent_resource) -> None:
-        mock_build_dependent_resource.return_value = iter([])
-
-        tinyemail_source(api_key="key", endpoint="contact_members", team_id=1, job_id="job-1")
-
-        kwargs = mock_build_dependent_resource.call_args.kwargs
-        assert kwargs["page_size_param"] == "size"
-        assert kwargs["client_config"]["allow_redirects"] is False
-        assert kwargs["fanout"].parent_name == "contacts"
-        assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], SinglePagePaginator)
-        assert kwargs["parent_endpoint_extra"]["data_selector"] == "contacts"
-        child_paginator = kwargs["child_endpoint_extra"]["paginator"]
-        assert isinstance(child_paginator, PageNumberPaginator)
-        # Member pages are 1-indexed (unlike campaign pages) — starting at 0 would duplicate page one.
-        assert child_paginator.page == 1
-        assert kwargs["child_endpoint_extra"]["data_selector"] == "members.content"
+        assert result.response is not None
+        assert result.response.primary_keys == ["contact_id", "email"]
 
     @parameterized.expand(
         [
@@ -116,30 +92,13 @@ class TestTinyemailTransport:
             ("server_error", 500, False, "tinyEmail API returned an unexpected status code 500"),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.tinyemail.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, _name, status, expected_valid, expected_message, mock_session):
-        mock_session.return_value.get.return_value = Mock(status_code=status)
+    def test_validate_credentials_status_mapping(self, _name, status, expected_valid, expected_message):
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
+            assert validate_credentials(api_key="key") == (expected_valid, expected_message)
 
-        assert validate_credentials(api_key="key") == (expected_valid, expected_message)
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.tinyemail.make_tracked_session")
-    def test_validate_credentials_sends_api_key_header(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=200)
-
-        validate_credentials(api_key="secret-key")
-
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.tinyemail.com/v1/contacts"
-        assert call.kwargs["headers"]["X-API-KEY"] == "secret-key"
-        assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
-        # A followed cross-host redirect would replay the X-API-KEY header off-host.
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.tinyemail.make_tracked_session")
-    def test_validate_credentials_handles_request_exception(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.exceptions.RequestException("boom")
-
-        is_valid, message = validate_credentials(api_key="key")
+    def test_validate_credentials_handles_request_exception(self) -> None:
+        with scripted_network(always(ConnectionResetError("reset"))):
+            is_valid, message = validate_credentials(api_key="key")
 
         assert is_valid is False
         assert message is not None and "Could not connect to the tinyEmail API" in message

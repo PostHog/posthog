@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.buttondown import (
     BUTTONDOWN_BASE_URL,
     ButtondownResumeConfig,
@@ -38,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ButtondownSource(ResumableSource[ButtondownSourceConfig, ButtondownResumeConfig]):
+    codebase_detection = detect(env=("^BUTTONDOWN_",), npm=("buttondown",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2026-04-01",)
     default_version = "2026-04-01"
@@ -50,7 +51,7 @@ class ButtondownSource(ResumableSource[ButtondownSourceConfig, ButtondownResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BUTTONDOWN,
+            name=ExternalDataSourceType.BUTTONDOWN,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Buttondown",
             releaseStatus=ReleaseStatus.ALPHA,

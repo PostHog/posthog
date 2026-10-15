@@ -31,6 +31,8 @@ const heatmapsEvents = (): ToolBase<ReturnType<typeof HeatmapsEventsSchema>, Sch
                 limit: params.limit,
                 offset: params.offset,
                 points: params.points,
+                timestamp_from: params.timestamp_from,
+                timestamp_to: params.timestamp_to,
                 type: params.type,
                 url_exact: params.url_exact,
                 url_pattern: params.url_pattern,
@@ -68,6 +70,8 @@ const heatmapsList = (): ToolBase<
                 hide_zero_coordinates: params.hide_zero_coordinates,
                 limit: params.limit,
                 offset: params.offset,
+                timestamp_from: params.timestamp_from,
+                timestamp_to: params.timestamp_to,
                 type: params.type,
                 url_exact: params.url_exact,
                 url_pattern: params.url_pattern,
@@ -497,7 +501,13 @@ const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventCon
 
 const AssistantDateRange = z.object({
     date_from: z.string().describe('ISO8601 date string.'),
-    date_to: z.string().nullable().describe('ISO8601 date string.').optional(),
+    date_to: z
+        .string()
+        .nullable()
+        .describe(
+            'ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.'
+        )
+        .optional(),
 })
 
 const AssistantDurationRange = z.object({
@@ -566,6 +576,7 @@ const WebStatsBreakdown = z.enum([
     'FirstPageviewUTMContent',
     'FirstPageviewUTMSourceMediumCampaign',
     'Browser',
+    'InAppBrowser',
     'OS',
     'Viewport',
     'DeviceType',

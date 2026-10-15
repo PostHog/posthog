@@ -1,0 +1,237 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Listing field extractor hits a connection error",
+  "scenario": "A LangChain agent (posthog-python) extracts structured fields from a raw listing description via a finalize tool call, but the underlying Anthropic call fails before it ever reaches the server, so every span in the trace records the same connection error.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1,
+      "$ai_span": 1,
+      "$ai_trace": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 3,
+    "libs": [
+      "posthog-ai"
+    ],
+    "providers": [
+      "anthropic"
+    ],
+    "frameworks": [
+      "langchain"
+    ],
+    "models": [
+      "claude-sonnet-4-6"
+    ],
+    "content_types": [
+      "ephemeral",
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$lib_version": "7.56.0",
+        "$ai_lib": "posthog-ai",
+        "$ai_trace_id": "trc_f9aOYO71zBAtCSqlOXvYKCNY",
+        "$ai_framework": "langchain",
+        "run_ref": "r4x9z",
+        "$ai_span_id": "1afd1334-32ef-7ee8-3d31-989cbe33a1a6",
+        "$ai_span_name": "extract_listing_fields",
+        "$ai_http_status": 0,
+        "$python_version": "3.14.3",
+        "$ai_model": "claude-sonnet-4-6",
+        "$is_server": true,
+        "$geoip_disable": true,
+        "surface": "main-qOkn36kNU",
+        "$ai_is_error": true,
+        "environment": "development",
+        "$ai_provider": "anthropic",
+        "$ai_model_parameters": {
+          "max_tokens": 300,
+          "streaming": false,
+          "temperature": 0
+        },
+        "$ai_parent_id": "08273082-5638-725e-f6e7-7e69f43f8c6d",
+        "$ai_base_url": null,
+        "$ai_error": "anthropic.APIConnectionError: Connection error while calling the Anthropic API: [Errno 61] Connection refused. Check the configured base_url and network access.",
+        "$python_runtime": "CPython",
+        "$os": "Mac OS X",
+        "$os_version": "27.0",
+        "$lib": "posthog-python",
+        "$ai_lib_version": "7.56.0",
+        "$ai_latency": 0.0007319450378417969,
+        "$ai_input": [
+          {
+            "content": [
+              {
+                "cache_control": {
+                  "type": "ephemeral"
+                },
+                "text": "You are a structured-data extraction agent for a real-estate listing\npipeline. You will be given the raw free-text description of a\nproperty listing, exactly as a listing agent typed it, and your job\nis to pull out every discrete fact worth its own field: bedroom\ncount, bathroom count, square footage, lot size, year built, HOA\nfee, and any notable feature mentioned such as a renovated kitchen\nor a finished basement.\n\nCall the finalize tool exactly once with a rows array. Each row is\none extracted fact, with an optional line_no if you can tell which\nline of the input it came from and a title describing the fact in\nplain language, such as \"3 bedrooms\" or \"HOA fee of $340/month\".\n\nDo not invent a fact that is not stated or clearly implied in the\ntext. If the listing does not mention a fact at all, simply omit\nthat row rather than guessing a typical value for the area. If a\nfigure is given as a range, such as \"1,800 to 1,950 sqft\", keep the\nrange in the title rather than picking one number arbitrarily.\n\nNever respond with plain text. Every response must be exactly one\ncall to the finalize tool, with no other tool calls and no\ncommentary before or after it.",
+                "type": "text"
+              }
+            ],
+            "role": "system"
+          },
+          {
+            "content": "Here is the raw listing description text, please pull out the fields:",
+            "role": "user"
+          }
+        ],
+        "$ai_tools": [
+          {
+            "description": "",
+            "input_schema": {
+              "properties": {
+                "rows": {
+                  "items": {
+                    "properties": {
+                      "line_no": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The line number this field appeared on, if known."
+                      },
+                      "title": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "line_no",
+                      "title"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "rows"
+              ],
+              "type": "object"
+            },
+            "name": "finalize"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 1,
+      "distinct_id": "user-1",
+      "properties": {
+        "run_ref": "r4x9z",
+        "$python_runtime": "CPython",
+        "$ai_latency": 0.0034456253051757812,
+        "$ai_span_name": "PydanticOutputParser",
+        "$os": "Mac OS X",
+        "$ai_trace_id": "trc_f9aOYO71zBAtCSqlOXvYKCNY",
+        "$os_version": "27.0",
+        "$geoip_disable": true,
+        "$ai_parent_id": "trc_f9aOYO71zBAtCSqlOXvYKCNY",
+        "$ai_lib_version": "7.56.0",
+        "$is_server": true,
+        "environment": "development",
+        "$ai_is_error": true,
+        "$ai_framework": "langchain",
+        "surface": "main-qOkn36kNU",
+        "$ai_span_id": "08273082-5638-725e-f6e7-7e69f43f8c6d",
+        "$python_version": "3.14.3",
+        "$ai_error": "anthropic.APIConnectionError: Connection error while calling the Anthropic API: [Errno 61] Connection refused. Check the configured base_url and network access.",
+        "$lib": "posthog-python",
+        "$lib_version": "7.56.0",
+        "$ai_lib": "posthog-ai",
+        "$ai_input_state": [
+          {
+            "additional_kwargs": {},
+            "content": [
+              {
+                "cache_control": {
+                  "type": "ephemeral"
+                },
+                "text": "You are a structured-data extraction agent for a real-estate listing\npipeline. You will be given the raw free-text description of a\nproperty listing, exactly as a listing agent typed it, and your job\nis to pull out every discrete fact worth its own field: bedroom\ncount, bathroom count, square footage, lot size, year built, HOA\nfee, and any notable feature mentioned such as a renovated kitchen\nor a finished basement.\n\nCall the finalize tool exactly once with a rows array. Each row is\none extracted fact, with an optional line_no if you can tell which\nline of the input it came from and a title describing the fact in\nplain language, such as \"3 bedrooms\" or \"HOA fee of $340/month\".\n\nDo not invent a fact that is not stated or clearly implied in the\ntext. If the listing does not mention a fact at all, simply omit\nthat row rather than guessing a typical value for the area. If a\nfigure is given as a range, such as \"1,800 to 1,950 sqft\", keep the\nrange in the title rather than picking one number arbitrarily.\n\nNever respond with plain text. Every response must be exactly one\ncall to the finalize tool, with no other tool calls and no\ncommentary before or after it.",
+                "type": "text"
+              }
+            ],
+            "id": null,
+            "name": null,
+            "response_metadata": {},
+            "type": "system"
+          },
+          {
+            "additional_kwargs": {},
+            "content": "Here is the raw listing description text, please pull out the fields:",
+            "id": null,
+            "name": null,
+            "response_metadata": {},
+            "type": "human"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 1,
+      "distinct_id": "user-1",
+      "properties": {
+        "$lib_version": "7.56.0",
+        "$ai_lib_version": "7.56.0",
+        "surface": "main-qOkn36kNU",
+        "$python_version": "3.14.3",
+        "environment": "development",
+        "$ai_span_id": "3e2e3e66-8cf9-7571-eb77-c11141f5d045",
+        "$python_runtime": "CPython",
+        "$ai_span_name": "RunnableSequence",
+        "$ai_latency": 0.00413203239440918,
+        "$lib": "posthog-python",
+        "run_ref": "r4x9z",
+        "$geoip_disable": true,
+        "$ai_framework": "langchain",
+        "$is_server": true,
+        "$ai_lib": "posthog-ai",
+        "$ai_is_error": true,
+        "$ai_trace_id": "trc_f9aOYO71zBAtCSqlOXvYKCNY",
+        "$os": "Mac OS X",
+        "$ai_error": "anthropic.APIConnectionError: Connection error while calling the Anthropic API: [Errno 61] Connection refused. Check the configured base_url and network access.",
+        "$os_version": "27.0",
+        "$ai_input_state": [
+          {
+            "additional_kwargs": {},
+            "content": [
+              {
+                "cache_control": {
+                  "type": "ephemeral"
+                },
+                "text": "You are a structured-data extraction agent for a real-estate listing\npipeline. You will be given the raw free-text description of a\nproperty listing, exactly as a listing agent typed it, and your job\nis to pull out every discrete fact worth its own field: bedroom\ncount, bathroom count, square footage, lot size, year built, HOA\nfee, and any notable feature mentioned such as a renovated kitchen\nor a finished basement.\n\nCall the finalize tool exactly once with a rows array. Each row is\none extracted fact, with an optional line_no if you can tell which\nline of the input it came from and a title describing the fact in\nplain language, such as \"3 bedrooms\" or \"HOA fee of $340/month\".\n\nDo not invent a fact that is not stated or clearly implied in the\ntext. If the listing does not mention a fact at all, simply omit\nthat row rather than guessing a typical value for the area. If a\nfigure is given as a range, such as \"1,800 to 1,950 sqft\", keep the\nrange in the title rather than picking one number arbitrarily.\n\nNever respond with plain text. Every response must be exactly one\ncall to the finalize tool, with no other tool calls and no\ncommentary before or after it.",
+                "type": "text"
+              }
+            ],
+            "id": null,
+            "name": null,
+            "response_metadata": {},
+            "type": "system"
+          },
+          {
+            "additional_kwargs": {},
+            "content": "Here is the raw listing description text, please pull out the fields:",
+            "id": null,
+            "name": null,
+            "response_metadata": {},
+            "type": "human"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

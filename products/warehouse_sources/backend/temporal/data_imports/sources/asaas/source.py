@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.asaas import (
     AsaasResumeConfig,
     asaas_source,
@@ -18,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.asaa
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.settings import (
     ENDPOINTS,
+    FANOUT_PARENTS,
     INCREMENTAL_FIELDS,
+    PARTITION_KEYS,
+    PRIMARY_KEYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -37,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AsaasSource(ResumableSource[AsaasSourceConfig, AsaasResumeConfig]):
+    codebase_detection = detect(env=("^ASAAS_",), maven=("com.asaas:api-sdk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)
     default_version = "v3"
@@ -103,28 +107,34 @@ class AsaasSource(ResumableSource[AsaasSourceConfig, AsaasResumeConfig]):
             if inputs.should_use_incremental_field
             else None,
         )
+        partition_key = PARTITION_KEYS.get(inputs.schema_name)
         return SourceResponse(
             name=resource.name,
             items=lambda: resource,
-            primary_keys=["id"],
-            partition_mode="datetime",
-            partition_format="month",
-            partition_keys=["dateCreated"],
+            primary_keys=PRIMARY_KEYS.get(inputs.schema_name, ["id"]),
+            partition_mode="datetime" if partition_key else None,
+            partition_format="month" if partition_key else None,
+            partition_keys=[partition_key] if partition_key else None,
+            # The fan-out saves no checkpoint, so a shutdown hand-off would only restart the sweep.
+            supports_resume=inputs.schema_name not in FANOUT_PARENTS,
         )
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ASAAS,
+            name=ExternalDataSourceType.ASAAS,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Asaas",
             caption=(
                 "Connect your Asaas account using an API key to sync customers, payments, "
-                "subscriptions, transfers, and installments. Find your key in Asaas under "
+                "subscriptions, transfers, installments, invoices, received splits, Pix "
+                "transactions, payment links, dunnings, bill payments, and your account "
+                "statement. Find your key in Asaas under "
                 "**Integrações** > **API**."
             ),
             keywords=["billing", "payments", "brazil"],
             iconPath="/static/services/asaas.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/asaas",
             fields=cast(
                 list[FieldType],
                 [

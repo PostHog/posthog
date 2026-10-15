@@ -179,6 +179,9 @@
                             "type": "array"
                         },
                         "bytecode": {},
+                        "bytecode_contract": {
+                            "type": "string"
+                        },
                         "bytecode_error": {
                             "type": "string"
                         },
@@ -255,6 +258,9 @@
                             "bytecode": {
                                 "items": {},
                                 "type": "array"
+                            },
+                            "bytecode_contract": {
+                                "type": "string"
                             },
                             "order": {
                                 "type": "number"
@@ -392,6 +398,9 @@
                                                 "type": "array"
                                             },
                                             "bytecode": {},
+                                            "bytecode_contract": {
+                                                "type": "string"
+                                            },
                                             "bytecode_error": {
                                                 "type": "string"
                                             },
@@ -450,6 +459,9 @@
                                                 "bytecode": {
                                                     "items": {},
                                                     "type": "array"
+                                                },
+                                                "bytecode_contract": {
+                                                    "type": "string"
                                                 },
                                                 "order": {
                                                     "type": "number"

@@ -17,12 +17,14 @@ describe('GitHubInstallationLink', () => {
                 account_name: 'PostHog',
                 account_type: 'Organization',
                 source_team_id: 1,
+                source_team_name: 'Website',
             },
             {
                 installation_id: '202',
                 account_name: 'Hedgebox',
                 account_type: 'Organization',
                 source_team_id: 2,
+                source_team_name: 'Hedgebox app',
             },
         ]
 
@@ -49,6 +51,7 @@ describe('GitHubInstallationLink', () => {
                 account_name: 'PostHog',
                 account_type: 'Organization',
                 source_team_id: null,
+                source_team_name: null,
             },
         ]
 

@@ -15,7 +15,7 @@ import AlphaRelease from '../_snippets/alpha-release.mdx'
 
 <AlphaRelease />
 
-Capsule CRM is a CRM for small and medium businesses covering contacts, the sales pipeline, and project management. This connector syncs your Capsule contacts, opportunities, projects, tasks, and supporting reference data into the PostHog data warehouse so you can join CRM records with your product and revenue data.
+Capsule CRM is a CRM for small and medium businesses covering contacts, the sales pipeline, and project management. This connector syncs your Capsule contacts, opportunities, projects, tasks, activity timeline, and supporting reference data into the PostHog data warehouse so you can join CRM records with your product and revenue data.
 
 ## Prerequisites
 
@@ -37,7 +37,9 @@ Capsule's API is rate limited to roughly 4,000 requests per hour per user, so ve
 
 <SyncModes />
 
-Parties, opportunities, and projects support **incremental** syncs using Capsule's `since` change filter (tracked on `updatedAt`), so ongoing syncs only pull records that changed since the last run. The remaining tables (tasks, users, milestones, pipelines, categories, and lost reasons) are full refresh only, since Capsule does not expose a server-side change filter for them.
+Parties, opportunities, and projects support **incremental** syncs using Capsule's `since` change filter (tracked on `updatedAt`), so ongoing syncs only pull records that changed since the last run. The remaining tables (entries, tasks, users, milestones, pipelines, categories, lost reasons, boards, stages, and the tag tables) are full refresh only, since Capsule does not expose a server-side change filter for them.
+
+The `entries` table holds your activity timeline: notes, emails, and completed tasks. It's usually the largest table in a Capsule account, and Capsule has no change filter for it, so every sync pulls the full history. Sync it on a schedule that suits its size.
 
 ## Configuration
 

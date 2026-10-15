@@ -8,7 +8,7 @@ approach — batch reads on a schedule.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import AbstractContextManager, suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _connect_with_dropped_retry,
     _is_connection_dropped_error,
     _safe_close_connection,
+    get_enforced_unique_keys,
     get_primary_key_columns,
 )
 
@@ -156,8 +157,8 @@ class PgCDCStreamReader:
 
         ``upto_nchanges`` bounds one peek: ``pg_logical_slot_peek_binary_changes`` stops once a
         transaction's COMMIT pushes the decoded-change count past it. It never splits a
-        transaction, so a single large transaction is still returned in full (the decoder's own
-        buffer guard bounds that case). ``None`` reads the whole backlog.
+        transaction, so a single large transaction is still returned in full (the decoder spills it
+        to a temporary file rather than holding it in memory). ``None`` reads the whole backlog.
 
         ``on_row`` is invoked once per fetched WAL row so the caller can heartbeat during a long
         decode — the decoder yields nothing until a COMMIT, so a big transaction would otherwise
@@ -342,6 +343,15 @@ class PgCDCStreamReader:
             raise RuntimeError("Not connected. Call connect() first.")
         return get_primary_key_columns(self._conn, schema_name, table_names)
 
+    def get_enforced_unique_keys(self, schema_name: str, table_names: list[str]) -> dict[str, list[frozenset[str]]]:
+        """Column sets that no two rows of a table can hold at the same time, per table."""
+        if self._conn is None:
+            raise RuntimeError("Not connected. Call connect() first.")
+        return get_enforced_unique_keys(self._conn, schema_name, table_names)
+
+    def set_key_change_columns(self, columns_by_table: Mapping[str, Iterable[str]]) -> None:
+        self._decoder.set_key_change_columns(columns_by_table)
+
     @property
     def truncated_tables(self) -> list[str]:
         """Tables that received a TRUNCATE during the last read_changes() call."""
@@ -373,6 +383,7 @@ class PgCDCStreamReader:
         return self._last_rows_consumed
 
     def close(self) -> None:
+        self._decoder.close()
         if self._conn is not None:
             self._conn.close()
             self._conn = None

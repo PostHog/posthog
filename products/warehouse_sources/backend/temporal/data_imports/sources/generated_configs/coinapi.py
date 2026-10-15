@@ -8,6 +8,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 class CoinApiSourceConfig(config.Config):
     api_key: str
     exchange_rate_base_asset: str | None = None
+    exchange_rate_quote_asset: str | None = None
     symbol_id: str | None = None
     period_id: str | None = None
+    metric_id: str | None = None
     start_date: str | None = None

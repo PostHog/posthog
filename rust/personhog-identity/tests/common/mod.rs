@@ -10,12 +10,15 @@ use rand::Rng;
 use sqlx::postgres::PgPool;
 
 use personhog_identity::config::IdentityTables;
+use personhog_identity::pools::IdentityPools;
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
 
 /// The production table set. Most tests run here; the raw-SQL assertion
 /// helpers in the test binaries assume it.
 /// Leader fan-out width the suites run with; production reads it from config.
 pub const FAN_OUT_CONCURRENCY: usize = 8;
+/// Partition count the delete driver groups its fence batches by.
+pub const NUM_PARTITIONS: u32 = 4;
 
 pub fn default_tables() -> IdentityTables {
     IdentityTables::real()
@@ -28,6 +31,7 @@ pub fn tmp_tables() -> IdentityTables {
 
 pub struct TestContext {
     pub pool: PgPool,
+    pub pools: IdentityPools,
     pub storage: Arc<PostgresIdentityStorage>,
     pub team_id: i64,
     pub tables: IdentityTables,
@@ -45,10 +49,12 @@ impl TestContext {
         let pool = PgPool::connect(&database_url)
             .await
             .expect("Failed to connect to test database");
-        let storage = Arc::new(PostgresIdentityStorage::new(pool.clone(), tables.clone()));
+        let pools = IdentityPools::shared(pool.clone());
+        let storage = Arc::new(PostgresIdentityStorage::new(pools.clone(), tables.clone()));
         let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         Self {
             pool,
+            pools,
             storage,
             team_id,
             tables,
@@ -100,7 +106,7 @@ impl TestContext {
     /// explicit lease_expires_at values instead of waiting this out.
     pub fn engine(&self) -> personhog_identity::lifecycle::engine::Engine {
         personhog_identity::lifecycle::engine::Engine::new(
-            self.pool.clone(),
+            self.pools.clone(),
             personhog_identity::lifecycle::engine::EngineConfig {
                 lease: std::time::Duration::from_secs(300),
                 execute_timeout: std::time::Duration::from_secs(10),
@@ -223,6 +229,17 @@ impl TestContext {
 pub struct UnusedLeader;
 
 #[async_trait::async_trait]
+impl personhog_identity::leader::PersonStateReader for UnusedLeader {
+    async fn is_identified(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+    ) -> Result<Option<bool>, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+}
+
+#[async_trait::async_trait]
 impl personhog_identity::leader::PropertyWriter for UnusedLeader {
     async fn update_person_properties(
         &self,
@@ -242,10 +259,24 @@ impl personhog_identity::leader::LifecycleLeader for UnusedLeader {
         Err(tonic::Status::unimplemented("not exercised by this test"))
     }
 
+    async fn fence_persons(
+        &self,
+        _request: personhog_proto::personhog::types::v1::FencePersonsRequest,
+    ) -> Result<personhog_proto::personhog::types::v1::FencePersonsResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+
     async fn release_fence(
         &self,
         _request: personhog_proto::personhog::types::v1::ReleaseFenceRequest,
     ) -> Result<personhog_proto::personhog::types::v1::ReleaseFenceResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+
+    async fn release_fences(
+        &self,
+        _request: personhog_proto::personhog::types::v1::ReleaseFencesRequest,
+    ) -> Result<personhog_proto::personhog::types::v1::ReleaseFencesResponse, tonic::Status> {
         Err(tonic::Status::unimplemented("not exercised by this test"))
     }
 
@@ -270,6 +301,14 @@ impl personhog_identity::storage::IdentityStorage for UnusedStorage {
     ) -> personhog_identity::storage::StorageResult<
         std::collections::HashMap<(i64, String), personhog_identity::storage::Person>,
     > {
+        panic!("not exercised by this test")
+    }
+
+    async fn resolve_person_ids(
+        &self,
+        _keys: &[(i64, String)],
+    ) -> personhog_identity::storage::StorageResult<std::collections::HashMap<(i64, String), i64>>
+    {
         panic!("not exercised by this test")
     }
 
@@ -350,6 +389,14 @@ impl personhog_identity::storage::IdentityStorage for RacingStorage {
             .unwrap()
             .extend(keys.iter().cloned());
         self.inner.resolve_distinct_ids(keys).await
+    }
+
+    async fn resolve_person_ids(
+        &self,
+        keys: &[(i64, String)],
+    ) -> personhog_identity::storage::StorageResult<std::collections::HashMap<(i64, String), i64>>
+    {
+        self.inner.resolve_person_ids(keys).await
     }
 
     async fn get_distinct_ids_for_persons(

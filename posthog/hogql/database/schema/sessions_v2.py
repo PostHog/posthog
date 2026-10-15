@@ -29,6 +29,7 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
     build_session_id_literal_pushdown_predicate,
     build_session_id_v7_pushdown_predicate,
     build_session_property_pre_aggregation_predicate,
+    top_level_conjuncts,
 )
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -516,14 +517,7 @@ def build_direct_session_id_in_pushdown(
     if occurrence_type is None:
         return None
 
-    def flatten_and(expr: ast.Expr) -> list[ast.Expr]:
-        if isinstance(expr, ast.And):
-            return [t for sub in expr.exprs for t in flatten_and(sub)]
-        if isinstance(expr, ast.Call) and expr.name == "and":
-            return [t for sub in expr.args for t in flatten_and(sub)]
-        return [expr]
-
-    for term in flatten_and(node.where):
+    for term in top_level_conjuncts(node.where):
         if not isinstance(term, ast.CompareOperation) or term.op not in (
             ast.CompareOperationOp.In,
             ast.CompareOperationOp.GlobalIn,

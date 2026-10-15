@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -41,6 +40,25 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OnePasswordSource(ResumableSource[OnePasswordSourceConfig, OnePasswordResumeConfig]):
+    codebase_detection = detect(
+        env=("^ONEPASSWORD_", "^OP_SERVICE_ACCOUNT_TOKEN$", "^OP_CONNECT_HOST$", "^OP_CONNECT_TOKEN$"),
+        npm=(
+            "@1password/sdk",
+            "@1password/connect",
+            "@1password/op-js",
+            "@1password/asset-fingerprint",
+            "@1password/pulumi-onepassword",
+            "@1password/save-button",
+        ),
+        pypi=("onepassword-sdk", "onepasswordconnectsdk"),
+        go=(
+            "github.com/1password/onepassword-sdk-go",
+            "github.com/1Password/connect-sdk-go",
+            "github.com/1Password/onepassword-operator",
+            "github.com/1Password/vault-plugin-secrets-onepassword",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -50,7 +68,7 @@ class OnePasswordSource(ResumableSource[OnePasswordSourceConfig, OnePasswordResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ONE_PASSWORD,
+            name=ExternalDataSourceType.ONEPASSWORD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="1Password",
             releaseStatus=ReleaseStatus.ALPHA,

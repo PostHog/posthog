@@ -1,4 +1,4 @@
-// Shared scope bar: hierarchy chips (repo › workflow › run) on the left, dismissible filter chips on
+// Shared scope bar: the in-page trail (list › entity) on the left, dismissible filter chips on
 // the right, and the shared date scope (engineeringAnalyticsFiltersLogic) so a window picked on one page
 // carries to the next. The run-scope control lives here too, but pages dock it on their scope panel.
 
@@ -6,32 +6,25 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment, ReactNode, useState } from 'react'
 
-import { IconX } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDropdown,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonSelect,
-    Link,
-    Spinner,
-} from '@posthog/lemon-ui'
+import { IconChevronDown, IconX } from '@posthog/icons'
+import { LemonButton, LemonDropdown, LemonInput, LemonSegmentedButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { cn } from 'lib/utils/css-classes'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
-import { scopeFromValue, withScope } from '../lib/scope'
+import { DateMappingOption } from '~/types'
+
+import { withScope } from '../lib/scope'
 import {
     RUN_SCOPE_OPTIONS,
     SHARED_DEFAULT_DATE_FROM,
     engineeringAnalyticsFiltersLogic,
 } from '../scenes/engineeringAnalyticsFiltersLogic'
-import { engineeringAnalyticsLogic } from '../scenes/engineeringAnalyticsLogic'
 import { workflowSwitcherLogic } from '../scenes/workflowSwitcherLogic'
 
-// The endpoints require a window start (no "all time") — relative windows + Custom only.
+// The endpoints require a window start (no "all time"), so offer relative windows and Custom only.
 export const SCOPE_DATE_OPTIONS = dateMapping.filter(({ key }) =>
     [
         'Custom',
@@ -43,6 +36,11 @@ export const SCOPE_DATE_OPTIONS = dateMapping.filter(({ key }) =>
         'Last 90 days',
         'Last 180 days',
     ].includes(key)
+)
+
+// The delivery reads cap a window at a year, so they offer only presets inside it and no custom range.
+export const DELIVERY_DATE_OPTIONS = dateMapping.filter(({ key }) =>
+    ['Last 7 days', 'Last 14 days', 'Last 30 days', 'Last 90 days', 'Last 180 days', 'This year'].includes(key)
 )
 
 export interface ScopeCrumb {
@@ -60,52 +58,6 @@ export interface LensChip {
 
 const CHIP_CLASS =
     'inline-flex items-center gap-1.5 rounded border border-primary bg-surface-primary px-2.5 py-1 text-xs text-secondary'
-
-/** A repo picker on multi-repo teams (multiple sources, or one source syncing several repos), otherwise
- *  the repo name. `pickerOnly` skips the static chip on pages that already state the repo elsewhere (the
- *  hub's entity header). */
-export function SourceScopeChip({ pickerOnly = false }: { pickerOnly?: boolean }): JSX.Element | null {
-    const { hasMultipleSources, sourceOptions, selectedScope, activeSource } = useValues(engineeringAnalyticsLogic)
-    const { setScope } = useActions(engineeringAnalyticsLogic)
-    const repoLabel = activeSource?.repo
-    if (hasMultipleSources) {
-        return (
-            <LemonSelect
-                size="small"
-                value={selectedScope}
-                onChange={(value) => {
-                    const { sourceId, repo } = value ? scopeFromValue(value) : { sourceId: null, repo: null }
-                    setScope(sourceId, repo)
-                }}
-                options={sourceOptions}
-                placeholder={repoLabel || 'Repository'}
-                allowClear
-                dropdownMatchSelectWidth={false}
-                data-attr="engineering-analytics-source-select"
-            />
-        )
-    }
-    // No repo name yet — render nothing rather than a dead "Repository" pill.
-    if (pickerOnly || !repoLabel) {
-        return null
-    }
-    return (
-        <span className={CHIP_CLASS}>
-            <strong className="font-semibold text-primary">{repoLabel}</strong>
-        </span>
-    )
-}
-
-/** Repo chip on detail pages: links back to the hub without mounting the hub's loaders. */
-export function RepoScopeChip({ label, to }: { label: string; to: string }): JSX.Element {
-    return (
-        <Link to={to}>
-            <span className={cn(CHIP_CLASS, 'cursor-pointer')}>
-                <strong className="font-semibold text-primary">{label}</strong>
-            </span>
-        </Link>
-    )
-}
 
 /** Workflow crumb that doubles as a switcher: a searchable dropdown of the repo's workflows, loaded
  *  lazily on first open, navigating to the picked workflow's page. */
@@ -192,14 +144,15 @@ export function WorkflowScopeChip({
                 </div>
             }
         >
-            <span
-                className={cn(CHIP_CLASS, 'cursor-pointer')}
+            <LemonButton
+                size="small"
+                type="secondary"
+                sideIcon={<IconChevronDown />}
                 title="Switch to another workflow in this repository"
                 data-attr="engineering-analytics-workflow-switcher"
             >
-                <strong className="font-semibold text-primary">{workflowName}</strong>
-                <span className="text-[8px] text-tertiary">▼</span>
-            </span>
+                {workflowName}
+            </LemonButton>
         </LemonDropdown>
     )
 }
@@ -209,8 +162,6 @@ const RUN_SCOPE_SEGMENTS = RUN_SCOPE_OPTIONS.map((option) => ({
     'data-attr': `engineering-analytics-run-scope-${option.value}`,
 }))
 
-/** The shared run-scope control: four fixed groups that partition the repo's runs. Every workflow
- *  surface sends the picked group, so a drill-down reports the same population as the list it came from. */
 export function RunScopeControl(): JSX.Element {
     const { runScope } = useValues(engineeringAnalyticsFiltersLogic)
     const { setRunScope } = useActions(engineeringAnalyticsFiltersLogic)
@@ -231,21 +182,28 @@ export function RunScopeControl(): JSX.Element {
 
 /** The shared window picker, wired to the cross-page date scope. Standalone so pages can place it outside
  *  the scope bar (the hub docks it in the repo header). */
-export function ScopeDateFilter(): JSX.Element {
+export function ScopeDateFilter({
+    dateOptions = SCOPE_DATE_OPTIONS,
+}: {
+    /** Custom and rolling ranges show only when the options include Custom. */
+    dateOptions?: DateMappingOption[]
+}): JSX.Element {
     const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
     const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
+    const allowsCustomRange = dateOptions.some(({ key }) => key === 'Custom')
     return (
         <DateFilter
             dateFrom={dateFrom}
             dateTo={dateTo}
             onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
-            dateOptions={SCOPE_DATE_OPTIONS}
+            dateOptions={dateOptions}
+            showCustomRangeOptions={allowsCustomRange}
+            showRollingRangePicker={allowsCustomRange}
             size="small"
         />
     )
 }
 
-/** The scope-panel rim both workflow pages share: run group on the left, window on the right. */
 export function WorkflowScopeControls(): JSX.Element {
     return (
         <>
@@ -256,27 +214,23 @@ export function WorkflowScopeControls(): JSX.Element {
 }
 
 export function ScopeBar({
-    repoSlot,
-    crumbs = [],
+    crumbs,
     lensFilter,
     showDate = true,
     extra,
 }: {
-    /** The repo chip: <SourceScopeChip /> on hub/list pages, <RepoScopeChip /> on detail pages. */
-    repoSlot: ReactNode
-    /** Hierarchy below the repo (workflow › run); empty on the repo hub itself. */
-    crumbs?: ScopeCrumb[]
-    /** The active cross-cutting lens (pr: #N) — dismissible, zooms out to `to`. */
+    /** The trail from the list tab to this page (Workflows › workflow › run). The title names the repository. */
+    crumbs: ScopeCrumb[]
+    /** The active cross-cutting lens (pr: #N). Dismissing it zooms out to `to`. */
     lensFilter?: LensChip
     showDate?: boolean
     extra?: ReactNode
 }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
-            {repoSlot}
-            {crumbs.map((crumb) => (
+            {crumbs.map((crumb, index) => (
                 <Fragment key={crumb.label}>
-                    <span className="text-xs text-tertiary">›</span>
+                    {index > 0 && <span className="text-xs text-tertiary">›</span>}
                     {crumb.node ? (
                         crumb.node
                     ) : crumb.to ? (

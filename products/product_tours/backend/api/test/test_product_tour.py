@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -18,6 +19,22 @@ from products.surveys.backend.models import Survey
 
 
 class TestProductTour(APIBaseTest):
+    @parameterized.expand([("sibling_environment", True, False), ("archived", False, True)])
+    @override_settings(DEBUG=True, GEMINI_API_KEY="test-key")
+    @patch("products.product_tours.backend.api.product_tour.generate_with_gemini")
+    def test_generate_returns_404_for_a_tour_it_cannot_serve(self, _name, in_sibling, archived, mock_generate):
+        team = self.create_sibling_environment() if in_sibling else self.team
+        tour = ProductTour.objects.create(team=team, name="Tour", content={"steps": []}, archived=archived)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/generate/",
+            data={"title": "Welcome"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_generate.assert_not_called()
+
     @patch("products.product_tours.backend.api.product_tour.report_user_action")
     def test_can_create_product_tour(self, mock_report):
         response = self.client.post(
@@ -1061,6 +1078,27 @@ class TestProductTourLinkedFlagValidation(APIBaseTest):
         assert response.status_code == expected_status
         if error_substring:
             assert error_substring in str(response.json())
+
+    def test_linked_flag_variant_rejects_a_flag_in_another_config_format(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="other-format",
+            created_by=self.user,
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Tour",
+                "linked_flag_id": flag.id,
+                "content": {"steps": [], "conditions": {"linkedFlagVariant": "control"}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "configuration format" in str(response.json())
 
     def test_linked_flag_variant_requires_linked_flag_id(self):
         response = self.client.post(

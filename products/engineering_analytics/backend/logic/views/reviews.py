@@ -1,12 +1,11 @@
-"""Curated pull-request reviews query builder.
+"""Curated pull request reviews query builder.
 
-Maps the raw ``github_reviews`` warehouse table (one row per submitted review, with the PR number
-injected by the source's fan-out) into the columns the review reads need. The review verdict
-vocabulary lives here once; consumers import the constants rather than restating the strings.
+The review verdict vocabulary lives here once, so consumers import the constants rather than
+restating the strings.
 
-The source drops PENDING drafts before rows land, so every row is a submitted review. The
-webhook path reshapes events into the polled REST shape, but ``upper`` still normalizes the
-state so a lowercase verdict can never silently miss the approval filter.
+The source drops PENDING drafts, so every row is a submitted review. The webhook path reshapes events
+into the polled REST shape, so ``upper`` normalizes the state and a lowercase verdict cannot miss the
+approval filter.
 """
 
 APPROVED_STATE = "APPROVED"

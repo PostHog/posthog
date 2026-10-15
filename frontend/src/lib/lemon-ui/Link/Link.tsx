@@ -46,8 +46,6 @@ export type LinkPrimitiveProps = Pick<
 }
 
 export type LinkProps = LinkPrimitiveProps & {
-    /** If true, docs links will not be opened in the docs panel */
-    disableDocsPanel?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     /**
@@ -90,8 +88,10 @@ const isPostHogDomain = (url: string): boolean => {
     return /^https:\/\/((www|app|eu)\.)?posthog\.com/.test(url)
 }
 
+// Any scheme-qualified target belongs to the browser, not to the app router. A target the router
+// claims gets the project prefix, and `/project/<id>/chrome-extension://…` matches no route.
 const isDirectLink = (url: string): boolean => {
-    return /^(mailto:|https?:\/\/|:\/\/)/.test(url)
+    return /^([a-zA-Z][a-zA-Z\d+\-.]*:|:\/\/)/.test(url)
 }
 
 /** Resolve a `to` target into a concrete href string. */
@@ -111,6 +111,10 @@ function resolveHref(to: LinkPrimitiveProps['to'], disableClientSideRouting?: bo
 }
 
 export type PostHogComDocsURL = `https://${'www.' | ''}posthog.com/docs/${string}`
+
+const isPostHogComDocs = (url: string): url is PostHogComDocsURL => {
+    return /^https:\/\/(www\.)?posthog\.com\/docs(\/|$|[?#])/.test(url)
+}
 
 /**
  * LinkPrimitive — styling-neutral routing core.
@@ -143,7 +147,9 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
         },
         ref
     ) => {
-        const externalLink = isExternalLink(to)
+        // `isExternalLink` knows http and mailto only, and `router.actions.push` rejects any other
+        // scheme with a `SecurityError`, so the scheme test widens the same exclusion.
+        const browserOwnedLink = isExternalLink(to) || (typeof to === 'string' && isDirectLink(to))
         const { elementProps: draggableProps } = useLinkDrag(typeof to === 'string' ? to : undefined)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
@@ -159,7 +165,7 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
                 return
             }
 
-            if (!target && to && !externalLink && !disableClientSideRouting && !shouldForcePageLoad(to)) {
+            if (!target && to && !browserOwnedLink && !disableClientSideRouting && !shouldForcePageLoad(to)) {
                 event.preventDefault()
                 if (to && to !== '#' && !preventClick) {
                     if (Array.isArray(to)) {
@@ -227,10 +233,9 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
     (
         {
             to,
-            target,
+            target: targetRaw,
             subtle,
             disableClientSideRouting,
-            disableDocsPanel: _disableDocsPanel,
             preventClick = false,
             onClick: onClickRaw,
             onAuxClick,
@@ -251,6 +256,8 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         ref
     ) => {
         const href = resolveHref(to, disableClientSideRouting)
+        // Docs open in a new tab so that a click does not unload the app and lose unsaved edits.
+        const target = targetRaw ?? (typeof to === 'string' && isPostHogComDocs(to) ? '_blank' : undefined)
 
         const elementClasses = buttonProps
             ? buttonPrimitiveVariants(buttonProps)

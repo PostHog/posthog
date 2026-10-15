@@ -1,25 +1,17 @@
-from unittest import mock
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack import (
-    source as better_stack_source_module,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.source import BetterStackSource
-
-
-class TestBetterStackSourceConfig:
-    def test_config_basics(self) -> None:
-        config = BetterStackSource().get_source_config
-        assert config.label == "Better Stack"
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source ships visible — the scaffold's unreleasedSource flag must stay gone.
-        assert not config.unreleasedSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.betterstack import (
+    BetterStackSourceConfig,
+)
 
 
 class TestBetterStackGetSchemas:
@@ -37,10 +29,16 @@ class TestBetterStackGetSchemas:
             ("monitor_availability", False, False),
             ("monitor_groups", False, False),
             ("heartbeats", False, False),
+            ("heartbeat_availability", False, False),
             ("heartbeat_groups", False, False),
             ("status_pages", False, False),
+            ("status_page_resources", False, False),
             ("on_calls", False, False),
+            ("on_call_events", False, False),
+            ("on_call_rotations", False, False),
             ("escalation_policies", False, False),
+            ("severities", False, False),
+            ("severity_groups", False, False),
             ("team_members", False, False),
             ("roles", False, False),
         ]
@@ -71,12 +69,14 @@ class TestBetterStackValidateCredentials:
     def test_status_mapping(
         self, _name: str, probe_status: int | None, schema_name: str | None, expected_ok: bool
     ) -> None:
-        with mock.patch.object(better_stack_source_module, "probe_credentials", return_value=probe_status):
+        answer = ConnectionError("disconnected") if probe_status is None else ScriptedResponse(status=probe_status)
+        with scripted_network(always(answer)) as network:
             ok, error = BetterStackSource().validate_credentials(
-                MagicMock(api_token="bs_test"), team_id=1, schema_name=schema_name
+                BetterStackSourceConfig(api_token="bs_test"), team_id=1, schema_name=schema_name
             )
         assert ok is expected_ok
         assert (error is None) is expected_ok
+        assert network.requests_log[0].headers["authorization"] == "Bearer bs_test"
 
 
 class TestBetterStackNonRetryableErrors:
@@ -137,6 +137,13 @@ class TestBetterStackResumableAndPipeline:
             ("incident_comments", ["incident_id", "id"], ["created_at"], "datetime", "desc"),
             ("monitor_response_times", ["monitor_id", "region", "at"], ["at"], "datetime", "desc"),
             ("monitor_availability", ["monitor_id"], None, None, "asc"),
+            ("heartbeat_availability", ["heartbeat_id"], None, None, "asc"),
+            # A status page resource id is only unique within its page, and a schedule's shift id
+            # only within that schedule, so both carry their parent.
+            ("status_page_resources", ["status_page_id", "id"], None, None, "asc"),
+            ("on_call_events", ["on_call_id", "id"], ["starts_at"], "datetime", "asc"),
+            # A rotation is one row per schedule and carries no id of its own.
+            ("on_call_rotations", ["on_call_id"], None, None, "asc"),
             # Members and pending invitations draw ids from separate spaces.
             ("team_members", ["id", "type"], None, None, "asc"),
             ("roles", ["id"], None, None, "asc"),
@@ -145,6 +152,8 @@ class TestBetterStackResumableAndPipeline:
             ("status_pages", ["id"], None, None, "asc"),
             ("on_calls", ["id"], None, None, "asc"),
             ("escalation_policies", ["id"], None, None, "asc"),
+            ("severities", ["id"], None, None, "asc"),
+            ("severity_groups", ["id"], None, None, "asc"),
         ]
     )
     def test_source_for_pipeline_per_endpoint(
@@ -155,25 +164,15 @@ class TestBetterStackResumableAndPipeline:
         expected_mode: str | None,
         expected_sort: str,
     ) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = endpoint
-        inputs.should_use_incremental_field = False
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-        response = BetterStackSource().source_for_pipeline(
-            MagicMock(api_token="bs_test"), resumable_source_manager=manager, inputs=inputs
+        result = SourceDriver(BetterStackSource(), BetterStackSourceConfig(api_token="bs_test")).run(
+            endpoint,
+            [ScriptedResponse(json={"data": [], "events": [], "pagination": {"next": None}})],
         )
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_primary_keys
         assert response.partition_keys == expected_keys
         assert response.partition_mode == expected_mode
         assert response.sort_mode == expected_sort
-
-
-class TestBetterStackCanonicalDescriptions:
-    def test_descriptions_keyed_by_endpoint_name(self) -> None:
-        descriptions = BetterStackSource().get_canonical_descriptions()
-        # Every documented key must be a real endpoint so enrichment binds to the right table.
-        assert set(descriptions).issubset(set(ENDPOINTS))
-        assert "incidents" in descriptions
-        assert descriptions["incidents"]["columns"]["id"]

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SimplesatSource(ResumableSource[SimplesatSourceConfig, SimplesatResumeConfig]):
+    codebase_detection = detect(env=("^SIMPLESAT_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://developer.simplesat.io/api"
@@ -51,7 +52,7 @@ class SimplesatSource(ResumableSource[SimplesatSourceConfig, SimplesatResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SIMPLESAT,
+            name=ExternalDataSourceType.SIMPLESAT,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Simplesat",
             releaseStatus=ReleaseStatus.ALPHA,

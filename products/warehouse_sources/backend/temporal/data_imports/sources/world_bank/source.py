@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WorldBankSource(ResumableSource[WorldBankSourceConfig, WorldBankResumeConfig]):
+    codebase_detection = detect(env=("^(WORLD_BANK|WORLDBANK)_",), pypi=("wbgapi", "wbdata"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # v2 is the only live version; v1 was shut down in June 2020. The version is a path segment
     # on every request the source makes.
@@ -53,7 +54,7 @@ class WorldBankSource(ResumableSource[WorldBankSourceConfig, WorldBankResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.WORLD_BANK,
+            name=ExternalDataSourceType.WORLDBANK,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="World Bank Open Data",
             releaseStatus=ReleaseStatus.ALPHA,

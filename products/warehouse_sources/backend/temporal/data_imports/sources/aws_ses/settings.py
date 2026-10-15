@@ -33,6 +33,7 @@ class AwsSesEndpointConfig:
     # Fan-out: column carrying the item name. Set explicitly on every row because detail
     # responses (GetEmailIdentity) do not echo the name back.
     name_column: str | None = None
+    list_only_on_bad_request: frozenset[str] = frozenset()
     # ListSuppressedDestinations accepts a server-side `StartDate` filter, which is what makes
     # that endpoint genuinely incremental.
     supports_start_date: bool = False
@@ -88,6 +89,7 @@ AWS_SES_ENDPOINTS: dict[str, AwsSesEndpointConfig] = {
         page_size=100,
         detail_path="/v2/email/dedicated-ip-pools/{name}",
         name_column="pool_name",
+        list_only_on_bad_request=frozenset({"ses-shared-pool", "ses-default-dedicated-pool"}),
     ),
     "dedicated_ips": AwsSesEndpointConfig(
         name="dedicated_ips",

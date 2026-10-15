@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,6 +35,29 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FusionAuthSource(ResumableSource[FusionAuthSourceConfig, FusionAuthResumeConfig]):
+    codebase_detection = detect(
+        env=("^FUSIONAUTH_", "^FUSION_AUTH_"),
+        npm=(
+            "@fusionauth/typescript-client",
+            "@fusionauth/react-sdk",
+            "@fusionauth/vue-sdk",
+            "@fusionauth/angular-sdk",
+        ),
+        pypi=("fusionauth-client",),
+        composer=("fusionauth/fusionauth-client",),
+        go=("github.com/FusionAuth/go-client",),
+        maven=(
+            "io.fusionauth:fusionauth-java-client",
+            "io.fusionauth:fusionauth-android-sdk",
+            "io.fusionauth:fusionauth-jwt",
+            "io.fusionauth:fusionauth-plugin-api",
+            "io.fusionauth:fusionauth-spring-security",
+        ),
+        pub=("fusionauth_dart_client",),
+        rubygems=("fusionauth_client",),
+        swiftpm=("github.com/fusionauth/fusionauth-swift-sdk",),
+    )
+
     api_docs_url = "https://fusionauth.io/docs/apis/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -52,7 +74,7 @@ class FusionAuthSource(ResumableSource[FusionAuthSourceConfig, FusionAuthResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FUSION_AUTH,
+            name=ExternalDataSourceType.FUSIONAUTH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="FusionAuth",
             releaseStatus=ReleaseStatus.ALPHA,

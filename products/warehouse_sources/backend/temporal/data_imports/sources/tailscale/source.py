@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TailscaleSource(ResumableSource[TailscaleSourceConfig, TailscaleResumeConfig]):
+    codebase_detection = detect(env=("^TAILSCALE_", "^TS_AUTHKEY$"), npm=("@tailscale/connect",), go=("tailscale.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -55,7 +56,7 @@ class TailscaleSource(ResumableSource[TailscaleSourceConfig, TailscaleResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TAILSCALE,
+            name=ExternalDataSourceType.TAILSCALE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Tailscale",
             releaseStatus=ReleaseStatus.ALPHA,

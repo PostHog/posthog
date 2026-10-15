@@ -23,6 +23,7 @@ import { identityProviderConfigLogic } from './identityProviderConfigLogic'
 import type { IdentityProviderConfigLogicProps } from './identityProviderConfigLogic'
 import { IDENTITY_PROVIDER_FEATURES, isIdentityProviderConfigScope } from './identityProviderConfigUtils'
 import { IdentityProviderDomainScope } from './IdentityProviderDomainScope'
+import { OIDCConfigFields } from './OIDCConfigFields'
 import { SAMLConfigFields } from './SAMLConfigFields'
 import { SCIMConfigFields } from './SCIMConfigFields'
 import { XAAConfigFields } from './XAAConfigFields'
@@ -66,6 +67,7 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
         openDeleteModal,
         closeDeleteModal,
         setDeleteConfirmation,
+        setIdentityProviderConfigFormValues,
     } = useActions(identityProviderConfigLogic)
     const { preflight } = useValues(preflightLogic)
     const restrictionReason = useRestrictedArea({
@@ -152,6 +154,18 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
                                     tokenLoading={regeneratedScimTokenLoading}
                                     disabled={isIdentityProviderConfigFormSubmitting}
                                     onRegenerateToken={regenerateScimToken}
+                                />
+                            ) : configScope === ConfigScopeEnumApi.Oidc ? (
+                                <OIDCConfigFields
+                                    siteUrl={siteUrl}
+                                    hasClientSecret={Boolean(identityProviderConfig?.has_oidc_client_secret)}
+                                    clientSecretCleared={identityProviderConfigForm.oidc_client_secret_cleared}
+                                    onClearClientSecret={() => {
+                                        setIdentityProviderConfigFormValues({
+                                            oidc_client_secret: '',
+                                            oidc_client_secret_cleared: true,
+                                        })
+                                    }}
                                 />
                             ) : (
                                 <XAAConfigFields isReady={Boolean(identityProviderConfigForm.id_jag_issuer_url)} />

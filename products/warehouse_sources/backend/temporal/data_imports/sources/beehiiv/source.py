@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.beehiiv import (
     BeehiivResumeConfig,
     beehiiv_source,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BeehiivSource(ResumableSource[BeehiivSourceConfig, BeehiivResumeConfig]):
+    codebase_detection = detect(env=("^BEEHIIV_",), npm=("@beehiiv/sdk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -49,7 +50,7 @@ class BeehiivSource(ResumableSource[BeehiivSourceConfig, BeehiivResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BEEHIIV,
+            name=ExternalDataSourceType.BEEHIIV,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="beehiiv",
             caption=(

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ReverbSource(ResumableSource[ReverbSourceConfig, ReverbResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # Reverb requires the `Accept-Version` header on every request. "3.0" is the vendor's
@@ -50,7 +51,7 @@ class ReverbSource(ResumableSource[ReverbSourceConfig, ReverbResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.REVERB,
+            name=ExternalDataSourceType.REVERB,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Reverb",
             releaseStatus=ReleaseStatus.ALPHA,

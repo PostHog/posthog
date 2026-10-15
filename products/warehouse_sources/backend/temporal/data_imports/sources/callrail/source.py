@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.callrail import (
     CallRailResumeConfig,
     callrail_source,
@@ -17,6 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.callrail.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MERGE_ONLY,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CallRailSource(ResumableSource[CallRailSourceConfig, CallRailResumeConfig]):
+    codebase_detection = detect(env=("^(CALL_RAIL|CALLRAIL)_",), script_hosts=("cdn.callrail.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)
     default_version = "v3"
@@ -56,7 +59,7 @@ class CallRailSource(ResumableSource[CallRailSourceConfig, CallRailResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CALL_RAIL,
+            name=ExternalDataSourceType.CALLRAIL,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="CallRail",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -115,7 +118,13 @@ Leave **Account ID** blank to use the first account your key can access, or set 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=MERGE_ONLY,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+        )
 
     def validate_credentials(
         self,

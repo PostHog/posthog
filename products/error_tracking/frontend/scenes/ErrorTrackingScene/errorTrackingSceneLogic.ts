@@ -73,12 +73,18 @@ export interface errorTrackingSceneLogicActions {
     } // bulkSelectLogic
     mutationFailure: (
         mutationName: string,
-        error: unknown
+        error: unknown,
+        issueId?: string | undefined
     ) => {
         error: unknown
+        issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
-    mutationSuccess: (mutationName: string) => {
+    mutationSuccess: (
+        mutationName: string,
+        issueId?: string | undefined
+    ) => {
+        issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
     setDateRange: (
@@ -261,7 +267,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     urlToAction(({ actions, values }) => {
         return {
-            '**/error_tracking': (_, params, hashParams) => {
+            '**/error-tracking': (_, params, hashParams) => {
                 if (params.activeTab && !equal(params.activeTab, values.activeTab)) {
                     actions.setActiveTab(params.activeTab)
                 }

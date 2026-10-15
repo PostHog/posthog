@@ -73,11 +73,16 @@ from posthog.clickhouse.preaggregation.sql import (
 )
 from posthog.clickhouse.query_log_archive import (
     DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    DISTRIBUTED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
     QUERY_LOG_ARCHIVE_OPS_MV,
     QUERY_LOG_ARCHIVE_OPS_MV_SQL,
+    QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL,
+    QUERY_LOG_ARCHIVE_V3_MV_SQL,
     SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
     WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
     WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
+    WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
@@ -304,10 +309,11 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
-    # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
+    # Both replay gate columns embed feature flag IDs in their containment probes, the linked
+    # flag directly and a trigger group nested inside `conditions.flag`. Normalize every one.
     query = re.sub(
-        r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
-        r"""session_recording_linked_flag" @> '{"id": 99999}'::jsonb""",
+        r"""session_recording_(?:linked_flag|trigger_groups)" @> '[^']*'""",
+        lambda probe: re.sub(r'"id": \d+', '"id": 99999', probe.group(0)),
         query,
     )
 
@@ -696,6 +702,11 @@ class PostHogTestCase(SimpleTestCase):
             raise ValueError("Test organization must be set before creating a user")
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
 
+    def create_sibling_environment(self, name: str = "Sibling env") -> Team:
+        # Same row shape as an environment added through the API: same project, no parent_team.
+        # It skips create_with_data, so the environment has no default dashboards or insights.
+        return Team.objects.create(organization=self.organization, project=self.project, name=name)
+
     @classmethod
     def setUpTestData(cls):
         if cls.CLASS_DATA_LEVEL_SETUP:
@@ -711,9 +722,11 @@ class PostHogTestCase(SimpleTestCase):
         # Warm the new-events-schema gate settings so their cold reads don't land inside
         # assertNumQueries blocks: production workers serve requests with this cache warm
         # (60s TTL), and counting the cold reads would make every exact-count test depend
-        # on which events-schema mode CI is running.
+        # on which events-schema mode CI is running. The deferred-revenue-views gate is read
+        # on the same database-build path, so it is warmed for the same reason.
         get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA")
         get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS")
+        get_instance_setting("HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED")
 
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
@@ -1476,7 +1489,7 @@ class NewEventsSchemaSnapshotExtension(AmberSnapshotExtension):
     keeps each schema mode's snapshots safe from the other mode's update runs.
     """
 
-    _file_extension = "new_events_schema.ambr"
+    file_extension = "new_events_schema.ambr"
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -1498,6 +1511,13 @@ class QueryMatchingTest:
         self._new_events_schema_snapshot_index = snapshot_index + 1
         snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
         return self.snapshot(name=snapshot_name, extension_class=NewEventsSchemaSnapshotExtension)
+
+    def sql_snapshot(self, printed: str):
+        """The snapshot to compare printed ClickHouse SQL against: a query that reads the native-JSON events
+        table goes to the schema-specific file, so one test keeps a snapshot per schema mode."""
+        return self._schema_snapshot(
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed.lower()
+        )
 
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
@@ -1782,6 +1802,44 @@ def _create_event(**kwargs):
         kwargs["timestamp"] = dt.datetime.now()
     events_cache_tests.append(kwargs)
     return kwargs["event_uuid"]
+
+
+def _create_flag_evaluations(
+    team_id: int,
+    flag_key: str,
+    count: int = 1,
+    timestamp: dt.datetime | None = None,
+    *,
+    distinct_id: str = "evaluator",
+    person_id: uuid.UUID | str | None = None,
+    response: str | bool = True,
+    properties: dict[str, Any] | None = None,
+) -> None:
+    """Insert `count` $feature_flag_called rows for flag_key into flag_evaluations. Unlike _create_event, it writes
+    the rows immediately. Each row gets a new random person_id unless the caller passes one."""
+    timestamp = timestamp or dt.datetime.now(dt.UTC)
+    properties_json = json.dumps({**(properties or {}), "$feature_flag": flag_key, "$feature_flag_response": response})
+    # writable_flag_evaluations does not declare flag_key. The shard computes it from properties.$feature_flag.
+    sync_execute(
+        """
+        INSERT INTO writable_flag_evaluations
+            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id)
+        VALUES
+        """,
+        [
+            (
+                str(uuid.uuid4()),
+                "$feature_flag_called",
+                properties_json,
+                timestamp,
+                team_id,
+                distinct_id,
+                timestamp,
+                str(person_id or uuid.uuid4()),
+            )
+            for _ in range(count)
+        ],
+    )
 
 
 def _warn_if_session_id_malformed(session_id: str):
@@ -2112,6 +2170,8 @@ def reset_clickhouse_database() -> None:
             WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
             SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
+            SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
+            QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(),
             COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
             PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
@@ -2136,6 +2196,8 @@ def reset_clickhouse_database() -> None:
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
+            DISTRIBUTED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
+            WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
             COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
             KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
@@ -2167,6 +2229,7 @@ def reset_clickhouse_database() -> None:
             QUERY_LOG_ARCHIVE_OPS_MV_SQL(
                 view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE
             ),
+            QUERY_LOG_ARCHIVE_V3_MV_SQL(),
         ]
     )
 
@@ -2363,7 +2426,7 @@ def snapshot_hogql_queries(fn_or_class):
 class HogQLSnapshotExtension(AmberSnapshotExtension):
     """Custom syrupy extension for HogQL snapshots to use separate files."""
 
-    _file_extension = "hogql.ambr"
+    file_extension = "hogql.ambr"
 
     @classmethod
     def serialize(cls, data, **kwargs):

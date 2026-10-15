@@ -520,14 +520,15 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
 
         result = self.select_by_session_id(session_id)
 
+        flag_key_values = result[0]["flag_key_values"]
         # contains all values
-        assert set(result[0]["flag_values"]["$feature/flag_string"]) == {"f1_a", "f1_b"}
+        assert {"$feature/flag_string=f1_a", "$feature/flag_string=f1_b"} <= set(flag_key_values)
         # converts to string
-        assert set(result[0]["flag_values"]["$feature/flag_int"]) == {"1", "2"}
+        assert {"$feature/flag_int=1", "$feature/flag_int=2"} <= set(flag_key_values)
         # converts to json string
-        assert set(result[0]["flag_values"]["$feature/flag_complex"]) == {'["hello",123]', '{"key":"value"}'}
+        assert {'$feature/flag_complex=["hello",123]', '$feature/flag_complex={"key":"value"}'} <= set(flag_key_values)
         # deduplicates
-        assert result[0]["flag_values"]["$feature/flag_duplicates"] == ["a"]
+        assert flag_key_values.count("$feature/flag_duplicates=a") == 1
 
     def test_lookup_feature_flag(self):
         distinct_id_1 = create_distinct_id()
@@ -570,9 +571,9 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             """
             select
                 session_id_v7,
-                has(flag_values['$feature/flag_string'], 'f1_a') as has_f1_a,
-                has(flag_values['$feature/flag_string'], 'f1_b') as has_f1_b,
-                has(flag_values['$feature/flag_string'], 'f1_c') as has_f1_c
+                has(flag_key_values, '$feature/flag_string=f1_a') as has_f1_a,
+                has(flag_key_values, '$feature/flag_string=f1_b') as has_f1_b,
+                has(flag_key_values, '$feature/flag_string=f1_c') as has_f1_c
             from raw_sessions_v3_v
             where
                 team_id = %(team_id)s

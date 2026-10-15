@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.bluetally import (
     BluetallyResumeConfig,
     bluetally_source,
@@ -34,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BluetallySource(ResumableSource[BluetallySourceConfig, BluetallyResumeConfig]):
+    codebase_detection = detect(env=("^BLUETALLY_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -52,7 +53,7 @@ class BluetallySource(ResumableSource[BluetallySourceConfig, BluetallyResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BLUETALLY,
+            name=ExternalDataSourceType.BLUETALLY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="BlueTally",
             releaseStatus=ReleaseStatus.ALPHA,

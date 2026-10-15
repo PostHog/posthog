@@ -1,14 +1,15 @@
 from typing import Any, Optional, cast
 
-from posthog.schema import (
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -43,6 +44,37 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LangSmithSource(ResumableSource[LangSmithSourceConfig, LangSmithResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^LANGSMITH_",
+            "^LANGCHAIN_API_KEY$",
+            "^LANGCHAIN_TRACING_V2$",
+            "^LANGCHAIN_ENDPOINT$",
+            "^LANGCHAIN_PROJECT$",
+            "^LANGCHAIN_WORKSPACE_ID$",
+            "^LANGCHAIN_SESSION$",
+            "^LANGCHAIN_REVISION_ID$",
+            "^LANGCHAIN_TRACING$",
+        ),
+        npm=(
+            "langsmith",
+            "@langchain/langsmith-opencode",
+            "@langchain/langsmith-pi-extension",
+            "@mastra/langsmith",
+            "@temporalio/langsmith",
+        ),
+        pypi=("langsmith", "langsmith-mcp-server", "langsmith-fetch", "langsmith-tool-server"),
+        go=("github.com/langchain-ai/langsmith-go", "github.com/langchain-ai/langsmith-cli"),
+        maven=(
+            "com.langchain.smith:langsmith-java",
+            "com.langchain.smith:langsmith-java-core",
+            "com.langchain.smith:langsmith-java-client-okhttp",
+            "com.langchain.smith:langsmith-java-wrappers",
+        ),
+        rubygems=("langsmith-sdk",),
+        alternative_to=(ProductKey.LLM_ANALYTICS,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -52,7 +84,7 @@ class LangSmithSource(ResumableSource[LangSmithSourceConfig, LangSmithResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LANG_SMITH,
+            name=ExternalDataSourceType.LANGSMITH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="LangSmith",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -153,6 +185,8 @@ Leave the **Host** field blank for the US cloud (`api.smith.langchain.com`). Set
                 )
             if endpoint == "projects":
                 return "Tracing projects (called sessions in the LangSmith API)"
+            if endpoint == "threads":
+                return "Conversation threads in each tracing project, with stats over the last 365 days"
             return None
 
         def _schema_metadata(endpoint: str) -> dict[str, Any] | None:

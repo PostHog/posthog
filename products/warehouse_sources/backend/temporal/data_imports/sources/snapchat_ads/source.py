@@ -2,19 +2,18 @@ from typing import Optional, cast
 
 import requests
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
-
-from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -46,6 +45,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=("^(SNAPCHAT_ADS|SNAPCHATADS)_",),
+        script_hosts=("sc-static.net",),
+        pypi=("snap-business-sdk",),
+        go=("github.com/Snapchat/business-sdk-go",),
+        maven=("com.snap.business.sdk:capi-java",),
+        rubygems=("snap_business",),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://developers.snap.com/api/marketing-api"
@@ -76,7 +84,7 @@ class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SNAPCHAT_ADS,
+            name=ExternalDataSourceType.SNAPCHATADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Snapchat Ads",
             caption="Collect campaign data, ad performance, and advertising metrics from Snapchat Ads. Ensure you have granted PostHog access to your Snapchat Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/snapchat-ads).",

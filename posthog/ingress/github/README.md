@@ -28,15 +28,55 @@ Two apps share this incarnation, each subscribed to its own event types in GitHu
 
 A consumer registers against an app name, so the two apps share no consumers.
 
+Each region runs its own `posthog` App, with its own webhook URL and its own secret.
+GitHub already delivers an installation's events to the region that holds it.
+The `stamphog` App is one App, and one region serves its endpoint.
+
 ## Quirks
 
 The status codes are the defaults: 403 on a bad signature, 500 when unconfigured, 202 on success.
 The installation lifecycle is a core consumer rather than a product one, because it keeps PostHog's own integration rows in step with GitHub.
+A GitHub delivery is never forwarded to the other region, so no consumer here declares `ownership`.
+The other region verifies against its own App's secret, so it would answer a replayed delivery 403 and count it as an invalid signature.
+An installation this region does not hold is an installation this region never receives deliveries for.
+See [Regional forwarding](../README.md#regional-forwarding) for the lane the providers with one callback URL use.
 
 ## Consumers
 
 - `posthog/ingress/github/provider.py` registers `installation_lifecycle` and `installation_repositories` on the `posthog` app.
+- `products/{commands,conversations,error_tracking,review_hog,tasks,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
 - `products/stamphog/backend/webhook_consumers.py` registers `stamphog_review` on the `stamphog` app.
 
-The remaining GitHub consumers move to ingress one product at a time.
-The [Endpoints table](../README.md#endpoints) lists them.
+The Error Tracking consumer handles opened and edited issues and pull requests from repository owners, members, and collaborators.
+It scans descriptions for direct issue links and fingerprint permalinks on the configured PostHog site, then queues team-scoped tasks.
+Repeated links and deliveries reuse an existing reference.
+Removing a link from a later description does not remove the reference.
+
+The commands consumer reads `@posthog <command>` lines in new pull request comments from repository owners, members and collaborators, and queues one task per command.
+The task checks the commenter's write access with GitHub and their linked PostHog account before any command runs.
+See `products/commands/README.md`.
+
+### Picking the project
+
+One installation can link to several projects in a region, so `installation.id` never names one project.
+A consumer picks its projects in one of two shapes.
+A consumer that needs the teams behind a delivery's installation calls `installation_integrations()` from `posthog/github/installations.py`, never its own `Integration` query.
+
+**Subscriptions.**
+Deliver the event to every project that has its own row for the repository, for example a workflow, a loop trigger, an issue link, or a monitored repository.
+Each project set up that row, so each project gets the event.
+`installation_team_ids` gives the candidate projects.
+Filter them by the product's own row before you act.
+
+**Single owner.**
+Some products act as one voice on a repository or pull request: they post the review, approve, or push fixes.
+Such a product needs exactly one project per repository.
+Enforce this with a unique constraint across projects on (installation id, repository), as `StamphogRepoConfig` does.
+Then find the owner through that row.
+
+Never pick a project by order.
+The first or lowest-id project on an installation depends on when the projects connected, not on which project should get the event.
+The `github-installation-first-team` semgrep rule flags this pattern.
+
+The [Endpoints table](../README.md#endpoints) lists the consumer names per event type.
+PR analytics shared by those consumers live in `posthog/github/`, see its README.

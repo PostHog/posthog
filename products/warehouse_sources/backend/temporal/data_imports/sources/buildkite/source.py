@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.buildkite import (
     BuildkiteResumeConfig,
     buildkite_source,
@@ -43,6 +42,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BuildkiteSource(ResumableSource[BuildkiteSourceConfig, BuildkiteResumeConfig]):
+    codebase_detection = detect(
+        env=("^BUILDKITE_",),
+        npm=("@buildkite/buildkite-sdk",),
+        go=(
+            "github.com/buildkite/go-buildkite",
+            "github.com/buildkite/buildkite-agent-metrics",
+            "github.com/buildkite/buildkite-agent-scaler",
+            "github.com/buildkite/buildkite-gha",
+            "github.com/buildkite/buildkite-logs",
+            "github.com/buildkite/buildkite-mcp-server",
+            "github.com/buildkite/git-credential-helper-buildkite-oidc",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -61,7 +74,7 @@ class BuildkiteSource(ResumableSource[BuildkiteSourceConfig, BuildkiteResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BUILDKITE,
+            name=ExternalDataSourceType.BUILDKITE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Buildkite",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -75,6 +88,7 @@ Make sure to grant the following read scopes:
 - `read_pipelines`
 - `read_builds`
 - `read_agents`
+- `read_clusters`
 - `read_teams`
 - `read_suites`
 """,

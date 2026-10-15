@@ -8,7 +8,12 @@ import type {
   AnalyticsProperties,
   IAnalytics,
 } from "@posthog/platform/analytics";
-import type { Adapter, ModelAccess } from "@posthog/shared";
+import {
+  type Adapter,
+  CLOUD_REGIONS,
+  getCloudUrlFromRegion,
+  type ModelAccess,
+} from "@posthog/shared";
 import {
   type EventPropertyMap,
   isInboxAnalyticsEvent,
@@ -111,6 +116,35 @@ let flagsUnavailable = false;
 
 const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
 
+const OWN_BACKEND_FREE_TEXT_PATH_TEMPLATES = [
+  {
+    pattern:
+      /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+(\/files\/).+$/,
+    replacement: "$1:id$2:id$3:id",
+  },
+  {
+    pattern: /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+$/,
+    replacement: "$1:id$2:id",
+  },
+  {
+    // The tool name comes from the MCP server, so a custom server can put any
+    // text here. `tools/refresh/` is a fixed action rather than a tool name, so
+    // the lookahead keeps that route on its own path.
+    pattern:
+      /^(\/api\/environments\/)\d+(\/mcp_server_installations\/)[^/]+(\/tools\/)(?!refresh\/?$)[^/]+(\/?)$/,
+    replacement: "$1:id$2:id$3:id$4",
+  },
+] as const;
+
+function templateOwnApiPath(pathname: string): string | undefined {
+  for (const template of OWN_BACKEND_FREE_TEXT_PATH_TEMPLATES) {
+    if (template.pattern.test(pathname)) {
+      return pathname.replace(template.pattern, template.replacement);
+    }
+  }
+  return undefined;
+}
+
 /**
  * Path attribute for the automatic network-duration metric. posthog-js's default
  * path templating only replaces numeric/uuid-like segments, so a presigned
@@ -118,17 +152,24 @@ const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
  * user-controlled filename — see `_build_artifact_storage_path` in
  * products/tasks/backend/facade/api.py) or any other non-API request would leak
  * that filename into the shared Metrics project. Only requests to the app's own
- * API host get path-based attribution; everything else collapses to a fixed
+ * backend host get path-based attribution; everything else collapses to a fixed
  * value.
+ *
+ * Backend URLs come from the region configuration. Analytics ingestion uses
+ * a separate host, so it cannot identify backend requests.
  */
 export function networkMetricPath(
   request: NetworkMetricsRequest,
-  apiHost: string,
 ): string | undefined {
   try {
-    const requestHost = new URL(request.url).host;
-    const appHost = new URL(apiHost).host;
-    return requestHost === appHost ? undefined : "external";
+    const requestUrl = new URL(request.url);
+    const isBackend = CLOUD_REGIONS.some(
+      (region) => getCloudUrlFromRegion(region) === requestUrl.origin,
+    );
+    if (!isBackend) {
+      return "external";
+    }
+    return templateOwnApiPath(requestUrl.pathname);
   } catch {
     return "external";
   }
@@ -165,10 +206,10 @@ export function initializePostHog(sessionId?: string) {
       // keyed by method/host/path (posthog-js templates numeric and uuid-like
       // path segments to `:id` before dimensioning). posthog-js's own capture/flags/session-recording
       // requests are excluded automatically. `attributes` keeps path-based
-      // attribution to this app's own API — see `networkMetricPath`.
+      // attribution to this app's own backend — see `networkMetricPath`.
       network: {
         attributes: (request) => {
-          const path = networkMetricPath(request, apiHost);
+          const path = networkMetricPath(request);
           return path === undefined ? undefined : { path };
         },
       },
@@ -189,9 +230,8 @@ export function initializePostHog(sessionId?: string) {
     },
     // The shared analytics project runs many popover surveys aimed at the
     // PostHog web app; any one without URL/event conditions would render here
-    // too. This app only submits survey responses through its own UI
-    // (captureSurveyResponse), which posthog-js survey rendering being off
-    // does not affect.
+    // too. This app submits survey responses through its server-owned feedback
+    // endpoint, which survey rendering being off does not affect.
     disable_surveys: true,
     session_idle_timeout_seconds: SESSION_IDLE_TIMEOUT_SECONDS,
     ...(sessionId ? { bootstrap: { sessionID: sessionId } } : {}),
@@ -377,38 +417,23 @@ export function track<K extends keyof EventPropertyMap>(
   posthog.capture(eventName, properties);
 }
 
-/**
- * Record a survey response via posthog-js's `survey sent` event. Pass one entry
- * per answered question; they're submitted together as a single response. The
- * survey must already exist (and be launched) in the project the app reports to,
- * or the response will not attach to it.
- */
-export function captureSurveyResponse({
-  surveyId,
-  responses,
-}: {
-  surveyId: string;
-  responses: Array<{ questionId: string; response: string }>;
-}) {
+export function recordNavigationSettled(
+  durationMs: number,
+  route: string,
+  visibilityAtSettle: DocumentVisibilityState,
+): void {
   if (!isInitialized) {
     return;
   }
 
-  const properties: Record<string, unknown> = {
-    $survey_id: surveyId,
-    $survey_questions: responses.map(({ questionId }) => ({ id: questionId })),
-  };
-  // Newer ingestion keys each response by question id.
-  for (const { questionId, response } of responses) {
-    properties[`$survey_response_${questionId}`] = response;
-  }
-  // `$survey_response` is the legacy single-question key; only set it when there
-  // is exactly one answer, otherwise it would be ambiguous.
-  if (responses.length === 1) {
-    properties.$survey_response = responses[0].response;
-  }
+  posthog.metrics.histogram("desktop.navigation.settled.duration", durationMs, {
+    unit: "ms",
+    attributes: { route, visibility_at_settle: visibilityAtSettle },
+  });
+}
 
-  posthog.capture("survey sent", properties);
+export function getAnalyticsSessionId(): string | undefined {
+  return isInitialized ? posthog.get_session_id() : undefined;
 }
 
 /**
@@ -541,7 +566,8 @@ export const posthogAnalyticsTracker: AnalyticsTracker = {
   identifyUser,
   setUserGroups,
   resetUser,
-  captureSurveyResponse,
+  recordNavigationSettled,
+  getSessionId: getAnalyticsSessionId,
 };
 
 /**

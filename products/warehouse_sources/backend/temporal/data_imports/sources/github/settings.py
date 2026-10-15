@@ -252,8 +252,10 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         sort_mode="desc",  # API always returns newest-first; sort/direction are ignored
         response_data_path="workflow_runs",
         # workflow_run carries updated_at, which GitHub bumps on every status change — the natural
-        # recency key so a completed run is never frozen by a stale earlier webhook event.
-        version_keys=["updated_at"],
+        # recency key so a completed run is never frozen by a stale earlier webhook event. A re-run
+        # keeps the run id and raises run_attempt, which ranks first: the new attempt's first event
+        # can share its second with the previous attempt's completion, and must still win.
+        version_keys=["run_attempt", "updated_at"],
         # Webhook-only marker, like workflow_jobs and reviews: the webhook is the source of truth.
         # initial_lookback_days == 0 makes source.py report this schema as webhook_only, activates
         # webhook mode from the first sync (skips the initial_sync_complete gate in github.py), and

@@ -1,4 +1,5 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
+import { GITHUB_CODE_CONTEXT_MESSAGE } from "@posthog/core/integrations/connectErrors";
 import { Button } from "@posthog/quill";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { PersonalGithubInstallationsSection } from "@posthog/ui/features/settings/sections/PersonalGithubInstallationsSection";
@@ -21,6 +22,15 @@ export function GitHubSettings() {
 
   return (
     <div className="flex flex-col gap-7">
+      <div className="flex flex-col gap-1 rounded-(--radius-3) border border-border bg-card px-3.5 py-3">
+        <p className="m-0 font-medium text-[13px] text-foreground">
+          Why connect GitHub?
+        </p>
+        <p className="m-0 text-[12px] text-muted-foreground leading-snug">
+          {GITHUB_CODE_CONTEXT_MESSAGE} Your personal connection lets agents
+          open pull requests and comments as you.
+        </p>
+      </div>
       <ProjectGithubConnectionSection />
       <PersonalGithubInstallationsSection />
       <div className="flex flex-wrap items-center gap-3">

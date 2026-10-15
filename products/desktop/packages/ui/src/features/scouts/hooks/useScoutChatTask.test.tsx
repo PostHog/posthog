@@ -4,7 +4,10 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const createTask = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ success: true, task: { id: "task-1" } }),
+  vi.fn().mockResolvedValue({
+    success: true,
+    data: { task: { id: "task-1" }, workspace: null },
+  }),
 );
 const getUserIntegrationIdForRepo = vi.hoisted(() => vi.fn(() => "ghu_1"));
 const resolveDefaultCloudRepository = vi.hoisted(() => vi.fn());
@@ -133,7 +136,15 @@ describe("scout task result", () => {
   it.each([true, false])(
     "returns task creation success: %s",
     async (success) => {
-      createTask.mockResolvedValueOnce({ success, task: { id: "task-1" } });
+      createTask.mockResolvedValueOnce(
+        success
+          ? { success: true, data: { task: { id: "task-1" }, workspace: null } }
+          : {
+              success: false,
+              error: "Task creation failed",
+              failedStep: "create",
+            },
+      );
       const { result } = renderHook(
         () =>
           useScoutChatTask({

@@ -3,6 +3,7 @@ import base64
 import hashlib
 import secrets
 import dataclasses
+from typing import TYPE_CHECKING
 from urllib.parse import quote_plus
 
 from posthog.test.base import APIBaseTest
@@ -20,6 +21,11 @@ from posthog.models.team.team import Team
 from products.access_control.backend.models.access_control import AccessControl
 
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
+
+    from posthog.models.oauth import OAuthApplication
 
 TEST_PARTNER_CLIENT_ID = "test_partner_client_id"
 # Stored hashed by ClientSecretField.pre_save, so the plaintext has to live here for
@@ -39,14 +45,12 @@ TEST_PARTNER_SCOPES = [
 
 
 # A partner granted everything, so a test narrows to the one capability it is about rather
-# than restating the other eight. `provisioning_config(can_start_wizard_runs=False)` reads as
-# the thing under test; a literal dict at each call site does not.
+# than restating the rest. `provisioning_config(can_issue_deep_links=False)` reads as the
+# thing under test; a literal dict at each call site does not.
 TEST_PARTNER_PROVISIONING: dict[str, bool] = {
     "active": True,
     "can_create_accounts": True,
     "can_provision_resources": True,
-    "can_use_github_grants": True,
-    "can_start_wizard_runs": True,
     "can_issue_deep_links": True,
     # Stands in for the one grandfathered app that still mints a provisioned PAT.
     "issues_personal_api_key": True,
@@ -146,7 +150,9 @@ class ProvisioningTestBase(APIBaseTest):
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode()
         return verifier, challenge
 
-    def _mint_auth_code(self, scopes: list[str] | None = None, partner=None) -> tuple[str, str]:
+    def _mint_auth_code(
+        self, scopes: list[str] | None = None, partner: "OAuthApplication | None" = None, team_id: int | None = None
+    ) -> tuple[str, str]:
         """Seed an auth code in the cache for the test partner. Returns (code, code_verifier)."""
         partner = partner or self.partner
         verifier, challenge = self._pkce_pair()
@@ -157,7 +163,7 @@ class ProvisioningTestBase(APIBaseTest):
                 "issued_at": timezone.now().isoformat(),
                 "user_id": self.user.id,
                 "org_id": str(self.organization.id),
-                "team_id": self.team.id,
+                "team_id": team_id if team_id is not None else self.team.id,
                 "partner_id": str(partner.id),
                 "scopes": scopes if scopes is not None else ["query:read"],
                 "region": "US",
@@ -168,9 +174,15 @@ class ProvisioningTestBase(APIBaseTest):
         )
         return code, verifier
 
-    def _request_bearer_token(self, scopes: list[str] | None = None, partner=None, secret: str | None = None):
+    def _request_bearer_token(
+        self,
+        scopes: list[str] | None = None,
+        partner: "OAuthApplication | None" = None,
+        secret: str | None = None,
+        team_id: int | None = None,
+    ) -> "_MonkeyPatchedResponse":
         partner = partner or self.partner
-        code, verifier = self._mint_auth_code(scopes=scopes, partner=partner)
+        code, verifier = self._mint_auth_code(scopes=scopes, partner=partner, team_id=team_id)
         data = {"grant_type": "authorization_code", "code": code, "code_verifier": verifier}
         # A confidential partner has to authenticate at the token endpoint; a public one
         # exchanges on the code_verifier alone.

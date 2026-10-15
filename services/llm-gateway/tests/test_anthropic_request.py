@@ -5,7 +5,7 @@ import pytest
 from llm_gateway.anthropic_request import (
     convert_enabled_thinking_to_adaptive,
     drop_orphaned_clear_thinking,
-    enable_required_opus_5_thinking,
+    normalize_disabled_thinking,
 )
 from llm_gateway.metrics.prometheus import CLEAR_THINKING_EDIT_DROPPED
 
@@ -23,10 +23,42 @@ def test_opus_5_high_effort_enables_adaptive_thinking(effort: str) -> None:
         "thinking": {"type": "disabled"},
     }
 
-    normalized = enable_required_opus_5_thinking(request)
+    normalized = normalize_disabled_thinking(request)
 
     assert normalized["thinking"] == {"type": "adaptive"}
     assert request["thinking"] == {"type": "disabled"}
+
+
+@pytest.mark.parametrize("effort", [None, "low", "medium", "high"])
+def test_sonnet_5_5_disabled_becomes_between_tools(effort: str | None) -> None:
+    request: dict = {"model": "claude-sonnet-5-5", "thinking": {"type": "disabled", "display": "summarized"}}
+    if effort is not None:
+        request["output_config"] = {"effort": effort}
+
+    normalized = normalize_disabled_thinking(request)
+
+    # between_tools takes no other field, so display must not carry over.
+    assert normalized["thinking"] == {"type": "between_tools"}
+    assert request["thinking"] == {"type": "disabled", "display": "summarized"}
+
+
+@pytest.mark.parametrize(
+    ("effort", "messages"),
+    [
+        pytest.param("xhigh", [], id="xhigh"),
+        pytest.param("max", [], id="max"),
+        pytest.param("low", [{"role": "system", "content": [], "output_config": {"effort": "low"}}], id="per_message"),
+    ],
+)
+def test_sonnet_5_5_disabled_becomes_adaptive_where_between_tools_is_refused(effort: str, messages: list) -> None:
+    request = {
+        "model": "claude-sonnet-5-5",
+        "messages": messages,
+        "output_config": {"effort": effort},
+        "thinking": {"type": "disabled"},
+    }
+
+    assert normalize_disabled_thinking(request)["thinking"] == {"type": "adaptive"}
 
 
 @pytest.mark.parametrize(
@@ -35,12 +67,15 @@ def test_opus_5_high_effort_enables_adaptive_thinking(effort: str) -> None:
         pytest.param("claude-opus-5", "high", {"type": "disabled"}, id="lower_effort"),
         pytest.param("claude-opus-4-8", "xhigh", {"type": "disabled"}, id="other_model"),
         pytest.param("claude-opus-5", "xhigh", {"type": "adaptive"}, id="already_adaptive"),
+        pytest.param("claude-sonnet-5", "low", {"type": "disabled"}, id="sonnet_5_accepts_disabled"),
+        pytest.param("claude-sonnet-5-5", "low", {"type": "between_tools"}, id="already_between_tools"),
+        pytest.param("claude-sonnet-5-5", "low", {"type": "adaptive"}, id="sonnet_5_5_adaptive"),
     ],
 )
 def test_other_thinking_configurations_are_untouched(model: str, effort: str, thinking: dict[str, str]) -> None:
     request = {"model": model, "output_config": {"effort": effort}, "thinking": thinking}
 
-    assert enable_required_opus_5_thinking(request) is request
+    assert normalize_disabled_thinking(request) is request
 
 
 @pytest.mark.parametrize(

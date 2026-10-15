@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -46,6 +45,8 @@ FILTERABLE_ENDPOINTS: dict[str, str] = {
 
 @SourceRegistry.register
 class OpenalexSource(ResumableSource[OpenalexSourceConfig, OpenAlexResumeConfig]):
+    codebase_detection = detect(env=("^OPENALEX_",), pypi=("pyalex",))
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     # OpenAlex serves a single unversioned API at api.openalex.org: no version path segment,
     # header or param, so there is nothing to pin.
@@ -121,7 +122,7 @@ class OpenalexSource(ResumableSource[OpenalexSourceConfig, OpenAlexResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.OPENALEX,
+            name=ExternalDataSourceType.OPENALEX,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="OpenAlex",
             caption="""Enter your OpenAlex API key to pull scholarly metadata into the PostHog Data warehouse.

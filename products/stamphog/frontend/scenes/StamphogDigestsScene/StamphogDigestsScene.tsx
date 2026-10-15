@@ -11,7 +11,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { StamphogTabs } from '../../components/StamphogTabs'
 import { DigestRunApi } from '../../generated/api.schemas'
-import { digestDestinationLabel, digestStatusDisplay } from './digestDisplay'
+import { digestDestinationLabel, digestRunHasDetails, digestStatusDisplay } from './digestDisplay'
+import { DigestRunDetails } from './DigestRunDetails'
 import { DIGESTS_PAGE_SIZE, stamphogDigestsSceneLogic } from './stamphogDigestsSceneLogic'
 
 export const scene: SceneExport = {
@@ -22,7 +23,7 @@ export const scene: SceneExport = {
 function DigestsTable(): JSX.Element {
     const { digestRuns, digestRunsCount, digestRunsResponseLoading, digestRunsFailed, page } =
         useValues(stamphogDigestsSceneLogic)
-    const { setPage, loadDigestRuns } = useActions(stamphogDigestsSceneLogic)
+    const { setPage, loadDigestRuns, digestRunExpanded } = useActions(stamphogDigestsSceneLogic)
 
     const columns: LemonTableColumns<DigestRunApi> = [
         {
@@ -80,7 +81,8 @@ function DigestsTable(): JSX.Element {
             rowKey="id"
             expandable={{
                 expandedRowRender: (run) => <DigestRunDetails run={run} />,
-                rowExpandable: (run) => !!run.error || !!run.slack_message_ts,
+                rowExpandable: digestRunHasDetails,
+                onRowExpand: digestRunExpanded,
             }}
             pagination={{
                 controlled: true,
@@ -93,17 +95,6 @@ function DigestsTable(): JSX.Element {
             emptyState="No digests yet. Stamphog posts one per audience on its digest schedule."
             data-attr="stamphog-digests-table"
         />
-    )
-}
-
-function DigestRunDetails({ run }: { run: DigestRunApi }): JSX.Element {
-    return (
-        <div className="flex flex-col gap-2 pl-2 pr-4 py-4 text-xs">
-            {run.error && <span className="font-mono text-danger break-all">{run.error}</span>}
-            {run.slack_message_ts && (
-                <span className="font-mono text-muted break-all">Slack message timestamp: {run.slack_message_ts}</span>
-            )}
-        </div>
     )
 }
 

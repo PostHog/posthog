@@ -9,7 +9,13 @@ from django.test import override_settings
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.temporal.batch_exports import DataInterval, get_data_interval, iter_records
+from products.batch_exports.backend.service import BackfillDetails
+from products.batch_exports.backend.temporal.batch_exports import (
+    DataInterval,
+    get_data_interval,
+    iter_records,
+    reads_native_events_source,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -45,11 +51,13 @@ def assert_records_match_events(records, events):
                 assert value == expected[key]
 
 
-async def test_iter_records(clickhouse_client):
+@pytest.mark.parametrize("use_native_schema", [False, True])
+@pytest.mark.parametrize("interval_minutes", [5, 60])
+async def test_iter_records(clickhouse_client, use_native_schema, interval_minutes):
     """Test the rows returned by iter_records."""
     team_id = randint(1, 1000000)
     data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    data_interval_start = data_interval_end - dt.timedelta(hours=1)
+    data_interval_start = data_interval_end - dt.timedelta(minutes=interval_minutes)
 
     (events, _, _) = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -70,11 +78,15 @@ async def test_iter_records(clickhouse_client):
             team_id,
             data_interval_start.isoformat(),
             data_interval_end.isoformat(),
+            use_new_events_schema=use_native_schema,
         )
         for record in record_batch.to_pylist()
     ]
 
     assert_records_match_events(records, events)
+    assert {record["uuid"]: record["person_id"] for record in records} == {
+        event["uuid"]: event["person_id"] for event in events
+    }
 
 
 async def test_iter_records_handles_duplicates(clickhouse_client):
@@ -102,6 +114,7 @@ async def test_iter_records_handles_duplicates(clickhouse_client):
             team_id,
             data_interval_start.isoformat(),
             data_interval_end.isoformat(),
+            use_new_events_schema=False,
         )
         for record in record_batch.to_pylist()
     ]
@@ -137,6 +150,7 @@ async def test_iter_records_can_exclude_events(clickhouse_client):
             data_interval_start.isoformat(),
             data_interval_end.isoformat(),
             exclude_events=exclude_events,
+            use_new_events_schema=False,
         )
         for record in record_batch.to_pylist()
     ]
@@ -172,6 +186,7 @@ async def test_iter_records_can_include_events(clickhouse_client):
             data_interval_start.isoformat(),
             data_interval_end.isoformat(),
             include_events=include_events,
+            use_new_events_schema=False,
         )
         for record in record_batch.to_pylist()
     ]
@@ -211,6 +226,7 @@ async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
             team_id,
             inserted_at.isoformat(),
             data_interval_end.isoformat(),
+            use_new_events_schema=False,
         )
         for record in record_batch.to_pylist()
     ]
@@ -225,6 +241,7 @@ async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
                 team_id,
                 inserted_at.isoformat(),
                 data_interval_end.isoformat(),
+                use_new_events_schema=False,
             )
             for record in record_batch.to_pylist()
         ]
@@ -263,6 +280,7 @@ async def test_iter_records_can_flatten_properties(clickhouse_client):
                 {"expression": "JSONExtractString(properties, '$os')", "alias": "os"},
                 {"expression": "JSONExtractInt(properties, 'custom-property')", "alias": "custom_prop"},
             ],
+            use_new_events_schema=False,
         )
         for record in record_batch.to_pylist()
     ]
@@ -308,6 +326,7 @@ async def test_iter_records_uses_extra_query_parameters(clickhouse_client):
                 {"expression": "JSONExtractInt(properties, %(hogql_val_0)s)", "alias": "custom_prop"},
             ],
             extra_query_parameters={"hogql_val_0": "custom"},
+            use_new_events_schema=False,
         )
         for record in record_batch.to_pylist()
     ]
@@ -390,3 +409,33 @@ def test_data_interval_rejects_reversed_bounds() -> None:
     end = dt.datetime(2023, 8, 1, tzinfo=dt.UTC)
     with pytest.raises(ValueError, match="start"):
         DataInterval(start=end + dt.timedelta(seconds=1), end=end)
+
+
+@pytest.mark.parametrize(
+    "start_ago,end_ago,is_backfill,backfill_ago,expected",
+    [
+        (dt.timedelta(hours=2), dt.timedelta(hours=1), False, None, False),
+        (dt.timedelta(days=61), dt.timedelta(days=60), False, None, False),
+        (dt.timedelta(days=61), dt.timedelta(days=60), True, dt.timedelta(days=61), True),
+        (dt.timedelta(hours=2), dt.timedelta(hours=1), True, dt.timedelta(hours=2), False),
+    ],
+    ids=["scheduled-recent", "scheduled-old", "backfill-old", "backfill-recent"],
+)
+def test_reads_native_events_source_tracks_query_routing(start_ago, end_ago, is_backfill, backfill_ago, expected):
+    now = dt.datetime.now(tz=dt.UTC)
+    start, end = now - start_ago, now - end_ago
+    backfill_details = (
+        BackfillDetails(backfill_id=None, start_at=(now - backfill_ago).isoformat(), end_at=end.isoformat())
+        if backfill_ago is not None
+        else None
+    )
+    arguments = {
+        "team_id": 1,
+        "interval_start": start.isoformat(),
+        "interval_end": end.isoformat(),
+        "is_backfill": is_backfill,
+        "backfill_details": backfill_details,
+    }
+
+    assert reads_native_events_source(use_new_events_schema=True, **arguments) is expected
+    assert reads_native_events_source(use_new_events_schema=False, **arguments) is False

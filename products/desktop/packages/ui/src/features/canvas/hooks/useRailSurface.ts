@@ -1,9 +1,12 @@
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import {
   type NavRailPane,
+  railPaneFoldsIntoWork,
   railPaneForHref,
   railPaneHasSidebar,
 } from "@posthog/ui/features/canvas/railPane";
+import { useWorkActivityStore } from "@posthog/ui/features/canvas/stores/workActivityStore";
 import { isInboxTriagePath } from "@posthog/ui/features/inbox/triageRoute";
 import { useRouterState } from "@tanstack/react-router";
 
@@ -28,14 +31,19 @@ export function useRailPane(): NavRailPane {
  *  that need it. */
 export function useRailSurface(): RailSurface {
   const channelsLayout = useChannelsLayout();
+  const workLayout = useWorkLayout();
+  const workActivityOpen = useWorkActivityStore((state) => state.open);
   const pane = useRailPane();
   const inTriage = useRouterState({
     select: (state) => isInboxTriagePath(state.location.pathname),
   });
+  const workSidebar =
+    workLayout && (railPaneFoldsIntoWork(pane) || workActivityOpen);
 
   return {
     pane,
-    hasSidebar: !inTriage && (!channelsLayout || railPaneHasSidebar(pane)),
+    hasSidebar:
+      !inTriage && (!channelsLayout || railPaneHasSidebar(pane) || workSidebar),
     showsActivityDetail: channelsLayout && pane === "activity",
   };
 }

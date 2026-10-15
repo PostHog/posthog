@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitrise.bitrise import (
     BitriseResumeConfig,
     bitrise_source,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BitriseSource(ResumableSource[BitriseSourceConfig, BitriseResumeConfig]):
+    codebase_detection = detect(env=("^BITRISE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -44,7 +45,7 @@ class BitriseSource(ResumableSource[BitriseSourceConfig, BitriseResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BITRISE,
+            name=ExternalDataSourceType.BITRISE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Bitrise",
             releaseStatus=ReleaseStatus.ALPHA,

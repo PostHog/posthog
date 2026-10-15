@@ -3,6 +3,8 @@ from uuid import uuid4
 
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from langchain_core.messages import AIMessage
 from langgraph.graph import END, START, StateGraph
 from parameterized import parameterized
@@ -23,7 +25,7 @@ from ee.hogai.utils.types import AssistantState, PartialAssistantState, add_and_
 from ee.hogai.utils.types.base import ArtifactRefMessage, ReplaceMessages
 
 
-class TestAssistantTypes(BaseTest):
+class TestAssistantTypes(SimpleTestCase):
     """Test the assistant types."""
 
     def test_merge_messages_with_same_id(self):
@@ -158,7 +160,7 @@ class TestArtifactRefMessage(BaseTest):
         self.assertEqual(message.content_type, ArtifactContentType.VISUALIZATION)
 
 
-class TestIsVisualizationArtifactMessage(BaseTest):
+class TestIsVisualizationArtifactMessage(SimpleTestCase):
     def test_returns_true_for_visualization_artifact_message(self):
         content = VisualizationArtifactContent(
             query=AssistantTrendsQuery(series=[]),
@@ -322,7 +324,7 @@ class TestConvertVisualizationMessagesToArtifacts(BaseTest):
             self.assertNotEqual(viz.id, artifact.id)
 
 
-class TestUnwrapVisualizationArtifactContent(BaseTest):
+class TestUnwrapVisualizationArtifactContent(SimpleTestCase):
     def test_returns_content_for_visualization_artifact_message(self):
         content = VisualizationArtifactContent(
             query=AssistantTrendsQuery(series=[]),

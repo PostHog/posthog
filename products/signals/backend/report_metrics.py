@@ -17,9 +17,10 @@ import re
 import ast
 import json
 import math
+import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
@@ -27,8 +28,17 @@ from posthog.hogql.errors import BaseHogQLError
 
 from products.signals.backend.report_charts import validate_report_query
 
+if TYPE_CHECKING:
+    from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
+
+logger = logging.getLogger(__name__)
+
 _METRIC_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _RELATIVE_DATE_FROM_RE = re.compile(r"^-([1-9]\d*)(h|d|w|m|y)$")
+_RELATIVE_DATE_FROM_ERROR = (
+    "query.source.dateRange.date_from must be a relative window such as `-30d`, because the query runs again "
+    "later and must measure the same trailing period each time"
+)
 
 MAX_REPORT_METRICS = 6
 MAX_REPORT_METRICS_QUERY_CHARS = 60_000
@@ -92,6 +102,22 @@ REPORT_METRIC_VALUE_FORMATS: tuple[ReportMetricValueFormat, ...] = (
     "duration",
     "currency",
 )
+
+
+def validate_metric_number(
+    kind: ReportMetricKind, value_format: ReportMetricValueFormat, value: float, label: str
+) -> None:
+    if not math.isfinite(value):
+        raise ValueError(f"{label} must be finite")
+    if value_format == "count" and (value < 0 or not value.is_integer()):
+        raise ValueError(f"a count {label} must be a non-negative whole number")
+    if kind == "duration" and value < 0:
+        raise ValueError(f"a duration {label} must be non-negative")
+    if kind in {"conversion_rate", "error_rate"}:
+        upper_bound = 1 if value_format == "percentage_scaled" else 100
+        if not 0 <= value <= upper_bound:
+            raise ValueError(f"a rate {label} must be between 0 and {upper_bound}")
+
 
 _LIVE_METRIC_QUERY_KINDS = frozenset({"InsightVizNode"})
 _LIVE_METRIC_SERIES_KINDS = frozenset({"ActionsNode", "EventsNode"})
@@ -174,6 +200,15 @@ def _validate_live_metric_formula(formula: object, series_count: int) -> None:
         raise ValueError(f"a live metric formula must be executable arithmetic over the series: {error}") from None
 
 
+def _validate_live_metric_hogql(expression: str) -> None:
+    from posthog.hogql.parser import parse_expr  # noqa: PLC0415 — keeps the query parser off startup
+
+    try:
+        parse_expr(expression)
+    except (BaseHogQLError, SyntaxError, RecursionError) as error:
+        raise ValueError(f"a live metric math_hogql must be a valid HogQL expression: {error}") from None
+
+
 def validate_metric_id(value: str) -> str:
     """Normalize a metric id and refuse one nothing can reference.
 
@@ -199,6 +234,9 @@ def validate_live_metric_query(value: dict[str, Any]) -> dict[str, Any]:
     advances with time, an allowlisted node set, event or action sources only, and an estimated
     point count a reader can afford. A check rides the same rules as a metric because both end up
     in the same query runner.
+
+    The Metric display's change pill is switched off rather than refused, because the stored display
+    is not authoritative and no author intent is lost.
     """
 
     validate_report_query(value, allowed_kinds=_LIVE_METRIC_QUERY_KINDS)
@@ -233,6 +271,9 @@ def validate_live_metric_query(value: dict[str, Any]) -> dict[str, Any]:
             action_id = item.get("id")
             if not isinstance(action_id, int) or isinstance(action_id, bool) or action_id <= 0:
                 raise ValueError("a live metric action series needs a positive integer action id")
+        expression = item.get("math_hogql")
+        if item.get("math") == "hogql" and expression is not None:
+            _validate_live_metric_hogql(expression)
     if source.get("breakdownFilter") or source.get("breakdown"):
         raise ValueError("a live metric query must not use a breakdown because it represents one measurement")
     sampling_factor = source.get("samplingFactor")
@@ -257,19 +298,20 @@ def validate_live_metric_query(value: dict[str, Any]) -> dict[str, Any]:
             and trends_filter.get("metricShowChange", True) is not False
             and trends_filter.get("metricSummary", "total") != "latest"
         ):
-            raise ValueError(
-                "a live metric query using the Metric display must disable metricShowChange or use the latest "
-                "summary so the Trends runner does not enable compare mode"
-            )
+            # The Metric display turns compare mode on implicitly, which would multiply the output
+            # series past the one this contract allows.
+            trends_filter = {**trends_filter, "metricShowChange": False}
+            source = {**source, "trendsFilter": trends_filter}
+            value = {**value, "source": source}
     date_range = source.get("dateRange")
     if not isinstance(date_range, dict):
-        raise ValueError("query.source.dateRange.date_from must be a relative time window such as `-30d`")
+        raise ValueError(_RELATIVE_DATE_FROM_ERROR)
     date_from = date_range.get("date_from")
     if not isinstance(date_from, str):
-        raise ValueError("query.source.dateRange.date_from must be a relative time window such as `-30d`")
+        raise ValueError(_RELATIVE_DATE_FROM_ERROR)
     relative_window = _RELATIVE_DATE_FROM_RE.fullmatch(date_from)
     if relative_window is None:
-        raise ValueError("query.source.dateRange.date_from must be a relative time window such as `-30d`")
+        raise ValueError(_RELATIVE_DATE_FROM_ERROR)
     amount, unit = relative_window.groups()
     window_seconds = int(amount) * _RELATIVE_WINDOW_SECONDS[unit]
     if window_seconds > MAX_LIVE_METRIC_WINDOW_DAYS * _RELATIVE_WINDOW_SECONDS["d"]:
@@ -347,6 +389,16 @@ class ReportMetricComparison(BaseModel):
         return normalized
 
 
+REPORT_METRIC_GOAL_FIELDS = (
+    "goal_value",
+    "goal_direction",
+    "goal_grain",
+    "decision_window_days",
+    "minimum_data_points",
+    "eligibility_query",
+)
+
+
 class ReportMetric(BaseModel):
     """One impact measurement backed by a bounded live Trends query.
 
@@ -419,6 +471,38 @@ class ReportMetric(BaseModel):
         default=None,
         description="Legacy authoring field, not exposed as a live comparison.",
     )
+    goal_value: float | None = Field(
+        default=None,
+        description="Proposed threshold for this metric after a change ships; informational only, not a scheduled check.",
+    )
+    goal_direction: Literal["at_most", "at_least"] | None = Field(
+        default=None,
+        description="Whether success means reaching or going below/above goal_value.",
+    )
+    goal_grain: Literal["whole_window", "per_interval"] | None = Field(
+        default=None,
+        description="Whether the goal compares with the whole query window or each chart bucket.",
+    )
+    decision_window_days: int | None = Field(
+        default=None,
+        ge=1,
+        le=30,
+        description="Suggested number of days after release to assess the goal, not an automatic monitoring schedule.",
+    )
+    minimum_data_points: int | None = Field(
+        default=None,
+        ge=1,
+        le=1000,
+        description="Optional minimum qualifying observations for the suggested decision window.",
+    )
+    eligibility_query: dict[str, Any] | None = Field(
+        default=None, description="Bounded live query counting opportunities eligible for a minimum-data rule."
+    )
+
+    @field_validator("eligibility_query")
+    @classmethod
+    def eligibility_query_must_be_bounded(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return validate_live_metric_query(value) if value is not None else None
 
     @field_validator("metric_id")
     @classmethod
@@ -434,12 +518,11 @@ class ReportMetric(BaseModel):
             raise ValueError(f"must not exceed {MAX_METRIC_TITLE_LENGTH} characters")
         return value
 
-    @field_validator("value", mode="before")
+    @field_validator("value", "goal_value", "decision_window_days", "minimum_data_points", mode="before")
     @classmethod
     def value_must_not_be_a_boolean(cls, value: object) -> object:
-        # Pydantic's lax mode coerces a JSON boolean into a float (`true` becomes 1.0, `false`
-        # becomes 0.0), which would store a bogus snapshot that clears the finite, count, and rate
-        # guards below. A snapshot value is never a boolean, so reject it before that coercion runs.
+        # Pydantic's lax mode coerces a JSON boolean into a number (`true` becomes 1, `false`
+        # becomes 0), which would store a bogus measurement that clears the numeric guards below.
         if isinstance(value, bool):
             raise ValueError("must be a number, not a boolean")
         return value
@@ -472,18 +555,14 @@ class ReportMetric(BaseModel):
 
     @field_validator("value_at")
     @classmethod
-    def value_at_must_be_a_bounded_past_timestamp(cls, value: datetime | None) -> datetime | None:
+    def value_at_must_be_an_instant_in_utc(cls, value: datetime | None) -> datetime | None:
         if value is None:
             return value
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("must include a timezone")
-        # The snapshot time is authored, not stamped by the server, so an LLM can emit a wrong year
-        # or a clock-confused date. A future time makes every later refresh look older than the
-        # stored snapshot, so the stale value would stay until real time catches up. Reject a
-        # time past now plus a small clock-skew allowance.
-        if value > datetime.now(tz=UTC) + METRIC_VALUE_AT_MAX_CLOCK_SKEW:
-            raise ValueError("must not be in the future")
-        return value
+        # An offset names one instant, so keep the snapshot in UTC: the author's local time
+        # `2026-09-18T00:20:00+05:30` is the same moment as `2026-09-17T18:50:00Z`.
+        return value.astimezone(UTC)
 
     @field_validator("unit")
     @classmethod
@@ -509,10 +588,39 @@ class ReportMetric(BaseModel):
     def query_must_be_a_live_trends_node(cls, value: dict[str, Any]) -> dict[str, Any]:
         return validate_live_metric_query(value)
 
+    def _drop_a_snapshot_measured_in_the_future(self) -> None:
+        """Clear a snapshot whose measurement time is still ahead of the server clock.
+
+        The time is authored, not stamped by the server, so an agent can emit a wrong year or a
+        clock-confused date, and a future time would hold the stale value until real time catches
+        up. The snapshot is an optional fallback that a read replaces, so drop it and keep the
+        metric: the live query stays the source of truth and the report still publishes.
+        """
+
+        if self.value_at is None or self.value_at <= datetime.now(tz=UTC) + METRIC_VALUE_AT_MAX_CLOCK_SKEW:
+            return
+        logger.warning(
+            "report metric %s dropped a snapshot measured at %s, ahead of the server clock",
+            self.metric_id,
+            self.value_at.isoformat(),
+        )
+        self.value = None
+        self.value_at = None
+        self.series = None
+
     @model_validator(mode="after")
     def measurement_must_be_available_and_consistent(self) -> ReportMetric:
+        if (self.goal_value is None) != (self.goal_direction is None):
+            raise ValueError("goal_value and goal_direction must be provided together")
+        if self.goal_value is not None and not math.isfinite(self.goal_value):
+            raise ValueError("goal_value must be finite")
+        if self.goal_value is not None and self.decision_window_days is None and self.minimum_data_points is None:
+            raise ValueError("a goal requires a suggested decision window or minimum data points")
+        if self.goal_value is not None:
+            validate_metric_number(self.kind, self.value_format, self.goal_value, "goal")
         if (self.value is None) != (self.value_at is None):
             raise ValueError("value and value_at must be provided together")
+        self._drop_a_snapshot_measured_in_the_future()
         if self.series is not None and self.value_at is None:
             raise ValueError("series is part of the snapshot and needs value and value_at")
         if self.kind == "affected_users":
@@ -555,33 +663,22 @@ class ReportMetric(BaseModel):
                 raise ValueError("a duration metric must use duration formatting")
             if self.unit not in {"ms", "s"}:
                 raise ValueError("a duration metric must use `ms` or `s` as its unit")
-            if self.value is not None and self.value < 0:
-                raise ValueError("a duration snapshot must be non-negative")
-            if self.comparison is not None and self.comparison.value < 0:
-                raise ValueError("a duration comparison must be non-negative")
         if self.kind == "revenue":
             if self.value_format != "currency":
                 raise ValueError("a revenue metric must use currency formatting")
             if self.unit is None or re.fullmatch(r"[A-Z]{3}", self.unit) is None:
                 raise ValueError("a revenue metric must use a three-letter ISO currency code as its unit")
-        if self.value_format == "count" and self.value is not None:
-            if self.value < 0 or not self.value.is_integer():
-                raise ValueError("a count snapshot must be a non-negative whole number")
+        if self.value is not None:
+            validate_metric_number(self.kind, self.value_format, self.value, "snapshot")
         if self.value_format == "count" and self.series is not None:
             if any(point < 0 or not point.is_integer() for point in self.series):
                 raise ValueError("a count series must contain non-negative whole numbers")
-        if self.value_format == "count" and self.comparison is not None:
-            if self.comparison.value < 0 or not self.comparison.value.is_integer():
-                raise ValueError("a count comparison must be a non-negative whole number")
+        if self.comparison is not None:
+            validate_metric_number(self.kind, self.value_format, self.comparison.value, "comparison")
         percentage_formats = {"percentage", "percentage_scaled"}
         if self.kind in {"conversion_rate", "error_rate"}:
             if self.value_format not in percentage_formats:
                 raise ValueError("a conversion_rate or error_rate metric must use percentage formatting")
-            upper_bound = 1 if self.value_format == "percentage_scaled" else 100
-            if self.value is not None and not 0 <= self.value <= upper_bound:
-                raise ValueError(f"a {self.value_format} rate snapshot must be between 0 and {upper_bound}")
-            if self.comparison is not None and not 0 <= self.comparison.value <= upper_bound:
-                raise ValueError(f"a {self.value_format} rate comparison must be between 0 and {upper_bound}")
         if self.value_format in percentage_formats:
             trends_filter = self.query["source"].get("trendsFilter")
             axis_format = trends_filter.get("aggregationAxisFormat") if isinstance(trends_filter, dict) else None
@@ -619,3 +716,42 @@ def metric_batch_error(metrics: Sequence[ReportMetric]) -> str | None:
     if affected_users_count > 1:
         return "a report accepts at most one affected_users metric"
     return None
+
+
+class ReportMetricSnapshot(BaseModel):
+    """The saved figure of one report metric, with its live query as stored.
+
+    Reading a snapshot this way skips the query validation `ReportMetric` runs. The query was
+    validated when the metric was saved, and the reader runs it through the regular query endpoint.
+    """
+
+    model_config = {"frozen": True, "extra": "ignore"}
+
+    metric_id: str
+    title: str
+    kind: ReportMetricKind
+    role: ReportMetricRole = "supporting"
+    value: float
+    series: list[float] | None = None
+    value_format: ReportMetricValueFormat = "number"
+    unit: str | None = None
+    query: dict[str, Any] = Field(default_factory=dict)
+
+
+def saved_metric_snapshots(raw_metrics: object, metric_access: ReportMetricAccessPolicy) -> list[ReportMetricSnapshot]:
+    """The metrics in a report's stored `metrics` list that have a saved value the viewer may read.
+
+    Malformed entries are skipped. A snapshot the viewer may not read is left out entirely, because it
+    carries both the userless value and the query definition the Inbox redacts for that viewer.
+    """
+    if not isinstance(raw_metrics, list):
+        return []
+    snapshots: list[ReportMetricSnapshot] = []
+    for raw in raw_metrics:
+        if not isinstance(raw, dict) or raw.get("value") is None or not metric_access.may_read_snapshot(raw):
+            continue
+        try:
+            snapshots.append(ReportMetricSnapshot.model_validate(raw))
+        except ValidationError:
+            continue
+    return snapshots

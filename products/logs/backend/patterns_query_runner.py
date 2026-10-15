@@ -68,6 +68,14 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
     use_stored_patterns: bool = True
     _query_deadline: float | None = None
 
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        # Set after construction, so the base payload cannot see it. Keyed only when off, so
+        # stored-pattern runs keep their cache entries.
+        if not self.use_stored_patterns:
+            payload["use_stored_patterns"] = False
+        return payload
+
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
         # Bytes are intentionally uncapped: a hard `max_bytes_to_read` + "throw" cap 500s on

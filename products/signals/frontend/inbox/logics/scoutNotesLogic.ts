@@ -13,6 +13,7 @@ import {
 import type { ScoutNoteApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureScoutAction } from '../inboxAnalytics'
+import { withPanelLoadTimeout } from '../utils/panelLoadTimeout'
 
 export interface ScoutNotesLogicProps {
     /** The scout these notes steer, or '' for the fleet-wide view. */
@@ -81,7 +82,7 @@ export interface scoutNotesLogicActions {
     deleteNoteFailed: (noteId: string) => {
         noteId: string
     }
-    loadNotes: () => any
+    loadNotes: (_payload: void) => void
     loadNotesFailure: (
         error: string,
         errorObject?: any
@@ -91,10 +92,10 @@ export interface scoutNotesLogicActions {
     }
     loadNotesSuccess: (
         notes: ScoutNoteApi[],
-        payload?: any
+        payload?: void
     ) => {
         notes: ScoutNoteApi[]
-        payload?: any
+        payload?: void
     }
 }
 
@@ -144,15 +145,29 @@ export const scoutNotesLogic = kea<scoutNotesLogicType>([
         notes: [
             [] as ScoutNoteApi[],
             {
-                loadNotes: async () => {
+                loadNotes: async (_payload: void, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return []
                     }
-                    return await signalsScoutNotesList(String(teamId), {
-                        limit: NOTES_FETCH_LIMIT,
-                        ...(props.skillName ? { skill_name: props.skillName } : {}),
+                    // A save reloads the notes, so a second read can start while the first is still
+                    // in flight. The breakpoint on both paths stops the older read answering for
+                    // the newer one — including when what it has to say is its own timeout.
+                    const notes = await withPanelLoadTimeout('scout_notes', (options) =>
+                        signalsScoutNotesList(
+                            String(teamId),
+                            {
+                                limit: NOTES_FETCH_LIMIT,
+                                ...(props.skillName ? { skill_name: props.skillName } : {}),
+                            },
+                            options
+                        )
+                    ).catch((error: unknown) => {
+                        breakpoint()
+                        throw error
                     })
+                    breakpoint()
+                    return notes
                 },
             },
         ],

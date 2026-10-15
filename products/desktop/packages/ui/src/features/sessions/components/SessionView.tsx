@@ -1,5 +1,6 @@
 import { Pause, Warning } from "@phosphor-icons/react";
 import type { FileAttachment } from "@posthog/core/message-editor/content";
+import { getCloudRuntimeOptions } from "@posthog/core/sessions/cloudRunOptions";
 import { hasSessionPromptEvent } from "@posthog/core/sessions/sessionEvents";
 import {
   createLatestPlanTracker,
@@ -11,7 +12,11 @@ import {
   FAST_MODE_OPTION_CATEGORY,
 } from "@posthog/core/task-detail/previewConfig";
 import { useService } from "@posthog/di/react";
-import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
+import {
+  type AcpMessage,
+  FAST_MODE_FLAG,
+  isTerminalStatus,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   spendStopMessage,
@@ -32,6 +37,7 @@ import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionS
 import { CloudStreamDisconnectedBanner } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
 import { ComposerWidth } from "@posthog/ui/features/sessions/components/ComposerWidth";
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
+import { AcpChatThread } from "@posthog/ui/features/sessions/components/chat-thread/ChatThread";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import {
   copyFromContextMenu,
@@ -52,7 +58,6 @@ import {
   shouldSubmitComposerOptimistically,
   submitComposerPrompt,
 } from "@posthog/ui/features/sessions/components/submitComposerPrompt";
-import { ThreadView } from "@posthog/ui/features/sessions/components/ThreadView";
 import { usePendingModelSwitch } from "@posthog/ui/features/sessions/components/usePendingModelSwitch";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useAutoCompact } from "@posthog/ui/features/sessions/hooks/useAutoCompact";
@@ -61,7 +66,6 @@ import { useCancelQueuedMessageEdit } from "@posthog/ui/features/sessions/hooks/
 import { useSessionEventsResidency } from "@posthog/ui/features/sessions/hooks/useSessionEventsResidency";
 import { useToggleMessagingMode } from "@posthog/ui/features/sessions/hooks/useToggleMessagingMode";
 import {
-  useAdapterForTask,
   useConfigOptionForTask,
   useModeConfigOptionForTask,
   useModelConfigOptionForTask,
@@ -118,10 +122,10 @@ interface SessionViewProps {
   errorMessage?: string;
   errorRetryable?: boolean;
   onRetry?: () => void;
+  retryLabel?: string;
   onNewSession?: () => void;
   isInitializing?: boolean;
   isCloud?: boolean;
-  slackThreadUrl?: string;
   compact?: boolean;
   isActiveSession?: boolean;
   /** Hide the message input and permission UI — log-only view. */
@@ -154,10 +158,10 @@ export function SessionView({
   errorMessage = DEFAULT_ERROR_MESSAGE,
   errorRetryable = false,
   onRetry,
+  retryLabel = "Retry",
   onNewSession,
   isInitializing = false,
   isCloud = false,
-  slackThreadUrl,
   compact = false,
   isActiveSession = true,
   hideInput = false,
@@ -175,7 +179,26 @@ export function SessionView({
     CONTEXT_WINDOW_OPTION_CATEGORY,
   );
   const sessionModelOption = useModelConfigOptionForTask(taskId);
-  const adapter = useAdapterForTask(taskId);
+  const adapter = useSessionSelector(taskId, (session) =>
+    session ? (getCloudRuntimeOptions(session).adapter ?? "claude") : "claude",
+  );
+  const isCloudRunTerminal = useSessionSelector(
+    taskId,
+    (session) => !!session?.isCloud && isTerminalStatus(session.cloudStatus),
+  );
+  const processedLineCount = useSessionSelector(taskId, (session) =>
+    isCloudRunTerminal ? session?.processedLineCount : undefined,
+  );
+  const claudeModelAccess = useSessionSelector(
+    taskId,
+    (session) => session?.claudeModelAccess,
+  );
+  // Log hydration can replace the model list after the run ends.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reload after the final transcript arrives
+  useEffect(() => {
+    if (taskId && isCloudRunTerminal)
+      void sessionService.prepareCloudResume(taskId);
+  }, [taskId, isCloudRunTerminal, processedLineCount, sessionService]);
   const fastModeFlagEnabled = useFeatureFlag(FAST_MODE_FLAG);
   const liveFastModeOption = useConfigOptionForTask(
     taskId,
@@ -611,15 +634,13 @@ export function SessionView({
             />
             {isSuspended ? (
               <>
-                <ThreadView
+                <AcpChatThread
                   events={events}
                   isPromptPending={isPromptPending}
                   promptStartedAt={promptStartedAt}
                   repoPath={repoPath}
                   taskId={taskId}
                   task={task}
-                  slackThreadUrl={slackThreadUrl}
-                  scrollX={false}
                 />
                 <Box className="border-gray-4 border-t">
                   <Box
@@ -676,18 +697,16 @@ export function SessionView({
                     errorTitle={errorTitle}
                     errorMessage={errorMessage}
                     onRetry={onRetry}
+                    retryLabel={retryLabel}
                   />
                 )}
-                <ThreadView
+                <AcpChatThread
                   events={events}
                   isPromptPending={isPromptPending}
                   promptStartedAt={promptStartedAt}
                   repoPath={repoPath}
                   taskId={taskId}
                   task={task}
-                  slackThreadUrl={slackThreadUrl}
-                  compact={compact}
-                  scrollX={false}
                   promptRecallRef={promptRecallRef}
                   olderHistoryCursor={olderHistoryCursor}
                   isLoadingOlderHistory={isLoadingOlderHistory}
@@ -726,7 +745,7 @@ export function SessionView({
                     <Flex gap="2" mt="2">
                       {onRetry && (
                         <Button variant="soft" size="2" onClick={onRetry}>
-                          Retry
+                          {retryLabel}
                         </Button>
                       )}
                       {onNewSession && (
@@ -815,11 +834,15 @@ export function SessionView({
                               thoughtOption={thoughtOption}
                               modelOption={sessionModelOption}
                               adapter={adapter}
+                              modelAccess={claudeModelAccess}
                               contextWindowOption={contextWindowOption}
                               fastModeOption={fastModeOption}
                               onChange={handleThoughtChange}
                               onConfigOptionChange={handleConfigOptionChange}
-                              disabled={!isRunning}
+                              disabled={
+                                !isRunning ||
+                                (isCloudRunTerminal && !!isPromptPending)
+                              }
                             />
                           ) : null
                         }

@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudability.cloudability import (
     CloudabilityResumeConfig,
     cloudability_source,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CloudabilitySource(ResumableSource[CloudabilitySourceConfig, CloudabilityResumeConfig]):
+    codebase_detection = detect(env=("^CLOUDABILITY_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)
     default_version = "v3"
@@ -106,7 +107,7 @@ class CloudabilitySource(ResumableSource[CloudabilitySourceConfig, CloudabilityR
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLOUDABILITY,
+            name=ExternalDataSourceType.CLOUDABILITY,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Apptio Cloudability (IBM)",
             keywords=["cloudability", "finops", "cloud cost", "apptio"],

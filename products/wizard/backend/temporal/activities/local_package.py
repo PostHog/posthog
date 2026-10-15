@@ -6,16 +6,20 @@ from posthog.temporal.common.utils import asyncify
 from products.wizard.backend.logic.workers import service as cloud_worker
 from products.wizard.backend.logic.workers.config import local_wizard_source_root
 from products.wizard.backend.logic.workers.local_package import InvalidLocalWizardSourceError
+from products.wizard.backend.observability.tracing import annotate_run_span
 from products.wizard.backend.temporal.activities.errors import (
     WIZARD_RUN_CONFIGURATION_ERROR_TYPE,
     WIZARD_WORKER_EXECUTION_ERROR_TYPE,
+    sanitize_activity_errors,
 )
 from products.wizard.backend.temporal.contracts import ProvisionedWizardWorker
 
 
 @activity.defn(name="wizard_prepare_local_package")
 @asyncify
+@sanitize_activity_errors
 def prepare_local_wizard(input: ProvisionedWizardWorker) -> None:
+    annotate_run_span(input.team_id, input.run_id)
     source_root = local_wizard_source_root()
     if not input.use_local_wizard_source or source_root is None:
         raise ApplicationError(

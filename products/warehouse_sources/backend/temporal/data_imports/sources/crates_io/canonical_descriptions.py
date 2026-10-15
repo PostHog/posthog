@@ -2,12 +2,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 
-_DATA_ACCESS_DOCS = "https://crates.io/data-access"
+_API_DOCS = "https://doc.rust-lang.org/cargo/reference/registry-web-api.html"
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "crates": {
         "description": "Crate metadata from the crates.io API crate detail endpoint, one row per configured crate.",
-        "docs_url": _DATA_ACCESS_DOCS,
+        "docs_url": _API_DOCS,
         "columns": {
             "id": "Globally unique crate name (the crate's identifier on crates.io).",
             "name": "Crate name as registered on crates.io.",
@@ -36,7 +36,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "versions": {
         "description": "Published versions across every configured crate, one row per version.",
-        "docs_url": _DATA_ACCESS_DOCS,
+        "docs_url": _API_DOCS,
         "columns": {
             "id": "Registry-wide unique numeric version id.",
             "crate": "Name of the crate the version belongs to.",
@@ -70,7 +70,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "downloads": {
         "description": "Daily download counts per version of each configured crate, over the trailing ~90-day "
         "window the crates.io API exposes.",
-        "docs_url": _DATA_ACCESS_DOCS,
+        "docs_url": _API_DOCS,
         "columns": {
             "crate": "Canonical crate name (injected by the connector; not returned by the endpoint).",
             "version": "Registry-wide numeric version id, or 0 for downloads crates.io reports only in "
@@ -79,9 +79,76 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "downloads": "Number of downloads on that day.",
         },
     },
+    "dependencies": {
+        "description": "Dependencies declared by the most recent versions of each configured crate, one row "
+        "per dependency edge.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "crate": "Canonical name of the crate that declares the dependency (injected by the connector; "
+            "not returned by the endpoint).",
+            "version_num": "Version number of the crate that declares the dependency (injected by the "
+            "connector; not returned by the endpoint).",
+            "version_id": "Registry-wide numeric id of the version that declares the dependency.",
+            "id": "Opaque numeric id of the dependency edge.",
+            "crate_id": "Name of the crate being depended on.",
+            "req": "Semver requirement the dependency is declared with (e.g. `^1.0`).",
+            "kind": "Dependency kind: `normal`, `dev`, or `build`.",
+            "optional": "Whether the dependency is optional.",
+            "default_features": "Whether default features are enabled for the dependency.",
+            "features": "Features explicitly enabled for the dependency.",
+            "target": "Target platform the dependency applies to, if it is platform-specific.",
+            "downloads": "Always 0. crates.io only fills this field in on the reverse dependencies endpoint.",
+        },
+    },
+    "reverse_dependencies": {
+        "description": "Versions of other crates that depend on each configured crate, one row per dependency edge.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "crate": "Canonical name of the configured crate being depended on.",
+            "dependent_crate": "Name of the crate that declares the dependency (injected by the connector "
+            "from the response's version list).",
+            "dependent_version_num": "Version number of the crate that declares the dependency (injected by "
+            "the connector from the response's version list).",
+            "version_id": "Registry-wide numeric id of the version that declares the dependency.",
+            "id": "Opaque numeric id of the dependency edge.",
+            "crate_id": "Name of the crate being depended on; the same as `crate`.",
+            "req": "Semver requirement the dependency is declared with (e.g. `^1.0`).",
+            "kind": "Dependency kind: `normal`, `dev`, or `build`.",
+            "optional": "Whether the dependency is optional.",
+            "default_features": "Whether default features are enabled for the dependency.",
+            "features": "Features explicitly enabled for the dependency.",
+            "target": "Target platform the dependency applies to, if it is platform-specific.",
+            "downloads": "All-time download count of the dependent crate named by `dependent_crate`, "
+            "across every one of its versions.",
+        },
+    },
+    "categories": {
+        "description": "Every category on crates.io, one row per category. Resolves the category slugs "
+        "carried on crate records.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Opaque identifier of the category; the same value as `slug`.",
+            "category": "Display name of the category, including its parent path (e.g. `Game development`).",
+            "slug": "URL slug of the category, as carried in a crate's `categories` field.",
+            "description": "Description of what belongs in the category.",
+            "created_at": "When the category was added to crates.io.",
+            "crates_cnt": "Number of crates in the category.",
+        },
+    },
+    "keywords": {
+        "description": "Every keyword on crates.io, one row per keyword. Resolves the keywords carried on "
+        "crate records.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Opaque identifier of the keyword; the same value as `keyword`.",
+            "keyword": "The keyword itself, as carried in a crate's `keywords` field.",
+            "created_at": "When the keyword was first used on crates.io.",
+            "crates_cnt": "Number of crates using the keyword.",
+        },
+    },
     "owners": {
         "description": "Owners (users and teams) of each configured crate, one row per owner.",
-        "docs_url": _DATA_ACCESS_DOCS,
+        "docs_url": _API_DOCS,
         "columns": {
             "crate": "Canonical crate name (injected by the connector; not returned by the endpoint).",
             "id": "Registry-wide unique numeric id of the owning user or team.",

@@ -10,16 +10,12 @@ jest.mock('~/common/utils/posthog', () => ({
     captureException: jest.fn(),
 }))
 
-jest.mock('~/ingestion/pipelines/ai/process-ai-event', () => {
-    const actual = jest.requireActual('~/ingestion/pipelines/ai/process-ai-event')
-    return {
-        AI_EVENT_TYPES: actual.AI_EVENT_TYPES,
-        processAiEvent: jest.fn((event: PluginEvent) => ({
-            ...event,
-            properties: { ...event.properties, $ai_was_processed: true },
-        })),
-    }
-})
+jest.mock('~/ingestion/pipelines/ai/process-ai-event', () => ({
+    processAiEvent: jest.fn((event: PluginEvent) => ({
+        ...event,
+        properties: { ...event.properties, $ai_was_processed: true },
+    })),
+}))
 
 const mockedProcessAiEvent = processAiEvent as jest.MockedFunction<typeof processAiEvent>
 const mockedCaptureException = captureException as jest.MockedFunction<typeof captureException>
@@ -56,6 +52,8 @@ describe('processAiEventStep', () => {
         '$ai_generation_summary',
         '$ai_trace_summary',
         '$ai_evaluation_report',
+        // Any `$ai_*` name is an AI event, including ones this code has never seen.
+        '$ai_custom_metric',
     ])('calls processAiEvent for %s event', async (eventName) => {
         const event = createTestEvent({ event: eventName, properties: { $ai_model: 'gpt-4' } })
         const step = createProcessAiEventStep()
@@ -70,16 +68,19 @@ describe('processAiEventStep', () => {
         }
     })
 
-    it.each(['$pageview', '$autocapture', 'custom_event', '$$heatmap'])('sends %s event to DLQ', async (eventName) => {
-        const event = createTestEvent({ event: eventName })
-        const step = createProcessAiEventStep()
-        const input = { normalizedEvent: event }
+    it.each(['$pageview', '$autocapture', 'custom_event', '$$heatmap', 'ai_generation', '$AI_generation'])(
+        'sends %s event to DLQ',
+        async (eventName) => {
+            const event = createTestEvent({ event: eventName })
+            const step = createProcessAiEventStep()
+            const input = { normalizedEvent: event }
 
-        const result = await step(input)
+            const result = await step(input)
 
-        expect(result.type).toBe(PipelineResultType.DLQ)
-        expect(mockedProcessAiEvent).not.toHaveBeenCalled()
-    })
+            expect(result.type).toBe(PipelineResultType.DLQ)
+            expect(mockedProcessAiEvent).not.toHaveBeenCalled()
+        }
+    )
 
     it('passes through unchanged on processAiEvent error', async () => {
         const event = createTestEvent({ event: '$ai_generation' })

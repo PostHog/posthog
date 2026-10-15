@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { findRecoverableApiError, PostHogApiError, PostHogValidationError, wrapError } from '@/lib/errors'
 import { withUiApp } from '@/resources/ui-apps'
 import type { ExperimentResultsSummary } from '@/schema/experiments'
 import { transformExperimentResults } from '@/schema/experiments'
@@ -29,7 +30,16 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
     })
 
     if (!result.success) {
-        throw new Error(`Failed to get experiment results: ${result.error.message}`)
+        const message = `Failed to get experiment results: ${result.error.message}`
+        // A 400 from /query/ means the exposure query was built wrong on this side. Dropping
+        // the typed cause keeps it out of handleToolError's 4xx short-circuit so it is still
+        // captured as an exception. Every other failure keeps its cause: a 404, 403 or 429
+        // is the agent's or the caller's to recover from.
+        const apiError = findRecoverableApiError(result.error)
+        const isOwnQueryBug =
+            apiError instanceof PostHogValidationError ||
+            (apiError instanceof PostHogApiError && apiError.status === 400)
+        throw isOwnQueryBug ? new Error(message) : wrapError(message, result.error)
     }
 
     const {

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.agilecrm import (
     AgileCRMResumeConfig,
     agilecrm_source,
@@ -34,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AgileCRMSource(ResumableSource[AgileCRMSourceConfig, AgileCRMResumeConfig]):
+    codebase_detection = detect(env=("^(AGILE_CRM|AGILECRM)_",))
+
     api_docs_url = "https://github.com/agilecrm/rest-api"
 
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
@@ -52,7 +53,7 @@ class AgileCRMSource(ResumableSource[AgileCRMSourceConfig, AgileCRMResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AGILE_CRM,
+            name=ExternalDataSourceType.AGILECRM,
             category=DataWarehouseSourceCategory.CRM,
             label="AgileCRM",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -35,7 +35,7 @@ jobs:
         # cannot skip the test by naming its branch trunk-merge/*.
         if: ${{ !(github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'trunk-merge/')) }}
         # sandbox-exec (Seatbelt) is macOS-only. Depot macOS is a fixed FIFO pool
-        # (Startup+ plan); if it's unavailable, swap runs-on for `macos-14`.
+        # (Startup+ plan); if it's unavailable, use a GitHub-hosted macOS runner.
         runs-on: depot-macos-15
         timeout-minutes: 15
         permissions:
@@ -48,7 +48,7 @@ jobs:
     shims-selftest:
         name: Verify dev sandbox shims routing
         # Pure string-logic test — no sandbox-exec needed, so it runs on Linux.
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
             contents: read

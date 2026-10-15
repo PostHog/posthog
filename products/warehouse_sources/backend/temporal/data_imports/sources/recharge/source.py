@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RechargeSource(ResumableSource[RechargeSourceConfig, RechargeResumeConfig]):
+    codebase_detection = detect(
+        env=("^RECHARGE_",), script_hosts=("static.rechargecdn.com",), npm=("@rechargeapps/storefront-client",)
+    )
+
     supported_versions = ("2021-11",)
     default_version = "2021-11"
     api_docs_url = "https://developer.rechargepayments.com"
@@ -50,7 +53,7 @@ class RechargeSource(ResumableSource[RechargeSourceConfig, RechargeResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.RECHARGE,
+            name=ExternalDataSourceType.RECHARGE,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Recharge",
             caption="""Enter your Recharge API token to automatically pull your Recharge subscription data into the PostHog Data warehouse.

@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="alpha",
@@ -48,9 +48,10 @@ if (not inputs.bypass_signature_check) {
   if (empty(secrets)) {
     return {
       'httpResponse': {
-        'status': 400,
-        'body': 'Signing secret not configured',
-      }
+        'status': 200,
+        'body': 'Signing secret not configured, delivery dropped',
+      },
+      'appMetric': 'missing_credential'
     }
   }
 
@@ -157,6 +158,19 @@ produceToWarehouseWebhooks(
             "default": [],
             "required": False,
             "secret": True,
+            "hidden": True,
+        },
+        {
+            "type": "boolean",
+            "key": "signing_secrets_complete",
+            "label": "Signing secrets complete",
+            "description": (
+                "Whether PostHog captured a secret for every trigger type it registered. False means some "
+                "deliveries cannot be verified until a signing secret is entered by hand."
+            ),
+            "default": False,
+            "required": False,
+            "secret": False,
             "hidden": True,
         },
         {

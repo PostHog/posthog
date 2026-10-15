@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PostscriptSource(ResumableSource[PostscriptSourceConfig, PostscriptResumeConfig]):
+    codebase_detection = detect(env=("^POSTSCRIPT_",), script_hosts=("sdk.postscript.io",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # `v2` is the `/api/v2/` path segment every request uses, and the version Postscript took
     # out of beta as its current API.
@@ -107,7 +108,7 @@ class PostscriptSource(ResumableSource[PostscriptSourceConfig, PostscriptResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.POSTSCRIPT,
+            name=ExternalDataSourceType.POSTSCRIPT,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Postscript",
             caption=(

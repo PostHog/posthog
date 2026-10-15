@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LemlistSource(ResumableSource[LemlistSourceConfig, LemlistResumeConfig]):
+    codebase_detection = detect(env=("^LEMLIST_",))
+
     api_docs_url = "https://developer.lemlist.com/api-reference"
     supported_versions = LEMLIST_SUPPORTED_VERSIONS
     default_version = LEMLIST_DEFAULT_VERSION
@@ -50,7 +51,7 @@ class LemlistSource(ResumableSource[LemlistSourceConfig, LemlistResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LEMLIST,
+            name=ExternalDataSourceType.LEMLIST,
             category=DataWarehouseSourceCategory.SALES,
             label="Lemlist",
             releaseStatus=ReleaseStatus.ALPHA,

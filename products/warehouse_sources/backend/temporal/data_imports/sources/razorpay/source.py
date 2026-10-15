@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,6 +37,34 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RazorpaySource(ResumableSource[RazorpaySourceConfig, RazorpayResumeConfig]):
+    codebase_detection = detect(
+        env=("^RAZORPAY_",),
+        script_hosts=("checkout.razorpay.com",),
+        npm=("razorpay", "react-native-razorpay"),
+        pypi=("razorpay",),
+        cocoapods=("razorpay-pod",),
+        composer=("razorpay/razorpay",),
+        go=(
+            "github.com/razorpay/razorpay-go",
+            "github.com/razorpay/razorpay-cli",
+            "github.com/razorpay/razorpay-mcp-server",
+        ),
+        maven=(
+            "com.razorpay:razorpay-java",
+            "com.razorpay:checkout",
+            "com.razorpay:razorpay-android",
+            "com.razorpay:razorpay-googlepay",
+            "com.razorpay:razorpay-turbo",
+        ),
+        pub=("razorpay_flutter", "razorpay_flutter_banking_wrapper_sdk", "razorpay_flutter_customui", "razorpay_turbo"),
+        rubygems=("razorpay",),
+        swiftpm=(
+            "github.com/razorpay/razorpay-banking-wrapper-sdk",
+            "github.com/razorpay/razorpay-customui-pod",
+            "github.com/razorpay/razorpay-pod",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://razorpay.com/docs/api/"
 
@@ -123,7 +150,7 @@ class RazorpaySource(ResumableSource[RazorpaySourceConfig, RazorpayResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.RAZORPAY,
+            name=ExternalDataSourceType.RAZORPAY,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Razorpay",
             caption="Enter your Razorpay API key pair to pull payments, orders, refunds, settlements, and subscription data into the PostHog Data warehouse. Generate a key ID and key secret in the Razorpay Dashboard under Account & Settings → API keys. Use a `rzp_live_` key for live-mode data or a `rzp_test_` key for test-mode data.",

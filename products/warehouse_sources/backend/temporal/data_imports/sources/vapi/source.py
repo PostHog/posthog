@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VapiSource(ResumableSource[VapiSourceConfig, VapiResumeConfig]):
+    codebase_detection = detect(
+        env=("^VAPI_",),
+        npm=("@vapi-ai/server-sdk", "@vapi-ai/web"),
+        pypi=("vapi-server-sdk", "vapi-python"),
+        go=("github.com/VapiAI/server-sdk-go",),
+    )
+
     supported_versions = SUPPORTED_VERSIONS
     default_version = DEFAULT_VERSION
     api_docs_url = "https://docs.vapi.ai/api-reference"
@@ -48,7 +54,7 @@ class VapiSource(ResumableSource[VapiSourceConfig, VapiResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.VAPI,
+            name=ExternalDataSourceType.VAPI,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Vapi",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -94,6 +100,10 @@ You can find your private API key in the [Vapi dashboard](https://dashboard.vapi
             # spec-compliant request and gets the same 400 back. Match the path, not the
             # per-request query string, so this stays scoped to this one known-bad endpoint.
             "400 Client Error: Bad Request for url: https://api.vapi.ai/v2/phone-number": "Vapi rejected the request to list phone numbers on API v2 for this account. This looks like an issue on Vapi's side rather than your credentials — contact Vapi support, or disable the phone_numbers table if you don't need it.",
+            # Same pattern as the phone-number v2 case above, on the /chat list endpoint: the
+            # request (limit/page/sortOrder/sortBy/createdAtGt) matches Vapi's published spec,
+            # and every retry replays the identical request and gets the same 400 back.
+            "400 Client Error: Bad Request for url: https://api.vapi.ai/chat": "Vapi rejected the request to list chats for this account. This looks like an issue on Vapi's side rather than your credentials — contact Vapi support, or disable the chats table if you don't need it.",
         }
 
     def get_schemas(

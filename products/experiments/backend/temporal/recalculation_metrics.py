@@ -24,8 +24,8 @@ from temporalio.worker import (
 
 from posthog.temporal.ai_observability.metrics import ExecutionTimeRecorder
 
-# The workflow type name (matches @workflow.defn(name=...) in recalculation_workflow).
-_RECALCULATION_WORKFLOW_TYPE = "experiment-metrics-recalculation-workflow"
+from products.experiments.backend.temporal.models import METRICS_RECALCULATION_WORKFLOW_NAME
+
 # Activity type names (the registered activity function names).
 _RECALCULATION_ACTIVITY_TYPES = {
     "discover_experiment_metrics",
@@ -50,19 +50,30 @@ EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS = [
 ]
 
 # Schedule-to-start latency is the queue-pressure signal: how long an activity sat in the task queue before
-# a worker picked it up. Buckets reach 30m (vs 5m for execution latency) because queue wait under backlog is
-# unbounded by the activity timeout; that is exactly the regime this histogram exists to observe.
+# a worker picked it up. Most waits finish in under 100ms and the p95 sits between 100ms and 1s, so the buckets
+# are dense in that range; with sparse buckets, histogram_quantile interpolates across one wide bucket and a
+# small shift in the tail moves the p95 by hundreds of milliseconds. Buckets reach 30m (vs 5m for execution
+# latency) because queue wait under backlog is unbounded by the activity timeout.
 EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_METRICS = (
     "experiment_metrics_recalculation_activity_schedule_to_start_latency",
 )
 EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS = [
+    25.0,  # 25ms
+    50.0,  # 50ms
+    75.0,  # 75ms
     100.0,  # 100ms
+    150.0,  # 150ms
+    200.0,  # 200ms
+    300.0,  # 300ms
     500.0,  # 500ms
+    750.0,  # 750ms
     1_000.0,  # 1s
+    2_000.0,  # 2s
     5_000.0,  # 5s
     10_000.0,  # 10s
     30_000.0,  # 30s
     60_000.0,  # 1m
+    120_000.0,  # 2m
     300_000.0,  # 5m
     600_000.0,  # 10m
     1_800_000.0,  # 30m
@@ -88,7 +99,7 @@ def increment_workflow_finished(status: str) -> None:
     `workflow_type` is attached so dashboards stay scoped when other experiments workflows ship later.
     """
     workflow.metric_meter().with_additional_attributes(
-        {"status": status, "workflow_type": _RECALCULATION_WORKFLOW_TYPE}
+        {"status": status, "workflow_type": METRICS_RECALCULATION_WORKFLOW_NAME}
     ).create_counter(
         "experiment_metrics_recalculation_workflow_finished",
         "Number of experiment metrics recalculation workflows that reached a terminal state.",
@@ -111,12 +122,16 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
             return await super().execute_activity(input)
 
         meter = activity.metric_meter().with_additional_attributes(
-            {"activity_type": activity_type, "workflow_type": _RECALCULATION_WORKFLOW_TYPE}
+            {"activity_type": activity_type, "workflow_type": METRICS_RECALCULATION_WORKFLOW_NAME}
         )
         # Queue-pressure signal (see bucket comment above). Per-attempt scheduling time, so retry backoff
         # (including the intentional quota-wait delays) doesn't read as queue pressure.
         if info.current_attempt_scheduled_time and info.started_time:
-            meter.create_histogram_timedelta(
+            # A retry attempt waits on the queue after its backoff, so splitting it out separates retry waves
+            # from fresh fan-out that waits for a free slot.
+            meter.with_additional_attributes(
+                {"attempt_kind": "first" if info.attempt == 1 else "retry"}
+            ).create_histogram_timedelta(
                 name="experiment_metrics_recalculation_activity_schedule_to_start_latency",
                 description="Time between the current attempt's scheduling and start (task queue wait).",
                 unit="ms",
@@ -135,7 +150,7 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
                 description="Execution latency for experiment metrics recalculation activities.",
                 histogram_attributes={
                     "activity_type": activity_type,
-                    "workflow_type": _RECALCULATION_WORKFLOW_TYPE,
+                    "workflow_type": METRICS_RECALCULATION_WORKFLOW_NAME,
                 },
             ):
                 result = await super().execute_activity(input)
@@ -162,10 +177,10 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
 
 class _WorkflowInboundInterceptor(WorkflowInboundInterceptor):
     async def execute_workflow(self, input: ExecuteWorkflowInput) -> typing.Any:
-        if workflow.info().workflow_type != _RECALCULATION_WORKFLOW_TYPE:
+        if workflow.info().workflow_type != METRICS_RECALCULATION_WORKFLOW_NAME:
             return await super().execute_workflow(input)
         workflow.metric_meter().with_additional_attributes(
-            {"workflow_type": _RECALCULATION_WORKFLOW_TYPE}
+            {"workflow_type": METRICS_RECALCULATION_WORKFLOW_NAME}
         ).create_counter(
             "experiment_metrics_recalculation_workflow_started",
             "Number of experiment metrics recalculation workflows started.",
@@ -174,7 +189,7 @@ class _WorkflowInboundInterceptor(WorkflowInboundInterceptor):
             with ExecutionTimeRecorder(
                 "experiment_metrics_recalculation_workflow_execution_latency",
                 description="End-to-end execution latency for the experiment metrics recalculation workflow.",
-                histogram_attributes={"workflow_type": _RECALCULATION_WORKFLOW_TYPE},
+                histogram_attributes={"workflow_type": METRICS_RECALCULATION_WORKFLOW_NAME},
             ):
                 return await super().execute_workflow(input)
         except BaseException:

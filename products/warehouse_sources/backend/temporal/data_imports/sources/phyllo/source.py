@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,6 +37,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PhylloSource(ResumableSource[PhylloSourceConfig, PhylloResumeConfig]):
+    codebase_detection = detect(
+        env=("^PHYLLO_",),
+        npm=("react-native-phyllo-connect", "phyllo-connect"),
+        cocoapods=("PhylloConnect",),
+        pub=("phyllo_connect",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -50,7 +56,7 @@ class PhylloSource(ResumableSource[PhylloSourceConfig, PhylloResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PHYLLO,
+            name=ExternalDataSourceType.PHYLLO,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Phyllo",
             releaseStatus=ReleaseStatus.ALPHA,

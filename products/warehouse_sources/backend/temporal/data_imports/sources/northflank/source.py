@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -32,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NorthflankSource(SimpleSource[NorthflankSourceConfig]):
+    codebase_detection = detect(env=("^NORTHFLANK_",), npm=("@northflank/js-client", "@northflank/cli"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -100,7 +101,7 @@ class NorthflankSource(SimpleSource[NorthflankSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.NORTHFLANK,
+            name=ExternalDataSourceType.NORTHFLANK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Northflank",
             releaseStatus=ReleaseStatus.ALPHA,

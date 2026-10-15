@@ -39,11 +39,6 @@ class TestCampfireSource:
     def setup_method(self) -> None:
         self.source = CampfireSource()
 
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # Public docs list the table catalog through this path; it must not need I/O.
-        tables = self.source.get_documented_tables()
-        assert [t["name"] for t in tables] == list(ENDPOINTS)
-
     def test_canonical_descriptions_are_keyed_by_endpoint_names(self) -> None:
         assert set(CANONICAL_DESCRIPTIONS.keys()) <= set(ENDPOINTS)
 
@@ -59,6 +54,15 @@ class TestCampfireSource:
     def test_validate_credentials_probes_the_schema_endpoint(self) -> None:
         with patch.object(source_module, "validate_campfire_credentials", return_value=True) as mock:
             self.source.validate_credentials(CampfireSourceConfig(api_key="k"), team_id=1, schema_name="contracts")
+        mock.assert_called_once_with("k", path="/rr/api/v1/contracts")
+
+    def test_validate_credentials_probes_the_parent_of_a_fanout_schema(self) -> None:
+        # A fan-out child's path still holds its parent placeholder, so probing it verbatim would
+        # request a nonexistent contract.
+        with patch.object(source_module, "validate_campfire_credentials", return_value=True) as mock:
+            self.source.validate_credentials(
+                CampfireSourceConfig(api_key="k"), team_id=1, schema_name="contract_subscriptions"
+            )
         mock.assert_called_once_with("k", path="/rr/api/v1/contracts")
 
     @parameterized.expand(

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -32,6 +31,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TogetherAISource(SimpleSource[TogetherAISourceConfig]):
+    codebase_detection = detect(
+        env=("^TOGETHER_",),
+        npm=("together-ai",),
+        pypi=("together",),
+        go=("github.com/togethercomputer/together-go", "github.com/togethercomputer/together-kubelogin"),
+    )
+
     api_docs_url = "https://docs.together.ai/reference"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -43,7 +49,7 @@ class TogetherAISource(SimpleSource[TogetherAISourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TOGETHER_AI,
+            name=ExternalDataSourceType.TOGETHERAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Together AI",
             releaseStatus=ReleaseStatus.ALPHA,

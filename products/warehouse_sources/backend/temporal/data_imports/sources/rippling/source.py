@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RipplingSource(ResumableSource[RipplingSourceConfig, RipplingResumeConfig]):
+    codebase_detection = detect(env=("^RIPPLING_",))
+
     # Rippling versions its REST API through a dated `Rippling-Api-Version` header and, when no
     # header is sent, serves the version bound to the API token account-side (chosen when the
     # customer mints the token) — never a moving "latest". We send the token as-is with no version
@@ -69,7 +70,7 @@ class RipplingSource(ResumableSource[RipplingSourceConfig, RipplingResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.RIPPLING,
+            name=ExternalDataSourceType.RIPPLING,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Rippling",
             caption="""Enter your Rippling API token to pull your Rippling workforce data into the PostHog Data warehouse.

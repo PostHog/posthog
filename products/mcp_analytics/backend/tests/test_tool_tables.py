@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     DateRange,
+    EventPropertyFilter,
     IntervalType,
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
@@ -17,6 +18,7 @@ from posthog.schema import (
     MCPToolStatsQuery,
     MCPToolTopUsersQuery,
     NeighborDirection,
+    PropertyOperator,
 )
 
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -147,6 +149,8 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         error_type: str | None = None,
         error_status: str | None = None,
         exec_tool: str | None = None,
+        exec_verb: str | None = None,
+        exec_target: str | None = None,
         timestamp: datetime | None = None,
     ) -> None:
         properties: dict[str, Any] = {"$mcp_tool_name": tool_name, "$mcp_is_error": is_error}
@@ -160,6 +164,10 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
             properties["$mcp_error_status"] = error_status
         if exec_tool is not None:
             properties["$mcp_exec_tool_call_name"] = exec_tool
+        if exec_verb is not None:
+            properties["$mcp_exec_verb"] = exec_verb
+        if exec_target is not None:
+            properties["$mcp_exec_target_tool"] = exec_target
         _create_event(
             team=self.team,
             event="$mcp_tool_call",
@@ -230,9 +238,15 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         self._emit(tool_name="other_tool", error_type="internal", client_name="claude-ai")
         # Single-exec wrapper: the effective tool is in $mcp_exec_tool_call_name, not $mcp_tool_name.
         self._emit(tool_name="exec", exec_tool="query_run", error_type="validation", client_name="cursor-vscode")
+        self._emit(tool_name="exec", exec_verb="call", exec_target="query_run", error_type="validation")
+        self._emit(tool_name="exec", exec_verb="info", exec_target="query_run", error_type="validation")
+        self._emit(tool_name="exec", exec_verb="schema", exec_target="query_run", error_type="validation")
+        self._emit(tool_name="other_tool", exec_verb="call", exec_target="query_run", error_type="validation")
         flush_persons_and_events()
 
-        assert [r.message for r in self._run(tool_name="query_run")] == ["validation"]
+        rows = self._run(tool_name="query_run")
+        assert [row.message for row in rows] == ["validation"]
+        assert rows[0].occurrences == 2
 
     def test_excludes_events_without_new_sdk_source(self) -> None:
         self._emit(source=None, error_type="internal", client_name="claude-ai")
@@ -413,6 +427,8 @@ def _emit_tool_call(
     client_name: str | None = None,
     session_id: str | None = None,
     exec_tool: str | None = None,
+    exec_verb: str | None = None,
+    exec_target: str | None = None,
     timestamp: datetime | None = None,
 ) -> None:
     properties: dict[str, Any] = {"$mcp_tool_name": tool_name, "$mcp_is_error": is_error}
@@ -432,6 +448,10 @@ def _emit_tool_call(
         properties["$mcp_session_id"] = session_id
     if exec_tool is not None:
         properties["$mcp_exec_tool_call_name"] = exec_tool
+    if exec_verb is not None:
+        properties["$mcp_exec_verb"] = exec_verb
+    if exec_target is not None:
+        properties["$mcp_exec_target_tool"] = exec_target
     _create_event(
         team=team,
         event="$mcp_tool_call",
@@ -452,10 +472,22 @@ class TestMCPToolStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
     def test_empty_when_no_calls(self) -> None:
         assert self._run() == []
 
-    def test_aggregates_scalars_and_intent_coverage(self) -> None:
+    @parameterized.expand([("direct", False), ("rejected_exec", True)])
+    def test_aggregates_scalars_and_intent_coverage(self, _name: str, rejected_exec: bool) -> None:
         _emit_tool_call(self.team, distinct_id="d1", duration_ms=100, intent='{"goal":"x"}', session_id="s1")
-        _emit_tool_call(self.team, distinct_id="d1", duration_ms=300, is_error=True, session_id="s1")
+        _emit_tool_call(
+            self.team,
+            distinct_id="d1",
+            duration_ms=300,
+            is_error=True,
+            session_id="s1",
+            tool_name="exec" if rejected_exec else "query_run",
+            exec_verb="call" if rejected_exec else None,
+            exec_target="query_run" if rejected_exec else None,
+        )
         _emit_tool_call(self.team, distinct_id="d2", duration_ms=200, intent="{}", session_id="s2")
+        for verb in ("info", "schema"):
+            _emit_tool_call(self.team, tool_name="exec", exec_verb=verb, exec_target="query_run", is_error=True)
         # Off-tool event must not leak into the aggregation (shared tool filter wiring).
         _emit_tool_call(self.team, distinct_id="d3", tool_name="other", duration_ms=999)
         flush_persons_and_events()
@@ -477,6 +509,50 @@ class TestMCPToolStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         flush_persons_and_events()
 
         assert self._run() == []
+
+    def test_totals_include_other_tools_calls_and_sessions(self) -> None:
+        _emit_tool_call(self.team, distinct_id="d1", session_id="s1")
+        _emit_tool_call(self.team, distinct_id="d1", session_id="s1")
+        _emit_tool_call(self.team, distinct_id="d2", tool_name="other", session_id="s2")
+        _emit_tool_call(self.team, distinct_id="d2", tool_name="other", session_id="s2")
+        _emit_tool_call(self.team, distinct_id="d3", tool_name="other")
+        flush_persons_and_events()
+
+        row = self._run()[0]
+
+        assert row.calls == 2
+        assert row.conversations == 1
+        assert row.total_calls == 5
+        # The call without any session id adds a call but no conversation.
+        assert row.total_conversations == 2
+
+    def test_shared_property_filter_narrows_totals_not_just_this_tool(self) -> None:
+        _emit_tool_call(self.team, distinct_id="d1", session_id="s1", client_name="claude-ai")
+        _emit_tool_call(self.team, distinct_id="d2", tool_name="other", session_id="s2", client_name="claude-ai")
+        _emit_tool_call(self.team, distinct_id="d3", tool_name="other", session_id="s3", client_name="cursor-vscode")
+        flush_persons_and_events()
+
+        runner = MCPToolStatsQueryRunner(
+            query=MCPToolStatsQuery(
+                toolName="query_run",
+                dateRange=DateRange(date_from="-7d"),
+                properties=[
+                    EventPropertyFilter(key="$mcp_client_name", value=["claude-ai"], operator=PropertyOperator.EXACT)
+                ],
+            ),
+            team=self.team,
+        )
+        row = runner.calculate().results[0]
+
+        # The cursor-vscode event is excluded from the total, not just from this tool's own numbers.
+        assert row.total_calls == 2
+        assert row.total_conversations == 2
+
+    def test_empty_when_no_calls_for_this_tool_even_if_other_tools_have_calls(self) -> None:
+        _emit_tool_call(self.team, distinct_id="d1", tool_name="other")
+        flush_persons_and_events()
+
+        assert self._run("query_run") == []
 
 
 class TestMCPToolDailyStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
@@ -552,6 +628,25 @@ class TestMCPToolDescriptionsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
 
         assert [r.description for r in rows] == ["real"]
 
+    def test_rejected_exec_call_does_not_attribute_wrapper_description_to_target(self) -> None:
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="rejected-call",
+            timestamp=datetime.now(tz=UTC),
+            properties={
+                "$mcp_source": NEW_SDK_SOURCE,
+                "$mcp_tool_name": "exec",
+                "$mcp_tool_description": "Run an MCP command",
+                "$mcp_exec_verb": "call",
+                "$mcp_exec_target_tool": "query_run",
+                "$mcp_is_error": True,
+            },
+        )
+        flush_persons_and_events()
+
+        assert self._run() == []
+
 
 class TestMCPToolSampleIntentsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     def _run(self, tool_name: str = "query_run") -> list[Any]:
@@ -617,3 +712,149 @@ class TestMCPToolNeighborsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhou
         assert len(rows) == 1
         assert rows[0].neighbor_tool == expected_neighbor
         assert rows[0].co_occurrences == 1
+
+
+# Shaped so every table on the tool detail page has a row to drop once the filters apply.
+def _setup_included_and_excluded_calls(team: Any) -> None:
+    now = datetime.now(tz=UTC)
+    for distinct_id, client_name, neighbor_tool in (
+        ("d_included", "claude-ai", "neighbor_included"),
+        ("d_excluded", "cursor-vscode", "neighbor_excluded"),
+    ):
+        _emit_tool_call(
+            team,
+            distinct_id=distinct_id,
+            client_name=client_name,
+            session_id=f"conv_{distinct_id}",
+            is_error=True,
+            description=f"description seen by {client_name}",
+            intent='{"goal":"x"}',
+            timestamp=now - timedelta(minutes=1),
+        )
+        _emit_tool_call(
+            team,
+            tool_name=neighbor_tool,
+            distinct_id=distinct_id,
+            client_name=client_name,
+            session_id=f"conv_{distinct_id}",
+            timestamp=now,
+        )
+
+
+# One case per runner, because a runner that accepts the shared filters and drops them from its
+# WHERE shows unfiltered data behind filter controls that claim otherwise.
+class TestMCPToolDetailSharedFilters(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "top_users",
+                MCPToolTopUsersQueryRunner,
+                MCPToolTopUsersQuery,
+                {},
+                lambda rows: {r.distinct_id for r in rows},
+                {"d_included", "d_excluded"},
+                {"d_included"},
+            ),
+            (
+                "failures",
+                MCPToolFailuresQueryRunner,
+                MCPToolFailuresQuery,
+                {},
+                lambda rows: sum(r.occurrences for r in rows),
+                2,
+                1,
+            ),
+            (
+                "failure_occurrences",
+                MCPToolFailureOccurrencesQueryRunner,
+                MCPToolFailureOccurrencesQuery,
+                {"errorType": "unknown"},
+                len,
+                2,
+                1,
+            ),
+            (
+                "stats",
+                MCPToolStatsQueryRunner,
+                MCPToolStatsQuery,
+                {},
+                lambda rows: rows[0].calls,
+                2,
+                1,
+            ),
+            (
+                "daily_stats",
+                MCPToolDailyStatsQueryRunner,
+                MCPToolDailyStatsQuery,
+                {},
+                lambda rows: sum(r.calls for r in rows),
+                2,
+                1,
+            ),
+            (
+                "descriptions",
+                MCPToolDescriptionsQueryRunner,
+                MCPToolDescriptionsQuery,
+                {},
+                len,
+                2,
+                1,
+            ),
+            (
+                "sample_intents",
+                MCPToolSampleIntentsQueryRunner,
+                MCPToolSampleIntentsQuery,
+                {},
+                len,
+                2,
+                1,
+            ),
+            (
+                "neighbors",
+                MCPToolNeighborsQueryRunner,
+                MCPToolNeighborsQuery,
+                {"neighborDirection": NeighborDirection.AFTER},
+                lambda rows: {r.neighbor_tool for r in rows},
+                {"neighbor_included", "neighbor_excluded"},
+                {"neighbor_included"},
+            ),
+        ]
+    )
+    def test_property_filter_and_test_accounts_narrow_the_results(
+        self,
+        _name: str,
+        runner_cls: Any,
+        query_cls: Any,
+        query_kwargs: dict[str, Any],
+        metric_fn: Any,
+        expected_unfiltered: Any,
+        expected_filtered: Any,
+    ) -> None:
+        _setup_included_and_excluded_calls(self.team)
+        flush_persons_and_events()
+
+        def run(**filter_kwargs: Any) -> Any:
+            query = query_cls(
+                toolName="query_run",
+                dateRange=DateRange(date_from="-7d"),
+                **query_kwargs,
+                **filter_kwargs,
+            )
+            return metric_fn(runner_cls(query=query, team=self.team).calculate().results)
+
+        assert run() == expected_unfiltered
+
+        assert (
+            run(
+                properties=[
+                    EventPropertyFilter(key="$mcp_client_name", value=["claude-ai"], operator=PropertyOperator.EXACT)
+                ]
+            )
+            == expected_filtered
+        )
+
+        self.team.test_account_filters = [
+            {"key": "$mcp_client_name", "value": ["cursor-vscode"], "operator": "is_not", "type": "event"}
+        ]
+        self.team.save()
+        assert run(filterTestAccounts=True) == expected_filtered

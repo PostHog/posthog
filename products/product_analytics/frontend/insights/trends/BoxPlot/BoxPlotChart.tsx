@@ -17,7 +17,7 @@ import { ChartParams } from '~/types'
 
 import { boxPlotChartLogic } from './boxPlotChartLogic'
 
-export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Element {
+export function BoxPlotChart({ showPersonsModal = true, context }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { boxplotData, seriesGroups, dateLabels, yAxisScaleType, querySource, interval, insightData, trendsFilter } =
         useValues(boxPlotChartLogic(insightProps))
@@ -49,14 +49,17 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
 
     const formatValue = useCallback((value: number) => formatAggregationAxisValue(trendsFilter, value), [trendsFilter])
 
+    const hideAxes = context?.hideAxes
     const config = useChartConfig<BoxPlotConfig>(
         () => ({
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             yTickFormatter: formatValue,
+            hideXAxis: hideAxes,
+            hideYAxis: hideAxes,
             showGrid: true,
             tooltip: { pinnable: true, placement: 'cursor' },
         }),
-        [yAxisScaleType, formatValue]
+        [yAxisScaleType, formatValue, hideAxes]
     )
 
     const handleBoxClick = useCallback(

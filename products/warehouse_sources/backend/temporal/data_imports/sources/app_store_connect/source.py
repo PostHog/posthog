@@ -2,15 +2,14 @@ from typing import Optional, cast
 
 import structlog
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
@@ -58,6 +57,8 @@ _MISSING_VENDOR_NUMBER = (
 
 @SourceRegistry.register
 class AppStoreConnectSource(ResumableSource[AppStoreConnectSourceConfig, AppStoreConnectResumeConfig]):
+    codebase_detection = detect(env=("^(APP_STORE_CONNECT|APPSTORECONNECT)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developer.apple.com/documentation/appstoreconnectapi"
 
@@ -85,7 +86,7 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
             caption = f"{caption}\n\n{restatement_note}"
 
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APP_STORE_CONNECT,
+            name=ExternalDataSourceType.APPSTORECONNECT,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Apple (App Store Connect)",
             releaseStatus=ReleaseStatus.GA,

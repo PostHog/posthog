@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.asana.asana import (
     AsanaResumeConfig,
     asana_source,
@@ -35,6 +34,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AsanaSource(ResumableSource[AsanaSourceConfig, AsanaResumeConfig]):
+    codebase_detection = detect(
+        env=("^ASANA_",),
+        npm=("asana",),
+        pypi=("asana",),
+        composer=("asana/asana",),
+        maven=("com.asana:asana",),
+        rubygems=("asana", "omniauth-asana"),
+    )
+
     supported_versions = ("1.0",)
     default_version = "1.0"
     api_docs_url = "https://developers.asana.com/reference/rest-api-reference"
@@ -48,7 +56,7 @@ class AsanaSource(ResumableSource[AsanaSourceConfig, AsanaResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ASANA,
+            name=ExternalDataSourceType.ASANA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Asana",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -67,6 +75,8 @@ Grant these read scopes so every table can sync:
 - `tags:read`
 - `teams:read`
 - `custom_fields:read`
+- `team_memberships:read`
+- `portfolios:read`
 
 The AI Studio usage tables (`ai_studio_runs`, `ai_studio_seats`) additionally need the `admin.ai_studio_usage:read` scope on an AI Studio-licensed organization. Skip them if you don't use AI Studio.
 """,

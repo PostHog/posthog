@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WorkdaySource(ResumableSource[WorkdaySourceConfig, WorkdayResumeConfig]):
+    codebase_detection = detect(env=("^WORKDAY_",))
+
     # Workday versions each REST service separately. The Staffing service carries all but one
     # of the endpoints below, so its version is what a source pins; the Common service that
     # serves `workers` is fixed at the `/ccx/api/v1` path.
@@ -61,7 +62,7 @@ class WorkdaySource(ResumableSource[WorkdaySourceConfig, WorkdayResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.WORKDAY,
+            name=ExternalDataSourceType.WORKDAY,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Workday",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -16,7 +16,7 @@ import { createClientWarningsPipeline } from './pipeline'
 
 export type ClientWarningsConsumerConfig = CommonIngestionConsumerConfig &
     IngestionOutputsConfig &
-    Pick<IngestionConsumerConfig, 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID'>
+    Pick<IngestionConsumerConfig, 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID' | 'TEAMS_PREFETCH_ENABLED'>
 
 export type ClientWarningsSharedScope = Scope<{
     postgres: PostgresRouter
@@ -48,6 +48,6 @@ export function createClientWarningsConsumer(
     )
 
     return new CommonIngestionConsumerScope('clientwarnings', config, scope, ({ container }) =>
-        createClientWarningsPipeline(container)
+        createClientWarningsPipeline({ ...container, teamsPrefetchEnabled: config.TEAMS_PREFETCH_ENABLED })
     )
 }

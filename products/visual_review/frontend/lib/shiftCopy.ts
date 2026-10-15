@@ -7,9 +7,20 @@ export function shiftedRows(rowShift: RowShiftApi | null | undefined): number {
     return rowShift ? Math.max(rowShift.inserted_rows, rowShift.deleted_rows) : 0
 }
 
-/** Only name a position when there is one band, so it can't point at one of several. */
+/**
+ * Only name a position when one band holds every moved row. Bands draw a
+ * replaced region as one change, but the row counts keep the strict pairing,
+ * so a single band can hold fewer rows than the counts and cannot locate them.
+ */
 function shiftPosition(rowShift: RowShiftApi): string {
-    return rowShift.bands.length === 1 ? ` at y=${rowShift.bands[0].y}` : ''
+    if (rowShift.bands.length !== 1) {
+        return ''
+    }
+    const band = rowShift.bands[0]
+    if (band.rows !== rowShift.inserted_rows + rowShift.deleted_rows) {
+        return ''
+    }
+    return ` at y=${band.y}`
 }
 
 function formatResidual(value: number): string {

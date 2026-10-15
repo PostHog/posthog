@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -44,6 +43,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConfig]):
+    codebase_detection = detect(env=("^METEOSTAT_",), npm=("meteostat",), pypi=("meteostat",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # No meaningful vendor versioning: the RapidAPI-hosted JSON API has never published a
     # version token (path segment, header, or query param) to pin.
@@ -125,7 +126,7 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.METEOSTAT,
+            name=ExternalDataSourceType.METEOSTAT,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Meteostat",
             keywords=["weather", "climate", "historical weather"],

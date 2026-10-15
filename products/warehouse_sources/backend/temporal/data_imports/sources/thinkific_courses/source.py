@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ThinkificCoursesSource(ResumableSource[ThinkificCoursesSourceConfig, ThinkificCoursesResumeConfig]):
+    codebase_detection = detect(env=("^(THINKIFIC_COURSES|THINKIFICCOURSES)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developers.thinkific.com/api/api-documentation"
 
@@ -49,7 +50,7 @@ class ThinkificCoursesSource(ResumableSource[ThinkificCoursesSourceConfig, Think
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.THINKIFIC_COURSES,
+            name=ExternalDataSourceType.THINKIFICCOURSES,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Thinkific Courses",
             caption="""Enter your Thinkific API key and account subdomain to pull your Thinkific course, review, enrollment, and order data into the PostHog Data warehouse.

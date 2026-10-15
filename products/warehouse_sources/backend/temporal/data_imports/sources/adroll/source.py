@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.adroll import (
     AdRollResumeConfig,
     adroll_source,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AdRollSource(ResumableSource[AdRollSourceConfig, AdRollResumeConfig]):
+    codebase_detection = detect(env=("^(AD_ROLL|ADROLL)_",), script_hosts=("s.adroll.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v1",)
@@ -54,7 +55,7 @@ class AdRollSource(ResumableSource[AdRollSourceConfig, AdRollResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AD_ROLL,
+            name=ExternalDataSourceType.ADROLL,
             category=DataWarehouseSourceCategory.ADVERTISING,
             keywords=["nextroll"],
             label="AdRoll",

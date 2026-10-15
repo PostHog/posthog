@@ -11,6 +11,7 @@ from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.skills.backend.api.archive_guards import SkillArchiveRefused
 from products.skills.backend.api.skill_serializers import RESERVED_SKILL_NAMES, SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.api.skill_services import (
     LLMSkillDescriptionTooLongError,
@@ -22,6 +23,7 @@ from products.skills.backend.api.skill_services import (
     LLMSkillVersionConflictError,
     LLMSkillVersionLimitError,
     archive_skill,
+    bundled_skill_name_error,
     create_skill,
     get_latest_skills_queryset,
     get_skill_by_name_from_db,
@@ -145,7 +147,10 @@ class GetSkillFileArgs(BaseModel):
 
 
 class CreateSkillArgs(BaseModel):
-    name: str = Field(description="Kebab-case skill name. <=64 chars. Must be unique within the team.")
+    name: str = Field(
+        description="Kebab-case skill name. <=64 chars. Must be unique within the team, and cannot be the name "
+        "of a skill PostHog ships."
+    )
     description: str = Field(
         max_length=SPEC_DESCRIPTION_MAX_LENGTH,
         description="Short summary explaining what the skill does and when agents should pick it. <=1024 chars.",
@@ -403,9 +408,12 @@ class CreateLLMSkillTool(MaxTool):
         files: list[dict[str, str]] | None = None,
     ) -> tuple[str, None]:
         # The tool calls create_skill directly, which skips the serializer's name validation, so a
-        # reserved name would persist a skill whose /skills/<name> page is taken by a tab route.
+        # reserved name would persist a skill whose /skills/<name> page is taken by a tab route,
+        # and a bundled name would persist one an agent host cannot tell from the skill we ship.
         if name.lower() in RESERVED_SKILL_NAMES:
             raise MaxToolFatalError(f"'{name}' is a reserved name and cannot be used for a skill.")
+        if error := bundled_skill_name_error(name):
+            raise MaxToolFatalError(error)
 
         try:
             skill = await database_sync_to_async(create_skill)(
@@ -500,7 +508,9 @@ class ArchiveLLMSkillTool(MaxTool):
 
     async def _arun_impl(self, skill_name: str) -> tuple[str, None]:
         try:
-            versions = await database_sync_to_async(archive_skill)(self._team, skill_name)
+            versions = await database_sync_to_async(archive_skill)(self._team, skill_name, acting_user=self._user)
+        except SkillArchiveRefused as err:
+            raise MaxToolFatalError(str(err))
         except LLMSkillNotFoundError:
             raise MaxToolFatalError(
                 f"Skill '{skill_name}' was not found. Use `list_llm_skills` to discover available skills."

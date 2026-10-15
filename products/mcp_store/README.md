@@ -165,6 +165,9 @@ OAuth catalog entries can set `oauth_scope_allowlist` to limit registration and 
 
 Slack uses the existing `SLACK_APP_CLIENT_ID` and `SLACK_APP_CLIENT_SECRET` instance settings. Its catalog entry remains suspended until the production Slack app supports MCP and its regional callbacks are live. After the suspension is removed, catalog sync activates Slack only when both settings exist and the shared-client probe passes. Each Desktop user still completes a separate OAuth grant for the catalog's reviewed MCP scopes.
 
+For a project-restricted connection through a separate Slack app, see [Slack MCP development app setup](../../docs/internal/slack-local-setup-guide.md#use-a-development-slack-app-from-production-desktop).
+This uses separate OAuth credentials and does not change the Slack bot or its webhook settings.
+
 ## Operator runbook: activating a manually provisioned shared-creds server
 
 1. Register these redirect URIs in the vendor's developer console:

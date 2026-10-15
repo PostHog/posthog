@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -34,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenWeatherSource(SimpleSource[OpenWeatherSourceConfig]):
+    codebase_detection = detect(env=("^(OPEN_WEATHER|OPENWEATHER)_",), pypi=("pyowm",))
+
     supported_versions = (API_VERSION_2_5, API_VERSION_3_0, API_VERSION_4_0)
     default_version = API_VERSION_4_0
     api_docs_url = "https://openweathermap.org/api"
@@ -45,7 +46,7 @@ class OpenWeatherSource(SimpleSource[OpenWeatherSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.OPEN_WEATHER,
+            name=ExternalDataSourceType.OPENWEATHER,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="OpenWeather",
             releaseStatus=ReleaseStatus.ALPHA,

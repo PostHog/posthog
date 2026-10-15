@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -31,6 +30,8 @@ YOCO_DEVELOPER_CONSOLE_URL = "https://developer.yoco.com/ui"
 
 @SourceRegistry.register
 class YocoSource(ResumableSource[YocoSourceConfig, YocoResumeConfig]):
+    codebase_detection = detect(env=("^YOCO_",), composer=("yoco/yoco-php", "yoco/yoco-php-laravel"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Yoco serves a single unversioned `/v1/` path and documents no version choice, so the
     # framework's unversioned default stands.
@@ -112,7 +113,7 @@ class YocoSource(ResumableSource[YocoSourceConfig, YocoResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.YOCO,
+            name=ExternalDataSourceType.YOCO,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Yoco",
             caption=(

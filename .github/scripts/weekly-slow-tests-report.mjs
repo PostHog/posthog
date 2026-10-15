@@ -2,7 +2,7 @@
 //
 // Sibling of weekly-flaky-report.mjs: one HogQL read of the passing test spans the
 // CI timing reporter (.github/scripts/report_test_timings.py) already ships, ranked by
-// median wall time, with owner attribution through tools/owners and recent editors
+// median wall time, with owner attribution through packages/owners-yaml and recent editors
 // resolved through the GitHub commits API into Slack mentions. The report nudges the
 // people best placed to speed a test up; it does not re-derive any span signal.
 //
@@ -49,7 +49,7 @@ const SLOW_TESTS_QUERY = `
         any(attributes['test.file']) AS file,
         round(median(toFloat(duration_nano)) / 1000000000, 1) AS p50_seconds,
         round(max(toFloat(duration_nano)) / 1000000000, 1) AS max_seconds,
-        uniq(resource_attributes['ci.run_id']) AS builds
+        uniq(tuple(resource_attributes['ci.engine'], coalesce(nullIf(resource_attributes['ci.native_workflow_run_id'], ''), resource_attributes['ci.run_id']), resource_attributes['ci.sha'], resource_attributes['ci.run_id'])) AS builds
     FROM posthog.trace_spans
     WHERE service_name IN {service_names}
         AND attributes['test.outcome'] = 'passed'

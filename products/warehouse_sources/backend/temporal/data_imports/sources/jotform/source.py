@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -38,6 +37,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JotformSource(ResumableSource[JotformSourceConfig, JotformResumeConfig]):
+    codebase_detection = detect(
+        env=("^JOTFORM_",),
+        script_hosts=("form.jotform.com", "cdn.jotfor.ms"),
+        npm=("jotform",),
+        pypi=("jotform",),
+        composer=("jotform/jotform-api-php",),
+        go=("github.com/jotform/jotform-api-go",),
+    )
+
     api_docs_url = "https://api.jotform.com/docs/"
 
     @property
@@ -47,7 +55,7 @@ class JotformSource(ResumableSource[JotformSourceConfig, JotformResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.JOTFORM,
+            name=ExternalDataSourceType.JOTFORM,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Jotform",
             caption="""Enter your Jotform API key to pull your forms and submissions into the PostHog Data warehouse.
@@ -61,6 +69,10 @@ Supported tables:
 - `submissions`
 - `reports`
 - `questions`
+- `usage`
+- `history`
+- `labels`
+- `label_resources`
 """,
             iconPath="/static/services/jotform.png",
             docsUrl="https://posthog.com/docs/cdp/sources/jotform",

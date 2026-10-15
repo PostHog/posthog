@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -49,6 +48,8 @@ def _has_custom_query(config: USCensusSourceConfig) -> bool:
 
 @SourceRegistry.register
 class USCensusSource(SimpleSource[USCensusSourceConfig]):
+    codebase_detection = detect(env=("^(US_CENSUS|USCENSUS)_",), pypi=("census",))
+
     # Static endpoint catalog with no I/O in get_schemas — safe for public docs.
     lists_tables_without_credentials = True
     # The Census Data API is unversioned; datasets are versioned by vintage in the URL path.
@@ -138,7 +139,7 @@ class USCensusSource(SimpleSource[USCensusSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.US_CENSUS,
+            name=ExternalDataSourceType.USCENSUS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="US Census",
             keywords=["census", "acs", "american community survey", "demographics", "government"],

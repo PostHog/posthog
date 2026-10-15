@@ -21,12 +21,15 @@ services/mcp/src/api/generated.ts linguist-generated
 services/mcp/src/generated/** linguist-generated
 services/mcp/src/tools/generated/** linguist-generated
 
-posthog/personhog_client/proto/generated/** linguist-generated
+packages/personhog-proto/personhog/** linguist-generated
 posthog/schema.py linguist-generated
 products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs.py linguist-generated
 posthog/temporal/proxy_service/proto/*_pb2*.py linguist-generated
 
 nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts linguist-generated
+nodejs/src/common/generated/personhog/** linguist-generated
+
+rust/**/.sqlx/*.json linguist-generated
 
 common/hogql_parser/HogQLLexer.cpp linguist-generated
 common/hogql_parser/HogQLParser.cpp linguist-generated

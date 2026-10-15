@@ -4,8 +4,9 @@ The counterpart to ``products.slack_app.backend.slack_workflow_events``, and del
 the same way: resolve the PostHog projects behind the GitHub installation, then write the delivery
 out as-is. A workflow's trigger config decides what it wants, and the CDP consumer evaluates that.
 
-Registered in the GitHub App webhook fan-out (``posthog.urls.github_webhook``), which verifies the
-signature, parses the body, and dedupes redeliveries before any handler runs.
+Registered by ``products/workflows/backend/webhook_consumers.py`` as the ``workflows`` consumer
+on the GitHub App endpoint, which verifies the signature, parses the body, and dedupes redeliveries
+before any consumer runs.
 """
 
 import json
@@ -16,9 +17,11 @@ from django.conf import settings
 
 import structlog
 
-from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
+from posthog.github.installations import installation_integrations
+from posthog.ingress.dispatch.database import is_statement_timeout
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.integration import Integration
+
+from products.cdp.backend.internal_events import InternalEventEvent, produce_internal_event
 
 logger = structlog.get_logger(__name__)
 
@@ -97,9 +100,7 @@ def _redacted_github_event(event_type: str, payload: dict[str, Any]) -> dict[str
     A push always gets ``actor_access: "write"``, because pushing needs write access. But a
     commit message is free text an external contributor can author (e.g. a squash-merged PR
     title), so a trusted pusher merging one would otherwise carry attacker-controlled text into a
-    privileged step such as create-task. Mirrors the same redaction loops applies for the same
-    reason (see ``products/tasks/backend/loop_github_events.py``), keeping only the non-free-text
-    commit id.
+    privileged step such as create-task. Keeps only the non-free-text commit id.
     """
     if event_type != "push":
         return payload
@@ -127,7 +128,9 @@ def _event_properties(event_type: str, payload: dict[str, Any], *, integration_i
         "integration_id": integration_id,
         "event_type": event_type,
         "action": payload.get("action"),
-        "repository": repository.get("full_name"),
+        # Lowercased on both sides of the match (the API lowercases a repository filter on save), so
+        # "PostHog/posthog" and "posthog/posthog" name the same repository like they do on GitHub.
+        "repository": (repository.get("full_name") or "").lower() or None,
         # A string, not a boolean: GitHub deliveries never reach ClickHouse, so a filter has no
         # stored property definition to coerce "true"/"false" back into a real boolean, and an
         # exact match against a raw boolean here would never match.
@@ -185,30 +188,35 @@ def emit_github_event(event_type: str, payload: dict[str, Any], delivery_id: str
         return
 
     try:
-        integrations = list(
-            Integration.objects.filter(kind="github", integration_id=str(installation_id)).values_list("team_id", "id")
-        )
-    except Exception:
-        logger.exception("github_workflow_event_integration_lookup_failed", installation_id=installation_id)
+        integrations = installation_integrations(str(installation_id))
+    except Exception as e:
+        if is_statement_timeout(e):
+            logger.warning(
+                "github_workflow_event_integration_lookup_timed_out",
+                installation_id=installation_id,
+                delivery_id=delivery_id,
+            )
+        else:
+            logger.exception("github_workflow_event_integration_lookup_failed", installation_id=installation_id)
         return
 
     distinct_id = str((payload.get("sender") or {}).get("login") or f"installation:{installation_id}")
 
-    for team_id, integration_id in integrations:
+    for integration in integrations:
         try:
             produce_internal_event(
-                team_id,
+                integration.team_id,
                 InternalEventEvent(
                     event=GITHUB_EVENT_RECEIVED_EVENT,
                     distinct_id=distinct_id,
-                    properties=_event_properties(event_type, payload, integration_id=integration_id),
-                    uuid=str(uuid.uuid5(_GITHUB_EVENT_NAMESPACE, f"{team_id}:{delivery_id or ''}")),
+                    properties=_event_properties(event_type, payload, integration_id=integration.id),
+                    uuid=str(uuid.uuid5(_GITHUB_EVENT_NAMESPACE, f"{integration.team_id}:{delivery_id or ''}")),
                 ),
             )
         except Exception:
             logger.exception(
                 "github_workflow_event_produce_failed",
                 installation_id=installation_id,
-                team_id=team_id,
+                team_id=integration.team_id,
                 delivery_id=delivery_id,
             )

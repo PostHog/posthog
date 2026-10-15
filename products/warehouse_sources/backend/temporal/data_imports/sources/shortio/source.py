@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShortioSource(SimpleSource[ShortioSourceConfig]):
+    codebase_detection = detect(env=("^SHORTIO_", "^SHORT_IO_API_KEY$"), npm=("@short.io/client-node",))
+
     api_docs_url = "https://developers.short.io"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -47,7 +48,7 @@ class ShortioSource(SimpleSource[ShortioSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SHORTIO,
+            name=ExternalDataSourceType.SHORTIO,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Shortio",
             releaseStatus=ReleaseStatus.ALPHA,

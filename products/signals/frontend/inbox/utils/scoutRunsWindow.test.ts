@@ -12,6 +12,9 @@ import {
     mostRecentEmittedRuns,
     rosterRunCosts,
     runMatchesFilter,
+    runResponseCoversFleet,
+    runStripEmptyLabel,
+    SCOUT_RUNS_FLEET_COVERAGE_LIMIT,
     dayTimeToWeeklyCron,
     getScoutScheduleMode,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
@@ -156,6 +159,23 @@ describe('scoutRunsWindow report channel', () => {
 
             expect(expensiveRunCostThreshold(costs)).not.toBeNull()
             expect(expensiveRunCostThreshold(rosterRunCosts(runs, costs))).toBeNull()
+        })
+    })
+
+    describe('runStripEmptyLabel', () => {
+        it.each([
+            [{ loadedOnce: false, coversFleet: true }, '…'],
+            [{ loadedOnce: true, coversFleet: true }, 'No runs yet'],
+            // A fleet the response stops short of leaves this scout unread, so "No runs yet" would
+            // report lost history as a scout that never worked.
+            [{ loadedOnce: true, coversFleet: false }, 'History unavailable'],
+        ])('reads %j as %s', (state, expected) => {
+            expect(runStripEmptyLabel(state)).toBe(expected)
+        })
+
+        it('treats a fleet past the covered count as uncovered', () => {
+            expect(runResponseCoversFleet(SCOUT_RUNS_FLEET_COVERAGE_LIMIT)).toBe(true)
+            expect(runResponseCoversFleet(SCOUT_RUNS_FLEET_COVERAGE_LIMIT + 1)).toBe(false)
         })
     })
 

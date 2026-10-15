@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,6 +35,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LaceworkSource(ResumableSource[LaceworkSourceConfig, LaceworkResumeConfig]):
+    codebase_detection = detect(
+        env=("^LACEWORK_", "^LW_ACCOUNT$", "^LW_SUBACCOUNT$", "^LW_API_KEY$", "^LW_API_SECRET$"),
+        pypi=("laceworksdk",),
+        go=("github.com/lacework/go-sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -51,7 +56,7 @@ class LaceworkSource(ResumableSource[LaceworkSourceConfig, LaceworkResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LACEWORK,
+            name=ExternalDataSourceType.LACEWORK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Lacework FortiCNAPP (Fortinet)",
             releaseStatus=ReleaseStatus.ALPHA,

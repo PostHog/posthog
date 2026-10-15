@@ -18,6 +18,7 @@ export const MESSAGE_PAGE_SIZE = 50
 
 export interface AccountEmailThreadsLogicProps {
     accountId: string
+    instanceId?: string
 }
 
 export interface AccountEmailThreadsResult {
@@ -104,7 +105,7 @@ export type accountEmailThreadsLogicType = MakeLogicType<
 export const accountEmailThreadsLogic = kea<accountEmailThreadsLogicType>([
     path((key) => ['scenes', 'customerAnalytics', 'accounts', 'accountEmailThreadsLogic', key]),
     props({} as AccountEmailThreadsLogicProps),
-    key((props) => props.accountId),
+    key((props) => `${props.accountId}:${props.instanceId ?? 'default'}`),
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
     })),

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FirstPromoterSource(ResumableSource[FirstPromoterSourceConfig, FirstPromoterResumeConfig]):
+    codebase_detection = detect(env=("^(FIRST_PROMOTER|FIRSTPROMOTER)_",), script_hosts=("cdn.firstpromoter.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # `/api/v2/` is a real version segment: the legacy v1 Admin API still answers on the same
     # host and is not what this source calls.
@@ -115,7 +116,7 @@ class FirstPromoterSource(ResumableSource[FirstPromoterSourceConfig, FirstPromot
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FIRST_PROMOTER,
+            name=ExternalDataSourceType.FIRSTPROMOTER,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="FirstPromoter",
             caption=(

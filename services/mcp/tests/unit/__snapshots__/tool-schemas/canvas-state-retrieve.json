@@ -1,13 +1,46 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "cursor": {
+            "description": "Cursor from next_cursor. Resumes after the last entry of the previous page, so an entry that exists for the whole read comes back exactly once. A key written between pages can be missing. Keep filters unchanged between pages. Takes precedence over offset.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+        },
         "id": {
             "description": "A UUID string identifying this canvas.",
             "type": "string"
         },
+        "key": {
+            "description": "Only read this exact key.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+        },
+        "key_prefix": {
+            "description": "Only read entries whose key starts with this prefix.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "keys_only": {
+            "default": true,
+            "type": "boolean"
+        },
+        "limit": {
+            "default": 20,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Entry offset from next_offset. Keep filters unchanged between pages. Prefer cursor: an offset can skip or repeat entries when state changes between pages.",
+            "minimum": 0,
+            "type": "number"
+        },
         "scope": {
-            "description": "Only return entries in this scope.",
-            "enum": ["shared", "user"],
+            "description": "Only read this scope.\n\n* `user` - user\n* `shared` - shared",
+            "enum": ["user", "shared"],
             "type": "string"
         }
     },

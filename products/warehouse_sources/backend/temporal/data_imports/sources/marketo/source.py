@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MarketoSource(ResumableSource[MarketoSourceConfig, MarketoResumeConfig]):
+    codebase_detection = detect(env=("^MARKETO_",), script_hosts=("munchkin.marketo.net",), pypi=("marketorestpython",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Marketo has shipped one REST version since launch and exposes no version selector, so the
     # `/rest/v1` path segment is not a pinnable version.
@@ -65,7 +66,7 @@ class MarketoSource(ResumableSource[MarketoSourceConfig, MarketoResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MARKETO,
+            name=ExternalDataSourceType.MARKETO,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Marketo",
             caption="""Connect Adobe Marketo Engage to pull your leads, activities, campaigns, and program assets into the PostHog Data warehouse.

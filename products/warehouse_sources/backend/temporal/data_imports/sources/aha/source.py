@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha.aha import (
     AhaResumeConfig,
     aha_source,
@@ -32,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AhaSource(ResumableSource[AhaSourceConfig, AhaResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v1",)
@@ -50,7 +51,7 @@ class AhaSource(ResumableSource[AhaSourceConfig, AhaResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AHA,
+            name=ExternalDataSourceType.AHA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Aha!",
             releaseStatus=ReleaseStatus.ALPHA,

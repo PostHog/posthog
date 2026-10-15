@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops import (
     AZURE_DEVOPS_VERSION_7_2,
     AZURE_DEVOPS_VERSION_LEGACY,
@@ -39,6 +38,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AzureDevOpsSource(ResumableSource[AzureDevOpsSourceConfig, AzureDevOpsResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AZURE_DEVOPS|AZUREDEVOPS)_", "^SYSTEM_ACCESSTOKEN$"),
+        npm=("azure-devops-node-api", "azure-devops-extension-sdk", "azure-devops-extension-api"),
+        pypi=("azure-devops",),
+        go=("github.com/microsoft/azure-devops-go-api/azuredevops",),
+    )
+
     api_docs_url = "https://learn.microsoft.com/en-us/azure/devops/integrate/concepts/rest-api-versioning"
 
     # The legacy label keeps sending api-version 7.1; 7.2 is the current GA stable API.
@@ -75,7 +81,7 @@ class AzureDevOpsSource(ResumableSource[AzureDevOpsSourceConfig, AzureDevOpsResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AZURE_DEV_OPS,
+            name=ExternalDataSourceType.AZUREDEVOPS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Azure DevOps",
             caption="""Enter your Azure DevOps credentials to pull your project, build, and work item data into the PostHog Data warehouse.

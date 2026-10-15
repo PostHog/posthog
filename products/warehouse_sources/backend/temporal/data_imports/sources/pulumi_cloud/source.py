@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,41 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PulumiCloudSource(ResumableSource[PulumiCloudSourceConfig, PulumiCloudResumeConfig]):
+    codebase_detection = detect(
+        env=("^PULUMI_ACCESS_TOKEN$",),
+        npm=("@pulumi/pulumi", "@pulumi/pulumiservice"),
+        pypi=("pulumi", "pulumi-pulumiservice"),
+        go=(
+            "github.com/pulumi/pulumi/sdk",
+            "github.com/pulumi/pulumi-azure-native-sdk",
+            "github.com/pulumi/pulumi-cdk",
+            "github.com/pulumi/pulumi-command",
+            "github.com/pulumi/pulumi-converter-constructor-syntax",
+            "github.com/pulumi/pulumi-converter-terraform",
+            "github.com/pulumi/pulumi-docker-build",
+            "github.com/pulumi/pulumi-esc-csi-provider",
+            "github.com/pulumi/pulumi-go-helmbase",
+            "github.com/pulumi/pulumi-go-provider",
+            "github.com/pulumi/pulumi-hcl",
+            "github.com/pulumi/pulumi-java",
+            "github.com/pulumi/pulumi-kubernetes-operator",
+            "github.com/pulumi/pulumi-lsp",
+            "github.com/pulumi/pulumi-pascal",
+            "github.com/pulumi/pulumi-policy-opa",
+            "github.com/pulumi/pulumi-pulumiservice",
+            "github.com/pulumi/pulumi-resource-categories",
+            "github.com/pulumi/pulumi-self-hosted-installers",
+            "github.com/pulumi/pulumi-terraform",
+            "github.com/pulumi/pulumi-terraform-bridge",
+            "github.com/pulumi/pulumi-tool-cdk-importer",
+            "github.com/pulumi/pulumi-tool-terraform-migrate",
+            "github.com/pulumi/pulumi-trace-tool",
+            "github.com/pulumi/pulumi-yaml",
+            "github.com/pulumi/pulumictl",
+        ),
+        maven=("com.pulumi:pulumi", "com.pulumi:pulumi-cloud-sdk", "com.pulumi:pulumiservice"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -51,7 +85,7 @@ class PulumiCloudSource(ResumableSource[PulumiCloudSourceConfig, PulumiCloudResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PULUMI_CLOUD,
+            name=ExternalDataSourceType.PULUMICLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Pulumi",
             releaseStatus=ReleaseStatus.ALPHA,

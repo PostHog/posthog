@@ -92,6 +92,20 @@ const WEB_HEALTH_CHECKS: WebHealthCheckConfig[] = [
         docsUrl: 'https://posthog.com/docs/web-analytics/scroll-depth',
     },
     {
+        id: HealthCheckId.MISSING_SESSION_ID,
+        kind: 'missing_session_id',
+        category: 'events',
+        title: 'Session IDs',
+        passingDescription: 'Pageviews carry a session ID that web analytics can use.',
+        failingDescription:
+            'Some pageviews arrive without a session ID that web analytics can use. Web analytics needs a UUIDv7, and leaves out any pageview without one, so your visitor and session counts come in low. This usually means events are sent server-side or through a pipeline that omits the session ID.',
+        failingAction: {
+            label: 'Set up session IDs',
+            to: 'https://posthog.com/docs/data/sessions#custom-session-ids',
+        },
+        docsUrl: 'https://posthog.com/docs/data/sessions#custom-session-ids',
+    },
+    {
         id: HealthCheckId.AUTHORIZED_URLS,
         kind: 'authorized_urls',
         category: 'configuration',
@@ -358,6 +372,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         healthIssues: {
             __default: null as HealthIssuesResponse | null,
             loadHealthIssues: async (): Promise<HealthIssuesResponse> => {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 return await api.get<HealthIssuesResponse>(
                     `api/projects/${values.currentTeamIdStrict}/health_issues/?status=active&dismissed=false`
                 )
@@ -538,6 +553,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
             })
 
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const response = await api.create<{
                     scheduled_kinds: string[]
                     kinds_failed: string[]

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NpmRegistrySource(ResumableSource[NpmRegistrySourceConfig, NpmRegistryResumeConfig]):
+    codebase_detection = detect(env=("^(NPM_REGISTRY|NPMREGISTRY)_", "^NPM_TOKEN$"), npm=("npm-registry-fetch",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://github.com/npm/registry/blob/master/docs/download-counts.md"
 
@@ -45,7 +46,7 @@ class NpmRegistrySource(ResumableSource[NpmRegistrySourceConfig, NpmRegistryResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.NPM_REGISTRY,
+            name=ExternalDataSourceType.NPMREGISTRY,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="npm registry",
             releaseStatus=ReleaseStatus.ALPHA,

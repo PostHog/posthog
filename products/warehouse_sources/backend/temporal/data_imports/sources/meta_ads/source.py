@@ -1,9 +1,11 @@
 from datetime import date
 from typing import cast
 
-from posthog.schema import (
+from posthog.models.integration import Integration
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -14,9 +16,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
     SuggestedTable,
 )
-
-from posthog.models.integration import Integration
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -42,10 +41,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MetaAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
+    ENTITY_PAGE_REFUSED_ERROR_MESSAGE,
     META_ADS_API_VERSION_V25,
     META_ADS_API_VERSION_V26,
     META_AUTH_ERROR_MESSAGE,
+    META_INVALID_CURSOR_ERROR_MESSAGE,
     META_RATE_LIMIT_ERROR_MESSAGE,
+    META_TOKEN_REFRESH_ERROR_MESSAGE,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
     MetaAdsAuthError,
     MetaAdsRateLimitError,
@@ -84,6 +86,34 @@ def _status_badges(account: dict) -> tuple[str, ...]:
 
 @SourceRegistry.register
 class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=("^META_ADS_", "^FACEBOOK_ADS_", "^FACEBOOK_PIXEL_ID$", "^NEXT_PUBLIC_FACEBOOK_PIXEL_ID$"),
+        npm=(
+            "facebook-nodejs-business-sdk",
+            "capi-param-builder-nodejs",
+            "meta-capi-param-builder-clientjs",
+            "react-facebook-pixel",
+            "@types/facebook-pixel",
+            "gatsby-plugin-facebook-pixel",
+            "nuxt-facebook-pixel-module",
+        ),
+        pypi=("facebook-business", "capi-param-builder-python", "facebookads"),
+        cocoapods=("FBAEMKit", "FBSDKMarketingKit"),
+        composer=(
+            "facebook/php-business-sdk",
+            "facebook/capi-param-builder-php",
+            "facebook/php-ads-sdk",
+            "facebook/facebook-for-magento2",
+        ),
+        maven=(
+            "com.facebook.business.sdk:facebook-java-business-sdk",
+            "com.facebook.capi.sdk:capi-param-builder",
+            "com.facebook.android:facebook-marketing",
+        ),
+        pub=("facebook_app_events",),
+        rubygems=("facebookbusiness", "capi_param_builder_ruby"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = (META_ADS_API_VERSION_V25, META_ADS_API_VERSION_V26)
@@ -104,7 +134,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.": None,
+            META_TOKEN_REFRESH_ERROR_MESSAGE: None,
             # The data warehouse source still references a `meta_ads_integration_id` whose
             # Integration row no longer exists for the team (the integration was deleted or
             # de-authorized). `get_integration` then raises Django's `Integration.DoesNotExist`
@@ -130,6 +160,13 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             # specific endpoint can't be read with the permissions the user granted. Same as above:
             # not fixable by retrying, and the raw JSON would otherwise reach the user.
             "cannot be loaded due to missing permissions": (
+                "Meta blocked this request because the connected account is missing a permission "
+                "required to read your ads data. Please reconnect the Meta Ads integration and grant "
+                "all requested permissions."
+            ),
+            # Graph API code 100: "Missing perms" — the shorter, generic sibling of the message
+            # above for the same missing-permission condition on a specific field or endpoint.
+            "Missing perms": (
                 "Meta blocked this request because the connected account is missing a permission "
                 "required to read your ads data. Please reconnect the Meta Ads integration and grant "
                 "all requested permissions."
@@ -169,6 +206,21 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                 "Meta couldn't return this data even at the smallest request size. Lower the sync "
                 "history for insights in your Meta Ads source settings, then run the sync again."
             ),
+            # Graph API code 2642: the pagination cursor was rejected as invalid. The resumable
+            # source manager would resume this exact job with the same saved cursor and fail the
+            # same way every time, so retrying is pointless — only a fresh sync run (a new job,
+            # with a fresh cursor) can recover. `meta_ads._raise_meta_api_error` raises this
+            # message for that code.
+            META_INVALID_CURSOR_ERROR_MESSAGE: META_INVALID_CURSOR_ERROR_MESSAGE,
+            # The schema's sync type wants an incremental cursor (incremental/append) but no
+            # incremental field is stored in its config, so `meta_ads_source.get_rows` raises this
+            # before any request. The stored config stays fixed until the customer edits it, so
+            # every retry hits the same error.
+            "incremental_field and incremental_field_type can't be None": (
+                "This table is set to sync incrementally but has no incremental field selected. "
+                "Choose date_start as the incremental field in the table's sync settings, or switch "
+                "it to full refresh, then run the sync again."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -182,6 +234,26 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             # for volume. Only waiting helps, and the sync already retries via Temporal, so this
             # shouldn't page us as a bug either.
             META_RATE_LIMIT_ERROR_MESSAGE,
+            ENTITY_PAGE_REFUSED_ERROR_MESSAGE,
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Both markers above are raised with Meta's raw response appended for debugging
+        # (`_raise_meta_api_error`), so a failure that also outlives Temporal's retries stores that
+        # JSON blob, HTTP status and trace id included, as the error the customer reads.
+        return {
+            "Meta API request failed (retryable)": (
+                "Meta kept returning temporary errors, so this sync run did not finish. This usually "
+                "clears on its own and the next sync runs on schedule."
+            ),
+            META_RATE_LIMIT_ERROR_MESSAGE: (
+                "Meta is rate limiting requests for this connection, so this sync run did not finish. "
+                "The next sync runs on schedule."
+            ),
+            ENTITY_PAGE_REFUSED_ERROR_MESSAGE: (
+                "Meta was too busy to return this table's data, so this sync run did not finish. "
+                "This usually clears on its own and the next sync runs on schedule."
+            ),
         }
 
     def get_schemas(
@@ -221,7 +293,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.META_ADS,
+            name=ExternalDataSourceType.METAADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             featured=True,
             keywords=[

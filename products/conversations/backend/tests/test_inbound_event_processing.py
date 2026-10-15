@@ -9,7 +9,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import IntegrityError
-from django.test import RequestFactory, SimpleTestCase
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from prometheus_client import REGISTRY, CollectorRegistry
@@ -38,7 +38,7 @@ from products.conversations.backend.services.inbound_events import (
     schedule_inbound_retry,
     slack_events_source_id,
     slack_interactivity_source_id,
-    slack_retry_metadata,
+    slack_retry_metadata_from_values,
 )
 from products.conversations.backend.slack import TICKET_CONFIRM_ACTION_OPEN
 from products.conversations.backend.tasks.slack import (
@@ -91,17 +91,17 @@ class TestInboundEventSourceId(SimpleTestCase):
 
 
 class TestSlackRetryMetadata(SimpleTestCase):
-    def test_parses_retry_headers(self) -> None:
-        request = RequestFactory().post("/", HTTP_X_SLACK_RETRY_NUM="2", HTTP_X_SLACK_RETRY_REASON="http_timeout")
-        assert slack_retry_metadata(request) == (2, "http_timeout")
+    def test_parses_retry_values(self) -> None:
+        assert slack_retry_metadata_from_values(raw_retry_num="2", retry_reason="http_timeout") == (2, "http_timeout")
 
     def test_invalid_retry_num_is_ignored(self) -> None:
-        request = RequestFactory().post("/", HTTP_X_SLACK_RETRY_NUM="nope", HTTP_X_SLACK_RETRY_REASON="http_timeout")
-        assert slack_retry_metadata(request) == (None, "http_timeout")
+        assert slack_retry_metadata_from_values(raw_retry_num="nope", retry_reason="http_timeout") == (
+            None,
+            "http_timeout",
+        )
 
     def test_negative_retry_num_is_ignored(self) -> None:
-        request = RequestFactory().post("/", HTTP_X_SLACK_RETRY_NUM="-1")
-        assert slack_retry_metadata(request) == (None, "")
+        assert slack_retry_metadata_from_values(raw_retry_num="-1", retry_reason="") == (None, "")
 
 
 class TestWakeInboundEvent(SimpleTestCase):

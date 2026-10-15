@@ -96,6 +96,7 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
     allDays?: string[]
     xAxisLabel?: string | null
     yAxisLabel?: string | null
+    hideAxes?: boolean
     // Explicit x-axis tick formatter — used by hosts (e.g. MCP) that have label strings but no
     // interval/timezone for the auto date formatter. Mirrors the line config.
     xAxisTickFormatter?: (value: string, index: number) => string | null
@@ -121,10 +122,12 @@ export function buildTrendsBarTimeSeriesConfig(
             interval: opts.interval ?? 'day',
             allDays: opts.allDays ?? [],
             tickFormatter: opts.xAxisTickFormatter,
+            hide: opts.hideAxes,
         },
         yAxis: {
             ...yAxis,
             label: normalizeAxisLabel(opts.yAxisLabel),
+            hide: opts.hideAxes,
         },
         valueLabels: opts.valueLabels,
         goalLines: goalLineConfigs,

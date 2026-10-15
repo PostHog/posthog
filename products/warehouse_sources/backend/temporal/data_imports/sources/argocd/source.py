@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.argocd import (
     HOST_NOT_ALLOWED_ERROR,
     HTTPS_REQUIRED_ERROR,
@@ -34,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ArgocdSource(SimpleSource[ArgocdSourceConfig]):
+    codebase_detection = detect(env=("^ARGOCD_",), go=("github.com/argoproj/argo-cd",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -43,7 +44,7 @@ class ArgocdSource(SimpleSource[ArgocdSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ARGOCD,
+            name=ExternalDataSourceType.ARGOCD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Argo CD",
             keywords=["argo", "gitops", "kubernetes", "deployments"],

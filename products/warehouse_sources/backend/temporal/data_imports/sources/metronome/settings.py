@@ -34,6 +34,39 @@ WindowSize = Literal["none", "hour", "day"]
 USAGE_DAILY_HISTORY = timedelta(days=365)
 USAGE_HOURLY_HISTORY = timedelta(days=30)
 
+# The depths a user can pick per source. `POST /v1/usage` takes no page-size parameter and pages per
+# customer and billable metric, so a first sync costs one request per page whatever the account's
+# size, and depth is the only lever over how long that sync takes. The daily table is labelled in
+# months because that is the grain people reason about it in; twelve months is 365 days, which is
+# what this source shipped with.
+DEFAULT_USAGE_HOURLY_HISTORY_DAYS = 30
+DEFAULT_USAGE_DAILY_HISTORY_MONTHS = 12
+# Upper bounds, because a depth the endpoint cannot get through in one sync leaves the table empty
+# rather than shallow, which reads to the user as broken rather than as a setting they chose.
+MAX_USAGE_HOURLY_HISTORY_DAYS = 30
+MAX_USAGE_DAILY_HISTORY_MONTHS = 24
+# A month has no fixed length. This is the average that keeps twelve months at the 365 days this
+# source shipped with, so an unset daily depth reads exactly the window it read before.
+DAYS_PER_MONTH = 365 / 12
+
+
+def _bounded(value: int | None, default: int, highest: int) -> int:
+    """An unset depth reads the default; one outside the range is held to it rather than dropped."""
+    if value is None:
+        return default
+    return max(1, min(value, highest))
+
+
+def usage_history_window(schema_name: str, hourly_days: int | None, daily_months: int | None) -> timedelta | None:
+    """How far back a first sync of one bucketed usage table reaches."""
+    if schema_name == "usage_hourly":
+        return timedelta(days=_bounded(hourly_days, DEFAULT_USAGE_HOURLY_HISTORY_DAYS, MAX_USAGE_HOURLY_HISTORY_DAYS))
+    if schema_name == "usage_daily":
+        months = _bounded(daily_months, DEFAULT_USAGE_DAILY_HISTORY_MONTHS, MAX_USAGE_DAILY_HISTORY_MONTHS)
+        return timedelta(days=months * DAYS_PER_MONTH)
+    return None
+
+
 # Metronome accepts usage events backdated up to 34 days, so a period that already synced can still
 # change. Each incremental run re-reads this much of the period it already covered and upserts it.
 USAGE_DAILY_LOOKBACK_SECONDS = 7 * 24 * 60 * 60

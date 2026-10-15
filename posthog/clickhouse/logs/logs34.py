@@ -312,7 +312,7 @@ def KAFKA_LOGS34_AVRO_MV_SELECT():
     mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
     mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-    observed_timestamp + toIntervalDay(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15)))) AS original_expiry_timestamp,
+    timestamp + toIntervalDay(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15)))) AS original_expiry_timestamp,
     _partition,
     _topic,
     _offset,
@@ -362,37 +362,13 @@ AS {KAFKA_LOGS34_AVRO_MV_SELECT()}
 """
 
 
-def LOGS34_TO_VOLUME_BUCKETS_MV():
-    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
-    # Groups rows exactly like _rollup_sql in
-    # products/logs/backend/temporal/volume_tick/aggregation.py, which carries
-    # the reasoning for the environment fallback and severity lowercasing. The
-    # 300s grid literal is frozen into the DDL at migration time; BUCKET_SECONDS
-    # there must stay equal to it or the detector reads buckets this MV never
-    # writes.
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_volume_buckets TO {db}.logs_volume_buckets
-(
-    `team_id` Int32,
-    `time_bucket` DateTime('UTC'),
-    `service_name` LowCardinality(String),
-    `namespace` LowCardinality(String),
-    `environment` LowCardinality(String),
-    `severity_text` LowCardinality(String),
-    `log_count` SimpleAggregateFunction(sum, UInt64)
-)
-AS SELECT
-    team_id,
-    time_bucket,
-    service_name,
-    namespace,
-    environment,
-    severity_text,
-    sumSimpleState(1) AS log_count
-FROM
-(
-    SELECT
-        team_id,
+# Bucket and series columns shared by the volume and pattern rollups, so their
+# series stay comparable one to one. They group rows exactly like _rollup_sql in
+# products/logs/backend/temporal/volume_tick/aggregation.py, which carries the
+# reasoning for the environment fallback and severity lowercasing. The 300s grid
+# literal is frozen into each MV's DDL at migration time; BUCKET_SECONDS there
+# must stay equal to it or the detector reads buckets these MVs never write.
+_LOGS34_SERIES_KEY_COLUMNS = """        team_id,
         toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
         service_name,
         if(
@@ -409,10 +385,104 @@ FROM
                 resource_attributes['env']
             )
         ) AS environment,
-        lower(severity_text) AS severity_text
+        lower(severity_text) AS severity_text"""
+
+
+# `retention_days` is a measure folded into each rollup group, not a dimension.
+# It rounds the lifetime from the bucket to the raw expiry up to whole days, so
+# event-time skew and bucket rounding cannot expire the rollup before its logs.
+# Microseconds preserve fractional-second expiries. The 3650-day guard sits above
+# the product's retention ceiling and bounds corrupt expiries. Max keeps mixed
+# retentions as long as the latest expiry.
+_LOGS34_RETENTION_DAYS_COLUMN = """        toUInt16(least(intDiv(greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0) + 86399999999, 86400000000), 3650)) AS retention_days"""
+
+
+def LOGS34_TO_VOLUME_BUCKETS_MV_SELECT():
+    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    return f"""SELECT
+    team_id,
+    time_bucket,
+    service_name,
+    namespace,
+    environment,
+    severity_text,
+    maxSimpleState(retention_days) AS retention_days,
+    sumSimpleState(1) AS log_count
+FROM
+(
+    SELECT
+{_LOGS34_SERIES_KEY_COLUMNS},
+{_LOGS34_RETENTION_DAYS_COLUMN}
     FROM {db}.{TABLE_NAME}
 )
-GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text
+GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text"""
+
+
+def LOGS34_TO_VOLUME_BUCKETS_MV():
+    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_volume_buckets TO {db}.logs_volume_buckets
+(
+    `team_id` Int32,
+    `time_bucket` DateTime('UTC'),
+    `service_name` LowCardinality(String),
+    `namespace` LowCardinality(String),
+    `environment` LowCardinality(String),
+    `severity_text` LowCardinality(String),
+    `retention_days` SimpleAggregateFunction(max, UInt16),
+    `log_count` SimpleAggregateFunction(sum, UInt64)
+)
+AS {LOGS34_TO_VOLUME_BUCKETS_MV_SELECT()}
+"""
+
+
+def LOGS34_TO_PATTERN_BUCKETS_MV_SELECT() -> str:
+    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    # `pattern_version = 0` marks a row the ingestion consumer never stamped. Those
+    # rows would all collapse into one empty-pattern bucket per series, so they are
+    # dropped. The filter is on the version, not on `pattern != ''`, because a
+    # stamped empty body also yields an empty pattern, and that is a real shape.
+    return f"""SELECT
+    team_id,
+    time_bucket,
+    service_name,
+    namespace,
+    environment,
+    severity_text,
+    pattern_version,
+    pattern,
+    maxSimpleState(retention_days) AS retention_days,
+    sumSimpleState(1) AS log_count
+FROM
+(
+    SELECT
+{_LOGS34_SERIES_KEY_COLUMNS},
+        pattern_version,
+        pattern,
+{_LOGS34_RETENTION_DAYS_COLUMN}
+    FROM {db}.{TABLE_NAME}
+    WHERE pattern_version != 0
+)
+GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern"""
+
+
+def LOGS34_TO_PATTERN_BUCKETS_MV() -> str:
+    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_pattern_buckets TO {db}.logs_pattern_buckets
+(
+    `team_id` Int32,
+    `time_bucket` DateTime('UTC'),
+    `service_name` LowCardinality(String),
+    `namespace` LowCardinality(String),
+    `environment` LowCardinality(String),
+    `severity_text` LowCardinality(String),
+    `pattern_version` UInt8,
+    `pattern` String,
+    `retention_days` SimpleAggregateFunction(max, UInt16),
+    `log_count` SimpleAggregateFunction(sum, UInt64)
+)
+AS {LOGS34_TO_PATTERN_BUCKETS_MV_SELECT()}
 """
 
 

@@ -1,15 +1,14 @@
 import re
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargify.chargify import (
     ChargifyResumeConfig,
     chargify_source,
@@ -39,6 +38,18 @@ SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 
 @SourceRegistry.register
 class ChargifySource(ResumableSource[ChargifySourceConfig, ChargifyResumeConfig]):
+    codebase_detection = detect(
+        env=("^CHARGIFY_",),
+        script_hosts=("js.chargify.com",),
+        npm=("@maxio-com/advanced-billing-sdk",),
+        pypi=("maxio-advanced-billing-sdk",),
+        composer=("maxio/advanced-billing-sdk",),
+        go=("github.com/maxio-com/ab-golang-sdk",),
+        maven=("com.maxio:advanced-billing-sdk",),
+        rubygems=("maxio-advanced-billing-sdk", "chargify_api_ares", "chargify2"),
+        superseded_by=("Maxio",),
+    )
+
     api_docs_url = "https://developers.maxio.com/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -142,7 +153,7 @@ class ChargifySource(ResumableSource[ChargifySourceConfig, ChargifyResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CHARGIFY,
+            name=ExternalDataSourceType.CHARGIFY,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Chargify",
             keywords=["maxio", "advanced billing"],

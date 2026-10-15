@@ -6,6 +6,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
+from products.workflows.backend.facade.contracts import EmailSendingTierLimits
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 logger = structlog.get_logger(__name__)
@@ -13,16 +14,6 @@ logger = structlog.get_logger(__name__)
 TierMode = Literal["off", "shadow", "enforce"]
 
 MIN_EMAIL_SENDING_TIER = 0
-
-
-@frozen
-class EmailSendingTierLimits:
-    """What a trust tier allows: two send-rate caps and a maximum batch audience."""
-
-    tier: int
-    per_hour: int
-    per_day: int
-    max_batch_audience: int
 
 
 @frozen

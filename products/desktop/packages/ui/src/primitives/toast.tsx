@@ -14,6 +14,7 @@ export interface ToastAction {
 
 export interface ToastOptions {
   description?: string;
+  alwaysShow?: boolean;
   // A caller-chosen stable id: upserts (creates or replaces) the toast with
   // that id so it never stacks. quill itself can't
   // pick an id at create time, so the wrapper maps it (see idRegistry).
@@ -51,9 +52,11 @@ function emit(
   defaultTimeout?: number,
 ): string | undefined {
   const o = normalize(detail);
-  // Toasts can be disabled in settings; errors always show since they carry
-  // information the user needs regardless of that preference.
-  if (level !== "error" && !useSettingsStore.getState().toastNotifications) {
+  if (
+    level !== "error" &&
+    !o.alwaysShow &&
+    !useSettingsStore.getState().toastNotifications
+  ) {
     return o.id;
   }
   // base-ui auto-dismisses any non-loading toast with `timeout > 0`; it has no

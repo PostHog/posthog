@@ -8,7 +8,8 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { PROJECT_TREE_KEY, ProjectTree } from '../ProjectTree/ProjectTree'
+import { ProjectTree } from '../ProjectTree/ProjectTree'
+import { PROJECT_TREE_KEY } from '../ProjectTree/projectTreeLogic'
 
 const NavTabChat = lazyWithRetry(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
 
@@ -54,7 +55,7 @@ export function PanelLayoutPanels(): JSX.Element | null {
                 <ProjectTree
                     panelName="products"
                     root="products://"
-                    searchPlaceholder="Search tools"
+                    searchPlaceholder="Search products"
                     isActiveInPanel={activePanelIdentifier === 'Products'}
                 />
             ),
@@ -68,7 +69,7 @@ export function PanelLayoutPanels(): JSX.Element | null {
             ),
             Chat: (
                 <div
-                    className="pointer-events-auto flex flex-col h-full min-h-screen max-h-screen bg-surface-tertiary border-r overflow-hidden w-[var(--project-panel-width)]"
+                    className="pointer-events-auto flex flex-col h-full min-h-0 max-h-full bg-surface-tertiary border-r overflow-hidden w-[var(--project-panel-width)]"
                     data-attr="nav-panel-chat"
                 >
                     <Suspense

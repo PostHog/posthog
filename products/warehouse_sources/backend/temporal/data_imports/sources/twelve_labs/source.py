@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TwelveLabsSource(ResumableSource[TwelveLabsSourceConfig, TwelveLabsResumeConfig]):
+    codebase_detection = detect(env=("^(TWELVE_LABS|TWELVELABS)_",), npm=("twelvelabs-js",), pypi=("twelvelabs",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1.3",)
     default_version = "v1.3"
@@ -50,7 +51,7 @@ class TwelveLabsSource(ResumableSource[TwelveLabsSourceConfig, TwelveLabsResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TWELVE_LABS,
+            name=ExternalDataSourceType.TWELVELABS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Twelve Labs",
             releaseStatus=ReleaseStatus.ALPHA,

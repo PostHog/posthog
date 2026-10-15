@@ -6,6 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     engineeringAnalyticsJobAggregates,
+    engineeringAnalyticsWorkflowHealth,
     engineeringAnalyticsWorkflowJobs,
     engineeringAnalyticsWorkflowRunActivity,
     engineeringAnalyticsWorkflowRunnerCosts,
@@ -16,6 +17,7 @@ import { workflowRunsLogic } from './workflowRunsLogic'
 
 jest.mock('../generated/api', () => ({
     engineeringAnalyticsJobAggregates: jest.fn(),
+    engineeringAnalyticsWorkflowHealth: jest.fn(),
     engineeringAnalyticsWorkflowJobs: jest.fn(),
     engineeringAnalyticsWorkflowRunActivity: jest.fn(),
     engineeringAnalyticsWorkflowRunnerCosts: jest.fn(),
@@ -33,6 +35,9 @@ const mockJobs = engineeringAnalyticsWorkflowJobs as jest.MockedFunction<typeof 
 const mockJobAggregates = engineeringAnalyticsJobAggregates as jest.MockedFunction<
     typeof engineeringAnalyticsJobAggregates
 >
+const mockWorkflowHealth = engineeringAnalyticsWorkflowHealth as jest.MockedFunction<
+    typeof engineeringAnalyticsWorkflowHealth
+>
 
 describe('workflowRunsLogic', () => {
     let logic: ReturnType<typeof workflowRunsLogic.build>
@@ -46,6 +51,7 @@ describe('workflowRunsLogic', () => {
         mockRunnerCosts.mockResolvedValue([])
         mockJobs.mockResolvedValue([])
         mockJobAggregates.mockResolvedValue([])
+        mockWorkflowHealth.mockResolvedValue([])
     })
 
     let unmountFilters: (() => void) | undefined
@@ -61,14 +67,16 @@ describe('workflowRunsLogic', () => {
         logic.mount()
         const filters = engineeringAnalyticsFiltersLogic()
         unmountFilters = filters.mount()
-        await expectLogic(logic).toDispatchActions([
+        const windowedReadSuccesses = [
             'loadRunsSuccess',
+            'loadWorkflowHealthSuccess',
             'loadRunActivitySuccess',
             'loadRunnerCostsSuccess',
             'loadJobAggregatesSuccess',
-        ])
+        ]
+        await expectLogic(logic).toDispatchActionsInAnyOrder(windowedReadSuccesses)
 
-        const windowedReads = [mockRuns, mockRunActivity, mockRunnerCosts, mockJobAggregates]
+        const windowedReads = [mockRuns, mockWorkflowHealth, mockRunActivity, mockRunnerCosts, mockJobAggregates]
         for (const read of windowedReads) {
             expect(read).toHaveBeenLastCalledWith(
                 '1',
@@ -78,21 +86,95 @@ describe('workflowRunsLogic', () => {
             expect(read.mock.lastCall?.[1]).not.toHaveProperty('run_scope')
         }
 
-        // Picking a group on the shared filters logic reloads all four reads scoped to it, so the detail
+        // Picking a group on the shared filters logic reloads all five reads scoped to it, so the detail
         // page's numbers and its chart match the list it was opened from.
         filters.actions.setRunScope('merge_queue')
-        await expectLogic(logic).toDispatchActions([
-            'loadRuns',
-            'loadRunActivity',
-            'loadRunnerCosts',
-            'loadJobAggregates',
-            'loadRunsSuccess',
-            'loadRunActivitySuccess',
-            'loadRunnerCostsSuccess',
-            'loadJobAggregatesSuccess',
-        ])
+        await expectLogic(logic).toDispatchActionsInAnyOrder(windowedReadSuccesses)
         for (const read of windowedReads) {
             expect(read).toHaveBeenLastCalledWith('1', expect.objectContaining({ run_scope: 'merge_queue' }))
         }
+    })
+
+    it('reads the tiles from the window-wide figures, not the capped run table', async () => {
+        mockWorkflowHealth.mockResolvedValue([
+            {
+                repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
+                workflow_name: 'CI',
+                run_count: 4000,
+                successful_run_count: 3800,
+                conclusive_run_count: 3900,
+                success_rate: 0.974,
+                p50_seconds: 120,
+                p95_seconds: 600,
+                last_failure_at: null,
+                latest_run_failed: false,
+                latest_run_conclusion: 'success',
+                latest_run_id: 1,
+                latest_run_attempt: 1,
+                granularity: 'day',
+                buckets: [],
+            },
+        ])
+        mockRunnerCosts.mockResolvedValue([
+            {
+                provider: 'self_hosted',
+                runner_label: 'depot-ubuntu-16',
+                job_count: 10,
+                billable_minutes: 100,
+                estimated_cost_usd: 3.2,
+            },
+        ])
+        mockJobAggregates.mockResolvedValue([
+            {
+                job_name: 'Python tests',
+                job_count: 10,
+                shard_count: 1,
+                runs_in: 10,
+                run_share: 1,
+                queue_p50_seconds: 30,
+                p50_seconds: 600,
+                p95_seconds: 900,
+                failure_rate: 0,
+                retry_job_count: 0,
+                billable_minutes: 100,
+                estimated_cost_usd: 3.2,
+            },
+        ])
+        logic = workflowRunsLogic({ repoOwner: 'PostHog', repoName: 'posthog', workflowName: 'CI', sourceId: null })
+        logic.mount()
+        await expectLogic(logic).toDispatchActionsInAnyOrder([
+            'loadWorkflowHealthSuccess',
+            'loadRunnerCostsSuccess',
+            'loadJobAggregatesSuccess',
+        ])
+
+        expect(logic.values.healthSummary.totalRuns).toBe(4000)
+        expect(logic.values.healthSummary.passRate).toBe(0.974)
+        expect(logic.values.healthSummary.state).toBe('healthy')
+        expect(logic.values.costSummary?.estimatedCostUsd).toBe(3.2)
+        expect(logic.values.queueP50Seconds).toBe(30)
+
+        // A failed reload must not keep showing the previous window's figures under an error state.
+        mockWorkflowHealth.mockRejectedValue(new Error('network down'))
+        mockRunnerCosts.mockRejectedValue(new Error('network down'))
+        mockJobAggregates.mockRejectedValue(new Error('network down'))
+        const filters = engineeringAnalyticsFiltersLogic()
+        unmountFilters = filters.mount()
+        filters.actions.setDateRange('-7d', null)
+        await expectLogic(logic).toDispatchActionsInAnyOrder([
+            'loadWorkflowHealthFailure',
+            'loadRunnerCostsFailure',
+            'loadJobAggregatesFailure',
+        ])
+
+        expect(logic.values).toMatchObject({
+            workflowHealthFailed: true,
+            runnerCostsFailed: true,
+            jobAggregatesFailed: true,
+            costSummary: null,
+            queueP50Seconds: null,
+        })
+        expect(logic.values.healthSummary.totalRuns).toBe(0)
+        expect(logic.values.healthSummary.state).toBe('unknown')
     })
 })

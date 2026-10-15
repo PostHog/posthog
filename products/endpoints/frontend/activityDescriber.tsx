@@ -2,6 +2,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
@@ -35,6 +36,13 @@ export function endpointActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    Created the endpoint (<VersionLink name={endpointName} version={1} />)
+                </>,
+                <EndpointLink name={endpointName} />
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created endpoint <EndpointLink name={endpointName} /> (
@@ -47,6 +55,7 @@ export function endpointActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity === 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the endpoint', endpointName),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted endpoint <strong>{endpointName}</strong>.
@@ -57,6 +66,13 @@ export function endpointActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity === 'version_created' && version !== undefined) {
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    Created version <VersionLink name={endpointName} version={version} />
+                </>,
+                <EndpointLink name={endpointName} />
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created version{' '}
@@ -69,6 +85,13 @@ export function endpointActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity === 'version_updated' && version !== undefined) {
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    Updated version <VersionLink name={endpointName} version={version} />
+                </>,
+                <EndpointLink name={endpointName} />
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> updated{' '}
@@ -79,8 +102,32 @@ export function endpointActivityDescriber(logItem: ActivityLogItem, asNotificati
         }
     }
 
+    if (
+        (logItem.activity === 'materialization_enabled' || logItem.activity === 'materialization_disabled') &&
+        version !== undefined
+    ) {
+        const verb = logItem.activity === 'materialization_enabled' ? 'Turned on' : 'Turned off'
+        return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    {verb} materialization for <VersionLink name={endpointName} version={version} />
+                </>,
+                <EndpointLink name={endpointName} />
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> {verb.toLowerCase()} materialization for{' '}
+                    <VersionLink name={endpointName} version={version} /> of endpoint{' '}
+                    <EndpointLink name={endpointName} />.
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity === 'updated') {
         return {
+            summary: activityLogSummary(logItem, 'Updated the endpoint', <EndpointLink name={endpointName} />),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> updated endpoint <EndpointLink name={endpointName} />.

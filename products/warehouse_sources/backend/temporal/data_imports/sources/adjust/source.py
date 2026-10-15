@@ -2,15 +2,14 @@ from typing import Optional, cast
 
 import requests
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.adjust import (
     AdjustCredentialsError,
     AdjustResumeConfig,
@@ -40,6 +39,30 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AdjustSource(ResumableSource[AdjustSourceConfig, AdjustResumeConfig]):
+    codebase_detection = detect(
+        script_hosts=("cdn.adjust.com",),
+        npm=("@adjustcom/adjust-web-sdk", "react-native-adjust"),
+        cocoapods=("Adjust", "AdjustAdobeExtension"),
+        maven=(
+            "com.adjust.sdk:adjust-android",
+            "com.adjust.sdk:adjust-android-criteo",
+            "com.adjust.sdk:adjust-android-google-lvl",
+            "com.adjust.sdk:adjust-android-huawei-referrer",
+            "com.adjust.sdk:adjust-android-imei",
+            "com.adjust.sdk:adjust-android-meta-referrer",
+            "com.adjust.sdk:adjust-android-oaid",
+            "com.adjust.sdk:adjust-android-samsung-clouddev",
+            "com.adjust.sdk:adjust-android-samsung-referrer",
+            "com.adjust.sdk:adjust-android-sociomantic",
+            "com.adjust.sdk:adjust-android-vivo-referrer",
+            "com.adjust.sdk:adjust-android-webbridge",
+            "com.adjust.sdk:adjust-android-xiamoi-referrer",
+            "com.adjust.sdk:adjust-android-xiaomi-referrer",
+        ),
+        pub=("adjust_sdk",),
+        swiftpm=("github.com/adjust/ios_sdk", "github.com/adjust/adjust_signature_sdk"),
+    )
+
     # The Report Service API carries no version token in its path, headers, or params, so there is
     # no vendor version to pin.
     api_docs_url = "https://dev.adjust.com/en/api/rs-api/"
@@ -71,7 +94,7 @@ class AdjustSource(ResumableSource[AdjustSourceConfig, AdjustResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ADJUST,
+            name=ExternalDataSourceType.ADJUST,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Adjust",
             caption="""Enter your Adjust API token to pull aggregated attribution and performance reports into the PostHog Data warehouse.

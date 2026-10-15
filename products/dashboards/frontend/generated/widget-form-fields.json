@@ -7,6 +7,13 @@
             "formFields": ["limit", "dateRange", "filterTestAccounts"],
             "live": false
         },
+        "canvas_app": {
+            "configSchemaExport": "canvasAppWidgetConfigSchema",
+            "configTypeExport": "CanvasAppWidgetConfig",
+            "formSchemaExport": "canvasAppWidgetFormSchema",
+            "formFields": ["canvasId"],
+            "live": false
+        },
         "conversations_recent_tickets": {
             "configSchemaExport": "conversationsRecentTicketsWidgetConfigSchema",
             "configTypeExport": "ConversationsRecentTicketsWidgetConfig",
@@ -40,6 +47,13 @@
             "configTypeExport": "LogsWidgetConfig",
             "formSchemaExport": "logsWidgetFormSchema",
             "formFields": ["limit", "dateRange", "wrapLines", "timezone"],
+            "live": false
+        },
+        "notebook_widget": {
+            "configSchemaExport": "notebookWidgetConfigSchema",
+            "configTypeExport": "NotebookWidgetConfig",
+            "formSchemaExport": "notebookWidgetFormSchema",
+            "formFields": [],
             "live": false
         },
         "session_replay_list": {

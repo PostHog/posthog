@@ -1,15 +1,14 @@
 import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -47,7 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 @SourceRegistry.register
@@ -55,6 +54,20 @@ class PipedriveSource(
     ResumableSource[PipedriveSourceConfig, PipedriveResumeConfig],
     WebhookSource[PipedriveSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^PIPEDRIVE_",),
+        script_hosts=(
+            "leadbooster-chat.pipedrive.com",
+            "webforms.pipedrive.com",
+            "cdn.pipedriveassets.com",
+            "pipedrivewebforms.com",
+        ),
+        npm=("pipedrive", "@pipedrive/app-extensions-sdk", "@pipedrive/custom-app-surfaces-sdk"),
+        pypi=("pipedrive-python-lib", "pipedrive"),
+        composer=("pipedrive/pipedrive", "devio/pipedrive"),
+        rubygems=("pipedrive.rb", "pipedrive-ruby"),
+    )
+
     supported_versions = ("v1", "v2")
     default_version = "v2"
     # v1 only differs from v2 in the `activities` endpoint; the vendor deprecated the v1
@@ -87,7 +100,7 @@ class PipedriveSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PIPEDRIVE,
+            name=ExternalDataSourceType.PIPEDRIVE,
             category=DataWarehouseSourceCategory.CRM,
             label="Pipedrive",
             releaseStatus=ReleaseStatus.GA,
@@ -212,9 +225,22 @@ Deletions in Pipedrive are not applied to tables synced by webhook. Switch a tab
         # (schema_name is None) and only reject when validating a specific schema.
         if status == 403 and schema_name is None:
             return True, None
-        if status in (401, 403):
-            return False, "Invalid Pipedrive API token or insufficient permissions"
-        return False, "Could not validate Pipedrive credentials"
+        if status == 401:
+            return (
+                False,
+                "Your Pipedrive API token was rejected. Copy the token again from your Pipedrive "
+                "personal preferences, then reconnect.",
+            )
+        if status == 403:
+            return (
+                False,
+                "Your Pipedrive user doesn't have permission to read this data. Ask a Pipedrive "
+                "admin to grant access, then try again.",
+            )
+        return (
+            False,
+            "Couldn't validate your Pipedrive credentials. Check your company domain and API token, then try again.",
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PipedriveResumeConfig]:
         return ResumableSourceManager[PipedriveResumeConfig](inputs, PipedriveResumeConfig)

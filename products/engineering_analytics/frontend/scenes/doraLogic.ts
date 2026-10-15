@@ -8,9 +8,16 @@ import type { BoxPlotBucket } from '../components/LeadTimeBoxPlot'
 import { engineeringAnalyticsDora } from '../generated/api'
 import type { DoraOverviewApi } from '../generated/api.schemas'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
-import { engineeringAnalyticsLogic, formatBucket, type WorkflowGranularity } from './engineeringAnalyticsLogic'
+import {
+    awaitsRepoForward,
+    engineeringAnalyticsLogic,
+    formatBucket,
+    type WorkflowGranularity,
+} from './engineeringAnalyticsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
+
+export const UNATTRIBUTED_WARNING_SHARE = 0.1
 
 type LeadTimeSeriesApi = DoraOverviewApi['merge_to_deploy_series']
 
@@ -248,7 +255,8 @@ export const doraLogic = kea<doraLogicType>([
     selectors({
         showUnattributedWarning: [
             (s) => [s.dora],
-            (dora: DoraOverviewApi | null): boolean => (dora?.unattributed_merged_pr_share ?? 0) > 0.1,
+            (dora: DoraOverviewApi | null): boolean =>
+                (dora?.unattributed_merged_pr_share ?? 0) > UNATTRIBUTED_WARNING_SHARE,
         ],
         selectedEnvironments: [
             (s) => [s.dora, s.doraLoading, s.environments],
@@ -356,6 +364,8 @@ export const doraLogic = kea<doraLogicType>([
     })),
 
     afterMount(({ actions }) => {
-        actions.loadDora()
+        if (!awaitsRepoForward()) {
+            actions.loadDora()
+        }
     }),
 ])

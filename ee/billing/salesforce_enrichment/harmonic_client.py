@@ -1,5 +1,6 @@
 import time
 import asyncio
+from contextlib import suppress
 from typing import Any, Optional
 
 from django.conf import settings
@@ -8,6 +9,7 @@ import aiohttp
 
 from posthog.dataclasses import frozen
 from posthog.egress.harmonic.limiter import HARMONIC_WINDOW_SECONDS, admission_interval_harmonic, pace_seconds_harmonic
+from posthog.egress.harmonic.observability import record_harmonic_admission_wait
 from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted, harmonic_request
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
@@ -37,7 +39,7 @@ class HarmonicCompanyLookup:
 _ENRICHMENT_STATUS_BATCH_SIZE = 50
 
 # Caps how many slow lookups can overlap. Admission pacing controls the request rate.
-_ENRICH_MAX_CONCURRENT_LOOKUPS = 10
+_ENRICH_MAX_CONCURRENT_LOOKUPS = 24
 _ENRICH_MAX_ATTEMPTS = 3
 
 
@@ -55,12 +57,21 @@ class AsyncHarmonicClient:
     starved or shed. The weekly bulk job passes ``Priority.BATCH`` explicitly so it yields to
     that traffic instead.
 
+    ``query`` is the GraphQL document for the company lookups. A caller that needs more company fields than
+    the default passes its own document, so that the payload of the other callers does not grow.
+
     Usage:
         async with AsyncHarmonicClient(priority=Priority.BATCH, source="my_job") as client:
             data = await client.enrich_company_by_domain("posthog.com")
     """
 
-    def __init__(self, *, priority: Priority = Priority.CRITICAL, source: str = "harmonic_client") -> None:
+    def __init__(
+        self,
+        *,
+        priority: Priority = Priority.CRITICAL,
+        source: str = "harmonic_client",
+        query: str = HARMONIC_COMPANY_ENRICHMENT_QUERY,
+    ) -> None:
         self.api_key = settings.HARMONIC_API_KEY
         if not self.api_key:
             raise ValueError("Missing Harmonic API key: HARMONIC_API_KEY")
@@ -69,6 +80,7 @@ class AsyncHarmonicClient:
         self._session_cm: Any = None
         self.priority = priority
         self.source = source
+        self.query = query
 
     async def __aenter__(self):
         """Async context manager entry - create session."""
@@ -121,7 +133,7 @@ class AsyncHarmonicClient:
                     # Key in a header, not a query param: aiohttp errors carry request_info.real_url,
                     # so a URL-borne key would leak into exception telemetry when a lookup raises.
                     headers={"apikey": self.api_key},
-                    json={"query": HARMONIC_COMPANY_ENRICHMENT_QUERY, "variables": variables},
+                    json={"query": self.query, "variables": variables},
                 )
                 response.raise_for_status()
                 data = await response.json()
@@ -192,7 +204,7 @@ class AsyncHarmonicClient:
                     # Key in a header, not a query param: aiohttp errors carry request_info.real_url,
                     # so a URL-borne key would leak into exception telemetry when a lookup raises.
                     headers={"apikey": self.api_key},
-                    json={"query": HARMONIC_COMPANY_ENRICHMENT_QUERY, "variables": variables},
+                    json={"query": self.query, "variables": variables},
                 )
                 response.raise_for_status()
                 data = await response.json()
@@ -329,6 +341,7 @@ class AsyncHarmonicClient:
 
         async def wait_for_admission() -> None:
             nonlocal next_admission_at
+            admission_started_at = time.monotonic()
             async with pacing_lock:
                 pace = await asyncio.to_thread(pace_seconds_harmonic, self.priority)
                 # The interval keeps admissions inside the lane even while the limiter cannot yet
@@ -336,6 +349,9 @@ class AsyncHarmonicClient:
                 wait = max(pace, next_admission_at - time.monotonic())
                 if wait > 0:
                     await asyncio.sleep(wait)
+                total_wait = max(time.monotonic() - admission_started_at, wait)
+                with suppress(Exception):
+                    record_harmonic_admission_wait(total_wait, source=self.source, priority=self.priority)
                 next_admission_at = time.monotonic() + admission_interval_harmonic(self.priority)
 
         async def enrich_one(index: int, domain: str) -> None:

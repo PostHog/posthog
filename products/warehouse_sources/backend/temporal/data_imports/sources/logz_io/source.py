@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,6 +35,27 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LogzIOSource(ResumableSource[LogzIOSourceConfig, LogzIOResumeConfig]):
+    codebase_detection = detect(
+        env=("^(LOGZ_IO|LOGZIO)_",),
+        npm=("logzio-nodejs", "winston-logzio", "@logzio/browser"),
+        pypi=("logzio-python-handler",),
+        go=(
+            "github.com/logzio/logzio-go",
+            "github.com/logzio/fluent-bit-logzio-output",
+            "github.com/logzio/logzio-api-status",
+            "github.com/logzio/logzio-helm",
+            "github.com/logzio/logzio-ping-statistics",
+            "github.com/logzio/logzio_terraform_client",
+            "github.com/logzio/logzio_terraform_provider",
+        ),
+        maven=(
+            "io.logz.logback:logzio-logback-appender",
+            "io.logz.log4j2:logzio-log4j2-appender",
+            "io.logz.sender:logzio-java-sender",
+            "io.logz.sender:logzio-sender",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -51,7 +71,7 @@ class LogzIOSource(ResumableSource[LogzIOSourceConfig, LogzIOResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LOGZ_IO,
+            name=ExternalDataSourceType.LOGZIO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Logz.io",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -1,0 +1,68 @@
+{
+    "MB1": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 6,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "MB2": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 57,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MB3": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 4,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MB4": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 58,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "MB5": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 18,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MB6": {
+        "is_real": false,
+        "severity": null,
+        "cluster": null,
+        "source": "verified-3-skeptics:0/3"
+    },
+    "MB7": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "MB8": {
+        "is_real": true,
+        "severity": "must_fix",
+        "cluster": 2,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "MB9": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 58,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "MB10": {
+        "is_real": true,
+        "severity": "should_fix",
+        "cluster": 58,
+        "source": "verified-3-skeptics:3/3"
+    },
+    "MB11": {
+        "is_real": false,
+        "severity": null,
+        "cluster": 9,
+        "source": "verified-3-skeptics:0/3"
+    }
+}

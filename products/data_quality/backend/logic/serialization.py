@@ -52,6 +52,24 @@ def from_config_entry(entry: dict[str, Any]) -> dict[str, Any]:
     return CheckConfigEntry.model_validate(entry).model_dump()
 
 
+# Every field a check can leave unset because it was added after checks existed. A type that carries
+# one dumps it as null, and a null the older row never stored would change its fingerprint.
+_LATE_OPTIONAL_FIELDS = ("lookback_hours", "to_lookback_hours")
+
+
+def canonical_config(parsed: BaseModel) -> dict[str, Any]:
+    """The config as it is stored and hashed.
+
+    An unset lookback window is dropped rather than written as null, so a check authored before the
+    window existed keeps the fingerprint it already has.
+    """
+    canonical = parsed.model_dump(mode="json")
+    for name in _LATE_OPTIONAL_FIELDS:
+        if canonical.get(name) is None:
+            canonical.pop(name, None)
+    return canonical
+
+
 def compute_fingerprint(
     *,
     subject_type: str,

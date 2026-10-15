@@ -1,15 +1,14 @@
 from typing import Optional, cast
 from urllib.parse import urlsplit
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -40,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GitguardianSource(ResumableSource[GitguardianSourceConfig, GitGuardianResumeConfig]):
+    codebase_detection = detect(env=("^GITGUARDIAN_",), pypi=("pygitguardian", "ggshield"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -55,11 +56,11 @@ class GitguardianSource(ResumableSource[GitguardianSourceConfig, GitGuardianResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GITGUARDIAN,
+            name=ExternalDataSourceType.GITGUARDIAN,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="GitGuardian",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter a GitGuardian API token to sync your secret incidents, occurrences, monitored sources, honeytokens, members, and teams into the PostHog Data warehouse.
+            caption="""Enter a GitGuardian API token to sync your secret incidents, occurrences, incident activity logs, secret detectors, monitored sources, honeytokens, honeytoken events, members, teams, and team memberships into the PostHog Data warehouse.
 
 Create a service account token (recommended for unattended syncs) or a personal access token in your [GitGuardian API settings](https://dashboard.gitguardian.com/api). Grant the read scopes for the tables you want to sync: `incidents:read`, `sources:read`, `honeytokens:read`, `members:read`, and `teams:read`. Reading incidents requires a token with at least the Manager access level.
 

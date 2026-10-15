@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -48,6 +47,8 @@ _CATEGORIES = [
 
 @SourceRegistry.register
 class GNewsSource(ResumableSource[GNewsSourceConfig, GNewsResumeConfig]):
+    codebase_detection = detect(env=("^(G_NEWS|GNEWS)_",))
+
     supported_versions = ("v4",)
     default_version = "v4"
     api_docs_url = "https://gnews.io/docs/v4"
@@ -61,7 +62,7 @@ class GNewsSource(ResumableSource[GNewsSourceConfig, GNewsResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.G_NEWS,
+            name=ExternalDataSourceType.GNEWS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="GNews",
             releaseStatus=ReleaseStatus.ALPHA,

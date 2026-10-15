@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -51,6 +50,8 @@ def _auth_from_config(config: ShutterstockSourceConfig) -> ShutterstockAuth:
 
 @SourceRegistry.register
 class ShutterstockSource(ResumableSource[ShutterstockSourceConfig, ShutterstockResumeConfig]):
+    codebase_detection = detect(env=("^SHUTTERSTOCK_",), npm=("shutterstock-api",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -63,7 +64,7 @@ class ShutterstockSource(ResumableSource[ShutterstockSourceConfig, ShutterstockR
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SHUTTERSTOCK,
+            name=ExternalDataSourceType.SHUTTERSTOCK,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Shutterstock",
             releaseStatus=ReleaseStatus.ALPHA,

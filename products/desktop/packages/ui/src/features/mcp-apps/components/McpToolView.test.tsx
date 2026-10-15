@@ -25,7 +25,11 @@ function textContent(text: string): NonNullable<ToolCall["content"]> {
 function renderView(toolCall: ToolCall) {
   return render(
     <Theme>
-      <McpToolView toolCall={toolCall} mcpToolName="posthog__query" expanded />
+      <McpToolView
+        toolCall={toolCall}
+        mcpToolName="mcp__posthog__query"
+        expanded
+      />
     </Theme>,
   );
 }
@@ -39,4 +43,38 @@ describe("McpToolView", () => {
 
     expect(screen.getByText(marker)).toBeInTheDocument();
   });
+
+  it.each([
+    {
+      toolName: "mcp__posthog__query",
+      rawInput: {},
+      meta: {
+        posthog: {
+          toolName: "mcp__posthog__query",
+          mcp: { server: "posthog", tool: "query", title: "Run query" },
+        },
+      },
+      expected: "posthog - Run query",
+    },
+    {
+      toolName: "mcp__posthog__exec",
+      rawInput: { command: "call feature-flag-get-all" },
+      expected: "posthog - Get feature flags",
+    },
+  ])(
+    "shows the relevant MCP tool name",
+    ({ toolName, rawInput, meta, expected }) => {
+      render(
+        <Theme>
+          <McpToolView
+            toolCall={makeToolCall({ rawInput, _meta: meta })}
+            mcpToolName={toolName}
+            expanded
+          />
+        </Theme>,
+      );
+
+      expect(screen.getByText(expected)).toBeInTheDocument();
+    },
+  );
 });

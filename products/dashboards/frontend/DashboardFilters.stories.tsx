@@ -11,13 +11,7 @@ import { encodeURLFilters, encodeURLVariables } from 'scenes/dashboard/dashboard
 import { mswDecorator } from '~/mocks/browser'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { NodeKind, type DashboardFilter } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    DashboardType,
-    PropertyFilterType,
-    PropertyOperator,
-    QueryBasedInsightModel,
-} from '~/types'
+import { AccessControlLevel, DashboardType, PropertyFilterType, PropertyOperator, InsightModel } from '~/types'
 
 type FilterBarState = 'saved' | 'unsaved'
 type DashboardFilterKind = 'date' | 'properties' | 'breakdown' | 'interval' | 'testAccounts'
@@ -44,7 +38,7 @@ interface DashboardFilterBarStoryProps {
 
 const DASHBOARD_ID = 955
 
-const dashboard: DashboardType<QueryBasedInsightModel> = {
+const dashboard: DashboardType = {
     id: DASHBOARD_ID,
     name: 'Dashboard filter states',
     description: '',
@@ -66,7 +60,7 @@ const SQL_VARIABLE_ID = 'organization'
 const SQL_VARIABLE_DEFAULT = 'Default organization'
 const SQL_VARIABLE_OVERRIDE = 'Example organization'
 
-const sqlVariablesDashboard: DashboardType<QueryBasedInsightModel> = {
+const sqlVariablesDashboard: DashboardType = {
     ...dashboard,
     tiles: [
         {
@@ -87,7 +81,7 @@ const sqlVariablesDashboard: DashboardType<QueryBasedInsightModel> = {
                     chartSettings: {},
                     tableSettings: {},
                 },
-            } as unknown as QueryBasedInsightModel,
+            } as unknown as InsightModel,
         },
     ],
     persisted_variables: {

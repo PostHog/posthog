@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -34,6 +33,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PaystackSource(ResumableSource[PaystackSourceConfig, PaystackResumeConfig]):
+    codebase_detection = detect(
+        env=("^PAYSTACK_",),
+        script_hosts=("js.paystack.co",),
+        npm=("@paystack/inline-js", "@paystack/paystack-sdk"),
+        pypi=("paystackapi", "paystack-sdk"),
+        cocoapods=("Paystack", "PaystackCheckout"),
+        composer=("yabacon/paystack-php",),
+        maven=("co.paystack.android:paystack",),
+        rubygems=("paystack-ruby",),
+    )
+
     api_docs_url = "https://paystack.com/docs/api/"
 
     @property
@@ -56,7 +66,7 @@ class PaystackSource(ResumableSource[PaystackSourceConfig, PaystackResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PAYSTACK,
+            name=ExternalDataSourceType.PAYSTACK,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Paystack",
             caption="""Enter your Paystack secret API key to pull your Paystack data into the PostHog Data warehouse.

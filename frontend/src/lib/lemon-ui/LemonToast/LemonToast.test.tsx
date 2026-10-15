@@ -1,8 +1,12 @@
 import '@testing-library/jest-dom'
 
-import { act, fireEvent, render } from '@testing-library/react'
+import { act, fireEvent, render, within } from '@testing-library/react'
+import posthog from 'posthog-js'
 
-import { GET_HELP_BUTTON, ToastContent, withClickableUrls } from './LemonToast'
+import { resetGetHelpAction, setGetHelpAction } from './getHelp'
+import { GET_HELP_BUTTON, ToastContent, lemonToast, withClickableUrls } from './LemonToast'
+
+const mockPosthog = posthog as unknown as { __loaded: boolean; capture: jest.Mock }
 
 describe('LemonToast', () => {
     const writeText = jest.fn((_text: string) => Promise.resolve())
@@ -10,6 +14,44 @@ describe('LemonToast', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         Object.assign(navigator, { clipboard: { writeText } })
+    })
+
+    afterEach(() => {
+        resetGetHelpAction()
+        jest.restoreAllMocks()
+    })
+
+    // "Get help" has to reach support where the person already is. Sending them to posthog.com
+    // instead drops the error, the scene, and everything else that made the toast worth acting on.
+    it('runs the registered get-help action rather than opening posthog.com', () => {
+        const openSupport = jest.fn()
+        setGetHelpAction(openSupport)
+        const windowOpen = jest.spyOn(window, 'open').mockImplementation(() => null)
+
+        const { container } = render(
+            <ToastContent type="error" message="Load experiment failed" button={GET_HELP_BUTTON} />
+        )
+        fireEvent.click(within(container).getByText('Get help'))
+
+        expect(openSupport).toHaveBeenCalledTimes(1)
+        expect(windowOpen).not.toHaveBeenCalled()
+    })
+
+    // The toolbar and the exporter render toasts but have no support form to open, so they fall
+    // back to the support options docs.
+    it('falls back to the support options docs when nothing is registered', () => {
+        const windowOpen = jest.spyOn(window, 'open').mockImplementation(() => null)
+
+        const { container } = render(
+            <ToastContent type="error" message="Load experiment failed" button={GET_HELP_BUTTON} />
+        )
+        fireEvent.click(within(container).getByText('Get help'))
+
+        expect(windowOpen).toHaveBeenCalledWith(
+            expect.stringContaining('posthog.com/docs/support-options'),
+            '_blank',
+            'noopener'
+        )
     })
 
     // The copy button reads the rendered message out of the DOM, so it copies whatever sits inside the
@@ -58,5 +100,20 @@ describe('LemonToast', () => {
 
     it('returns a message without URLs unchanged', () => {
         expect(withClickableUrls('Load experiment failed')).toBe('Load experiment failed')
+    })
+
+    // The toolbar bundle imports this default instance but initializes a named one, so the guard has
+    // to read __loaded. `capture` is a class method, so checking for it lets the call through.
+    it.each([
+        { name: 'reports a warning toast on an initialized instance', type: 'warning', event: 'toast warning' },
+        { name: 'reports an error toast on an initialized instance', type: 'error', event: 'toast error' },
+        { name: 'stays quiet for a warning toast on an uninitialized instance', type: 'warning', event: null },
+        { name: 'stays quiet for an error toast on an uninitialized instance', type: 'error', event: null },
+    ] as const)('$name', ({ type, event }) => {
+        mockPosthog.__loaded = event !== null
+
+        lemonToast[type]('Load experiment failed')
+
+        expect(mockPosthog.capture.mock.calls.map(([name]) => name)).toEqual(event ? [event] : [])
     })
 })

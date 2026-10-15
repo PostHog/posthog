@@ -23,6 +23,13 @@ export type SettingsLogicProps = {
 export const SettingLevelIds = ['environment', 'project', 'organization', 'user'] as const
 export type SettingLevelId = (typeof SettingLevelIds)[number]
 
+export const SettingLevelNames: Record<SettingLevelId, string> = {
+    environment: 'Environment',
+    project: 'Project',
+    organization: 'Organization',
+    user: 'User',
+} as const
+
 export type SettingSectionId =
     // Environment
     | 'environment-details'
@@ -36,6 +43,7 @@ export type SettingSectionId =
     | 'environment-csp-reporting'
     | 'environment-customer-analytics'
     | 'environment-customization'
+    | 'environment-data-quality'
     | 'environment-discussions'
     | 'environment-error-tracking'
     | 'environment-error-tracking-configuration'
@@ -53,7 +61,11 @@ export type SettingSectionId =
     | 'environment-revenue-analytics'
     | 'environment-secret-api-keys'
     | 'environment-surveys'
+    | 'environment-task-agent-instructions'
     | 'environment-task-agents'
+    | 'environment-ai-subscriptions'
+    | 'environment-ai-usage'
+    | 'environment-ai-cloud-environments'
     | 'environment-tracing'
     | 'environment-web-analytics'
     | 'environment-workflows'
@@ -118,6 +130,7 @@ export type SettingId =
     | 'base-currency'
     | 'bounce-rate-duration'
     | 'bounce-rate-page-view-mode'
+    | 'business-knowledge-github-repos'
     | 'business-knowledge-learn-from-support'
     | 'business-model'
     | 'change-password'
@@ -144,6 +157,7 @@ export type SettingId =
     | 'customer-analytics-track-rules'
     | 'customer-analytics-usage-metrics'
     | 'customization-irl'
+    | 'data-quality-materialization-gate'
     | 'data-theme'
     | 'datacapture'
     | 'date-and-time'
@@ -188,6 +202,8 @@ export type SettingId =
     | 'feature-previews-coming-soon'
     | 'group-analytics'
     | 'heatmaps'
+    | 'heatmap-screenshot-cookie'
+    | 'heatmaps-capture'
     | 'hedgehog-mode'
     | 'homepage'
     | 'human-friendly-comparison-periods'
@@ -206,14 +222,13 @@ export type SettingId =
     | 'logs-distinct-id-attribute-key'
     | 'logs-drop-rules'
     | 'logs-json-parse'
+    | 'logs-json-parse-attribute'
     | 'logs-metric-rules'
     | 'logs-pattern-message-keys'
     | 'logs-pii-scrub'
     | 'logs-retention'
-    | 'logs-retention-rules'
     | 'logs-session-id-attribute-keys'
     | 'marketing-settings'
-    | 'mcp-hints'
     | 'mcp-servers-manage'
     | 'members'
     | 'member-notifications'
@@ -231,6 +246,7 @@ export type SettingId =
     | 'organization-id'
     | 'organization-integrations-list'
     | 'organization-ip-anonymization-default'
+    | 'organization-member-notice'
     | 'organization-oauth-apps-list'
     | 'organization-proxy'
     | 'organization-roles'
@@ -272,6 +288,7 @@ export type SettingId =
     | 'revenue-analytics-filter-test-accounts'
     | 'revenue-base-currency'
     | 'saml-configuration'
+    | 'oidc-configuration'
     | 'scim-configuration'
     | 'session-join-mode'
     | 'session-table-version'
@@ -283,10 +300,20 @@ export type SettingId =
     | 'snippet-v2'
     | 'surveys-default-appearance'
     | 'surveys-interface'
+    | 'task-agent-my-instructions'
     | 'task-agent-my-preference'
+    | 'ai-subscription-codex'
+    | 'task-agent-project-instructions'
+    | 'ai-usage-spend'
+    | 'ai-cloud-environments'
+    | 'ai-cloud-custom-images'
+    | 'task-comments-slack-dm'
+    | 'task-agent-other-settings'
+    | 'task-agent-new-task-defaults'
     | 'task-agent-project-default'
     | 'theme'
     | 'tracing-distinct-id-attribute-keys'
+    | 'tracing-retention'
     | 'tracing-session-id-attribute-keys'
     | 'user-delete'
     | 'user-groups'
@@ -297,6 +324,7 @@ export type SettingId =
     | 'web-analytics-pre-aggregated-tables'
     | 'web-revenue-events'
     | 'web-vitals-autocapture'
+    | 'workflows-frequency-cap'
     | 'workflows-ai-task-limits'
     | 'workflows-email-tracking-consent'
     | 'workflows-engagement-events'
@@ -329,6 +357,12 @@ export type Setting = {
      * can check if a team should have access to a setting and return false if not
      */
     allowForTeam?: (team: TeamType | TeamPublicType | null) => boolean
+
+    /**
+     * Shows the setting only to organization admins and owners.
+     * Use it for an organization-scoped API, because a project admin can be an ordinary organization member.
+     */
+    organizationAdminOnly?: boolean
 
     /**
      * If true, this setting will be hidden when viewing all settings (no specific section selected),
@@ -389,19 +423,25 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
     hideFromNavigation?: boolean
 
     /**
-     * When true, navigating to this section prompts for re-authentication if the sensitive
-     * session has expired — matching how user- and organization-level settings behave. Use for
-     * environment/project sections that manage credentials, which otherwise only surface the
-     * re-auth modal reactively when a write is attempted.
-     */
-    requiresReauthentication?: boolean
-
-    /**
      * Gate every setting in the section behind one billing feature. The section renders a single
      * upsell when the feature is unavailable. Use this instead of a `PayGateMini` inside each
      * setting's component, which stacks one identical upsell card per setting on the page.
      */
     payGate?: SettingSectionPayGate
+
+    /**
+     * Where to send a reader who cannot open this section, shown as the next step when the section
+     * is gated off. `label` is user-facing copy.
+     */
+    unavailableFallback?: { sectionId: SettingSectionId; label: string }
+}
+
+/** Why a section the reader asked for is not there, and where to go instead. */
+export interface UnavailableSection {
+    id: SettingSectionId
+    title: JSX.Element | string
+    reason: 'not-enabled' | 'admin-only'
+    fallback: { sectionId: SettingSectionId; label: string } | null
 }
 
 export interface SettingSectionPayGate {

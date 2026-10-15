@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
@@ -14,6 +15,9 @@ DEEPSOURCE_API_URL = "https://api.deepsource.com/graphql/"
 DEEPSOURCE_DEFAULT_PAGE_SIZE = 50
 # Repository enumeration only pulls names, so a bigger page keeps the fan-out setup cheap.
 DEEPSOURCE_REPOSITORY_LIST_PAGE_SIZE = 100
+# Checks ride along nested in the analysis-run walk, one per analyzer enabled on the run.
+# DeepSource ships far fewer analyzers than this, so a run needing a second page is rare.
+DEEPSOURCE_CHECKS_PER_RUN_PAGE_SIZE = 50
 
 # Hard cap per Relay connection walk so a pathological cursor loop can't scan unbounded
 # pages. At the default page size this still allows 100k rows per connection.
@@ -28,21 +32,26 @@ CREATED_AT = "createdAt"
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
 
 
-@dataclass
+@dataclass(frozen=True)
 class DeepsourceEndpointConfig:
     primary_keys: list[str]
     # GraphQL connection field on Repository for paginated per-repository fan-out.
     connection_field: str | None = None
+    # GraphQL connection field on the root query, walked once for the whole account.
+    root_connection_field: str | None = None
     # metrics/reports: fetched as one non-paginated query per repository.
     per_repository_object: bool = False
+    # Extra GraphQL variables this endpoint's query declares beyond the shared ones.
+    extra_variables: dict[str, Any] = field(default_factory=dict)
     partition_mode: PartitionMode | None = None
     partition_format: PartitionFormat | None = None
     partition_keys: list[str] | None = None
     should_sync_default: bool = True
 
     def __post_init__(self) -> None:
-        if self.connection_field and self.per_repository_object:
-            raise ValueError("An endpoint is either a paginated connection or a per-repository object, not both")
+        shapes = [bool(self.connection_field), bool(self.root_connection_field), self.per_repository_object]
+        if sum(shapes) > 1:
+            raise ValueError("An endpoint has at most one of: repository connection, root connection, object query")
 
 
 DEEPSOURCE_ENDPOINTS: dict[str, DeepsourceEndpointConfig] = {
@@ -52,6 +61,23 @@ DEEPSOURCE_ENDPOINTS: dict[str, DeepsourceEndpointConfig] = {
     "analysis_runs": DeepsourceEndpointConfig(
         primary_keys=["id"],
         connection_field="analysisRuns",
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=[CREATED_AT],
+    ),
+    "checks": DeepsourceEndpointConfig(
+        primary_keys=["id"],
+        # Checks are fetched nested in the analysis-run walk, so this endpoint pages over
+        # analysisRuns and expands each run into one row per analyzer check.
+        connection_field="analysisRuns",
+        extra_variables={"checkPageSize": DEEPSOURCE_CHECKS_PER_RUN_PAGE_SIZE},
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=[CREATED_AT],
+    ),
+    "pull_requests": DeepsourceEndpointConfig(
+        primary_keys=["id"],
+        connection_field="pullRequests",
         partition_mode="datetime",
         partition_format="month",
         partition_keys=[CREATED_AT],
@@ -67,6 +93,10 @@ DEEPSOURCE_ENDPOINTS: dict[str, DeepsourceEndpointConfig] = {
     "vulnerability_occurrences": DeepsourceEndpointConfig(
         primary_keys=["id"],
         connection_field="dependencyVulnerabilityOccurrences",
+    ),
+    "analyzers": DeepsourceEndpointConfig(
+        primary_keys=["id"],
+        root_connection_field="analyzers",
     ),
     "metrics": DeepsourceEndpointConfig(
         primary_keys=["id"],

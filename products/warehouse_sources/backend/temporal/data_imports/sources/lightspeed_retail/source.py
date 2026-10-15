@@ -1,14 +1,14 @@
+from datetime import date
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -46,6 +46,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, LightspeedRetailResumeConfig]):
+    codebase_detection = detect(env=("^(LIGHTSPEED_RETAIL|LIGHTSPEEDRETAIL)_",))
+
     supported_versions = (
         LIGHTSPEED_RETAIL_API_VERSION_2_0,
         LIGHTSPEED_RETAIL_API_VERSION_2026_01,
@@ -54,8 +56,13 @@ class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, Light
     default_version = LIGHTSPEED_RETAIL_API_VERSION_2026_07
     api_docs_url = "https://x-series-api.lightspeedhq.com/docs/introduction"
     # X-Series deprecated the legacy 2.0 version; no firm sunset date is published (deprecated
-    # endpoints increasingly return 410 Gone before an eventual retirement).
-    deprecated_versions = (VersionDeprecation(version=LIGHTSPEED_RETAIL_API_VERSION_2_0, sunset_at=None),)
+    # endpoints increasingly return 410 Gone before an eventual retirement). Date-based versions are
+    # supported for 12 months (2026-01 until January 2027); past that a request silently falls back
+    # to the oldest supported version instead of failing, so the pin would stop being honored.
+    deprecated_versions = (
+        VersionDeprecation(version=LIGHTSPEED_RETAIL_API_VERSION_2_0, sunset_at=None),
+        VersionDeprecation(version=LIGHTSPEED_RETAIL_API_VERSION_2026_01, sunset_at=date(2027, 1, 1)),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -87,7 +94,7 @@ class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, Light
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LIGHTSPEED_RETAIL,
+            name=ExternalDataSourceType.LIGHTSPEEDRETAIL,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             keywords=["lightspeed"],
             label="Lightspeed Retail",

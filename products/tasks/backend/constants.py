@@ -13,6 +13,20 @@ from products.tasks.backend import model_catalog
 PR_STATES = ("open", "draft", "merged", "closed")
 CI_STATUSES = ("passing", "failing", "pending", "none")
 
+# Host prefix of the PR URLs written to ``TaskRun.output['pr_url']`` — GitHub's ``html_url``.
+# ``task_run_github_pr_run_idx`` is a partial index on exactly this prefix test, and Postgres only
+# skips the JSONB scan while a query repeats the predicate verbatim, so readers filtering on the
+# prefix must use this constant rather than a literal of their own.
+GITHUB_PR_URL_PREFIX = "https://github.com/"
+ARTIFACT_OPEN_NETWORK_WRITER_KEY = "written_with_open_network"
+ARTIFACT_SCRIPT_SHA256_KEY = "script_sha256"
+
+
+def is_html_artifact(name: str, content_type: str) -> bool:
+    mime_type = content_type.split(";", 1)[0].strip().lower()
+    return mime_type == "text/html" or name.lower().endswith((".html", ".htm"))
+
+
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG = "tasks-workflow-dispatch-shadow"
 WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG = "tasks-workflow-dispatch-async"
@@ -29,12 +43,15 @@ DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
 # Routes a plain default-template run onto the hogland (Firecracker) sandbox backend.
 HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
+HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG = "tasks-hogland-hotplug-golden"
 AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
+REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
 # Gates agent-to-agent peer messaging between cloud runs. v1 additionally requires the Pi
 # runtime, so the effective audience is teams with both this flag and
 # PI_CLOUD_RUNTIME_FEATURE_FLAG enabled.
 AGENT_PEER_MESSAGING_FEATURE_FLAG = "tasks-agent-peer-messaging"
+PI_ACP_FEATURE_FLAG = "pi-acp"
 TASK_ANALYSIS_FEATURE_FLAG = "posthog-code-task-analysis"
 
 ANALYSIS_TARGET_TASK_ID_STATE_KEY = "analysis_target_task_id"
@@ -47,8 +64,14 @@ TASK_ANALYSIS_ACTIVITIES_STATE_KEY = "task_analysis_activities"
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
+# TaskRun.state marker for runs completed by the inactivity timeout; kept out of
+# error_message so a normal completion never reads as a failure.
+TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 # The skills-store stubs the sandbox agent writes into its skill roots at session start.
 STORE_SKILLS_STATE_KEY = "store_skills"
+AGENT_INSTRUCTIONS_STATE_KEY = "agent_instructions"
+# Matches the cap PostHog Code applies to its local personalization.
+AGENT_INSTRUCTIONS_MAX_LENGTH = 20_000
 SAME_RUN_RESUME_STATE_KEY = "same_run_resume"
 SAME_RUN_RESUME_IDLE_STATE_KEY = "same_run_resume_idle"
 _LEGACY_SAME_RUN_RESUME_STATE_KEY = "handoff_resumed"
@@ -214,6 +237,11 @@ TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG = "task-signals-cloning-blobless"
 RTK_DISABLED_FEATURE_FLAG = "tasks-rtk-disabled"
 BENJAMIN_FEATURE_FLAG = "task-cloud-run-benjamin-plus"
 CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG = "posthog-code-claude-own-subscription-cloud"
+CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG = "posthog-code-codex-own-subscription-cloud"
+# The plan name a person reads when a subscription run is refused. Every layer that gates,
+# refuses, or explains one of these runs takes the name from here.
+SUBSCRIPTION_PLAN_NAMES: dict[str, str] = {"claude": "Claude plan", "codex": "ChatGPT plan"}
+CODEX_SUBSCRIPTION_EGRESS_DOMAINS: tuple[str, ...] = ("chatgpt.com",)
 # Gates whether long-running process_task runs continue-as-new to bound history/replay cost.
 CONTINUE_AS_NEW_FEATURE_FLAG = "tasks-cloud-run-continue-as-new"
 PR_BABYSIT_SNAPSHOT_FEATURE_FLAG = "tasks-pr-babysit-snapshot"
@@ -452,6 +480,7 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "AI_GATEWAY_URL",
         "AI_GATEWAY_PRODUCTS",
         "AI_GATEWAY_TOKEN",
+        "AI_GATEWAY_TOKEN_CAP_USD",
         "AI_GATEWAY_PRODUCT",
         "AI_GATEWAY_AI_STAGE",
         "POSTHOG_RESUME_RUN_ID",

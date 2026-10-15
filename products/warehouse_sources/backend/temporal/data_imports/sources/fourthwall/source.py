@@ -1,14 +1,13 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -47,7 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 DEVELOPER_SETTINGS_HELP = (
     "In your Fourthwall dashboard go to **Settings > For developers > Open API** and choose "
@@ -60,6 +59,8 @@ class FourthwallSource(
     ResumableSource[FourthwallSourceConfig, FourthwallResumeConfig],
     WebhookSource[FourthwallSourceConfig],
 ):
+    codebase_detection = detect(env=("^FOURTHWALL_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Every Open API path is served under `/open-api/v1.0`, which is what this source calls.
     supported_versions = ("v1.0",)
@@ -197,7 +198,7 @@ class FourthwallSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FOURTHWALL,
+            name=ExternalDataSourceType.FOURTHWALL,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Fourthwall",
             caption=(

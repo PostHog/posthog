@@ -34,7 +34,7 @@ jobs:
     golden-eval:
         name: Golden-dataset scanner eval
         timeout-minutes: 60
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

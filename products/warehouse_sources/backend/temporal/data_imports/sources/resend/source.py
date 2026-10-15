@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -11,7 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -41,6 +40,33 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ResendSource(ResumableSource[ResendSourceConfig, ResendResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=(
+            "^RESEND_API_KEY$",
+            "^RESEND_WEBHOOK_SECRET$",
+            "^MAILER_RESEND_SECRET$",
+            "^RESEND_BASE_URL$",
+            "^RESEND_INGRESS_SIGNING_SECRET$",
+        ),
+        npm=(
+            "resend",
+            "resend-cli",
+            "resend-mcp",
+            "@resend/chat-sdk-adapter",
+            "n8n-nodes-resend",
+            "nestjs-resend",
+            "@payloadcms/email-resend",
+        ),
+        pypi=("resend",),
+        cargo=("resend-rs",),
+        composer=("resend/resend-php", "resend/resend-laravel", "symfony/resend-mailer"),
+        go=("github.com/resend/resend-go", "github.com/resendlabs/resend-go"),
+        hex=("resend",),
+        maven=("com.resend:resend-java", "com.resend.api:sdk"),
+        pub=("dart_resend",),
+        rubygems=("resend",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://resend.com/docs/api-reference/introduction"
 
@@ -51,7 +77,7 @@ class ResendSource(ResumableSource[ResendSourceConfig, ResendResumeConfig], OAut
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.RESEND,
+            name=ExternalDataSourceType.RESEND,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Resend",
             releaseStatus=ReleaseStatus.GA,
@@ -59,10 +85,11 @@ class ResendSource(ResumableSource[ResendSourceConfig, ResendResumeConfig], OAut
 
 Either way, the connection needs **full access** so the following resources can be read:
 - Audiences
-- Broadcasts
+- Broadcasts and their clicked links
 - Contacts
 - Domains
-- Emails
+- Emails and email metrics
+- Suppressions
 """,
             iconPath="/static/services/resend.png",
             docsUrl="https://posthog.com/docs/cdp/sources/resend",
@@ -196,7 +223,10 @@ Either way, the connection needs **full access** so the following resources can 
 
         if config.auth_method.selection == "oauth":
             return False, "Your Resend connection is invalid or expired. Please reconnect it."
-        return False, "Invalid Resend API key"
+        return (
+            False,
+            "Resend rejected the API key. Generate a new API key in your Resend dashboard, then enter it here.",
+        )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {

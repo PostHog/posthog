@@ -10,6 +10,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -19,14 +20,26 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
+import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
+import { DRAFT_SOURCE_PARAM } from '../MessageAudience/aiEmailDraft'
+import { EMAIL_PREFILL_PARAM } from '../MessageAudience/messageDrafts'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
+import { NewWorkflowAgent } from './NewWorkflowAgent'
+import { newWorkflowLogic } from './newWorkflowLogic'
+import { WorkflowSuggestions } from './suggestions/WorkflowSuggestions'
+import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSuggestionsAvailabilityLogic'
+import { WorkflowSuggestionsNotice } from './suggestions/WorkflowSuggestionsNotice'
+import { WorkflowSuggestionsTabLabel } from './suggestions/WorkflowSuggestionsTabLabel'
 import { Workflow } from './Workflow'
 import {
     EMAIL_EDITOR_AGENT_HEADLINES,
+    NEW_WORKFLOW_AGENT_HEADLINES,
     WORKFLOW_AGENT_HEADLINES,
+    buildNewWorkflowComposerContext,
     buildWorkflowAgentContext,
     isEditingEmailAction,
 } from './workflowAgentContext'
+import { WorkflowAiEmailDraftStatus } from './WorkflowAiEmailDraftStatus'
 import { WorkflowAssets } from './WorkflowAssets'
 import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
@@ -57,12 +70,26 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
-    const triggerPrefill = searchParams[TRIGGER_PREFILL_PARAM] as string | undefined
+    const rawTriggerPrefill = searchParams[TRIGGER_PREFILL_PARAM]
+    const triggerPrefill =
+        rawTriggerPrefill && typeof rawTriggerPrefill !== 'string'
+            ? JSON.stringify(rawTriggerPrefill)
+            : rawTriggerPrefill
+    const entrySource = searchParams[SOURCE_PREFILL_PARAM]
+    const rawEmailPrefill = searchParams[EMAIL_PREFILL_PARAM]
+    const emailPrefill =
+        rawEmailPrefill && typeof rawEmailPrefill !== 'string' ? JSON.stringify(rawEmailPrefill) : rawEmailPrefill
+    const rawDraftSource = searchParams[DRAFT_SOURCE_PARAM]
+    const draftSource =
+        rawDraftSource && typeof rawDraftSource !== 'string' ? JSON.stringify(rawDraftSource) : rawDraftSource
     const workflowProps: WorkflowLogicProps = {
         id: workflowSceneProps.id,
         templateId,
         editTemplateId,
         triggerPrefill,
+        emailPrefill,
+        draftSource,
+        entrySource: typeof entrySource === 'string' ? entrySource : undefined,
     }
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
@@ -83,7 +110,12 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         useMemo(() => ({ workflow, id: workflowSceneProps.id ?? 'new' }), [workflow, workflowSceneProps.id]),
         500
     )
+    const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
+    const isSavedWorkflow = !!props.id && props.id !== 'new'
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    const { aiComposerAvailable } = useValues(newWorkflowLogic)
+    // Deep links that carry a starting point, and the escape hatch, land in the editor instead (see `aiComposerAvailable`).
+    const showAiComposer = workflowSceneProps.id === 'new' && aiComposerAvailable
     // The email takeover reflects its state into the URL (?editor=email beside the step's ?node=);
     // while it is open the panel's framing follows the email being edited, not the graph. Both
     // swaps update the same provider registrations in place, so they keep their first-registered
@@ -95,22 +127,39 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     // entirely for users the integration flag hasn't reached.
     const agentContextItems = useMemo(
         () =>
-            sceneIntegrationEnabled
-                ? buildWorkflowAgentContext(
-                      debouncedAgentSource.workflow,
-                      debouncedAgentSource.id,
-                      hogFunctionTemplatesById,
-                      editingEmailActionId
-                  )
-                : null,
-        [sceneIntegrationEnabled, debouncedAgentSource, hogFunctionTemplatesById, editingEmailActionId]
+            showAiComposer
+                ? buildNewWorkflowComposerContext()
+                : sceneIntegrationEnabled
+                  ? buildWorkflowAgentContext(
+                        debouncedAgentSource.workflow,
+                        debouncedAgentSource.id,
+                        hogFunctionTemplatesById,
+                        editingEmailActionId
+                    )
+                  : null,
+        [showAiComposer, sceneIntegrationEnabled, debouncedAgentSource, hogFunctionTemplatesById, editingEmailActionId]
     )
     useSceneAgentPanel({
         sceneKey: 'workflow',
         contextItems: agentContextItems,
-        headlines: editingEmail ? EMAIL_EDITOR_AGENT_HEADLINES : WORKFLOW_AGENT_HEADLINES,
+        headlines: showAiComposer
+            ? NEW_WORKFLOW_AGENT_HEADLINES
+            : editingEmail
+              ? EMAIL_EDITOR_AGENT_HEADLINES
+              : WORKFLOW_AGENT_HEADLINES,
+        composer: showAiComposer ? AI_FIRST_COMPOSER_OVERRIDE : undefined,
         active: !!originalWorkflow || workflowSceneProps.id === 'new',
+        // The composer is the page while drafting; the panel opens itself once the draft exists.
+        autoOpen: !showAiComposer,
     })
+
+    if (showAiComposer) {
+        return (
+            <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
+                <NewWorkflowAgent />
+            </SceneContent>
+        )
+    }
 
     if (!originalWorkflow && workflowLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -143,6 +192,13 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              */
             content: <WorkflowMetrics id={workflowSceneProps.id!} />,
         },
+        suggestionsAvailable
+            ? {
+                  label: <WorkflowSuggestionsTabLabel id={workflowSceneProps.id!} />,
+                  key: 'self-driving',
+                  content: <WorkflowSuggestions id={workflowSceneProps.id!} />,
+              }
+            : null,
         {
             label: 'Assets',
             key: 'assets',
@@ -171,17 +227,22 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         },
     ]
 
+    // A deep link to a tab the flag hides would leave LemonTabs with no active tab and a blank page.
+    const activeTab = tabs.some((tab) => tab?.key === currentTab) ? currentTab : 'workflow'
+
     return (
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
             <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
+                {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
+                {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
                     <Workflow {...workflowProps} />
                 ) : (
                     <LemonTabs
-                        activeKey={currentTab}
+                        activeKey={activeTab}
                         onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
                         tabs={tabs}
                         sceneInset

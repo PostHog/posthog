@@ -201,10 +201,7 @@ export function MaterializationStatusPanel({
     // Only ClickHouse serves queries, so a marker on a shadow engine means the comparison
     // run stopped, not that this model stopped refreshing.
     const suspension = savedQuery.suspended?.[SERVING_ENGINE]
-    const showSuspendedBanner =
-        !!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES] &&
-        !!suspension &&
-        !!savedQuery.is_materialized
+    const showSuspendedBanner = !!suspension && !!savedQuery.is_materialized
 
     return (
         <div className="@container/materialization" data-attr="materialization-status-panel">
@@ -466,14 +463,28 @@ export function MaterializationStatusPanel({
                         {
                             title: 'Refresh mode',
                             dataIndex: 'run_mode',
-                            isHidden:
-                                !showIncremental || !savedQuery.is_materialized || !jobsPageResults?.results?.length,
-                            render: (_, { run_mode }: DataModelingJobApi) =>
-                                run_mode === 'incremental'
-                                    ? 'Incremental'
-                                    : run_mode === 'full_refresh'
-                                      ? 'Full refresh'
-                                      : '-',
+                            isHidden: !incrementalFlagOn || !savedQuery.has_incremental_history,
+                            render: (_, { run_mode, full_refresh_reason }: DataModelingJobApi) => {
+                                if (run_mode === 'incremental') {
+                                    return 'Incremental'
+                                }
+                                if (run_mode === 'full_refresh') {
+                                    return full_refresh_reason ? (
+                                        <Tooltip title={`Full refresh. Reason: ${full_refresh_reason}.`}>
+                                            <span
+                                                className="border-b border-dotted cursor-help"
+                                                tabIndex={0}
+                                                aria-label={`Full refresh. Reason: ${full_refresh_reason}.`}
+                                            >
+                                                Full refresh
+                                            </span>
+                                        </Tooltip>
+                                    ) : (
+                                        'Full refresh'
+                                    )
+                                }
+                                return '-'
+                            },
                         },
                         {
                             title: 'Error',

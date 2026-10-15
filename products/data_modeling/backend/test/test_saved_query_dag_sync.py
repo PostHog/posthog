@@ -1,6 +1,10 @@
+from uuid import uuid4
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -11,9 +15,12 @@ from products.data_modeling.backend.facade.system_tables import DATA_MODELING_AL
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
     HasDependentsError,
     ManagedDAGError,
+    blocked_lineage_node_id,
     delete_node_from_dag,
+    describe_dependents,
     get_dag_id,
     get_dependent_saved_queries,
+    move_saved_query_to_dag,
     sync_saved_query_to_dag,
     update_node_type,
 )
@@ -25,8 +32,7 @@ from products.data_modeling.backend.models.node import NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
-@pytest.mark.django_db
-class TestGetDagId(BaseTest):
+class TestGetDagId(SimpleTestCase):
     def test_get_dag_id_returns_expected_format(self):
         self.assertEqual(get_dag_id(123), "posthog_123")
         self.assertEqual(get_dag_id(1), "posthog_1")
@@ -38,8 +44,9 @@ class TestSyncSavedQueryToDag(BaseTest):
         [
             (
                 "account_summary",
-                "SELECT id, feature_requests.count, email_threads.count FROM system.accounts",
+                "SELECT id, feature_requests.count, email_threads.count, tags.names, notebooks.count FROM system.accounts",
             ),
+            ("ticket_summary", "SELECT id, tags.names, assignee.role_name FROM system.support_tickets"),
             ("customer_tasks", "SELECT id, name, account_id FROM system.customer_tasks"),
         ]
     )
@@ -200,6 +207,28 @@ class TestSyncSavedQueryToDag(BaseTest):
         assert edge is not None
         self.assertEqual(edge.dag_id, dag.id)
 
+    def test_sync_refreshes_the_table_id_when_a_warehouse_table_is_recreated(self):
+        old_table = DataWarehouseTable.objects.create(team=self.team, name="orders", format="Parquet")
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="order_summary",
+            team=self.team,
+            query={"query": "SELECT * FROM orders", "kind": "HogQLQuery"},
+        )
+
+        sync_saved_query_to_dag(saved_query)
+        table_node = Node.objects.get(team=self.team, dag__name=DEFAULT_DAG_NAME, name="orders")
+        self.assertEqual(table_node.properties["warehouse_table_id"], str(old_table.id))
+
+        old_table.deleted = True
+        old_table.save(update_fields=["deleted"])
+        new_table = DataWarehouseTable.objects.create(team=self.team, name="orders", format="Parquet")
+
+        sync_saved_query_to_dag(saved_query)
+
+        table_node.refresh_from_db()
+        self.assertEqual(table_node.properties["origin"], "warehouse")
+        self.assertEqual(table_node.properties["warehouse_table_id"], str(new_table.id))
+
     def test_sync_creates_edges_for_multiple_dependencies(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
@@ -262,33 +291,88 @@ class TestSyncSavedQueryToDag(BaseTest):
         assert edge is not None
         self.assertEqual(Edge.objects.filter(target=node).count(), 1)
         self.assertEqual(edge.source.name, "persons")  # not events
+        self.assertFalse(Node.objects.filter(team=self.team, name="events", type=NodeType.TABLE).exists())
 
-    def test_sync_creates_edge_to_other_saved_query(self):
-        upstream_query = DataWarehouseSavedQuery.objects.create(
-            name="upstream_view",
+    def test_a_failed_resolution_leaves_the_previous_edges_in_place(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="test_view",
             team=self.team,
             query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
         )
+        node = sync_saved_query_to_dag(saved_query)
+
+        saved_query.query = {
+            "query": "SELECT e.event FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id",
+            "kind": "HogQLQuery",
+        }
+        saved_query.save()
+        with mock.patch(
+            "products.data_modeling.backend.logic.saved_query_dag_sync.resolve_dependency_to_node",
+            side_effect=RuntimeError("postgres went away"),
+        ):
+            with self.assertRaises(RuntimeError):
+                sync_saved_query_to_dag(saved_query)
+
+        self.assertEqual({edge.source.name for edge in Edge.objects.filter(target=node)}, {"events"})
+
+    @parameterized.expand(
+        [
+            ("view", "upstream_view", False),
+            ("view_under_models_root", "models.upstream_view", False),
+            ("matview", "upstream_view", True),
+            ("matview_under_models_root", "models.upstream_view", True),
+        ]
+    )
+    def test_sync_creates_edge_to_other_saved_query(self, _name: str, reference: str, materialized: bool):
+        upstream_query = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT event FROM events", "kind": "HogQLQuery"},
+            columns={"event": "String"},
+        )
+        if materialized:
+            upstream_query.table = DataWarehouseTable.objects.create(
+                team=self.team, name="upstream_view", format="Parquet", columns={"event": "String"}
+            )
+            upstream_query.is_materialized = True
+            upstream_query.save(update_fields=["table", "is_materialized"])
         upstream_node = sync_saved_query_to_dag(upstream_query)
 
         downstream_query = DataWarehouseSavedQuery.objects.create(
             name="downstream_view",
             team=self.team,
-            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+            query={"query": f"SELECT * FROM {reference}", "kind": "HogQLQuery"},
         )
         downstream_node = sync_saved_query_to_dag(downstream_query)
 
         edge = Edge.objects.filter(source=upstream_node, target=downstream_node).first()
         self.assertIsNotNone(edge)
 
-    def test_sync_references_parent_in_managed_dag(self):
+    @parameterized.expand(
+        [
+            ("view", False, False),
+            ("view_with_stale_default_copy", False, True),
+            ("matview_with_stale_default_copy", True, True),
+        ]
+    )
+    def test_sync_references_parent_in_managed_dag(self, _name: str, materialized: bool, stale_copy: bool):
         managed_dag = DAG.get_or_create_revenue_analytics(self.team)
         upstream_query = DataWarehouseSavedQuery.objects.create(
             name="upstream_view",
             team=self.team,
-            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+            query={"query": "SELECT event FROM events", "kind": "HogQLQuery"},
+            columns={"event": "String"},
         )
+        if materialized:
+            upstream_query.table = DataWarehouseTable.objects.create(
+                team=self.team, name="upstream_view", format="Parquet", columns={"event": "String"}
+            )
+            upstream_query.is_materialized = True
+            upstream_query.save(update_fields=["table", "is_materialized"])
         sync_saved_query_to_dag(upstream_query, dag=managed_dag, allow_managed=True)
+        default_dag = DAG.get_or_create_default(self.team)
+        if stale_copy:
+            Node.objects.create(team=self.team, dag=default_dag, saved_query=upstream_query, type=NodeType.MAT_VIEW)
 
         downstream_query = DataWarehouseSavedQuery.objects.create(
             name="downstream_view",
@@ -297,8 +381,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         )
         downstream_node = sync_saved_query_to_dag(downstream_query)
 
-        default_dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
-        reference = Node.objects.get(team=self.team, dag=default_dag, name="upstream_view")
+        reference = Node.objects.get(team=self.team, dag=default_dag, name="upstream_view", saved_query__isnull=True)
         self.assertEqual(reference.type, NodeType.TABLE)
         self.assertIsNone(reference.saved_query)
         self.assertTrue(Edge.objects.filter(source=reference, target=downstream_node).exists())
@@ -322,6 +405,9 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         default_dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
         self.assertFalse(Node.objects.filter(team=self.team, dag=default_dag, name="upstream_view").exists())
+        # the sync got as far as creating downstream_view's node before resolution failed, so the
+        # failure must take that node with it rather than leave one with no edges
+        self.assertFalse(Node.objects.filter(saved_query=downstream_query).exists())
 
     def test_sync_raises_on_cycle(self):
         query_a = DataWarehouseSavedQuery.objects.create(
@@ -350,7 +436,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         self.assertIsNotNone(node_a)
         self.assertTrue(Edge.objects.filter(source=node_a).exists())
 
-    def test_sync_failure_deletes_node_it_just_created(self):
+    def test_sync_failure_leaves_no_node_behind(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
             team=self.team,
@@ -360,7 +446,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         with pytest.raises(QueryError):
             sync_saved_query_to_dag(saved_query)
 
-        # a node created for this call, with no dependents, is still cleaned up on failure
+        # the query is parsed before the node is created, so a failed sync leaves nothing behind
         self.assertFalse(Node.objects.filter(saved_query=saved_query).exists())
 
     def test_sync_raises_for_empty_or_null_query(self):
@@ -433,6 +519,55 @@ class TestDeleteNodeFromDag(BaseTest):
         delete_node_from_dag(saved_query)
 
         self.assertFalse(Edge.objects.filter(target=node).exists())
+        self.assertFalse(Node.objects.filter(team=self.team, name="events", type=NodeType.TABLE).exists())
+
+    def test_delete_keeps_a_table_node_another_view_still_reads(self):
+        deleted_view = DataWarehouseSavedQuery.objects.create(
+            name="deleted_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(deleted_view)
+        remaining_view = DataWarehouseSavedQuery.objects.create(
+            name="remaining_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        remaining_node = sync_saved_query_to_dag(remaining_view)
+
+        delete_node_from_dag(deleted_view)
+
+        events_node = Node.objects.get(team=self.team, name="events", type=NodeType.TABLE)
+        self.assertTrue(Edge.objects.filter(source=events_node, target=remaining_node).exists())
+
+    @parameterized.expand([("last_reader_moves", False, False), ("another_reader_stays", True, True)])
+    def test_move_deletes_the_old_table_node_only_when_nothing_else_reads_it(
+        self, _name: str, another_reader_stays: bool, old_table_node_kept: bool
+    ):
+        moved_view = DataWarehouseSavedQuery.objects.create(
+            name="moved_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        moved_node = sync_saved_query_to_dag(moved_view)
+        assert moved_node is not None
+        if another_reader_stays:
+            sync_saved_query_to_dag(
+                DataWarehouseSavedQuery.objects.create(
+                    name="staying_view",
+                    team=self.team,
+                    query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+                )
+            )
+        destination = DAG.objects.create(team=self.team, name="destination")
+
+        move_saved_query_to_dag(self.team.pk, moved_view.id, destination.id)
+
+        self.assertEqual(
+            Node.objects.filter(team=self.team, dag=moved_node.dag, name="events", type=NodeType.TABLE).exists(),
+            old_table_node_kept,
+        )
+        self.assertTrue(Node.objects.filter(team=self.team, dag=destination, name="events").exists())
 
     def test_delete_handles_nonexistent_node(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -458,6 +593,96 @@ class TestDeleteNodeFromDag(BaseTest):
         sync_saved_query_to_dag(downstream)
         with self.assertRaises(HasDependentsError):
             delete_node_from_dag(upstream)
+
+    def test_delete_refuses_without_naming_the_metric_that_reads_the_view(self):
+        upstream = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        upstream_node = sync_saved_query_to_dag(upstream)
+        assert upstream_node is not None
+        metric = Node.objects.create(
+            team=self.team,
+            dag=upstream_node.dag,
+            name="weekly_active_accounts",
+            type=NodeType.METRIC,
+            metric_id=uuid4(),
+        )
+        Edge.objects.create(team=self.team, dag=upstream_node.dag, source=upstream_node, target=metric)
+
+        with self.assertRaises(HasDependentsError) as context:
+            delete_node_from_dag(upstream)
+
+        self.assertEqual(
+            str(context.exception),
+            "Can't delete upstream_view yet. Something else reads from it. Update or delete it first.",
+        )
+        self.assertNotIn("weekly_active_accounts", str(context.exception))
+        self.assertEqual(
+            describe_dependents(upstream.name, context.exception.dependents),
+            "Can't delete upstream_view yet. These read from it: weekly_active_accounts (metric). "
+            "Update or delete them first.",
+        )
+        self.assertEqual(
+            blocked_lineage_node_id(context.exception.dependents, context.exception.fallback_node_id),
+            str(upstream_node.id),
+        )
+
+    def test_delete_finds_a_metric_hanging_off_any_of_the_querys_nodes(self):
+        upstream = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+        managed_node = sync_saved_query_to_dag(upstream, dag=managed_dag, allow_managed=True)
+        default_node = sync_saved_query_to_dag(upstream)
+        assert managed_node is not None and default_node is not None
+        metric = Node.objects.create(
+            team=self.team,
+            dag=default_node.dag,
+            name="weekly_active_accounts",
+            type=NodeType.METRIC,
+            metric_id=uuid4(),
+        )
+        Edge.objects.create(team=self.team, dag=default_node.dag, source=default_node, target=metric)
+        self.assertNotEqual(managed_node.id, default_node.id)
+
+        with self.assertRaises(HasDependentsError) as context:
+            delete_node_from_dag(upstream)
+
+        self.assertIn(
+            "weekly_active_accounts (metric)", describe_dependents(upstream.name, context.exception.dependents)
+        )
+        self.assertEqual(
+            blocked_lineage_node_id(context.exception.dependents, context.exception.fallback_node_id),
+            str(default_node.id),
+        )
+
+    def test_delete_finds_a_dependent_view_hanging_off_any_of_the_querys_nodes(self):
+        upstream = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+        managed_node = sync_saved_query_to_dag(upstream, dag=managed_dag, allow_managed=True)
+        default_node = sync_saved_query_to_dag(upstream)
+        assert managed_node is not None and default_node is not None
+        self.assertNotEqual(managed_node.id, default_node.id)
+        # the dependent reads upstream_view in the default DAG, so its edge hangs off the newer node
+        downstream = DataWarehouseSavedQuery.objects.create(
+            name="downstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(downstream)
+
+        with self.assertRaises(HasDependentsError) as context:
+            delete_node_from_dag(upstream)
+
+        self.assertIn("downstream_view (view)", describe_dependents(upstream.name, context.exception.dependents))
 
     def test_delete_succeeds_when_no_dependents(self):
         upstream = DataWarehouseSavedQuery.objects.create(
@@ -525,6 +750,70 @@ class TestGetDependents(BaseTest):
         downstream.save()
         dependents = get_dependent_saved_queries(upstream)
         self.assertEqual(dependents, [])
+
+    def test_get_dependents_reports_a_dependent_in_several_dags_once(self):
+        upstream = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+        sync_saved_query_to_dag(upstream, dag=managed_dag, allow_managed=True)
+        sync_saved_query_to_dag(upstream)
+        downstream = DataWarehouseSavedQuery.objects.create(
+            name="downstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(downstream, dag=managed_dag, allow_managed=True)
+        sync_saved_query_to_dag(downstream)
+
+        dependents = get_dependent_saved_queries(upstream)
+
+        self.assertEqual([d.name for d in dependents], ["downstream_view"])
+
+    def test_get_dependents_dedupes_and_orders_across_dags(self):
+        upstream = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(upstream)
+        upstream_node = Node.objects.get(team=self.team, saved_query=upstream)
+        downstream = DataWarehouseSavedQuery.objects.create(
+            name="downstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(downstream)
+        other = DataWarehouseSavedQuery.objects.create(
+            name="other_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+        other_node = Node.objects.create(team=self.team, dag=upstream_node.dag, saved_query=other, type=NodeType.VIEW)
+        Edge.objects.create(team=self.team, dag=upstream_node.dag, source=upstream_node, target=other_node)
+
+        # downstream again, reachable through a second DAG: distinct Node rows, same saved query.
+        second_dag = DAG.objects.create(team=self.team, name="second-dag")
+        upstream_node2 = Node.objects.create(team=self.team, dag=second_dag, saved_query=upstream, type=NodeType.VIEW)
+        downstream_node2 = Node.objects.create(
+            team=self.team, dag=second_dag, saved_query=downstream, type=NodeType.VIEW
+        )
+        Edge.objects.create(team=self.team, dag=second_dag, source=upstream_node2, target=downstream_node2)
+
+        # Deterministic node order (created_at, id): downstream's first-DAG node, then other's node.
+        # downstream's second-DAG node is a duplicate and must not repeat it.
+        self.assertEqual(
+            [d.name for d in get_dependent_saved_queries(upstream)],
+            ["downstream_view", "other_view"],
+        )
+
+        with self.assertRaises(HasDependentsError) as context:
+            delete_node_from_dag(upstream)
+        names = [d.name for d in context.exception.dependents]
+        self.assertEqual(names.count("downstream_view"), 1)
+        self.assertEqual(names.count("other_view"), 1)
 
     def test_get_dependents_returns_empty_when_no_node(self):
         saved_query = DataWarehouseSavedQuery.objects.create(

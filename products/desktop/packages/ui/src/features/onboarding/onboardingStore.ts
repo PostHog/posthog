@@ -1,5 +1,7 @@
-import { ONBOARDING_STEPS } from "@posthog/core/onboarding/steps";
-import type { OnboardingStep } from "@posthog/ui/features/onboarding/types";
+import {
+  ONBOARDING_STEPS,
+  type OnboardingStep,
+} from "@posthog/core/onboarding/steps";
 import { logger } from "@posthog/ui/shell/logger";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -35,6 +37,9 @@ export function migrateOnboardingState(
   persistedState: unknown,
 ): OnboardingStore {
   const state = persistedState as OnboardingStore;
+  if ((state.currentStep as string) === "select-repo") {
+    return { ...state, hasCompletedOnboarding: true };
+  }
   if ((state.currentStep as string) === "invite-code") {
     return { ...state, currentStep: "consent" };
   }
@@ -67,7 +72,7 @@ export const useOnboardingStore = create<OnboardingStore>()(
     }),
     {
       name: "onboarding-store",
-      version: 2,
+      version: 3,
       migrate: migrateOnboardingState,
       partialize: (state) => ({
         currentStep: state.currentStep,

@@ -62,7 +62,12 @@
                          border: 1px solid #ccc;
                          border-radius: 4px">
             <legend style="font-weight: bold; padding: 0 8px;">Execution mode</legend>
-            {% if supports_deferred %}
+            {% if is_hogql_event_removal %}
+                <p style="color: #555; margin: 4px 0;">
+                    Query-backed event removal requests use deferred execution. Matching event UUIDs are queued for the scheduled deletion job.
+                </p>
+                <input type="hidden" name="execution_mode" value="deferred" />
+            {% elif supports_deferred %}
                 <p style="color: #555; margin: 4px 0 12px 0;">Pick how this deletion should execute.</p>
                 {% for value, label in execution_mode_choices %}
                     <div style="margin: 8px 0;">

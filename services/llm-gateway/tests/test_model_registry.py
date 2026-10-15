@@ -442,7 +442,6 @@ class TestIsModelAvailable:
             ("onboarding", False),
             ("product_analytics", False),
             ("review_hog", True),
-            ("stamphog", False),
         ],
     )
     def test_gpt_6_astra_respects_product_allowlists(self, product: str, expected: bool) -> None:

@@ -1,6 +1,7 @@
 import uuid as uuid_lib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 
 import pytest
 import time_machine
@@ -19,6 +20,7 @@ from posthog.models.data_deletion_request import (
     cached_compile_hogql_predicate,
     invalidate_compiled_predicate_cache,
 )
+from posthog.models.deletion_targets import FLAG_EVALUATIONS
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
@@ -651,6 +653,29 @@ def test_cached_compile_hogql_predicate_blank_predicate_skips_compile():
         assert cached_compile_hogql_predicate(request) == ("", {})
 
 
+@pytest.mark.django_db
+def test_verify_queued_query_backed_request_counts_pending_queue_rows(team):
+    request = DataDeletionRequest.objects.create(
+        team_id=team.pk,
+        request_type=RequestType.HOGQL_EVENT_REMOVAL,
+        hogql_query="SELECT uuid FROM events",
+        execution_mode="deferred",
+        status=RequestStatus.QUEUED,
+    )
+
+    with patch("posthog.clickhouse.client.sync_execute", side_effect=[[[1]], [[0]]]) as execute:
+        pending = ddr.verify_queued_request(request)
+        completed = ddr.verify_queued_request(request)
+
+    assert pending == ddr.VerifyOutcome(remaining=1, promoted=False)
+    assert completed == ddr.VerifyOutcome(remaining=0, promoted=True)
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+    query, params = execute.call_args_list[0].args
+    assert "adhoc_events_deletion FINAL" in query
+    assert params == {"team_id": team.pk, "request_id": str(request.pk)}
+
+
 def test_query_backed_deletion_stats_are_rejected():
     request = DataDeletionRequest(
         team_id=TEAM_ID,
@@ -661,6 +686,31 @@ def test_query_backed_deletion_stats_are_rejected():
 
     with pytest.raises(ValueError, match="Stats are not available"):
         ddr.fetch_deletion_stats(request)
+
+
+@time_machine.travel("2026-06-17T12:00:00Z", tick=False)
+@pytest.mark.parametrize("start_days_ago,end_days_ago", [(15, 0), (400, 300), (400, 0), (15, -27_000)])
+def test_copy_check_windows_tile_the_request_range(start_days_ago: int, end_days_ago: int) -> None:
+    now = timezone.now()
+    horizon = ddr._ttl_horizon(FLAG_EVALUATIONS)
+    assert horizon is not None
+    request = DataDeletionRequest(
+        team_id=TEAM_ID,
+        start_time=now - timedelta(days=start_days_ago),
+        end_time=now - timedelta(days=end_days_ago),
+    )
+
+    windows = [
+        (params["start_time"], params["end_time"])
+        for _, params in ddr.rows_without_events_copy_criteria(request, FLAG_EVALUATIONS)
+    ]
+
+    assert windows[0][0] == request.start_time
+    assert windows[-1][1] == request.end_time
+    assert all(end == next_start for (_, end), (next_start, _) in pairwise(windows))
+    # Only a window before the TTL horizon or after now may span more than 7 days.
+    assert all(end - start <= timedelta(days=7) for start, end in windows if end > horizon and start < now)
+    assert len(windows) <= 20
 
 
 @time_machine.travel("2026-06-17T12:00:00Z", tick=False)

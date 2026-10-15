@@ -37,6 +37,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   "identityProviderConfigsLoading": false,
   "isIdJagConfigSubmitting": false,
   "isIdJagConfigValid": true,
+  "isOIDCAvailable": false,
   "isSAMLAvailable": false,
   "isSCIMAvailable": false,
   "isSSOEnforcementAvailable": false,

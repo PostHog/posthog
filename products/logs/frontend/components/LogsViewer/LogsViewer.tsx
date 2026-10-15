@@ -1,10 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { UniversalFiltersGroup } from '~/types'
 
 import { LogsGroupByResults } from 'products/logs/frontend/components/LogsGroupBy/LogsGroupByResults'
@@ -18,8 +19,10 @@ import { LogsQueryBar } from 'products/logs/frontend/components/LogsViewer/Filte
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/logsExportLogic'
+import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
+import { traceDialogLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogLogic'
 
 import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
@@ -48,6 +51,10 @@ export interface LogsViewerProps {
     // Seed the facet/filter rail as collapsed on first mount for this id. Persisted per id,
     // so a user who expands it keeps that choice; the "Show filters" toggle still re-expands.
     defaultFacetRailCollapsed?: boolean
+    // Same, for the volume chart. Panels embedded in a short pane start without it.
+    defaultSparklineCollapsed?: boolean
+    // A panel embedded under other keyboard controls leaves focus where it is.
+    autoFocusSearch?: boolean
 }
 
 export function LogsViewer({
@@ -59,10 +66,15 @@ export function LogsViewer({
     personId,
     sessionId,
     defaultFacetRailCollapsed,
+    defaultSparklineCollapsed,
+    autoFocusSearch = true,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId, sessionId }}>
-            <BindLogic logic={logsViewerConfigLogic} props={{ id, defaultFacetRailCollapsed }}>
+            <BindLogic
+                logic={logsViewerConfigLogic}
+                props={{ id, defaultFacetRailCollapsed, defaultSparklineCollapsed }}
+            >
                 <BindLogic logic={logsViewerDataLogic} props={{ id }}>
                     <BindLogic logic={logDetailsModalLogic} props={{ id }}>
                         <BindLogic logic={logsViewerLogic} props={{ id }}>
@@ -71,6 +83,7 @@ export function LogsViewer({
                                     <LogsViewerContent
                                         showFullScreenButton={showFullScreenButton}
                                         showSavedViewsButton={showSavedViewsButton}
+                                        autoFocusSearch={autoFocusSearch}
                                         scope={{ initialFilters, pinnedFilters, personId, sessionId }}
                                     />
                                 </BindLogic>
@@ -94,10 +107,12 @@ function ConnectedLogsSparkline(props: Omit<LogsViewerSparklineProps, 'visibleRo
 function LogsViewerContent({
     showFullScreenButton,
     showSavedViewsButton,
+    autoFocusSearch,
     scope,
 }: {
     showFullScreenButton: boolean
     showSavedViewsButton: boolean
+    autoFocusSearch: boolean
     scope: LogsViewerScope
 }): JSX.Element {
     const {
@@ -124,18 +139,21 @@ function LogsViewerContent({
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
     const { orderBy, sparklineCollapsed, facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
+    const { isOpen: isTraceDialogOpen } = useValues(traceDialogLogic)
     const { setOrderBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const {
         logsLoading,
+        logsError,
         parsedLogs,
         newLogUuids,
         sparklineData,
         sparklineLoading,
+        sparklineError,
         sparklineIncompleteBarIndices,
         hasMoreLogsToLoad,
         totalLogsMatchingFilters,
     } = useValues(logsViewerDataLogic)
-    const { refreshQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
+    const { refreshQuery, fetchNextLogsPage, fetchLogs, fetchSparkline } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
@@ -179,7 +197,7 @@ function LogsViewerContent({
 
     // Handle keyboard scroll with keydown/keyup for smooth 60fps scrolling
     useEffect(() => {
-        if (!isFocused || wrapBody) {
+        if (!isFocused || wrapBody || isTraceDialogOpen) {
             return
         }
 
@@ -210,7 +228,7 @@ function LogsViewerContent({
             window.removeEventListener('keyup', handleKeyUp)
             stopScrolling()
         }
-    }, [isFocused, wrapBody, startScrolling, stopScrolling])
+    }, [isFocused, wrapBody, isTraceDialogOpen, startScrolling, stopScrolling])
 
     const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'> = {
         formatDate: 'YYYY-MM-DD',
@@ -232,12 +250,16 @@ function LogsViewerContent({
         [moveCursorUp]
     )
 
+    // The trace dialog opens over the viewer, so the viewer's keys stop while it is open.
+    const listKeysEnabled = keyboardNavEnabled && !isTraceDialogOpen
+    const focusedListKeysEnabled = isFocused && !isTraceDialogOpen
+
     useKeyboardHotkeys(
         {
-            arrowdown: { action: handleMoveDown, disabled: !keyboardNavEnabled, allowRepeat: true },
-            j: { action: handleMoveDown, disabled: !keyboardNavEnabled, allowRepeat: true },
-            arrowup: { action: handleMoveUp, disabled: !keyboardNavEnabled, allowRepeat: true },
-            k: { action: handleMoveUp, disabled: !keyboardNavEnabled, allowRepeat: true },
+            arrowdown: { action: handleMoveDown, disabled: !listKeysEnabled, allowRepeat: true },
+            j: { action: handleMoveDown, disabled: !listKeysEnabled, allowRepeat: true },
+            arrowup: { action: handleMoveUp, disabled: !listKeysEnabled, allowRepeat: true },
+            k: { action: handleMoveUp, disabled: !listKeysEnabled, allowRepeat: true },
             // arrowleft, arrowright, h, l handled by native keydown/keyup for smooth 60fps scrolling
             enter: {
                 action: () => {
@@ -245,7 +267,7 @@ function LogsViewerContent({
                         openLogDetails(parsedLogs[cursorIndex])
                     }
                 },
-                disabled: !keyboardNavEnabled,
+                disabled: !listKeysEnabled,
             },
             r: {
                 action: () => {
@@ -254,7 +276,7 @@ function LogsViewerContent({
                         refreshQuery()
                     }
                 },
-                disabled: !isFocused,
+                disabled: !focusedListKeysEnabled,
             },
             space: {
                 action: (e: KeyboardEvent) => {
@@ -263,7 +285,7 @@ function LogsViewerContent({
                         toggleSelectLog(cursorLogId)
                     }
                 },
-                disabled: !isFocused,
+                disabled: !focusedListKeysEnabled,
             },
             escape: {
                 action: () => {
@@ -273,7 +295,7 @@ function LogsViewerContent({
                         clearSelection()
                     }
                 },
-                disabled: !keyboardNavEnabled,
+                disabled: !listKeysEnabled,
             },
             p: {
                 action: () => {
@@ -281,12 +303,13 @@ function LogsViewerContent({
                         togglePrettifyLog(cursorLogId)
                     }
                 },
-                disabled: !isFocused,
+                disabled: !focusedListKeysEnabled,
             },
         },
         [
             isFocused,
             keyboardNavEnabled,
+            isTraceDialogOpen,
             isLogDetailsOpen,
             cursorIndex,
             parsedLogs,
@@ -309,13 +332,16 @@ function LogsViewerContent({
             <ConnectedLogsSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
+                sparklineError={sparklineError}
+                onRetry={() => fetchSparkline()}
                 onDateRangeChange={setDateRange}
                 displayTimezone={timezone}
                 collapsed={sparklineCollapsed}
                 onToggleCollapse={toggleSparklineCollapsed}
                 incompleteBarIndices={sparklineIncompleteBarIndices}
             />
-            <SceneDivider />
+            {/* A plain divider: the viewer also renders in panes that have no scene padding to bleed into. */}
+            <LemonDivider className="my-0" />
         </>
     )
 
@@ -341,20 +367,28 @@ function LogsViewerContent({
                 />
             )}
 
-            <VirtualizedLogsList
-                dataSource={parsedLogs}
-                newLogUuids={newLogUuids}
-                loading={logsLoading}
-                wrapBody={wrapBody}
-                prettifyJson={prettifyJson}
-                tzLabelFormat={tzLabelFormat}
-                showPinnedWithOpacity
-                hasMoreLogsToLoad={hasMoreLogsToLoad}
-                onLoadMore={fetchNextLogsPage}
-                onExpandTimeRange={() => zoomDateRange(2)}
-                orderBy={orderBy}
-                onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'header')}
-            />
+            <div className="relative flex flex-col flex-1 min-h-0">
+                <VirtualizedLogsList
+                    dataSource={parsedLogs}
+                    newLogUuids={newLogUuids}
+                    loading={logsLoading}
+                    wrapBody={wrapBody}
+                    prettifyJson={prettifyJson}
+                    tzLabelFormat={tzLabelFormat}
+                    showPinnedWithOpacity
+                    hasMoreLogsToLoad={hasMoreLogsToLoad}
+                    onLoadMore={fetchNextLogsPage}
+                    onExpandTimeRange={() => zoomDateRange(2)}
+                    orderBy={orderBy}
+                    onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'header')}
+                />
+                <QueryFailedOverlay
+                    error={logsError}
+                    title="Couldn't load logs"
+                    onRetry={() => fetchLogs()}
+                    className="rounded border bg-bg-light"
+                />
+            </div>
         </>
     )
 
@@ -389,6 +423,7 @@ function LogsViewerContent({
             <LogsQueryBar
                 showSavedViewsButton={showSavedViewsButton}
                 showFullScreenButton={showFullScreenButton}
+                autoFocusSearch={autoFocusSearch}
                 scope={scope}
             />
             {sparklineSection}

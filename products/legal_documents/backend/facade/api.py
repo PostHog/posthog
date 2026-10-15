@@ -19,15 +19,16 @@ from django.utils import timezone
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.ingress.contracts import WebhookDelivery
 from posthog.models.organization import Organization
 from posthog.ph_client import ph_scoped_capture
 
 from .. import logic
-from ..logic import SIGNED_BAA_ANNOTATION as SIGNED_BAA_ANNOTATION
-from ..logic.pandadoc import (
-    PandaDocError,
-    verify_webhook_signature as _verify_pandadoc_webhook_signature,
+from ..logic import (
+    SIGNED_BAA_ANNOTATION as SIGNED_BAA_ANNOTATION,
+    webhooks,
 )
+from ..logic.pandadoc import PandaDocError
 from ..models import LegalDocument
 from . import contracts
 from .enums import LegalDocumentStatus
@@ -105,11 +106,6 @@ def annotate_signed_baa(queryset: QuerySet[Organization]) -> QuerySet[Organizati
     so serializing N organizations costs one query rather than N.
     """
     return logic.annotate_signed_baa(queryset)
-
-
-def verify_pandadoc_webhook_signature(*, secret: str, body: bytes, signature: str) -> bool:
-    """Passthrough so the presentation layer never reaches past the facade."""
-    return _verify_pandadoc_webhook_signature(secret=secret, body=body, signature=signature)
 
 
 def exists_for_organization_and_type(organization_id: UUID, document_type: str) -> bool:
@@ -208,69 +204,9 @@ def create_document(data: contracts.CreateLegalDocumentInput) -> contracts.Legal
     return _to_dto(document)
 
 
-def mark_envelope_ready_by_pandadoc_document_id(
-    *,
-    pandadoc_document_id: str,
-    template_id: str,
-) -> contracts.LegalDocumentDTO | None:
-    """
-    Entry point from the PandaDoc `document.draft` webhook — the envelope
-    finished template processing and is ready to send. Dispatch the signing
-    email.
-
-    Idempotent: if the envelope has already been dispatched (row is already
-    signed, or the send call fails because PandaDoc has moved past draft)
-    we quietly skip.
-    """
-    document = logic.get_by_pandadoc_document_id(pandadoc_document_id)
-    if document is None:
-        return None
-    if not logic.template_id_matches_document(document, template_id):
-        return None
-    if document.status == LegalDocumentStatus.SIGNED:
-        # Envelope already completed — the draft event is a late/replayed
-        # delivery; nothing left for us to do.
-        return _to_dto(document)
-    logic.send_pandadoc_envelope(document)
-    return _to_dto(document)
-
-
-def mark_signed_by_pandadoc_document_id(
-    *,
-    pandadoc_document_id: str,
-    template_id: str,
-) -> contracts.LegalDocumentDTO | None:
-    """
-    Entry point from the PandaDoc `document.completed` webhook. The caller must
-    have already verified the HMAC signature on the raw body; this function:
-
-    - Looks up the row by the PandaDoc document uuid (no IDOR surface: unknown ids 404).
-    - Double-checks the template matches the stored document variant, to guard
-      against misconfigured PandaDoc templates flipping the wrong row.
-    - Flips status to signed, fires analytics and BAA side effects, and schedules
-      the signed-PDF archive as a retried background job.
-
-    The signature is recorded as soon as the webhook lands — it is never gated
-    on the PDF archival, which used to leave the row stuck when a download or
-    upload failed. Idempotent: an already-signed row returns its DTO without
-    re-firing side effects.
-    """
-    document = logic.get_by_pandadoc_document_id(pandadoc_document_id)
-    if document is None:
-        return None
-    if not logic.template_id_matches_document(document, template_id):
-        return None
-    if document.status == LegalDocumentStatus.SIGNED:
-        return _to_dto(document)
-    return _to_dto(_mark_signed_and_schedule_archive(document))
-
-
-def _mark_signed_and_schedule_archive(document: LegalDocument) -> LegalDocument:
-    document = logic.mark_document_signed(document)
-    logic.apply_baa_signed_side_effects(document)
-    logic.fire_legal_document_signed_event(document)
-    _schedule_pdf_archive(document)
-    return document
+def accept_pandadoc_event(delivery: WebhookDelivery) -> None:
+    """The inbound PandaDoc webhook enters legal_documents here, so its consumer needs no internal import."""
+    webhooks.accept_pandadoc_event(delivery)
 
 
 def _try_mark_signed_and_schedule_archive(
@@ -287,18 +223,8 @@ def _try_mark_signed_and_schedule_archive(
         return False
     logic.apply_baa_signed_side_effects(document)
     logic.fire_legal_document_signed_event(document, capture=capture)
-    _schedule_pdf_archive(document, delay_seconds=delay_seconds)
+    logic.schedule_pdf_archive(document, delay_seconds=delay_seconds)
     return True
-
-
-def _schedule_pdf_archive(document: LegalDocument, delay_seconds: int = 0) -> None:
-    # Local import breaks the facade ⇄ tasks import cycle (tasks import the facade).
-    from ..tasks.tasks import archive_signed_legal_document_pdf  # noqa: PLC0415
-
-    document_id = str(document.id)
-    transaction.on_commit(
-        lambda: archive_signed_legal_document_pdf.apply_async(args=[document_id], countdown=delay_seconds)
-    )
 
 
 def archive_signed_pdf(document_id: UUID) -> None:
@@ -451,7 +377,7 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     archives_requeued = 0
     for document in logic.list_signed_documents_missing_pdf(exclude_ids=signed_this_run):
         try:
-            _schedule_pdf_archive(document, delay_seconds=scheduled_archives)
+            logic.schedule_pdf_archive(document, delay_seconds=scheduled_archives)
             archives_requeued += 1
             scheduled_archives += 1
         except Exception as exc:

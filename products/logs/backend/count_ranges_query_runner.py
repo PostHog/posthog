@@ -42,6 +42,10 @@ class CountRangesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
         self.BUCKET_TARGET = max(1, min(target_buckets, MAX_TARGET_BUCKETS))
         super().__init__(*args, **kwargs)
 
+    def get_cache_payload(self) -> dict:
+        # A runner argument, not a query field, so the base payload cannot see it.
+        return {**super().get_cache_payload(), "target_buckets": self.BUCKET_TARGET}
+
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
         return fail_fast_aggregate_settings(max_bytes_to_read=1_000_000_000)

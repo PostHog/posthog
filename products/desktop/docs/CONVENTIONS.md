@@ -138,6 +138,13 @@ Barrel files hide dependency edges, increase circular import risk, and make refa
 
 ## Styling
 
+The cloud GitHub setup dialog separates its introduction from its actions.
+Use full-width primary and dismiss buttons, followed by a muted permissions caption with an inline, underlined Details link.
+Keep the action order: Connect GitHub, Not now, Details.
+The caption must cover repository writes, read access to email addresses and organization membership, and authorization to act as the user.
+Do not imply that writes are limited to pull requests or that every connection requires a new repository selection.
+Existing installations can use the personal OAuth flow without the repository picker.
+
 Use Tailwind first. The project uses Tailwind v4 with Radix CSS variables. Those *variables* are fine and stay; Radix *components* are banned (see [UI Components](../AGENTS.md#ui-components)).
 
 Examples:
@@ -224,6 +231,22 @@ Renderer events use `track(eventName, properties)` from `packages/ui/src/shell/a
 Main-process events use `trackAppEvent(eventName, properties)` from `apps/code/src/main/platform-adapters/posthog-analytics.ts`.
 
 Both clients set `team: "posthog-code"` as a super-property.
+
+### Task creation identity
+
+Every client `Task created` event includes `task_id` from the task creation result, including local, worktree, cloud, and setup tasks.
+Use this stable ID to count distinct tasks, not event IDs or run IDs.
+Keep the existing capture points: a retained task can still emit an event after workspace provisioning fails, while a failed creation does not emit a success event.
+Retries and resumed tasks must use the returned task ID, not generate a new analytics ID.
+Older clients do not send this property, so check coverage by client version and workspace mode before using it for distinct-task metrics.
+
+### Network metrics
+
+The network duration metric uses backend URLs from the shared region configuration, including a configured custom cloud.
+This works before login and after logout.
+The analytics ingestion host does not select the backend.
+External or invalid URLs use `path: "external"`.
+Skill names, skill file paths, and MCP tool names use `:id` placeholders; other backend paths use the SDK's default templates.
 
 ### Event Names
 

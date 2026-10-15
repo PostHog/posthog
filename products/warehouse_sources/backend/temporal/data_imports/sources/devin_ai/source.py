@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DevinAISource(ResumableSource[DevinAISourceConfig, DevinAIResumeConfig]):
+    codebase_detection = detect(env=("^(DEVIN_AI|DEVINAI)_", "^DEVIN_API_KEY$", "^DEVIN_ORG_ID$"))
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://docs.devin.ai/api-reference"
@@ -54,16 +55,18 @@ class DevinAISource(ResumableSource[DevinAISourceConfig, DevinAIResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DEVIN_AI,
+            name=ExternalDataSourceType.DEVINAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Devin AI",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Devin service user API key and organization ID to sync your Devin data into the PostHog Data warehouse.
 
 Create a service user API key (prefixed `cog_`) in your [Devin organization settings](https://app.devin.ai/settings). The service user needs the following organization-level permissions:
-- `ViewOrgSessions` — Sessions
+- `ViewOrgSessions` — Sessions, session insights and session messages
+- `ViewOrgConsumption` — Daily ACU consumption, per org and per user
 - `ManageAccountKnowledge` — Playbooks and Knowledge notes
-- `ViewOrgMembership` — Members
+- `ViewOrgAutomations` — Automations
+- `ViewOrgMembership` — Members, and the per-user consumption that fans out from them
 - `ManageOrgSecrets` — Secrets (metadata only; values are never synced)
 
 Your organization ID is the `org-...` identifier shown in your Devin organization settings.""",

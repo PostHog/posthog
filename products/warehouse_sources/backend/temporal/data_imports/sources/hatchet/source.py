@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,6 +35,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HatchetSource(ResumableSource[HatchetSourceConfig, HatchetResumeConfig]):
+    codebase_detection = detect(
+        env=("^HATCHET_",),
+        npm=("@hatchet-dev/typescript-sdk",),
+        pypi=("hatchet-sdk",),
+        go=(
+            "github.com/hatchet-dev/hatchet",
+            "github.com/hatchet-dev/hatchet-embedded",
+            "github.com/hatchet-dev/hatchet-go-quickstart",
+            "github.com/hatchet-dev/hatchet-quickstarts",
+        ),
+        rubygems=("hatchet-sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.hatchet.run"
 
@@ -46,7 +58,7 @@ class HatchetSource(ResumableSource[HatchetSourceConfig, HatchetResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HATCHET,
+            name=ExternalDataSourceType.HATCHET,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Hatchet",
             releaseStatus=ReleaseStatus.ALPHA,

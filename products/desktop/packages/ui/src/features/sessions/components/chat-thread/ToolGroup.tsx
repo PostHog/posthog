@@ -7,13 +7,20 @@ import {
 import { readAgentToolName } from "@posthog/shared";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import {
+  AnimatePresence,
+  domAnimation,
+  LazyMotion,
+  m,
+  useReducedMotion,
+} from "framer-motion";
 import { memo, useMemo } from "react";
 import type { ConversationItem } from "../buildConversationItems";
-import { summarizeMemo } from "../new-thread/buildThreadGroups";
 import { isSubagentSpawnTool } from "../session-update/collaborationTools";
+import { mcpToolDisplayName } from "../session-update/mcpToolDisplay";
 import { SessionUpdateView } from "../session-update/SessionUpdateView";
 import { iconForToolCall } from "../session-update/toolCallUtils";
+import { summarizeToolGroupMemo } from "./toolGroupSummary";
 
 type SessionUpdateItem = Extract<ConversationItem, { type: "session_update" }>;
 
@@ -140,12 +147,16 @@ export const ToolGroup = memo(function ToolGroup({
   // thought-only run has to resolve to no current tool rather than throw on `undefined`.
   const currentItem = lastActiveTool(tools) ?? tools.at(-1);
   const current = currentItem ? resolveTool(currentItem) : null;
-  const currentName = currentItem ? friendlyName(toolKey(currentItem)) : null;
-  const currentContext =
-    current?.toolCall.title &&
-    currentName &&
-    current.toolCall.title.toLocaleLowerCase() !==
-      currentName.toLocaleLowerCase()
+  const mcpName = current ? mcpToolDisplayName(current.toolCall) : undefined;
+  const currentName = currentItem
+    ? (mcpName ?? friendlyName(toolKey(currentItem)))
+    : null;
+  const currentContext = mcpName
+    ? null
+    : current?.toolCall.title &&
+        currentName &&
+        current.toolCall.title.toLocaleLowerCase() !==
+          currentName.toLocaleLowerCase()
       ? current.toolCall.title
       : null;
   const LeadIcon = current
@@ -153,10 +164,14 @@ export const ToolGroup = memo(function ToolGroup({
     : null;
 
   // A run with no countable work (a lone streaming thought) keeps the live shape rather than
-  // falling back to summarize's "Worked". Cached once the turn completes because the walk is
-  // O(run) and the live turn re-renders every group on every streamed chunk.
+  // falling back to the "Worked" summary. The summary is cached once the turn completes because
+  // the live turn re-renders every group on every streamed chunk.
   const summary = useMemo(
-    () => summarizeMemo(items, items.at(-1)?.turnContext.turnComplete ?? false),
+    () =>
+      summarizeToolGroupMemo(
+        items,
+        items.at(-1)?.turnContext.turnComplete ?? false,
+      ),
     [items],
   );
   const showSummary = !isActive && summary.hasCountableWork;
@@ -203,31 +218,33 @@ export const ToolGroup = memo(function ToolGroup({
       >
         {/* `mode="wait"` so the outgoing label clears before the next fades in. Overlapping them
             on a single line reads as a flicker rather than a change. */}
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.span
-            key={labelKey}
-            className="flex min-w-0 items-center gap-1.5"
-            initial={reduceMotion ? false : LABEL_MOTION.initial}
-            animate={reduceMotion ? undefined : LABEL_MOTION.animate}
-            exit={reduceMotion ? undefined : LABEL_MOTION.exit}
-            transition={reduceMotion ? undefined : LABEL_MOTION.transition}
-          >
-            {showSummary ? (
-              <span className="truncate">{summary.doneLabel}</span>
-            ) : thinking || !currentName ? (
-              <span className="shrink-0 font-medium">Thinking…</span>
-            ) : (
-              <>
-                <span className="shrink-0 font-medium">{currentName}</span>
-                {currentContext ? (
-                  <span className="truncate text-muted-foreground/70">
-                    {currentContext}
-                  </span>
-                ) : null}
-              </>
-            )}
-          </motion.span>
-        </AnimatePresence>
+        <LazyMotion features={domAnimation}>
+          <AnimatePresence mode="wait" initial={false}>
+            <m.span
+              key={labelKey}
+              className="flex min-w-0 items-center gap-1.5"
+              initial={reduceMotion ? false : LABEL_MOTION.initial}
+              animate={reduceMotion ? undefined : LABEL_MOTION.animate}
+              exit={reduceMotion ? undefined : LABEL_MOTION.exit}
+              transition={reduceMotion ? undefined : LABEL_MOTION.transition}
+            >
+              {showSummary ? (
+                <span className="truncate">{summary.doneLabel}</span>
+              ) : thinking || !currentName ? (
+                <span className="shrink-0 font-medium">Thinking…</span>
+              ) : (
+                <>
+                  <span className="shrink-0 font-medium">{currentName}</span>
+                  {currentContext ? (
+                    <span className="truncate text-muted-foreground/70">
+                      {currentContext}
+                    </span>
+                  ) : null}
+                </>
+              )}
+            </m.span>
+          </AnimatePresence>
+        </LazyMotion>
       </ChatMarkerContent>
     </ChatMarker>
   );

@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.codacy import (
     codacy_source,
     validate_credentials as validate_codacy_credentials,
@@ -32,6 +31,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CodacySource(SimpleSource[CodacySourceConfig]):
+    codebase_detection = detect(
+        env=("^CODACY_",), npm=("codacy-coverage",), pypi=("codacy-coverage",), composer=("codacy/coverage",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -47,7 +50,7 @@ class CodacySource(SimpleSource[CodacySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CODACY,
+            name=ExternalDataSourceType.CODACY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Codacy",
             releaseStatus=ReleaseStatus.ALPHA,

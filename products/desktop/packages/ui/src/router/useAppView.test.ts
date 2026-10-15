@@ -21,6 +21,13 @@ describe("getAppViewSnapshot", () => {
     ];
     expect(getAppViewSnapshot()).toEqual({ type: "report" });
   });
+  // A route missing from the switch falls through to the task-input view, which
+  // is outside the browser tab's label vocabulary. The tab then keeps the label
+  // of the page you came from.
+  it("gives the canvases page its own view", () => {
+    mocks.matches = [{ fullPath: "/canvases", params: {} }];
+    expect(getAppViewSnapshot()).toEqual({ type: "canvases" });
+  });
   it.each([
     { fullPath: "/settings/$category", params: { category: "general" } },
     { fullPath: "/settings/", params: {} },

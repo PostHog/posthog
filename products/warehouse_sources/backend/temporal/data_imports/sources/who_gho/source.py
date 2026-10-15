@@ -1,15 +1,14 @@
 from datetime import date, datetime
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WhoGhoSource(ResumableSource[WhoGhoSourceConfig, WhoGhoResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog -- safe for public docs
     # OData v4, with no version token in the URL, headers, or docs -- the API has never had a
     # second version.
@@ -51,7 +52,7 @@ class WhoGhoSource(ResumableSource[WhoGhoSourceConfig, WhoGhoResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.WHO_GHO,
+            name=ExternalDataSourceType.WHOGHO,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="World Health Organization Global Health Observatory (GHO)",
             releaseStatus=ReleaseStatus.ALPHA,

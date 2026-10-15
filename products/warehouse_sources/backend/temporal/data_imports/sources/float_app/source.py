@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FloatAppSource(ResumableSource[FloatAppSourceConfig, FloatAppResumeConfig]):
+    codebase_detection = detect(env=("^(FLOAT_APP|FLOATAPP)_",))
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://developer.float.com/api_reference.html"
@@ -47,7 +48,7 @@ class FloatAppSource(ResumableSource[FloatAppSourceConfig, FloatAppResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FLOAT_APP,
+            name=ExternalDataSourceType.FLOATAPP,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Float",
             releaseStatus=ReleaseStatus.ALPHA,

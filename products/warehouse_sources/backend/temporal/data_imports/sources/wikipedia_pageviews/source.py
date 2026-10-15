@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -48,6 +47,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, WikipediaPageviewsResumeConfig]):
+    codebase_detection = detect(
+        env=("^(WIKIPEDIA_PAGEVIEWS|WIKIPEDIAPAGEVIEWS)_",), npm=("pageviews",), pypi=("mwviews",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # `rest_v1` is the version segment of the Wikimedia REST API base path this source calls.
     supported_versions = ("rest_v1",)
@@ -140,7 +143,7 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.WIKIPEDIA_PAGEVIEWS,
+            name=ExternalDataSourceType.WIKIPEDIAPAGEVIEWS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Wikipedia Pageviews",
             keywords=["wikimedia", "wiki", "pageviews"],

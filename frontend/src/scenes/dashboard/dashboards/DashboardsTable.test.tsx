@@ -2,6 +2,10 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { AccessControlLevel } from '~/types'
 
@@ -33,6 +37,7 @@ jest.mock('lib/lemon-ui/LemonTable', () => ({
 
 describe('DashboardsTable move to folder', () => {
     const moveDashboardsToFolder = jest.fn()
+    const setHomepage = jest.fn()
     const clearSelection = jest.fn()
     const setSelectedKeys = jest.fn()
 
@@ -47,14 +52,25 @@ describe('DashboardsTable move to folder', () => {
             showDuplicateDashboardModal: jest.fn(),
             showDeleteDashboardModal: jest.fn(),
             moveDashboardsToFolder,
+            setHomepage,
         })
     })
 
-    const renderTable = (rows: number[], selectedKeys: number[] = [], filedRows: number[] = rows): void => {
+    const renderTable = (
+        rows: number[],
+        selectedKeys: number[] = [],
+        filedRows: number[] = rows,
+        tags?: string[],
+        primaryDashboard?: number,
+        homepageDashboard?: number,
+        homepageSaving: boolean = false
+    ): void => {
         ;(useValues as jest.Mock).mockReturnValue({
             tableSorting: null,
             filters: { search: '' },
-            currentTeam: { id: 1 },
+            currentTeam: { id: 1, primary_dashboard: primaryDashboard },
+            homepage: homepageDashboard ? { id: `homepage-dashboard-${homepageDashboard}` } : null,
+            homepageSaving,
             filedDashboardIds: new Set(filedRows),
         })
         mockCtx = { selectedKeys, clearSelection, setSelectedKeys }
@@ -64,6 +80,7 @@ describe('DashboardsTable move to folder', () => {
                     rows.map((id) => ({
                         id,
                         name: `Dashboard ${id}`,
+                        tags,
                         user_access_level: AccessControlLevel.Editor,
                     })) as any
                 }
@@ -71,6 +88,37 @@ describe('DashboardsTable move to folder', () => {
             />
         )
     }
+
+    it("sets only the current user's homepage from the row menu", () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        renderTable([1, 2], [], [1, 2], undefined, 1, 2)
+
+        expect(screen.getByText('Your homepage')).toBeInTheDocument()
+        expect(screen.getAllByText('Set as my homepage')).toHaveLength(1)
+        fireEvent.click(screen.getByText('Set as my homepage'))
+
+        expect(setHomepage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                id: 'homepage-dashboard-1',
+                pathname: urls.dashboard(1),
+                title: 'Dashboard 1',
+                sceneId: Scene.Dashboard,
+            }),
+            'dashboards list'
+        )
+        expect(capture).toHaveBeenCalledWith('dashboard set as homepage clicked', { source: 'dashboards list' })
+        capture.mockRestore()
+    })
+
+    it('disables homepage selection while another dashboard is saving', () => {
+        renderTable([1, 2], [], [1, 2], undefined, undefined, undefined, true)
+
+        for (const button of screen.getAllByText('Set as my homepage')) {
+            expect(button.closest('button')).toHaveAttribute('aria-disabled', 'true')
+        }
+        fireEvent.click(screen.getAllByText('Set as my homepage')[0])
+        expect(setHomepage).not.toHaveBeenCalled()
+    })
 
     it('offers the per-row move action and moves that dashboard', () => {
         renderTable([1])
@@ -143,7 +191,7 @@ describe('DashboardsTable move to folder', () => {
         expect(setFilters).toHaveBeenCalledWith({ tags: ['finance'] })
     })
 
-    it('shows overflow tags in a popover and filters by them', () => {
+    it('shows all tags and filters by them', () => {
         const setFilters = jest.fn()
         ;(useActions as jest.Mock).mockReturnValue({
             unpinDashboard: jest.fn(),
@@ -168,7 +216,7 @@ describe('DashboardsTable move to folder', () => {
                         {
                             id: 1,
                             name: 'Dashboard 1',
-                            tags: ['alpha', 'beta', 'gamma', 'delta', 'epsilon', '', 'zeta'],
+                            tags: ['analytics-platform', 'beta', 'gamma', 'delta', 'epsilon', '', 'zeta'],
                             user_access_level: AccessControlLevel.Editor,
                         },
                     ] as any
@@ -177,8 +225,9 @@ describe('DashboardsTable move to folder', () => {
             />
         )
 
-        expect(screen.getByText('+1')).toBeInTheDocument()
-        fireEvent.click(screen.getByText('+1'))
+        expect(document.querySelector('[data-attr="dashboard-tags"]')).toHaveClass('max-w-full')
+        expect(screen.getByText('analytics-platform')).toHaveClass('LemonTag--wrap')
+        expect(screen.getByText('beta')).toBeInTheDocument()
         fireEvent.click(screen.getByText('zeta'))
 
         expect(setFilters).toHaveBeenCalledWith({ tags: ['zeta'] })

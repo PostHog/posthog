@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.appfigures import (
     PRODUCTS_PATH,
     AppfiguresResumeConfig,
@@ -36,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppfiguresSource(ResumableSource[AppfiguresSourceConfig, AppfiguresResumeConfig]):
+    codebase_detection = detect(env=("^APPFIGURES_",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://docs.appfigures.com/api/reference/v2"
@@ -49,7 +50,7 @@ class AppfiguresSource(ResumableSource[AppfiguresSourceConfig, AppfiguresResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APPFIGURES,
+            name=ExternalDataSourceType.APPFIGURES,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Appfigures",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -13,18 +13,6 @@ export interface ViewRecordingsLinkabilityLogicProps {
     experiment: Experiment
 }
 
-export const EXPOSURE_UNLINKABLE_REASON =
-    "This experiment's exposure event is captured server-side without a session ID, so recordings can't be matched."
-
-export const METRIC_UNLINKABLE_REASON =
-    "This metric's events are captured server-side without a session ID, so recordings can't be matched."
-
-export const RETENTION_UNLINKABLE_REASON =
-    'Retention metrics measure a return visit, which happens in a later session than the one that starts it. No single recording can show both, so these metrics are left out of the filter.'
-
-export const DATA_WAREHOUSE_UNLINKABLE_REASON =
-    'This metric is measured entirely in the data warehouse, which has no session events to match recordings on.'
-
 /** Only an explicit `false` marks an event unlinkable; absent keys stay linkable (fail open). */
 export function unlinkableEventNamesFromSeenTogether(
     seenTogetherMap: Record<string, boolean> | null | undefined

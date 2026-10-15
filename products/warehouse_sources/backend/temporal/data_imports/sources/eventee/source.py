@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EventeeSource(SimpleSource[EventeeSourceConfig]):
+    codebase_detection = detect(env=("^EVENTEE_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://publiceventeeapi.docs.apiary.io/"
@@ -48,7 +49,7 @@ class EventeeSource(SimpleSource[EventeeSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.EVENTEE,
+            name=ExternalDataSourceType.EVENTEE,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Eventee",
             releaseStatus=ReleaseStatus.ALPHA,

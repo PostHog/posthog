@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CultureAmpSource(ResumableSource[CultureAmpSourceConfig, CultureAmpResumeConfig]):
+    codebase_detection = detect(env=("^(CULTURE_AMP|CULTUREAMP)_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://developer.cultureamp.com"
@@ -57,7 +58,7 @@ class CultureAmpSource(ResumableSource[CultureAmpSourceConfig, CultureAmpResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CULTURE_AMP,
+            name=ExternalDataSourceType.CULTUREAMP,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Culture Amp",
             caption="""Connect your Culture Amp account to pull your employee experience data into the PostHog Data warehouse.

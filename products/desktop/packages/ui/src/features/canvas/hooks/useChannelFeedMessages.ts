@@ -30,10 +30,12 @@ export function channelFeedMessagesQueryKey(channelId: string | undefined) {
 // same thing twice: creation is the intro header's line (channel_created and
 // its legacy client-posted context_created twin), and a CONTEXT.md build is
 // its own plan-task card in the feed plus the intro card's "Creating…" state.
+// A space setup is likewise its own task card.
 const REDUNDANT_EVENTS = new Set([
   "channel_created",
   "context_created",
   "context_md_building",
+  "space_setup_started",
 ]);
 
 // Render the announcement from its freeform content, with a generic fallback

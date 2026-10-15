@@ -2,14 +2,13 @@ from typing import Optional, cast
 
 import requests
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -31,6 +30,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
+    codebase_detection = detect(
+        env=("^POLAR_",),
+        npm=("@polar-sh/sdk", "@polar-sh/nextjs", "@polar-sh/better-auth", "@polar-sh/checkout", "@polar-sh/ui"),
+        pypi=("polar-sdk",),
+        composer=("polar-sh/sdk",),
+        go=("github.com/polarsource/polar-go",),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.polar.sh/api-reference"
@@ -44,7 +51,7 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.POLAR,
+            name=ExternalDataSourceType.POLAR,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Polar",
             caption=(

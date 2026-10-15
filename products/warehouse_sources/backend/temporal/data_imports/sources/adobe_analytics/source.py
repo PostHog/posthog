@@ -3,15 +3,14 @@ from typing import Optional, cast
 
 import structlog
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.adobe_analytics import (
     ADOBE_ANALYTICS_API_VERSION_2_0,
     ADOBE_ANALYTICS_API_VERSION_V1,
@@ -49,6 +48,82 @@ logger = structlog.get_logger(__name__)
 
 @SourceRegistry.register
 class AdobeAnalyticsSource(ResumableSource[AdobeAnalyticsSourceConfig, AdobeAnalyticsResumeConfig]):
+    codebase_detection = detect(
+        env=("^(ADOBE_ANALYTICS|ADOBEANALYTICS)_", "^AANALYTICS2_"),
+        script_hosts=("assets.adobedtm.com", "cdn1.adoberesources.net", "www.adobetag.com"),
+        npm=(
+            "@adobe/alloy",
+            "@adobe/alloy-core",
+            "@adobe/react-native-aepcore",
+            "@adobe/react-native-aepedge",
+            "@adobe/react-native-aepedgeidentity",
+            "@adobe/react-native-aepedgebridge",
+            "@adobe/react-native-acpcore",
+            "@adobe/react-native-acpanalytics",
+            "@adobe/react-native-acpmedia",
+            "@adobe/cordova-acpcore",
+            "@adobe/cordova-acpanalytics",
+            "adobe-mobile-services",
+            "@adobe/aio-lib-analytics",
+            "@adobe/generator-add-action-analytics",
+        ),
+        pypi=("aanalytics2",),
+        cocoapods=(
+            "AEPAnalytics",
+            "AEPCore",
+            "AEPEdge",
+            "AEPEdgeIdentity",
+            "AEPEdgeBridge",
+            "AEPIdentity",
+            "AEPLifecycle",
+            "AEPSignal",
+            "AEPMedia",
+            "AEPEdgeMedia",
+            "AEPAnalyticsEdge",
+            "ACPCore",
+            "ACPAnalytics",
+            "ACPMedia",
+            "AdobeMobileSDK",
+            "AdobeMediaSDK",
+            "AdobeVideoHeartbeatSDK",
+        ),
+        composer=("adobe-marketing-cloud/marketing-cloud-php-sdk", "edisonlabs/adobe_analytics"),
+        go=("github.com/adobe/aa-client-go",),
+        maven=(
+            "com.adobe.marketing.mobile:analytics",
+            "com.adobe.marketing.mobile:core",
+            "com.adobe.marketing.mobile:edge",
+            "com.adobe.marketing.mobile:edgeidentity",
+            "com.adobe.marketing.mobile:edgebridge",
+            "com.adobe.marketing.mobile:identity",
+            "com.adobe.marketing.mobile:lifecycle",
+            "com.adobe.marketing.mobile:signal",
+            "com.adobe.marketing.mobile:media",
+            "com.adobe.marketing.mobile:edgemedia",
+            "com.adobe.marketing.mobile:analyticsedge",
+            "com.adobe.marketing.mobile:sdk-core",
+            "com.adobe.mobile:adobeMobileLibrary",
+            "com.adobe.granite.analytics:java-client",
+        ),
+        pub=(
+            "flutter_aepcore",
+            "flutter_aepedge",
+            "flutter_aepedgeidentity",
+            "flutter_aepedgebridge",
+            "flutter_acpcore",
+            "flutter_acpanalytics",
+        ),
+        swiftpm=(
+            "github.com/adobe/aepsdk-analytics-ios",
+            "github.com/adobe/aepsdk-core-ios",
+            "github.com/adobe/aepsdk-edge-ios",
+            "github.com/adobe/aepsdk-edgeidentity-ios",
+            "github.com/adobe/aepsdk-edgebridge-ios",
+            "github.com/adobe/aepsdk-media-ios",
+            "github.com/adobe/aepsdk-edgemedia-ios",
+        ),
+    )
+
     api_docs_url = "https://developer.adobe.com/analytics-apis/docs/2.0/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -75,7 +150,7 @@ class AdobeAnalyticsSource(ResumableSource[AdobeAnalyticsSourceConfig, AdobeAnal
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ADOBE_ANALYTICS,
+            name=ExternalDataSourceType.ADOBEANALYTICS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Adobe Analytics",
             caption="""Pull Adobe Analytics report data and metadata into the PostHog Data warehouse.

@@ -3,10 +3,13 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import SourceFieldInputConfig
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.source import ChargedeskSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargedesk import (
     ChargedeskSourceConfig,
 )
@@ -29,15 +32,6 @@ class TestChargedeskSourceConfig:
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog, so the public docs can render the table list.
         assert ChargedeskSource.lists_tables_without_credentials is True
-
-
-class TestGetSchemas:
-    def test_incremental_fields_use_resource_timestamp(self) -> None:
-        schemas = {s.name: s for s in ChargedeskSource().get_schemas(_config(), team_id=1)}
-        assert schemas["charges"].incremental_fields[0]["field"] == "occurred"
-        # Customers/subscriptions track the creation timestamp column that the row actually carries.
-        assert schemas["customers"].incremental_fields[0]["field"] == "first_seen"
-        assert schemas["subscriptions"].incremental_fields[0]["field"] == "first_seen"
 
 
 class TestValidateCredentials:
@@ -83,19 +77,17 @@ class TestSourceForPipeline:
         assert captured["db_incremental_field_earliest_value"] == 500
 
     def test_non_incremental_run_passes_no_watermark(self) -> None:
-        captured: dict[str, Any] = {}
+        result = SourceDriver(ChargedeskSource(), _config()).run(
+            "charges",
+            [ScriptedResponse(json={"data": []})],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=1000,
+            db_incremental_field_earliest_value=500,
+        )
 
-        def _fake_source(**kwargs: Any) -> str:
-            captured.update(kwargs)
-            return "response"
-
-        with patch.object(source_module, "chargedesk_source", side_effect=_fake_source):
-            ChargedeskSource().source_for_pipeline(
-                _config(), MagicMock(), self._inputs(should_use_incremental_field=False)
-            )
-
-        assert captured["db_incremental_field_last_value"] is None
-        assert captured["db_incremental_field_earliest_value"] is None
+        assert result.raised is None
+        assert result.requests[0].param("occurred[min]") is None
+        assert result.requests[0].param("occurred[max]") is None
 
 
 if __name__ == "__main__":

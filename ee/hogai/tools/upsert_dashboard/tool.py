@@ -1,18 +1,26 @@
+import hashlib
+from base64 import urlsafe_b64encode
 from typing import Any, Literal, TypedDict, cast
 
 from django.db import transaction
 
 import structlog
 from pydantic import BaseModel, Field
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import DataTableNode, DataVisualizationNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
+from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
 from posthog.event_usage import EventSource, report_user_action
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.facade.api import (
+    get_or_create_saved_insight,
+    insights_including_soft_deleted_for_team,
+)
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourceResult
@@ -70,7 +78,15 @@ class UpdateDashboardToolArgs(BaseModel):
     )
 
 
-UpsertDashboardAction = CreateDashboardToolArgs | UpdateDashboardToolArgs
+class AddDashboardInsightsToolArgs(BaseModel):
+    """Schema to add insights to an existing dashboard without removing its tiles."""
+
+    action: Literal["add_insights"] = "add_insights"
+    dashboard_id: str = Field(description="Provide the ID of the dashboard to add insights to.")
+    insight_ids: list[str] = Field(description="The IDs of the insights to add to the dashboard.")
+
+
+UpsertDashboardAction = CreateDashboardToolArgs | UpdateDashboardToolArgs | AddDashboardInsightsToolArgs
 
 
 class UpsertDashboardToolArgs(BaseModel):
@@ -119,8 +135,8 @@ class UpsertDashboardTool(MaxTool):
         """
         Build a rich preview showing dashboard details and what will be modified.
         """
-        if isinstance(action, CreateDashboardToolArgs):
-            raise MaxToolFatalError("Create dashboard operation is not dangerous.")
+        if not isinstance(action, UpdateDashboardToolArgs):
+            raise MaxToolFatalError("Only dashboard updates can require a dangerous operation preview.")
 
         dashboard = await self._get_dashboard(action.dashboard_id)
         sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
@@ -152,8 +168,9 @@ class UpsertDashboardTool(MaxTool):
     async def _arun_impl(self, action: UpsertDashboardAction) -> tuple[str, dict | None]:
         if isinstance(action, CreateDashboardToolArgs):
             return await self._handle_create(action)
-        else:
+        if isinstance(action, UpdateDashboardToolArgs):
             return await self._handle_update(action)
+        return await self._handle_add_insights(action)
 
     async def _handle_create(self, action: CreateDashboardToolArgs) -> tuple[str, dict | None]:
         """Handle CREATE action: create a new dashboard with insights."""
@@ -214,6 +231,25 @@ class UpsertDashboardTool(MaxTool):
         sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
         insights = [tile.insight for tile in sorted_tiles if tile.insight is not None]
 
+        output = await self._format_dashboard_output(dashboard, insights)
+
+        return output, {"dashboard_id": dashboard.id}
+
+    async def _handle_add_insights(self, action: AddDashboardInsightsToolArgs) -> tuple[str, dict | None]:
+        """Add insights to an existing dashboard while preserving current tiles."""
+        dashboard = await self._get_dashboard(action.dashboard_id)
+        insight_ids = list(dict.fromkeys(action.insight_ids))
+        artifacts = await self._get_visualization_artifacts(insight_ids)
+        try:
+            created_insights = await self._add_dashboard_insights(dashboard, insight_ids, artifacts)
+        except ValidationError as error:
+            raise MaxToolRetryableError(str(error.detail)) from error
+        await self._report_dashboard_action(dashboard, "dashboard updated", {"operation": "add_insights"})
+        for artifact, insight in created_insights:
+            await self._report_new_insights([artifact], [insight])
+
+        sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
+        insights = [tile.insight for tile in sorted_tiles if tile.insight is not None]
         output = await self._format_dashboard_output(dashboard, insights)
 
         return output, {"dashboard_id": dashboard.id}
@@ -314,6 +350,43 @@ class UpsertDashboardTool(MaxTool):
             ]
         )
         return dashboard
+
+    @database_sync_to_async
+    @transaction.atomic
+    def _add_dashboard_insights(
+        self, dashboard: Dashboard, insight_ids: list[str], artifacts: list[VisualizationWithSourceResult]
+    ) -> list[tuple[VisualizationWithSourceResult, Insight]]:
+        """Add or restore insight tiles without changing any other dashboard tiles."""
+        created_insights: list[tuple[VisualizationWithSourceResult, Insight]] = []
+        for artifact_id, artifact, insight in zip(insight_ids, artifacts, self._resolve_insights(artifacts)):
+            if not isinstance(artifact, ModelArtifactResult):
+                # Stable IDs let the database deduplicate artifact retries, including concurrent calls.
+                identity = f"dashboard:{dashboard.id}:{artifact.source.value}:{artifact_id}"
+                short_id = urlsafe_b64encode(hashlib.sha256(identity.encode()).digest()[:9]).decode()
+                insight_pk, created = get_or_create_saved_insight(
+                    team_id=self._team.id,
+                    user_id=self._user.id,
+                    short_id=short_id,
+                    name=insight.name,
+                    description=insight.description,
+                    query=insight.query,
+                )
+                insight = insights_including_soft_deleted_for_team(team_id=self._team.id, insight_ids=[insight_pk])[0]
+                if created:
+                    created_insights.append((artifact, insight))
+
+            check_can_add_insight_to_shared_dashboard(self._user, dashboard, insight.query, self.user_access_control)
+
+            tile, created = DashboardTile.objects_including_soft_deleted.get_or_create(
+                dashboard=dashboard,
+                insight=insight,
+                defaults={"team_id": dashboard.team_id, "layouts": {}},
+            )
+            if not created and tile.deleted:
+                tile.deleted = False
+                tile.save(update_fields=["deleted"])
+
+        return created_insights
 
     @database_sync_to_async
     @transaction.atomic

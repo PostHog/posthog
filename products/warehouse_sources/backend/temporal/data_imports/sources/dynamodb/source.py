@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -34,6 +33,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]):
+    codebase_detection = detect(
+        npm=("@aws-sdk/client-dynamodb", "@aws-sdk/lib-dynamodb", "@aws-sdk/util-dynamodb", "dynamoose"),
+        pypi=("pynamodb",),
+        cargo=("aws-sdk-dynamodb",),
+        go=("github.com/aws/aws-sdk-go-v2/service/dynamodb",),
+        maven=(
+            "software.amazon.awssdk:dynamodb",
+            "software.amazon.awssdk:dynamodb-enhanced",
+            "software.amazon.awssdk:dynamodbdocument-v1",
+            "software.amazon.awssdk:dynamodbmapper-v1",
+        ),
+        rubygems=("aws-sdk-dynamodb",),
+    )
+
     supported_versions = (DYNAMODB_API_VERSION,)
     default_version = DYNAMODB_API_VERSION
     api_docs_url = "https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/Welcome.html"
@@ -56,7 +69,7 @@ class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DYNAMO_DB,
+            name=ExternalDataSourceType.DYNAMODB,
             category=DataWarehouseSourceCategory.DATABASES,
             label="DynamoDB",
             caption="""Enter an AWS access key with read access to DynamoDB to import your tables into the PostHog Data warehouse.

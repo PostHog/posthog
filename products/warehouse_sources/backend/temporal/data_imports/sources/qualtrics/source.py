@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -55,6 +54,13 @@ def _credentials_from_config(config: QualtricsSourceConfig) -> QualtricsCredenti
 
 @SourceRegistry.register
 class QualtricsSource(ResumableSource[QualtricsSourceConfig, QualtricsResumeConfig]):
+    codebase_detection = detect(
+        env=("^QUALTRICS_",),
+        script_hosts=("siteintercept.qualtrics.com",),
+        npm=("react-native-qualtrics",),
+        cocoapods=("Qualtrics", "QualtricsDXA", "QualtricsExperience"),
+    )
+
     supported_versions = (QUALTRICS_API_VERSION,)
     default_version = QUALTRICS_API_VERSION
     api_docs_url = "https://api.qualtrics.com/"
@@ -74,7 +80,7 @@ class QualtricsSource(ResumableSource[QualtricsSourceConfig, QualtricsResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.QUALTRICS,
+            name=ExternalDataSourceType.QUALTRICS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Qualtrics",
             releaseStatus=ReleaseStatus.ALPHA,

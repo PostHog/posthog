@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -27,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.git
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.settings import (
     ENDPOINTS,
+    GITLAB_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -34,6 +34,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GitLabSource(ResumableSource[GitLabSourceConfig, GitLabResumeConfig]):
+    codebase_detection = detect(
+        env=("^GITLAB_",),
+        npm=("@gitbeaker/rest", "@gitbeaker/core", "@gitbeaker/node"),
+        pypi=("python-gitlab",),
+        composer=("m4tthumphrey/php-gitlab-api",),
+        go=("gitlab.com/gitlab-org/api/client-go", "github.com/xanzy/go-gitlab"),
+        maven=("org.gitlab4j:gitlab4j-api", "org.gitlab4j:gitlab4j-models"),
+        rubygems=("gitlab",),
+    )
+
     supported_versions = ("v4",)
     default_version = "v4"
     api_docs_url = "https://docs.gitlab.com/ee/api/rest/"
@@ -52,7 +62,7 @@ class GitLabSource(ResumableSource[GitLabSourceConfig, GitLabResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GIT_LAB,
+            name=ExternalDataSourceType.GITLAB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="GitLab",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -114,7 +124,13 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
         # fetch_page's own tenacity retry still gets picked up by Temporal's activity retry;
         # classify it as retryable so it's logged as a warning rather than tracked as an
         # exception. Mirrors GitHub's equivalent case.
-        return {"GitLab API error (retryable)"}
+        #
+        # A read timeout that exhausts both the adapter's own retries and fetch_page's tenacity
+        # retry (already covers requests.ReadTimeout/ConnectionError) gets the same treatment — a
+        # slow or unresponsive GitLab instance, not something reconnecting or reconfiguring the
+        # source can fix. Temporal still retries the activity from scratch. Mirrors GitHub's
+        # equivalent classification of the same urllib3 wording.
+        return {"GitLab API error (retryable)", "Read timed out"}
 
     def get_schemas(
         self,
@@ -129,7 +145,10 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
             SourceSchema(
                 name=endpoint,
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
+                # An incremental fan-out re-emits every child of a re-fanned parent, which append
+                # would duplicate; merge dedupes them on the primary key.
+                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint))
+                and GITLAB_ENDPOINTS[endpoint].fan_out_parent is None,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
             for endpoint in ENDPOINTS

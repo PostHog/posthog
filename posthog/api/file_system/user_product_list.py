@@ -11,7 +11,8 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
-from posthog.models.file_system.user_product_list import UserProductList
+from posthog.models.file_system.starred_products import star_custom_products
+from posthog.models.file_system.user_product_list import UserProductList, user_has_custom_products
 
 
 class UserProductListSerializer(serializers.ModelSerializer):
@@ -35,11 +36,15 @@ class UserProductListSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team = self.context["get_team"]()
 
+        user = cast(User, request.user)
+        had_custom_products = user_has_custom_products(user)
         user_product_list = UserProductList.objects.create(
             team=team,
-            user=request.user,
+            user=user,
             **validated_data,
         )
+        if user_product_list.enabled:
+            star_custom_products(user, team, [user_product_list.product_path], had_custom_products=had_custom_products)
 
         return user_product_list
 
@@ -61,7 +66,9 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         user = cast(User, request.user)
+        had_custom_products = user_has_custom_products(user)
         results = []
+        enabled_paths = []
         with transaction.atomic():
             for item in items:
                 product_path = item.get("product_path")
@@ -69,16 +76,20 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 if not product_path or enabled is None:
                     continue
 
-                existing_item, _created = UserProductList.objects.get_or_create(
+                existing_item, created = UserProductList.objects.get_or_create(
                     team=self.team,
                     user=user,
                     product_path=product_path,
                     defaults={"enabled": enabled},
                 )
+                was_enabled = existing_item.enabled and not created
 
                 serializer = self.get_serializer(existing_item, data=item, partial=True)
                 serializer.is_valid(raise_exception=True)
                 serializer.save()
                 results.append(serializer.data)
+                if existing_item.enabled and not was_enabled:
+                    enabled_paths.append(product_path)
 
+        star_custom_products(user, self.team, enabled_paths, had_custom_products=had_custom_products)
         return Response({"results": results}, status=status.HTTP_200_OK)

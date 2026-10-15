@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.alpha_vantage import (
     alpha_vantage_source,
     validate_credentials as validate_alpha_vantage_credentials,
@@ -32,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
+    codebase_detection = detect(env=("^(ALPHA_VANTAGE|ALPHAVANTAGE)_",), pypi=("alpha-vantage",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.alphavantage.co/documentation/"
 
@@ -120,7 +121,7 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ALPHA_VANTAGE,
+            name=ExternalDataSourceType.ALPHAVANTAGE,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Alpha Vantage",
             releaseStatus=ReleaseStatus.ALPHA,

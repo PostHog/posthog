@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -31,14 +30,37 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.i
     validate_credentials as validate_iterable_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.iterable.settings import (
+    APPEND_ONLY_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class IterableSource(ResumableSource[IterableSourceConfig, IterableResumeConfig]):
+    codebase_detection = detect(
+        env=("^ITERABLE_",),
+        npm=("@iterable/web-sdk", "@iterable/react-native-sdk"),
+        cocoapods=(
+            "Iterable-iOS-SDK",
+            "Iterable-iOS-AppExtensions",
+            "Iterable-iOS-Inboxless-SDK",
+            "IterableAppExtensions",
+            "IterableSDK",
+        ),
+        maven=(
+            "com.iterable:iterableapi",
+            "com.iterable:iterableapi-ui",
+            "com.iterable:iterableplayutils_2.10",
+            "com.iterable:iterableplayutils_2.11",
+            "com.iterable:iterableplayutils_2.12",
+            "com.iterable:iterableplayutils_2.13",
+        ),
+        swiftpm=("github.com/iterable/iterable-swift-sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://api.iterable.com/api/docs"
 
@@ -74,7 +96,13 @@ class IterableSource(ResumableSource[IterableSourceConfig, IterableResumeConfig]
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            append_only=APPEND_ONLY_ENDPOINTS,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
+        )
 
     def validate_credentials(
         self,
@@ -104,13 +132,15 @@ class IterableSource(ResumableSource[IterableSourceConfig, IterableResumeConfig]
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every Iterable endpoint is full refresh
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ITERABLE,
+            name=ExternalDataSourceType.ITERABLE,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Iterable",
             caption="""Enter your Iterable API key to pull your Iterable data into the PostHog Data warehouse.
@@ -143,5 +173,5 @@ Make sure the data center below matches the one that issued your key (US or EU).
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

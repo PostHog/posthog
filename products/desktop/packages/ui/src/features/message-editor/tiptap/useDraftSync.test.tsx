@@ -1,5 +1,14 @@
 import { act, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { StrictMode } from "react";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 vi.mock("@posthog/ui/shell/rendererStorage", () => ({
   electronStorage: {
@@ -16,13 +25,17 @@ import { useDraftSync } from "./useDraftSync";
 
 // A real editor rather than a stub of the commands the hook calls: what the
 // restore path is worth testing for is the text a user would see in the box.
+const editors: Editor[] = [];
+
 function makeEditor(): Editor {
   const element = document.createElement("div");
   document.body.appendChild(element);
-  return new Editor({
+  const editor = new Editor({
     element,
     extensions: getEditorExtensions({ sessionId: "session-1" }),
   });
+  editors.push(editor);
+  return editor;
 }
 
 function DraftAttachmentsProbe({ sessionId }: { sessionId: string }) {
@@ -48,6 +61,15 @@ function RestoreProbe({
 }
 
 describe("useDraftSync", () => {
+  beforeAll(() => {
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+    Range.prototype.getBoundingClientRect = () => new DOMRect();
+  });
+
+  afterEach(() => {
+    for (const editor of editors.splice(0)) editor.destroy();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     useDraftStore.setState((state) => ({
@@ -57,6 +79,7 @@ describe("useDraftSync", () => {
       commands: {},
       focusRequested: {},
       pendingContent: {},
+      pendingInsert: {},
       _hasHydrated: true,
     }));
   });
@@ -88,6 +111,24 @@ describe("useDraftSync", () => {
     );
 
     expect(editor.getText()).toBe(expected);
+  });
+
+  it("inserts content sent from elsewhere once when the composer mounts", () => {
+    const editor = makeEditor();
+    useDraftStore.getState().actions.insertPendingContent("session-insert", {
+      segments: [{ type: "text", text: "Make it red" }],
+    });
+
+    render(
+      <StrictMode>
+        <RestoreProbe editor={editor} sessionId="session-insert" />
+      </StrictMode>,
+    );
+
+    expect(editor.getText()).toBe("Make it red");
+    expect(useDraftStore.getState().pendingInsert["session-insert"]).toBe(
+      undefined,
+    );
   });
 
   // Drafts land only once the store hydrates, so filling the box before that

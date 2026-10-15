@@ -136,6 +136,7 @@ export const HogFunctionsCreateBody = () => zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()).optional(),
+                bytecode_contract: zod.string().optional(),
                 order: zod.number().optional(),
                 transpiled: zod.unknown().optional(),
             })
@@ -155,6 +156,7 @@ export const HogFunctionsCreateBody = () => zod.object({
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_contract: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -176,7 +178,6 @@ export const HogFunctionsCreateBody = () => zod.object({
     mappings: zod
         .array(
             zod.object({
-                name: zod.string().optional(),
                 inputs_schema: zod
                     .array(
                         zod.object({
@@ -237,11 +238,13 @@ export const HogFunctionsCreateBody = () => zod.object({
                                 .optional()
                                 .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()).optional(),
+                            bytecode_contract: zod.string().optional(),
                             order: zod.number().optional(),
                             transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
+                name: zod.string().optional(),
                 filters: zod
                     .object({
                         source: zod
@@ -261,6 +264,7 @@ export const HogFunctionsCreateBody = () => zod.object({
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_contract: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -391,6 +395,7 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                 value: zod.unknown().optional(),
                 templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
                 bytecode: zod.array(zod.unknown()).optional(),
+                bytecode_contract: zod.string().optional(),
                 order: zod.number().optional(),
                 transpiled: zod.unknown().optional(),
             })
@@ -410,6 +415,7 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_contract: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -431,7 +437,6 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
     mappings: zod
         .array(
             zod.object({
-                name: zod.string().optional(),
                 inputs_schema: zod
                     .array(
                         zod.object({
@@ -492,11 +497,13 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                                 .optional()
                                 .describe('\* `hog` - hog\n\* `liquid` - liquid'),
                             bytecode: zod.array(zod.unknown()).optional(),
+                            bytecode_contract: zod.string().optional(),
                             order: zod.number().optional(),
                             transpiled: zod.unknown().optional(),
                         })
                     )
                     .optional(),
+                name: zod.string().optional(),
                 filters: zod
                     .object({
                         source: zod
@@ -516,6 +523,7 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_contract: zod.string().optional(),
                     })
                     .optional(),
             })

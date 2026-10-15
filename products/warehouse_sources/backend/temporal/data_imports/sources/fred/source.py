@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -34,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FredSource(ResumableSource[FredSourceConfig, FredResumeConfig]):
+    codebase_detection = detect(env=("^FRED_API_KEY$",), pypi=("fredapi",))
+
     api_docs_url = "https://fred.stlouisfed.org/docs/api/fred/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -51,7 +52,7 @@ class FredSource(ResumableSource[FredSourceConfig, FredResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FRED,
+            name=ExternalDataSourceType.FRED,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="FRED",
             keywords=["federal reserve", "economic data", "st louis fed", "macro"],

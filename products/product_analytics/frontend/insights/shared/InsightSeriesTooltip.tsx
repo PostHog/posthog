@@ -9,19 +9,22 @@ import { percentage } from 'lib/utils/numbers'
 import { alphabet } from 'lib/utils/strings'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import {
-    FormattedDateOptions,
-    getDatumTitle,
-    getFormattedDate,
-    getTooltipTitle,
-    SeriesDatum,
-} from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { formatAggregationValue, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
 import { ActionFilter, CompareLabelType, IntervalType } from '~/types'
+
+import {
+    FormattedDateOptions,
+    getDatumTitle,
+    getFormattedDate,
+    getTooltipTitle,
+    SeriesDatum,
+} from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
+
+import { getSeriesIdentification, type SeriesIdentification } from './seriesIdentification'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -63,6 +66,8 @@ export interface InsightSeriesTooltipProps<Meta extends InsightSeriesMetaBase> {
     sortedByValue?: boolean
     /** Hide rows whose value is exactly 0 (e.g. absent lifecycle statuses). */
     hideZeroRows?: boolean
+    /** Append a total row that sums the series at the hovered point (stacked bars). */
+    showTotal?: boolean
     /** Override the default "click to view X" footer, for charts whose click goes somewhere other than persons. */
     footerOverride?: React.ReactNode
 }
@@ -109,14 +114,6 @@ function formatHeaderDate(date: string | undefined, options: FormattedDateOption
 }
 
 // ── SeriesLabel ────────────────────────────────────────────────────────────
-
-/** How rows must identify the series they belong to:
- *  `none` — single series (or no way to tell them apart), no identifier needed;
- *  `name` — series names differ, the name alone identifies a row;
- *  `letter-and-name` — several series share a display name (e.g. the same event added
- *  twice with different math/filters), so the name is prefixed with the series letter
- *  (A, B, …) shown in the insight editor. */
-export type SeriesIdentification = 'none' | 'name' | 'letter-and-name'
 
 /** `SeriesDatum` plus the series name for rows whose meta has no `action` (formula series). */
 type TooltipSeriesDatum = SeriesDatum & { series_name?: string }
@@ -239,6 +236,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
     renderSeriesOverride,
     sortedByValue = true,
     hideZeroRows,
+    showTotal,
     footerOverride,
 }: InsightSeriesTooltipProps<Meta>): React.ReactElement {
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -269,24 +267,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
         return m
     }, [context.seriesData, context.dataIndex])
 
-    const seriesIdentification = useMemo((): SeriesIdentification => {
-        // One entry per series entity — breakdown/compare rows of one series share its `order`.
-        // Formula series have no `action`, but their `order` still identifies the formula they
-        // came from, with `series_name` carrying the formula label.
-        const nameByEntity = new Map<number | string, string>()
-        for (const d of datumByKey.values()) {
-            if (d.action) {
-                const entityKey = d.action.order ?? `${d.action.type}:${d.action.id}`
-                nameByEntity.set(entityKey, getDisplayNameFromEntityFilter(d.action) ?? '')
-            } else if (d.series_name != null) {
-                nameByEntity.set(d.order, d.series_name)
-            }
-        }
-        if (nameByEntity.size <= 1) {
-            return 'none'
-        }
-        return new Set(nameByEntity.values()).size < nameByEntity.size ? 'letter-and-name' : 'name'
-    }, [datumByKey])
+    const seriesIdentification = useMemo(() => getSeriesIdentification(datumByKey.values()), [datumByKey])
 
     const compareDates = useMemo((): Partial<Record<CompareLabelType, string>> => {
         const dates: Partial<Record<CompareLabelType, string>> = {}
@@ -417,6 +398,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
             {...context}
             sortedByValue={sortedByValue}
             hideZeroRows={hideZeroRows}
+            showTotal={showTotal}
             showHeader={showHeader !== false}
             labelFormatter={labelFormatter}
             labelRenderer={labelRenderer}

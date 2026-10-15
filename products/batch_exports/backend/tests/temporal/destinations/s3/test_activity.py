@@ -8,9 +8,11 @@ from posthog.models.integration import Integration, IntegrationError
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
+)
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     S3InsertInputs,
     _get_s3_integration,
     insert_into_s3_activity_from_stage,
@@ -106,12 +108,11 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
 
     prefix = str(uuid.uuid4())
 
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     batch_export_id = str(uuid.uuid4())
 
@@ -126,7 +127,6 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         batch_export_id=batch_export_id,
         destination_default_fields=s3_default_fields(),
@@ -261,12 +261,11 @@ async def test_insert_into_s3_activity_with_exclude_events(
 
     prefix = str(uuid.uuid4())
 
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     batch_export_id = str(uuid.uuid4())
 
@@ -281,7 +280,6 @@ async def test_insert_into_s3_activity_with_exclude_events(
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         batch_export_id=batch_export_id,
         destination_default_fields=s3_default_fields(),
@@ -329,7 +327,7 @@ async def test_insert_into_s3_activity_with_exclude_events(
 
 @pytest.mark.parametrize(("file_format", "compression"), SPLIT_FILE_FORMAT_COMPRESSIONS, indirect=["compression"])
 @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
-@pytest.mark.parametrize("max_file_size_mb", [None, 6])
+@pytest.mark.parametrize("max_file_size_mb", [None, 1])
 async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     clickhouse_client,
     bucket_name,
@@ -345,22 +343,15 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     ateam,
     s3_compatible_integration,
 ):
-    """Test that the insert_into_s3_activity_from_stage function splits up large files into
-    multiple parts based on the max file size configuration.
-
-    If max file size is set to 0 then the file should not be split up.
-
-    This test needs to generate a lot of data to ensure that the file is large enough to be split up.
-    """
-
     prefix = str(uuid.uuid4())
+    events_per_batch = 1_000 if max_file_size_mb is None else 40_000
 
     events_1, _, _ = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=ateam.pk,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=100000,
+        count=events_per_batch,
         count_outside_range=0,
         count_other_team=0,
         duplicate=False,
@@ -372,7 +363,7 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
         team_id=ateam.pk,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=100000,
+        count=events_per_batch,
         count_outside_range=0,
         count_other_team=0,
         duplicate=False,
@@ -393,7 +384,6 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
         exclude_events=exclude_events,
         file_format=file_format,
         max_file_size_mb=max_file_size_mb,
-        batch_export_schema=None,
         batch_export_model=model,
         batch_export_id=str(uuid.uuid4()),
         destination_default_fields=s3_default_fields(),
@@ -497,7 +487,6 @@ async def test_insert_into_s3_activity_fails_on_invalid_file_format(
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,
-        batch_export_schema=None,
         batch_export_model=model,
         batch_export_id=str(uuid.uuid4()),
         destination_default_fields=s3_default_fields(),
@@ -539,7 +528,6 @@ async def test_insert_into_s3_activity_fails_on_invalid_compression(
         compression=compression,
         exclude_events=exclude_events,
         file_format="JSONLines",
-        batch_export_schema=None,
         batch_export_model=model,
         batch_export_id=str(uuid.uuid4()),
         destination_default_fields=s3_default_fields(),

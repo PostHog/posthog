@@ -1,0 +1,70 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Edge function drafts itinerary suggestion",
+  "scenario": "A multi-tenant travel booking platform runs a Vercel edge function that calls OpenAI to draft an itinerary suggestion, tagged with the tenant's project and team groups.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-ai"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [
+      "vercel"
+    ],
+    "models": [
+      "gpt-5.6-terra"
+    ],
+    "content_types": []
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_output_tokens": 45,
+        "projectId": "54a0a743-53e7-7c66-16d0-0e5e55d72bd8",
+        "$ai_input_tokens": 688,
+        "$lib_version": "5.38.2",
+        "$ai_model_parameters": {},
+        "$is_server": true,
+        "$ai_lib_version": "7.16.0",
+        "$host": "https://api.wayvelle-travel.example.com/edge/chat",
+        "$ai_provider": "openai",
+        "$ai_model": "gpt-5.6-terra",
+        "$ai_framework_version": "6",
+        "$ai_tokens_source": "sdk",
+        "deploymentEnv": "dev",
+        "$lib": "posthog-edge",
+        "$groups": {
+          "project": "54a0a743-53e7-7c66-16d0-0e5e55d72bd8",
+          "team": "df6aaca1-1106-7897-53eb-d2d12ef87152"
+        },
+        "$geoip_disable": true,
+        "$ai_http_status": 200,
+        "$ai_trace_id": "bd890d91-7c16-7e94-3c4d-df3d56d94a3a",
+        "$ai_base_url": "",
+        "$ai_lib": "posthog-ai",
+        "$ai_framework": "vercel",
+        "$ai_latency": 1.913,
+        "$ai_stop_reason": "stop",
+        "teamId": "df6aaca1-1106-7897-53eb-d2d12ef87152",
+        "$group_1": "54a0a743-53e7-7c66-16d0-0e5e55d72bd8",
+        "$group_0": "df6aaca1-1106-7897-53eb-d2d12ef87152",
+        "$ai_input": null,
+        "$ai_output_choices": null
+      }
+    }
+  ],
+  "sets": [
+    "core"
+  ],
+  "why": "Privacy mode: @posthog/ai wrapper sends $ai_input and $ai_output_choices as null"
+}

@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { capitalizeFirstLetter } from 'kea-forms'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { pluralizeResource } from 'lib/utils/accessControlUtils'
 import { fullName } from 'lib/utils/strings'
@@ -22,7 +22,15 @@ function getScopeColumnsForTab(activeTab: AccessControlsTab): LemonTableColumns<
                     title: 'Role',
                     key: 'role',
                     render: function RenderRole(_: any, entry: AccessControlSettingsEntry) {
-                        return <span>{isRoleEntry(entry) ? entry.role_name : ''}</span>
+                        if (!isRoleEntry(entry)) {
+                            return null
+                        }
+                        // Access takes all free width, so a wrapping name shrinks this column to one word
+                        return (
+                            <Tooltip title={entry.role_name}>
+                                <span className="block max-w-60 truncate font-medium">{entry.role_name}</span>
+                            </Tooltip>
+                        )
                     },
                 },
             ]
@@ -65,8 +73,9 @@ export interface AccessControlTableProps {
     entries: AccessControlSettingsEntry[]
     loading: boolean
     canEditAny: boolean
+    cannotEditReason?: string
     visibleResources: Set<APIScopeObject>
-    /** The tools selected in the Tool filter. They limit which tags each row shows. */
+    /** The products selected in the Product filter. They limit which tags each row shows. */
     filteredResources: Set<APIScopeObject>
     onEdit: (entry: AccessControlSettingsEntry) => void
     /** Entry whose detail is currently open, highlighted in the list */
@@ -77,6 +86,7 @@ export function AccessControlTable(props: AccessControlTableProps): JSX.Element 
     const columns = getColumns(
         props.activeTab,
         props.canEditAny,
+        props.cannotEditReason,
         props.visibleResources,
         props.filteredResources,
         props.onEdit
@@ -125,7 +135,7 @@ function AccessSummary({
     }
 
     // The project tag comes first and counts towards the limit, so a row keeps the same width
-    // whether or not the Tool filter removed it
+    // whether or not the Product filter removed it
     const visibleTags = tags.slice(0, MAX_VISIBLE_TAGS)
     const hiddenCount = tags.length - visibleTags.length
 
@@ -147,6 +157,7 @@ function AccessSummary({
 function getColumns(
     activeTab: AccessControlsTab,
     canEditAny: boolean,
+    cannotEditReason: string | undefined,
     visibleResources: Set<APIScopeObject>,
     filteredResources: Set<APIScopeObject>,
     onEdit: (entry: AccessControlSettingsEntry) => void
@@ -183,7 +194,7 @@ function getColumns(
                         size="small"
                         fullWidth
                         icon={<IconPencil />}
-                        disabledReason={!canEditAny ? 'You cannot edit this' : undefined}
+                        disabledReason={!canEditAny ? (cannotEditReason ?? 'You cannot edit this') : undefined}
                         onClick={() => onEdit(entry)}
                     >
                         Edit

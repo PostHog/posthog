@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,26 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CourierSource(ResumableSource[CourierSourceConfig, CourierResumeConfig]):
+    # COURIER_ is a generic shipping word, so we match the exact key.
+    codebase_detection = detect(
+        env=("^COURIER_AUTH_TOKEN$", "^COURIER_API_KEY$"),
+        npm=(
+            "@trycourier/courier",
+            "@trycourier/courier-js",
+            "@trycourier/courier-react",
+            "@trycourier/react-provider",
+            "@trycourier/courier-react-native",
+        ),
+        pypi=("trycourier",),
+        cocoapods=("Courier_iOS", "Courier-iOS"),
+        composer=("trycourier/courier",),
+        go=("github.com/trycourier/courier-go", "github.com/trycourier/courier-cli"),
+        maven=("com.courier:courier-java", "com.courier:courier-java-client-okhttp", "com.courier:courier-java-core"),
+        pub=("courier_flutter",),
+        rubygems=("trycourier", "courier_rails"),
+        swiftpm=("github.com/trycourier/courier-ios",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.courier.com/docs/reference/get-started/"
     supported_versions = SUPPORTED_VERSIONS
@@ -104,7 +123,7 @@ class CourierSource(ResumableSource[CourierSourceConfig, CourierResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.COURIER,
+            name=ExternalDataSourceType.COURIER,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Courier",
             caption="Use an API key from the Courier dashboard under **Settings → API Keys**. Either the Live or Test key works; the key determines which environment's data is synced.",

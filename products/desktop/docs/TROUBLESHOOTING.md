@@ -1,5 +1,11 @@
 # Troubleshooting
 
+## An image in a local task does not load
+
+Local task messages can show PNG, JPEG, GIF, WebP, and AVIF files that are inside the task workspace. Use an absolute workspace path or a path relative to the workspace. Images outside the workspace and remote image URLs stay blocked.
+
+Cloud task files are not on your computer. Upload those files as task artifacts before you link to them.
+
 ## Conversation is too large to continue
 
 A request can exceed the size limit when a conversation contains large images or tool output.
@@ -59,6 +65,12 @@ Read the fields in this order:
 The line carries no titles or message text on purpose, so identify the notification from `reason` and `target` rather than from what it said.
 
 A sound with no notification the user was waiting on shows up as a `reason`/`trigger` pair that does not match what they were doing. Take the task id from `target` and the `context.taskRunId` from the line and follow that run.
+
+## A cloud task asks for GitHub access
+
+Cloud tasks and investigations use GitHub to read the selected repository and keep later background runs current. Connect GitHub from the prompt in the task.
+
+If your organization needs an owner to approve the PostHog app, copy the access request from the prompt and send it to the owner. When the same repository is registered as a local folder, you can run the investigation against that local checkout. The result is a point-in-time view and can become stale after the run.
 
 ## Black screen during development
 

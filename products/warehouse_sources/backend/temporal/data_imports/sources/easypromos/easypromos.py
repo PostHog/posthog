@@ -8,7 +8,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     JSONResponseCursorPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
@@ -66,6 +68,10 @@ def _client_config(access_token: str) -> ClientConfig:
 
 def _cursor_paginator() -> JSONResponseCursorPaginator:
     return JSONResponseCursorPaginator(cursor_path=_CURSOR_PATH, cursor_param=_CURSOR_PARAM)
+
+
+def _paginator(endpoint_config: EasypromosEndpointConfig) -> BasePaginator:
+    return _cursor_paginator() if endpoint_config.paginated else SinglePagePaginator()
 
 
 def _inject_promotion_id(row: dict[str, Any]) -> dict[str, Any]:
@@ -146,7 +152,7 @@ def _fan_out_resource(
                 "promotion_id": {"type": "resolve", "resource": "promotions", "field": "id"},
             },
             "data_selector": _DATA_SELECTOR,
-            "paginator": _cursor_paginator(),
+            "paginator": _paginator(endpoint_config),
         },
         "table_format": "delta",
     }

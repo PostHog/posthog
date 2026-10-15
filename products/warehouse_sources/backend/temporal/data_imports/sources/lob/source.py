@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -33,6 +32,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LobSource(ResumableSource[LobSourceConfig, LobResumeConfig]):
+    codebase_detection = detect(
+        env=("^LOB_API_KEY$",),
+        npm=("lob", "@lob/lob-typescript-sdk"),
+        pypi=("lob", "lob-python"),
+        composer=("lob/lob-php",),
+        go=("github.com/lob/lob-go",),
+        maven=("com.lob:lob-java",),
+        rubygems=("lob",),
+    )
+
     api_docs_url = "https://docs.lob.com/"
 
     @property
@@ -42,7 +51,7 @@ class LobSource(ResumableSource[LobSourceConfig, LobResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LOB,
+            name=ExternalDataSourceType.LOB,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Lob",
             releaseStatus=ReleaseStatus.ALPHA,

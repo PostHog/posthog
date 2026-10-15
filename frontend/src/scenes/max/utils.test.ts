@@ -7,7 +7,7 @@ import {
     RootAssistantMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
-import { DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { DashboardType, InsightShortId, InsightModel } from '~/types'
 
 import { EnhancedToolCall } from './max-constants'
 import {
@@ -29,7 +29,7 @@ describe('max/utils', () => {
                 response: { results: [[1]] },
                 values: { response: 'keep this query value' },
             }
-            const insight: Partial<QueryBasedInsightModel> = {
+            const insight: Partial<InsightModel> = {
                 short_id: 'test-query' as InsightShortId,
                 query: {
                     kind: NodeKind.DataVisualizationNode,
@@ -39,7 +39,7 @@ describe('max/utils', () => {
             const dashboard = {
                 id: 1,
                 tiles: [{ id: 1, insight }],
-            } as DashboardType<QueryBasedInsightModel>
+            } as DashboardType
             const context =
                 contextType === 'insight' ? insightToMaxContext(insight) : dashboardToMaxContext(dashboard).insights[0]
 

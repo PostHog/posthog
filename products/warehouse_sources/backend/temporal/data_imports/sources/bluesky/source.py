@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.bluesky import (
     BlueskyResumeConfig,
     bluesky_source,
@@ -57,6 +56,16 @@ PARTITION_FIELDS: dict[str, list[str]] = {
 
 @SourceRegistry.register
 class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
+    codebase_detection = detect(
+        env=("^BLUESKY_",),
+        script_hosts=("embed.bsky.app",),
+        npm=("@atproto/api",),
+        pypi=("atproto",),
+        cargo=("atrium-api", "bsky-sdk"),
+        go=("github.com/bluesky-social/indigo",),
+        pub=("bluesky", "bluesky_cli", "bluesky_text", "bluesky_text_flutter"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # The AT Protocol's XRPC methods aren't versioned (no path segment, header, or query param
@@ -128,7 +137,7 @@ class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BLUESKY,
+            name=ExternalDataSourceType.BLUESKY,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Bluesky",
             caption=(

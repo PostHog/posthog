@@ -11,6 +11,7 @@ import {
     ExternalDataSchemaStatus,
     ExternalDataSourceSyncSchema,
     HogFunctionTemplateType,
+    IncrementalSyncBlockedReason,
 } from '~/types'
 
 export type SyncInterval = DataWarehouseSyncInterval | DataModelingSyncInterval
@@ -168,6 +169,13 @@ export const SyncTypeLabelMap: Record<NonNullable<ExternalDataSourceSyncSchema['
     xmin: 'xmin',
 }
 
+export const IncrementalSyncBlockedMessageMap: Record<IncrementalSyncBlockedReason, string> = {
+    missing_primary_key:
+        "This table has no primary key, so it can't sync incrementally. Pick primary key columns, or change the sync method. If you added a primary key in the source, enable syncing to try again.",
+    duplicate_primary_key:
+        "The primary key used for this table isn't unique, so it can't sync incrementally. Remove the duplicate rows in the source and enable syncing to try again, or change the sync method. The key itself can't be changed once data has synced, unless you delete the synced data first.",
+}
+
 export const SyncFrequencyLabelMap: Record<DataWarehouseSyncInterval, string> = {
     '1min': '1 min',
     '5min': '5 mins',
@@ -192,6 +200,12 @@ const LEGACY_SUB_FLOOR_SYNC_FREQUENCIES: DataWarehouseSyncInterval[] = ['1min']
 
 export function allowedSyncFrequencies(): DataWarehouseSyncInterval[] {
     return SYNC_FREQUENCY_ORDER.filter((frequency) => !LEGACY_SUB_FLOOR_SYNC_FREQUENCIES.includes(frequency))
+}
+
+// A CDC table's change buffer keeps files for 14 days, so the API rejects a CDC table slower than weekly.
+export function allowedCdcSyncFrequencies(): DataWarehouseSyncInterval[] {
+    const slowest = SYNC_FREQUENCY_ORDER.indexOf('7day')
+    return allowedSyncFrequencies().filter((frequency) => SYNC_FREQUENCY_ORDER.indexOf(frequency) <= slowest)
 }
 
 // Raise a requested frequency to the fastest allowed one (e.g. a legacy 1min → 5min).

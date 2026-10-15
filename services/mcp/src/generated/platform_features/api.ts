@@ -23,6 +23,12 @@ export const PartialUpdateParams = () => zod.object({
 
 export const partialUpdateBodyNameMax = 64
 
+export const partialUpdateBodyMemberNoticeOneMessageMax = 1000
+
+export const partialUpdateBodyMemberNoticeOneActionOneLabelMax = 40
+
+export const partialUpdateBodyMemberNoticeOneActionOneUrlMax = 2000
+
 export const PartialUpdateBody = () => zod.object({
     name: zod.string().max(partialUpdateBodyNameMax).optional(),
     logo_media_id: zod.string().nullish(),
@@ -54,21 +60,41 @@ export const PartialUpdateBody = () => zod.object({
         .describe(
             "When True, requests through the PostHog MCP server can read but not change this organization's data."
         ),
+    member_notice: zod
+        .union([
+            zod.object({
+                message: zod
+                    .string()
+                    .max(partialUpdateBodyMemberNoticeOneMessageMax)
+                    .describe(
+                        'HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.'
+                    ),
+                action: zod
+                    .union([
+                        zod.object({
+                            label: zod
+                                .string()
+                                .max(partialUpdateBodyMemberNoticeOneActionOneLabelMax)
+                                .describe('Text on the button shown next to the notice.'),
+                            url: zod
+                                .url()
+                                .max(partialUpdateBodyMemberNoticeOneActionOneUrlMax)
+                                .describe('Link the button opens in a new tab. Must use http or https.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Optional link button shown on the right of the banner.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
         .nullish()
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
-    default_experiment_stats_method: zod
-        .union([
-            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
-        ),
     default_anonymize_ips: zod
         .boolean()
         .optional()
@@ -201,7 +227,9 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
     clients: zod
         .array(zod.string())
         .default(advancedActivityLogsListQueryClientsDefault)
-        .describe('Filter by API clients that generated the activity (from x-posthog-client header).'),
+        .describe(
+            "Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run)."
+        ),
     detail_filters: zod
         .string()
         .optional()
@@ -417,7 +445,7 @@ export const CommentsListQueryParams = () => zod.object({
     task_id: zod
         .string()
         .optional()
-        .describe('Owning task for task, task_artifact, and desktop_canvas comment scopes.'),
+        .describe('Owning task for task, task_artifact, task_preview, task_browser, and canvas comment scopes.'),
 })
 
 /**

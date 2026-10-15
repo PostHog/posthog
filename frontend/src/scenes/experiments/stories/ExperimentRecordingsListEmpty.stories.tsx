@@ -7,6 +7,9 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import EXPERIMENT_WITH_FUNNEL_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_funnel_metric.json'
+import FUNNELS_METRIC_RESULT from '~/mocks/fixtures/api/experiments/funnel_metric_result.json'
+
+import { recalculationMocks, resultsByMetricType } from './recalculationMocks'
 
 // One story per empty reason: the copy is the feature, and a screenshot is the only way to check
 // that each reason reads as its own answer. The default session_recordings handler returns an empty
@@ -17,6 +20,15 @@ import EXPERIMENT_WITH_FUNNEL_METRIC from '~/mocks/fixtures/api/experiments/expe
 // endpoint, so the scene cannot be put in that state here. The unit test asserts that copy instead.
 const EXPERIMENT_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/`
 const SESSION_BUCKETS_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/session_buckets/`
+
+// The scene loads the latest metrics recalculation run whatever tab is open. Without a run to
+// return, it starts a cold run against an endpoint no handler answers, and that request can fail
+// after the story has moved on, which breaks the play steps below. The fixture's refresh time is
+// after `mockDate`, so it is cleared to keep the header from reading "Refreshed in 3 months".
+const RECALCULATION = recalculationMocks(
+    EXPERIMENT_WITH_FUNNEL_METRIC,
+    resultsByMetricType(EXPERIMENT_WITH_FUNNEL_METRIC, { funnel: { ...FUNNELS_METRIC_RESULT, last_refresh: null } })
+)
 
 // `mockDate` below is 2025-06-01, and the mock team keeps recordings for 30 days. Each story sets
 // the run window against those two so the tab resolves the reason the story is named for.
@@ -39,6 +51,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                ...RECALCULATION.get,
                 [EXPERIMENT_PATH]: EXPERIMENT_WITH_FUNNEL_METRIC,
                 '/api/environments/:team_id/experiments_config/': {},
                 '/api/projects/:team_id/experiment_holdouts': { count: 0, results: [] },
@@ -51,6 +64,9 @@ const meta: Meta = {
                 '/api/projects/:team_id/vision/scanners/': { count: 0, results: [] },
             },
             post: {
+                ...RECALCULATION.post,
+                // Loaded results start the running time estimate, and a failed request raises a toast.
+                '/api/projects/:team_id/experiments/calculate_running_time/': {},
                 '/api/environments/:team_id/query/:kind': [200, { results: [] }],
             },
         }),
@@ -93,6 +109,19 @@ async function clickWhenRendered(root: ParentNode, dataAttr: string): Promise<vo
 
 /** Narrowed to one variant, so the reason is the facet rather than anything about the project. */
 export const ExperimentRecordingsEmptyVariantHasNone: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('test-1'))
+    },
+}
+
+/**
+ * Narrowed to one variant on a run too young to have recordings either way. The copy stays the
+ * too-early one, because the list is most likely empty for every variant, and the banner carries
+ * the way out of the variant so the viewer is not left with nothing to click.
+ */
+export const ExperimentRecordingsEmptyTooEarlyWithVariantSelected: Story = {
+    decorators: [mswDecorator({ get: { [EXPERIMENT_PATH]: experimentRun('2025-05-30T09:00:00Z', null) } })],
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByText('test-1'))
@@ -154,4 +183,110 @@ export const ExperimentRecordingsEmptyMetricFilterMatchedNothing: Story = {
 export const ExperimentRecordingsEmptyMetricFilterFailed: Story = {
     decorators: [mswDecorator({ post: { [SESSION_BUCKETS_PATH]: [400, { detail: 'Could not resolve the filter' }] } })],
     play: pickFiredNone,
+}
+
+// A results-row link for a metric the tab can't select. It carries no metric and no mode, so the
+// caption strip is the only thing that says the list is every recording of the variant, and why.
+const DROPPED_METRIC_URL = `${urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id)}?tab=recordings&variant=test-1&entry=results_button&metric_unavailable=server_side_events`
+const DROPPED_METRIC_CAPTION = '[data-attr="experiment-recordings-dropped-metric-caption"]'
+
+export const ExperimentRecordingsDroppedMetric: Story = {
+    parameters: {
+        pageUrl: DROPPED_METRIC_URL,
+        testOptions: { waitForSelector: DROPPED_METRIC_CAPTION },
+    },
+}
+
+/**
+ * The ~520px of scene a nav sidebar and an open side panel leave. The caption is a long sentence,
+ * so this is where it has to wrap rather than clip.
+ */
+export const ExperimentRecordingsDroppedMetricNarrow: Story = {
+    parameters: {
+        pageUrl: DROPPED_METRIC_URL,
+        testOptions: {
+            waitForSelector: DROPPED_METRIC_CAPTION,
+            viewport: { width: 767, height: 1200 },
+        },
+    },
+}
+
+/**
+ * A flag that aggregates by group exposes groups rather than people, and the backend refuses to
+ * match those exposures to recordings. The tab states that instead of mounting a list, so none of
+ * the facet controls render either: every one of them describes a list.
+ */
+export const ExperimentRecordingsUnavailableGroupAggregated: Story = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="experiment-recordings-unavailable-group-aggregated"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [EXPERIMENT_PATH]: {
+                    ...EXPERIMENT_WITH_FUNNEL_METRIC,
+                    feature_flag: {
+                        ...EXPERIMENT_WITH_FUNNEL_METRIC.feature_flag,
+                        filters: {
+                            ...EXPERIMENT_WITH_FUNNEL_METRIC.feature_flag.filters,
+                            aggregation_group_type_index: 0,
+                        },
+                    },
+                },
+            },
+        }),
+    ],
+}
+
+/**
+ * A list load the backend refused for a reason that passes on its own. The caption carries the
+ * backend's own message and a retry, where the playlist's banner below it can only say that
+ * something failed.
+ */
+export const ExperimentRecordingsListLoadFailed: Story = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="experiment-recordings-list-error-caption"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/session_recordings': [
+                    400,
+                    {
+                        detail: 'Exposed users for this experiment are still being computed. Try again in a few minutes.',
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+/**
+ * The same matched-nothing state, reached by a results-row link rather than by hand. This is the
+ * one place the whole deep link runs end to end: the scene keeps the params through its first URL
+ * pass, and the tab applies them on mount, so the variant facet and the drop-off trigger label are
+ * already set when the list lands.
+ */
+export const ExperimentRecordingsEmptyFromResultsRow: Story = {
+    parameters: {
+        pageUrl: `${urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id)}?tab=recordings&variant=test-1&metric_uuid=${
+            EXPERIMENT_WITH_FUNNEL_METRIC.metrics[0].uuid
+        }&metric_filter=funnel_dropoff`,
+        testOptions: { waitForSelector: '[data-attr="experiment-recordings-empty-state"] .LemonBanner' },
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                [SESSION_BUCKETS_PATH]: {
+                    session_ids: [],
+                    truncated: false,
+                    considered_metrics: [{ metric_uuid: 'funnel', metric_name: 'Checkout funnel' }],
+                    excluded_metrics: [],
+                    date_from: '2025-05-25T00:00:00Z',
+                    date_to: '2025-06-01T00:00:00Z',
+                    filter_test_accounts: true,
+                },
+            },
+        }),
+    ],
 }

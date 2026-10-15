@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms.canvas_lms import (
     HOST_NOT_ALLOWED_ERROR,
     CanvasLmsResumeConfig,
@@ -38,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CanvasLmsSource(ResumableSource[CanvasLmsSourceConfig, CanvasLmsResumeConfig]):
+    codebase_detection = detect(env=("^(CANVAS_LMS|CANVASLMS)_",), pypi=("canvasapi",), rubygems=("canvas-api",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # Canvas's REST API has always been served at a bare `/api/v1` with no versioned releases or
@@ -57,7 +58,7 @@ class CanvasLmsSource(ResumableSource[CanvasLmsSourceConfig, CanvasLmsResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CANVAS_LMS,
+            name=ExternalDataSourceType.CANVASLMS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Instructure Canvas LMS",
             releaseStatus=ReleaseStatus.ALPHA,

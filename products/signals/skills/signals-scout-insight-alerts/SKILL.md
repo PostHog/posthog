@@ -1,5 +1,6 @@
 ---
 name: signals-scout-insight-alerts
+scout-display-name: Insight alerts
 description: >
   Signals scout over the project's configured insight alerts. Reads each alert's recent firing
   history and surfaces the firings a human likely missed.

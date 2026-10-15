@@ -19,7 +19,12 @@ class DetectionResult:
 
 
 class BaseDetector(ABC):
-    """Abstract base class for all anomaly detectors."""
+    """Abstract base class for all anomaly detectors.
+
+    A detector scores a bare array of values and nothing else. A scorer that needs to know
+    what the series means or who is asking (the AI judge) is a different contract, kept in
+    ``products.alerts.backend.judge``.
+    """
 
     # Default anomaly probability threshold. Higher = fewer alerts.
     DEFAULT_THRESHOLD = 0.95

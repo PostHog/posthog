@@ -38,8 +38,9 @@ interface SectionCountStub {
 // One count per state's fixed filter, so the summed total is unambiguous.
 const COUNT_BY_FILTER: SectionCountStub[] = [
     { match: (p) => p.get('has_implementation_pr') === 'true', count: 4 },
-    { match: (p) => p.get('has_implementation_pr') === 'false', count: 7 },
-    { match: (p) => (p.get('status') ?? '').includes('suppressed'), count: 2 },
+    { match: (p) => p.get('view') === 'needs_decision', count: 7 },
+    { match: (p) => p.get('view') === 'dismissed', count: 2 },
+    { match: (p) => p.get('view') === 'held_back', count: 1 },
 ]
 
 // Only `ready` + `not_actionable` reports: the pipeline's actionability judgment leaves the status
@@ -83,6 +84,7 @@ function makeReport(id: string, status: SignalReportStatus): SignalReport {
 function mockReportRows(resolvedRowsGate?: { block: Promise<void>; onRequest: () => void }): void {
     const withPr = makeReport('with-pr', SignalReportStatus.READY)
     const needsPr = makeReport('needs-pr', SignalReportStatus.READY)
+    const failed = makeReport('failed', SignalReportStatus.FAILED)
     const resolved = makeReport('resolved', SignalReportStatus.RESOLVED)
     useMocks({
         get: {
@@ -97,8 +99,8 @@ function mockReportRows(resolvedRowsGate?: { block: Promise<void>; onRequest: ()
                 const results =
                     params.get('has_implementation_pr') === 'true'
                         ? [withPr]
-                        : params.get('has_implementation_pr') === 'false'
-                          ? [needsPr]
+                        : params.get('view') === 'needs_decision'
+                          ? [needsPr, failed]
                           : isResolved
                             ? [resolved]
                             : []
@@ -135,8 +137,8 @@ describe('ReportsTab', () => {
         await waitFor(() => {
             const viewed = (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === INBOX_EVENTS.VIEWED)
             expect(viewed).toHaveLength(1)
-            // Needs decision + Review and merge + Resolved + Dismissed. Not actionable is staff-only triage.
-            expect(viewed[0][1]).toMatchObject({ tab: 'reports', total_count: 13, is_empty: false })
+            // Needs decision + Review and merge + Resolved + Dismissed + Held back. Not actionable is staff-only triage.
+            expect(viewed[0][1]).toMatchObject({ tab: 'reports', total_count: 14, is_empty: false })
         })
     })
 
@@ -205,6 +207,10 @@ describe('ReportsTab', () => {
         await waitFor(() => {
             expect(document.querySelector('[data-attr="report-card-with-pr"]')).not.toBeNull()
             expect(document.querySelector('[data-attr="report-card-needs-pr"]')).not.toBeNull()
+            expect(document.querySelector('[data-attr="report-card-failed"]')).toHaveAttribute(
+                'data-section',
+                'needs-decision'
+            )
         })
         expect(document.querySelector('[data-attr="report-card-resolved"]')).toBeNull()
 
@@ -225,6 +231,7 @@ describe('ReportsTab', () => {
 
         await waitFor(() => {
             expect(document.querySelector('[data-attr="report-card-needs-pr"]')).toBeNull()
+            expect(document.querySelector('[data-attr="report-card-failed"]')).toBeNull()
         })
         expect(document.querySelector('[data-attr="report-card-with-pr"]')).not.toBeNull()
     })
@@ -246,6 +253,7 @@ describe('ReportsTab', () => {
             sortField: 'priority',
             sortDirection: 'asc',
             searchQuery: '',
+            createdWindow: null,
         })
 
         render(<ReportsTab />)

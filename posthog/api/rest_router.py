@@ -2,7 +2,16 @@ from rest_framework import decorators, exceptions
 
 # Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
 import posthog.temporal.ai  # noqa: F401
-from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
+from posthog.api import (
+    data_color_theme,
+    data_deletion_request,
+    metalytics,
+    my_notifications,
+    project,
+    terminal_netplay,
+    user_integration,
+    user_push_token,
+)
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.product_enablement import ProductEnablementViewSet
@@ -39,6 +48,7 @@ from . import (
     instance_settings,
     instance_status,
     integration,
+    internal_feedback,
     materialized_column_slot,
     object_media_preview,
     organization,
@@ -59,7 +69,6 @@ from . import (
     search,
     sharing,
     tagged_item,
-    team,
     uploaded_media,
     user,
     user_facet_settings,
@@ -71,12 +80,15 @@ from . import (
 from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
 from .data_management import DataManagementViewSet
+from .emoji_search import EmojiSearchViewSet
 from .event_filter_config import EventFilterConfigViewSet
 from .file_system import file_system, file_system_shortcut, user_product_list
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
 from .organization_notification_locks import OrganizationNotificationLockViewSet
 from .session import SessionViewSet
+from .taxonomic_search_intent import SearchIntentViewSet
+from .team import viewsets
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -94,7 +106,7 @@ routers.set_root(router)
 
 # Nested endpoints shared
 projects_router = routers.add("projects", router.register(r"projects", project.RootProjectViewSet, "projects"))
-projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
+projects_router.register(r"environments", viewsets.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
 
 projects_router.register(r"sdk_health", SdkHealthViewSet, "project_sdk_health", ["project_id"])
 projects_router.register(
@@ -113,6 +125,12 @@ projects_router.register(
     r"my_notifications",
     my_notifications.MyNotificationsViewSet,
     "project_my_notifications",
+    ["project_id"],
+)
+projects_router.register(
+    r"terminal_netplay",
+    terminal_netplay.TerminalNetplayViewSet,
+    "project_terminal_netplay",
     ["project_id"],
 )
 
@@ -234,6 +252,13 @@ projects_router.register(
     ["project_id"],
 )
 projects_router.register(
+    r"taxonomic_search_intent",
+    SearchIntentViewSet,
+    "project_taxonomic_search_intent",
+    ["team_id"],
+)
+projects_router.register(r"emoji_search", EmojiSearchViewSet, "project_emoji_search", ["team_id"])
+projects_router.register(
     r"schema_property_groups",
     schema_property_group.SchemaPropertyGroupViewSet,
     "project_schema_property_groups",
@@ -257,6 +282,12 @@ projects_router.register(
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
 projects_router.register(r"query", query.QueryViewSet, "project_query", ["team_id"])
+projects_router.register(
+    r"data_deletion_requests",
+    data_deletion_request.DataDeletionRequestViewSet,
+    "project_data_deletion_requests",
+    ["team_id"],
+)
 
 
 # Organizations nested endpoints
@@ -355,11 +386,13 @@ router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/dev", authentication.DevLoginViewSet, "login_dev")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
+# nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 router.register(
     r"login/code-based-verification", authentication.CodeBasedVerificationViewSet, "login_code_based_verification"
 )
 router.register(r"login/2fa/passkey", authentication.TwoFactorPasskeyViewSet, "login_2fa_passkey")
 router.register(r"webauthn/register", webauthn.WebAuthnRegistrationViewSet, "webauthn_register")
+# nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 router.register(r"webauthn/signup-register", webauthn.WebAuthnSignupRegistrationViewSet, "webauthn_signup_register")
 router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_login")
 router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
@@ -388,6 +421,8 @@ router.register(
     "user_facet_settings",
 )
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
+router.register(r"internal_feedback", internal_feedback.InternalFeedbackViewSet, "internal_feedback")
+# nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
@@ -443,16 +478,8 @@ projects_router.register(
 projects_router.register(r"sessions", SessionViewSet, "project_sessions", ["team_id"])
 
 if EE_AVAILABLE:
-    from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet, GroupUsageMetricViewSet
     from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
 
-    projects_router.register(r"groups", GroupsViewSet, "project_groups", ["team_id"])
-    group_types_router = projects_router.register(
-        r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"]
-    )
-    group_types_router.register(
-        r"metrics", GroupUsageMetricViewSet, "project_groups_metrics", ["project_id", "group_type_index"]
-    )
     projects_router.register(r"persons", EnterprisePersonViewSet, "project_persons", ["team_id"])
     router.register(r"person", LegacyEnterprisePersonViewSet, "persons")
     vercel_installations_router = router.register(
@@ -543,6 +570,7 @@ projects_router.register(
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
 
 
+# nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 projects_router.register(
     r"csp-reporting",
     CSPReportingViewSet,
@@ -551,6 +579,7 @@ projects_router.register(
 )
 
 
+# nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 projects_router.register(r"js-snippet", JsSnippetViewSet, "project_js_snippet", ["team_id"])
 
 

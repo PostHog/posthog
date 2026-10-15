@@ -18,7 +18,8 @@ rules:
           egress telemetry (request volume + `X-RateLimit-*` gauges), so it can burn a
           customer's GitHub budget invisibly. See `posthog/egress/github/README.md`.
 
-          This rule only catches literal/f-string URLs; keep URLs inline at the call site.
+          This rule only catches literal/f-string URLs passed to `requests`; the other shapes are
+          caught by `github-api-calls-go-through-egress-wide`.
           Suppress a legitimate exception with
           `# nosemgrep: github-api-calls-go-through-egress -- <reason>`.
       languages: [python]
@@ -29,11 +30,149 @@ rules:
                       - pattern: requests.$METHOD($URL, ...)
                       - metavariable-regex:
                             metavariable: $METHOD
-                            regex: ^(get|post|put|patch|delete|head)$
+                            regex: ^(get|post|put|patch|delete|head|options)$
                 - pattern: requests.request($METHOD, $URL, ...)
           - metavariable-regex:
                 metavariable: $URL
                 regex: .*(api|uploads)\.github\.com.*
+      paths:
+          include:
+              - /common/**/*.py
+              - /ee/**/*.py
+              - /posthog/**/*.py
+              - /products/**/*.py
+          exclude:
+              - /posthog/egress/**
+
+    - id: github-api-calls-go-through-egress-wide
+      message: |
+          Outbound GitHub API calls must go through the gated, recorded egress transport. This rule
+          catches the shapes that `github-api-calls-go-through-egress` misses: a URL bound to a
+          variable or constant first, a URL built by concatenation or an f-string, a
+          `requests.Session`, `httpx`, `aiohttp` or `urllib.request` call.
+
+          Use one of:
+          - `GitHubIntegrationBase.api_request(...)` when you hold a `GitHubIntegration` /
+            `UserGitHubIntegration`. It owns token refresh, the 401 refresh-retry, rate-limit
+            raising (`GitHubRateLimitError`), and telemetry attribution via the instance's `source`.
+          - `posthog.egress.github.transport.github_request(...)` for token-agnostic calls (user
+            OAuth tokens, PATs, App JWTs). Pass `installation_id` only when the call is metered
+            against that installation's budget.
+
+          Why: a raw call bypasses the shared per-installation rate-limit budget and the egress
+          telemetry, so it can burn a customer's GitHub budget invisibly. See
+          `posthog/egress/github/README.md`.
+
+          Suppress a legitimate exception with
+          `# nosemgrep: github-api-calls-go-through-egress-wide -- <reason>`.
+      languages: [python]
+      severity: ERROR
+      patterns:
+          - pattern-either:
+                - patterns:
+                      - pattern-either:
+                            - pattern: requests.$METHOD($URL, ...)
+                            - pattern: requests.Session().$METHOD($URL, ...)
+                            - pattern: httpx.$METHOD($URL, ...)
+                            - pattern: httpx.Client(...).$METHOD($URL, ...)
+                            - pattern: httpx.AsyncClient(...).$METHOD($URL, ...)
+                            - pattern: aiohttp.ClientSession(...).$METHOD($URL, ...)
+                            - patterns:
+                                  - pattern: $S.$METHOD($URL, ...)
+                                  - pattern-either:
+                                        - pattern-inside: |
+                                              $S = requests.Session()
+                                              ...
+                                        - pattern-inside: |
+                                              $S = httpx.Client(...)
+                                              ...
+                                        - pattern-inside: |
+                                              $S = httpx.AsyncClient(...)
+                                              ...
+                                        - pattern-inside: |
+                                              $S = aiohttp.ClientSession(...)
+                                              ...
+                                        - pattern-inside: |
+                                              with requests.Session() as $S:
+                                                  ...
+                                        - pattern-inside: |
+                                              with httpx.Client(...) as $S:
+                                                  ...
+                                        - pattern-inside: |
+                                              async with httpx.AsyncClient(...) as $S:
+                                                  ...
+                                        - pattern-inside: |
+                                              async with aiohttp.ClientSession(...) as $S:
+                                                  ...
+                      # Only the HTTP verbs send a request. `httpx.URL(...)` and `Session().mount(...)`
+                      # take a URL and send nothing.
+                      - metavariable-regex:
+                            metavariable: $METHOD
+                            regex: ^(get|post|put|patch|delete|head|options)$
+                - pattern: requests.request($M, $URL, ...)
+                - pattern: requests.Session().request($M, $URL, ...)
+                - pattern: httpx.request($M, $URL, ...)
+                - pattern: httpx.Client(...).request($M, $URL, ...)
+                - pattern: httpx.AsyncClient(...).request($M, $URL, ...)
+                - pattern: aiohttp.request($M, $URL, ...)
+                - pattern: aiohttp.ClientSession(...).request($M, $URL, ...)
+                - patterns:
+                      - pattern: $S.request($M, $URL, ...)
+                      - pattern-either:
+                            - pattern-inside: |
+                                  $S = requests.Session()
+                                  ...
+                            - pattern-inside: |
+                                  $S = httpx.Client(...)
+                                  ...
+                            - pattern-inside: |
+                                  $S = httpx.AsyncClient(...)
+                                  ...
+                            - pattern-inside: |
+                                  $S = aiohttp.ClientSession(...)
+                                  ...
+                            - pattern-inside: |
+                                  with requests.Session() as $S:
+                                      ...
+                            - pattern-inside: |
+                                  with httpx.Client(...) as $S:
+                                      ...
+                            - pattern-inside: |
+                                  async with httpx.AsyncClient(...) as $S:
+                                      ...
+                            - pattern-inside: |
+                                  async with aiohttp.ClientSession(...) as $S:
+                                      ...
+                - pattern: urllib.request.urlopen($URL, ...)
+                - pattern: urlopen($URL, ...)
+          # Skip what `github-api-calls-go-through-egress` already reports: a `requests` call whose argument text names the host.
+          - pattern-not:
+                patterns:
+                    - pattern: requests.$METHOD($URL, ...)
+                    - metavariable-regex:
+                          metavariable: $METHOD
+                          regex: ^(get|post|put|patch|delete|head|options)$
+                    - metavariable-regex:
+                          metavariable: $URL
+                          regex: .*(api|uploads)\.github\.com.*
+          - pattern-not:
+                patterns:
+                    - pattern: requests.request($M, $URL, ...)
+                    - metavariable-regex:
+                          metavariable: $URL
+                          regex: .*(api|uploads)\.github\.com.*
+          # A URL bound to a variable or constant is matched through constant propagation, so the
+          # string pattern sees the value. A call that has a literal GitHub URL inline is already
+          # blocked by `github-api-calls-go-through-egress`.
+          - metavariable-pattern:
+                metavariable: $URL
+                pattern-either:
+                    - pattern: |
+                          "=~/.*(api|uploads)\.github\.com.*/"
+                    - pattern: |
+                          "=~/.*(api|uploads)\.github\.com.*/" + ...
+                    - pattern: |
+                          f"=~/.*(api|uploads)\.github\.com.*/"
       paths:
           include:
               - /common/**/*.py

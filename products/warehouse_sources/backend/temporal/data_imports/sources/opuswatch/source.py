@@ -2,15 +2,14 @@ import re
 from datetime import datetime
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -43,6 +42,8 @@ _START_DATE_RE = re.compile(r"^\d{8}$")
 
 @SourceRegistry.register
 class OPUSWatchSource(ResumableSource[OPUSWatchSourceConfig, OPUSWatchResumeConfig]):
+    codebase_detection = detect(env=("^(OPUS_WATCH|OPUSWATCH)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # OPUS Solutions publishes no versioned API reference; the ext API base URL is the
     # closest stable pointer to the API surface.
@@ -138,7 +139,7 @@ class OPUSWatchSource(ResumableSource[OPUSWatchSourceConfig, OPUSWatchResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.OPUS_WATCH,
+            name=ExternalDataSourceType.OPUSWATCH,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="OPUSWatch",
             caption="Import master data, work registrations, and productivity sessions from OPUSWatch by OPUS Solutions.",

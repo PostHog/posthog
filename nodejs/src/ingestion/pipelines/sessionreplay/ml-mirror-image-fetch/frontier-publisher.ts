@@ -1,8 +1,8 @@
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducer } from '~/common/kafka/producer'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
-import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-transport'
-import { encryptedKafkaValue } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/transport'
+import { mlKafkaRecord } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import {
     FetchCandidate,
@@ -80,7 +80,7 @@ export class FrontierPublisher {
     private readonly republishes: ConcurrencyController
 
     constructor(
-        private readonly producer: KafkaProducerWrapper,
+        private readonly producer: KafkaProducer,
         private readonly options: FrontierPublisherOptions
     ) {
         this.delayTiers = [...options.delayTiers].sort((left, right) => left.delayMs - right.delayMs)
@@ -111,7 +111,7 @@ export class FrontierPublisher {
         if (!result.bytes || !result.contentType) {
             throw new Error('an image publish needs response bytes and a content type')
         }
-        const encrypted = encryptedKafkaValue(candidate.privacyKey, 'image-source', result.bytes, candidate.originalRef)
+        const record = mlKafkaRecord(candidate.sessionId ? '2' : '1', result.bytes)
         const headers: Record<string, string> = {
             'content-type': result.contentType,
             [CAPTURE_TIMESTAMP_HEADER]: String(candidate.firstSeenAtMs),
@@ -129,8 +129,8 @@ export class FrontierPublisher {
                     this.producer.produce({
                         topic: this.options.scrubTopic,
                         key: Buffer.from(candidate.originalRef),
-                        value: encrypted.value,
-                        headers: { ...headers, ...encrypted.headers },
+                        value: record.value,
+                        headers: { ...headers, ...record.headers },
                     }),
             }
         )
@@ -142,7 +142,7 @@ class BufferedRepublishBatch implements RepublishBatch {
     private flushed = false
 
     constructor(
-        private readonly producer: KafkaProducerWrapper,
+        private readonly producer: KafkaProducer,
         private readonly frontierTopic: string,
         private readonly delayTiers: DelayTier[],
         private readonly republishes: ConcurrencyController,
@@ -230,7 +230,7 @@ class BufferedRepublishBatch implements RepublishBatch {
     private planMessages(): PlannedRepublishMessage[] {
         const groups = new Map<string, PendingRepublish[]>()
         for (const item of this.pending) {
-            const key = `${item.destination.topic}\0${item.candidate.registrableDomain}\0${JSON.stringify(item.candidate.privacyKey?.identity ?? null)}`
+            const key = `${item.destination.topic}\0${item.candidate.registrableDomain}\0${item.candidate.sessionId ? '2' : '1'}`
             const group = groups.get(key)
             if (group) {
                 group.push(item)
@@ -301,14 +301,18 @@ class BufferedRepublishBatch implements RepublishBatch {
                             return 'skipped'
                         }
                         try {
+                            const record = mlKafkaRecord(
+                                plan.candidates[0].sessionId ? '2' : '1',
+                                serializeFrontierRecord(plan.candidates)
+                            )
                             await this.producer.produce({
                                 topic: plan.topic,
                                 key: Buffer.from(plan.registrableDomain),
-                                ...encryptedKafkaValue(
-                                    plan.candidates[0].privacyKey,
-                                    'image-frontier',
-                                    serializeFrontierRecord(plan.candidates)
-                                ),
+                                value: record.value,
+                                headers: {
+                                    [CAPTURE_TIMESTAMP_HEADER]: String(earliestFirstSeenAtMs(plan.candidates)),
+                                    ...record.headers,
+                                },
                             })
                             return 'published'
                         } catch {
@@ -359,4 +363,12 @@ class BufferedRepublishBatch implements RepublishBatch {
             ImageFetchRequestMetrics.incRepublishFailed(reason)
         }
     }
+}
+
+function earliestFirstSeenAtMs(candidates: FetchCandidate[]): number {
+    let earliest = candidates[0].firstSeenAtMs
+    for (const candidate of candidates) {
+        earliest = Math.min(earliest, candidate.firstSeenAtMs)
+    }
+    return earliest
 }

@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
 import { ForwardingApiClient } from '@/lib/connection-forwarding'
-import { ExecCommandError, PostHogApiError } from '@/lib/errors'
+import { ExecCommandError, PostHogApiError, PostHogTransportError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import executeSqlTool from '@/tools/posthogAiTools/executeSql'
 import { createConnectionCallTool } from '@/tools/posthogConnections/call'
@@ -78,6 +78,63 @@ describe('posthog connection forwarding', () => {
     })
 
     describe('ForwardingApiClient', () => {
+        it.each([200, 500])('preserves per-call private response policy for target status %s', async (status) => {
+            vi.stubGlobal(
+                'fetch',
+                vi.fn(
+                    async () =>
+                        new Response(JSON.stringify({ status, data: { detail: 'Synthetic response' } }), {
+                            headers: { 'X-PostHog-Suppress-Analytics': 'true' },
+                        })
+                )
+            )
+            const shared = new ForwardingApiClient(
+                new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' }),
+                {
+                    connectionId: '99',
+                    localProjectId: '7',
+                    target: TARGET,
+                }
+            )
+            const suppress = vi.fn()
+            const call = shared.withAnalyticsSuppression(suppress).withIntent('Read a synthetic task')
+
+            await call.request({ method: 'GET', path: '/api/projects/4242/tasks/example/' }).catch(() => undefined)
+
+            expect(suppress).toHaveBeenCalledOnce()
+            expect(shared.config.onPrivateResponse).toBeUndefined()
+        })
+
+        it('does not retry a forwarded read after its deadline', async () => {
+            vi.useFakeTimers()
+            vi.spyOn(console, 'error').mockImplementation(() => {})
+            const mockFetch = vi.fn(
+                (_url: string, init?: RequestInit) =>
+                    new Promise<Response>((_resolve, reject) => {
+                        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason))
+                    })
+            )
+            vi.stubGlobal('fetch', mockFetch)
+            const forwarding = new ForwardingApiClient(
+                new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' }),
+                { connectionId: '99', localProjectId: '7', target: TARGET }
+            )
+
+            try {
+                const outcome = forwarding
+                    .request({ method: 'GET', path: '/api/projects/4242/insights/' })
+                    .catch((error) => error)
+                await vi.runAllTimersAsync()
+                const error = await outcome
+
+                expect(error).toBeInstanceOf(PostHogTransportError)
+                expect(error).toMatchObject({ timedOut: true, attempts: 1 })
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            } finally {
+                vi.useRealTimers()
+            }
+        })
+
         it('rewrites a request into the forward endpoint and unwraps the target response', async () => {
             const request = createRequestMock({ status: 200, data: { results: [[1]] } })
             const forwarding = new ForwardingApiClient(createLocalApi(request), {
@@ -115,6 +172,27 @@ describe('posthog connection forwarding', () => {
                 path: 'api/projects/4242/query/',
                 data: { query: 'select 1' },
             })
+        })
+
+        it('forwards the tool intent with a forwarded request', async () => {
+            const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 200, data: {} })))
+            vi.stubGlobal('fetch', fetch)
+            const forwarding = new ForwardingApiClient(
+                new ApiClient({ apiToken: 'local-token', baseUrl: 'https://us.posthog.com' }),
+                {
+                    connectionId: '99',
+                    localProjectId: '7',
+                    target: TARGET,
+                }
+            )
+
+            await forwarding.withIntent('updating the connected project').request({
+                method: 'POST',
+                path: '/api/projects/4242/insights/',
+                body: { name: 'Updated insight' },
+            })
+
+            expect(fetch.mock.calls[0]![1].headers['x-posthog-intent']).toBe('updating the connected project')
         })
 
         it('surfaces a status the target returned as a thrown API error', async () => {

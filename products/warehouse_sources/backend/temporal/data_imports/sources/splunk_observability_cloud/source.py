@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,22 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class SplunkObservabilityCloudSource(
     ResumableSource[SplunkObservabilityCloudSourceConfig, SplunkObservabilityCloudResumeConfig]
 ):
+    codebase_detection = detect(
+        env=("^SPLUNK_ACCESS_TOKEN$", "^SPLUNK_REALM$"),
+        script_hosts=("cdn.observability.splunkcloud.com", "cdn.signalfx.com"),
+        npm=("@splunk/otel", "@splunk/otel-web"),
+        pypi=("splunk-opentelemetry",),
+        go=("github.com/signalfx/splunk-otel-go", "github.com/signalfx/splunk-otel-collector"),
+        maven=(
+            "com.splunk:splunk-otel-javaagent",
+            "com.splunk:splunk-otel-android",
+            "com.splunk:splunk-otel-android-volley",
+            "com.splunk:splunk-otel-javaagent-csa",
+        ),
+        rubygems=("splunk-otel",),
+        swiftpm=("github.com/signalfx/splunk-otel-ios", "github.com/signalfx/splunk-otel-ios-crashreporting"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -52,7 +67,7 @@ class SplunkObservabilityCloudSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SPLUNK_OBSERVABILITY_CLOUD,
+            name=ExternalDataSourceType.SPLUNKOBSERVABILITYCLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Splunk Observability Cloud",
             releaseStatus=ReleaseStatus.ALPHA,

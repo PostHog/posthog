@@ -8,9 +8,9 @@ use std::time::{Duration, Instant};
 
 use common_types::cohort::TeamAllowlist;
 use lifecycle::Handle;
-use metrics::counter;
+use metrics::{counter, gauge};
 use sqlx::PgPool;
-use tokio::task::JoinSet;
+use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -20,14 +20,18 @@ use crate::domain::{ClaimKind, RunId};
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
 use crate::observability::metrics::{
-    CHUNKS_CLAIMED, CHUNKS_POISONED, CHUNKS_RECLAIMED, RUNS_FAILED_EXHAUSTED_CHUNKS,
+    CHUNKS_CLAIMED, CHUNKS_POISONED, CHUNKS_RECLAIMED, RUNS_FAILED_BREAKER,
+    RUNS_FAILED_EXHAUSTED_CHUNKS, RUN_BREAKERS_OPEN, RUN_BREAKER_TRIPS,
 };
 use crate::store::chunks::{Claim, PgChunkStore};
-use crate::store::runs::{fail_run, RunError, RunKind};
+use crate::store::runs::{complete_trailing_runs, fail_run, RunError, RunKind};
 use crate::store::{Claimant, MaxAttempts, RenderedError};
 
+use super::breaker::{BreakerEvent, RunBreakers};
 use super::completion::CompletionDriver;
-use super::execute::{execute_chunk, record_task_result, ChunkOutcome, ChunkTaskContext};
+use super::execute::{
+    execute_chunk, record_task_result, BreakerSignal, ChunkOutcome, ChunkTaskContext,
+};
 use super::person_execute::{execute_person_chunk, PersonChunkTaskContext};
 use super::person_plan::{plan_person_run, PersonPlanAttempt, PersonPlanRequest};
 use super::prepare::{refresh_runs, run_ids_of_kind, PreparedRun, RefreshOutcome};
@@ -50,19 +54,34 @@ pub struct PersonComponents {
     pub pacer: TilePacer,
 }
 
-/// The planning slot's bookkeeping: which runs a spawned task covers (keyed by task id, so a
-/// panicked task un-tracks only itself) and when each run's last attempt failed.
+/// Which run each spawned task works for. Keyed by task id, so a panicked task, whose result carries
+/// no run, still leaves the map, and un-tracks only itself.
+#[derive(Default)]
+struct InflightTasks(HashMap<tokio::task::Id, RunId>);
+
+impl InflightTasks {
+    fn insert(&mut self, task_id: tokio::task::Id, run_id: RunId) {
+        self.0.insert(task_id, run_id);
+    }
+
+    fn remove(&mut self, task_id: tokio::task::Id) {
+        self.0.remove(&task_id);
+    }
+
+    fn has_run(&self, run_id: RunId) -> bool {
+        self.0.values().any(|inflight| *inflight == run_id)
+    }
+}
+
+/// The planning slot's bookkeeping: which runs a spawned task covers and when each run's last
+/// attempt failed.
 #[derive(Default)]
 struct PlanningState {
-    inflight: HashMap<tokio::task::Id, RunId>,
+    inflight: InflightTasks,
     failed_at: HashMap<RunId, Instant>,
 }
 
 impl PlanningState {
-    fn is_inflight(&self, run_id: RunId) -> bool {
-        self.inflight.values().any(|inflight| *inflight == run_id)
-    }
-
     fn in_backoff(&self, run_id: RunId) -> bool {
         self.failed_at
             .get(&run_id)
@@ -77,6 +96,11 @@ impl PlanningState {
         self.failed_at
             .retain(|_, failed_at| failed_at.elapsed() < PERSON_PLANNING_RETRY_BACKOFF);
     }
+}
+
+struct ClaimState {
+    inflight: InflightTasks,
+    breakers: RunBreakers,
 }
 
 pub struct SeederOrchestrator {
@@ -133,6 +157,10 @@ impl SeederOrchestrator {
         let mut person_tasks = JoinSet::new();
         let mut planning: JoinSet<(RunId, PersonPlanAttempt)> = JoinSet::new();
         let mut planning_state = PlanningState::default();
+        let mut claims = ClaimState {
+            inflight: InflightTasks::default(),
+            breakers: RunBreakers::new(self.settings.breaker),
+        };
         let mut eligible_runs = HashMap::new();
         let mut reported_runs = HashSet::new();
         self.handle.report_healthy();
@@ -142,28 +170,40 @@ impl SeederOrchestrator {
             tokio::select! {
                 biased;
                 _ = shutdown.cancelled() => break,
-                Some(result) = tasks.join_next(), if !tasks.is_empty() => {
-                    record_task_result(result, RunKind::Behavioral);
-                    self.fill_claim_slots(&eligible_runs, &mut tasks, &mut person_tasks, &shutdown)
-                        .await;
+                Some(result) = tasks.join_next_with_id(), if !tasks.is_empty() => {
+                    self.settle_chunk(result, RunKind::Behavioral, &mut claims).await;
+                    self.fill_claim_slots(
+                        &eligible_runs,
+                        &mut tasks,
+                        &mut person_tasks,
+                        &mut claims,
+                        &shutdown,
+                    )
+                    .await;
                     self.handle.report_healthy();
                 }
-                Some(result) = person_tasks.join_next(), if !person_tasks.is_empty() => {
-                    record_task_result(result, RunKind::PersonProperty);
-                    self.fill_claim_slots(&eligible_runs, &mut tasks, &mut person_tasks, &shutdown)
-                        .await;
+                Some(result) = person_tasks.join_next_with_id(), if !person_tasks.is_empty() => {
+                    self.settle_chunk(result, RunKind::PersonProperty, &mut claims).await;
+                    self.fill_claim_slots(
+                        &eligible_runs,
+                        &mut tasks,
+                        &mut person_tasks,
+                        &mut claims,
+                        &shutdown,
+                    )
+                    .await;
                     self.handle.report_healthy();
                 }
                 Some(result) = planning.join_next_with_id(), if !planning.is_empty() => {
                     match result {
                         Ok((task_id, (run_id, attempt))) => {
-                            planning_state.inflight.remove(&task_id);
+                            planning_state.inflight.remove(task_id);
                             if attempt == PersonPlanAttempt::Failed {
                                 planning_state.failed_at.insert(run_id, Instant::now());
                             }
                         }
                         Err(error) => {
-                            planning_state.inflight.remove(&error.id());
+                            planning_state.inflight.remove(error.id());
                             warn!(error = %error, "person planning task failed unexpectedly");
                         }
                     }
@@ -191,8 +231,17 @@ impl SeederOrchestrator {
                     // and before the completion driver's tick, so a run can never be failed and
                     // CAS'd to `reconciling` in the same pass.
                     self.fail_exhausted_runs(&eligible_runs).await;
-                    self.fill_claim_slots(&eligible_runs, &mut tasks, &mut person_tasks, &shutdown)
-                        .await;
+                    self.complete_trailing_runs(&eligible_runs).await;
+                    claims.breakers.expire_idle(Instant::now());
+                    publish_open_breakers(&eligible_runs, &claims.breakers);
+                    self.fill_claim_slots(
+                        &eligible_runs,
+                        &mut tasks,
+                        &mut person_tasks,
+                        &mut claims,
+                        &shutdown,
+                    )
+                    .await;
                     if let Some(driver) = &self.completion_driver {
                         // Dispatch work is spawned off this tick, but observation runs inline: a few
                         // DB reads per reconciling run, plus at most one OffsetFetch and one
@@ -214,10 +263,10 @@ impl SeederOrchestrator {
             "stopping claims and draining active chunks"
         );
         while let Some(result) = tasks.join_next().await {
-            record_task_result(result, RunKind::Behavioral);
+            record_task_result(&result, RunKind::Behavioral);
         }
         while let Some(result) = person_tasks.join_next().await {
-            record_task_result(result, RunKind::PersonProperty);
+            record_task_result(&result, RunKind::PersonProperty);
         }
 
         let producer = self.producer.clone();
@@ -227,6 +276,79 @@ impl SeederOrchestrator {
             Err(error) => warn!(error = %error, "producer flush task failed during shutdown"),
         }
         info!("cohort seeder orchestrator stopped");
+    }
+
+    async fn settle_chunk(
+        &self,
+        result: Result<(tokio::task::Id, ChunkOutcome), JoinError>,
+        kind: RunKind,
+        claims: &mut ClaimState,
+    ) {
+        let task_id = match &result {
+            Ok((task_id, _)) => *task_id,
+            Err(error) => error.id(),
+        };
+        claims.inflight.remove(task_id);
+        let result = result.map(|(_, outcome)| outcome);
+        record_task_result(&result, kind);
+        let Ok(outcome) = result else {
+            return;
+        };
+        let run_id = outcome.run_id();
+        let resource = match outcome.breaker_signal() {
+            BreakerSignal::Success => {
+                claims.breakers.record_success(run_id);
+                return;
+            }
+            BreakerSignal::ResourceFailure(resource) => resource,
+            BreakerSignal::Ignore => return,
+        };
+        match claims
+            .breakers
+            .record_resource_failure(run_id, Instant::now())
+        {
+            BreakerEvent::Unchanged => {}
+            BreakerEvent::Tripped { trips, cooldown } => {
+                counter!(RUN_BREAKER_TRIPS, "kind" => kind.as_str()).increment(1);
+                warn!(
+                    ?run_id,
+                    kind = kind.as_str(),
+                    trips,
+                    cooldown_secs = cooldown.as_secs(),
+                    clickhouse_code = resource.as_str(),
+                    "run breaker opened: ClickHouse keeps refusing this run's scans for lack of resources"
+                );
+            }
+            BreakerEvent::Exhausted { trips } => {
+                let error = RenderedError::from_message(format!(
+                    "the ClickHouse resource breaker opened {trips} times with no confirmed chunk in \
+                     between; last error: {}. The run's scans do not fit the ClickHouse limits: make \
+                     them smaller or raise the limits, then create a new run",
+                    resource.as_str(),
+                ));
+                match fail_run(&self.pool, run_id, &error).await {
+                    Ok(()) => {
+                        counter!(RUNS_FAILED_BREAKER, "kind" => kind.as_str()).increment(1);
+                        warn!(
+                            ?run_id,
+                            kind = kind.as_str(),
+                            trips,
+                            clickhouse_code = resource.as_str(),
+                            "failing run: its ClickHouse resource breaker reached the trip limit"
+                        );
+                    }
+                    Err(RunError::NotActive(_)) => {}
+                    Err(error) => {
+                        claims.breakers.retry_exhausted(run_id);
+                        warn!(
+                            ?run_id,
+                            error = %error,
+                            "failing the run at its breaker trip limit did not apply; its next probe retries it"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     fn spawn_person_planning(
@@ -245,7 +367,7 @@ impl SeederOrchestrator {
                 return;
             }
             let run_id = request.run.run_id;
-            if state.is_inflight(run_id) || state.in_backoff(run_id) {
+            if state.inflight.has_run(run_id) || state.in_backoff(run_id) {
                 continue;
             }
             let handle = planning.spawn(plan_person_run(
@@ -289,14 +411,15 @@ impl SeederOrchestrator {
 
     /// Terminalize runs holding a chunk that exhausted its retry budget, one kind at a time.
     ///
-    /// Such a chunk is never reclaimed again, and the completion CAS demands every chunk
+    /// Such a chunk is never reclaimed again, and the completion CAS demands every readiness chunk
     /// `confirmed`, so without this the run sits in `seeding` forever and holds its cohort's
     /// uniqueness slot — no future run for that cohort can ever be created. Failing it frees the
-    /// slot (Django does not count `failed` as active) and puts the reason in `runs.error`.
+    /// slot (Django does not count `failed` as active) and puts the reason in `runs.error`. A
+    /// `trailing` run's exhausted chunk fails it the same way, so the run does not trail forever.
     ///
     /// Nothing has to be unwound for chunks still mid-scan: their heartbeat and the claim predicate
-    /// both join `runs.status = 'seeding'`, so they lose their lease on the next beat and halt
-    /// cleanly — the same mechanism a Django-side supersede already relies on.
+    /// both join a `seeding` or `trailing` run status, so they lose their lease on the next beat
+    /// and halt cleanly — the same mechanism a Django-side supersede already relies on.
     async fn fail_exhausted_runs(&self, eligible_runs: &HashMap<RunId, PreparedRun>) {
         for kind in [RunKind::Behavioral, RunKind::PersonProperty] {
             let run_ids = run_ids_of_kind(eligible_runs, kind);
@@ -314,6 +437,17 @@ impl SeederOrchestrator {
         }
     }
 
+    /// Complete the trailing runs whose trailing days have all confirmed. Only behavioral runs plan
+    /// trailing days.
+    async fn complete_trailing_runs(&self, eligible_runs: &HashMap<RunId, PreparedRun>) {
+        let run_ids = run_ids_of_kind(eligible_runs, RunKind::Behavioral);
+        match complete_trailing_runs(&self.pool, &run_ids).await {
+            Ok(0) => {}
+            Ok(completed) => info!(completed, "completed trailing runs"),
+            Err(error) => warn!(error = %error, "completing trailing runs failed"),
+        }
+    }
+
     /// Claim work for whichever kind still has slot capacity. The claimable run-id set is
     /// recomputed per claim from the remaining capacity, so a person chunk can never occupy a
     /// behavioral slot (or vice versa) — the two budgets are independent by construction.
@@ -322,6 +456,7 @@ impl SeederOrchestrator {
         eligible_runs: &HashMap<RunId, PreparedRun>,
         tasks: &mut JoinSet<ChunkOutcome>,
         person_tasks: &mut JoinSet<ChunkOutcome>,
+        claims: &mut ClaimState,
         shutdown: &CancellationToken,
     ) {
         loop {
@@ -332,12 +467,17 @@ impl SeederOrchestrator {
             let person_room = self.settings.person.is_some_and(|person_settings| {
                 person_tasks.len() < person_settings.max_concurrent_chunks.get()
             });
+            let now = Instant::now();
             let mut run_ids = Vec::with_capacity(eligible_runs.len());
             for (run_id, prepared) in eligible_runs {
-                let admitted = match prepared {
+                let has_room = match prepared {
                     PreparedRun::Behavioral(_) => behavioral_room,
                     PreparedRun::Person(_) => person_room,
                 };
+                let admitted = has_room
+                    && claims
+                        .breakers
+                        .admits(*run_id, now, claims.inflight.has_run(*run_id));
                 if admitted {
                     run_ids.push(*run_id);
                 }
@@ -386,7 +526,8 @@ impl SeederOrchestrator {
                         retry_backoff: self.settings.retry_backoff,
                     };
                     let shutdown = shutdown.clone();
-                    tasks.spawn(async move { execute_chunk(ctx, shutdown).await });
+                    let task = tasks.spawn(async move { execute_chunk(ctx, shutdown).await });
+                    claims.inflight.insert(task.id(), chunk_lease.run_id());
                 }
                 PreparedRun::Person(run) => {
                     // Unreachable while the gate is off: discovery never yields person runs then.
@@ -408,11 +549,13 @@ impl SeederOrchestrator {
                         producer: self.producer.clone(),
                         pacer: person.pacer.clone(),
                         producer_settings: self.settings.producer,
-                        emit_nonmatchers: person_settings.emit_nonmatchers,
+                        emission: person_settings.emission,
                         retry_backoff: self.settings.retry_backoff,
                     };
                     let shutdown = shutdown.clone();
-                    person_tasks.spawn(async move { execute_person_chunk(ctx, shutdown).await });
+                    let task = person_tasks
+                        .spawn(async move { execute_person_chunk(ctx, shutdown).await });
+                    claims.inflight.insert(task.id(), chunk_lease.run_id());
                 }
             }
         }
@@ -471,6 +614,17 @@ pub async fn fail_exhausted_runs_of_kind(
         }
     }
     failed
+}
+
+/// Counted over the eligible set, so a run that finished with an open breaker stops counting.
+fn publish_open_breakers(eligible_runs: &HashMap<RunId, PreparedRun>, breakers: &RunBreakers) {
+    for kind in [RunKind::Behavioral, RunKind::PersonProperty] {
+        let open = run_ids_of_kind(eligible_runs, kind)
+            .into_iter()
+            .filter(|run_id| breakers.is_open(*run_id))
+            .count();
+        gauge!(RUN_BREAKERS_OPEN, "kind" => kind.as_str()).set(open as f64);
+    }
 }
 
 fn record_claim(claim_kind: ClaimKind, run_kind: RunKind) {

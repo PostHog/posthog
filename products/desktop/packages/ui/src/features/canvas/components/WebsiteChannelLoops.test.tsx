@@ -1,4 +1,4 @@
-import type { LoopSchemas } from "@posthog/api-client/loops";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,14 +23,14 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+vi.mock("@posthog/ui/features/canvas/hooks/useWorkLayout", () => ({
+  useWorkLayout: () => false,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({
     channels: mocks.channels,
     isLoading: mocks.channelsLoading,
   }),
-}));
-vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
-  useChannelsLayout: () => true,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ChannelHeader", () => ({
   ChannelHeader: () => <div>Personal space header</div>,
@@ -38,20 +38,11 @@ vi.mock("@posthog/ui/features/canvas/components/ChannelHeader", () => ({
 vi.mock("@posthog/ui/hooks/useSetHeaderContent", () => ({
   useSetHeaderContent: () => {},
 }));
-vi.mock("@posthog/ui/router/navigationBridge", () => ({
-  navigateToNewLoop: vi.fn(),
-}));
-vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
-  useOrgMembers: () => ({
-    members: [],
-    isLoading: false,
-    isError: false,
-    isComplete: true,
-  }),
+vi.mock("@posthog/ui/features/loops/loopWizardDialogStore", () => ({
+  openNewLoop: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/loops/hooks/useLoops", () => ({
   useLoops: mocks.useLoops,
-  useLoopLimits: () => null,
 }));
 vi.mock("@posthog/ui/features/loops/components/LoopBuilderComposer", () => ({
   LoopBuilderComposer: () => null,
@@ -60,8 +51,14 @@ vi.mock("@posthog/ui/features/loops/components/LoopFallbacks", () => ({
   LoopsEmptyNotice: () => null,
   LoopsSkeleton: () => <div>Loading loops</div>,
 }));
-vi.mock("@posthog/ui/features/loops/components/LoopRow", () => ({
-  LoopRow: ({ loop }: { loop: { name: string } }) => <div>{loop.name}</div>,
+vi.mock("@posthog/ui/features/loops/components/LoopsTable", () => ({
+  LoopsTable: ({ loops }: { loops: { id: string; name: string }[] }) => (
+    <div>
+      {loops.map((loop) => (
+        <div key={loop.id}>{loop.name}</div>
+      ))}
+    </div>
+  ),
 }));
 vi.mock("@posthog/ui/features/loops/components/LoopsEmptyState", () => ({
   LoopsEmptyState: () => null,
@@ -80,7 +77,9 @@ function loop(
   return {
     id,
     name,
-    context_target: folderId ? { folder_id: folderId, name: folderId } : null,
+    description: "",
+    enabled: true,
+    context_target: folderId ? { channel_id: folderId, name: folderId } : null,
   } as LoopSchemas.Loop;
 }
 

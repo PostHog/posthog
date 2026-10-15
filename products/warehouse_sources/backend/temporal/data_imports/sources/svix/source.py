@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -29,6 +28,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SvixSource(ResumableSource[SvixSourceConfig, SvixResumeConfig]):
+    codebase_detection = detect(
+        env=("^SVIX_",),
+        npm=("svix",),
+        pypi=("svix",),
+        cargo=("svix", "svix-ksuid"),
+        composer=("svix/svix",),
+        go=("github.com/svix/svix-webhooks",),
+        maven=("com.svix:svix", "com.svix.kotlin:svix-kotlin"),
+        rubygems=("svix",),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.svix.com"
@@ -42,7 +52,7 @@ class SvixSource(ResumableSource[SvixSourceConfig, SvixResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SVIX,
+            name=ExternalDataSourceType.SVIX,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Svix",
             releaseStatus=ReleaseStatus.ALPHA,

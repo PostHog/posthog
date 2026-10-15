@@ -180,6 +180,7 @@ export function ChannelItemPreviewCardProvider({
                       payload={payload}
                       onAction={close}
                       onSubmenuOpenChange={setSubmenuOpen}
+                      shortcutActive={open || submenuOpen}
                     />
                   )}
                 </PreviewCard.Popup>

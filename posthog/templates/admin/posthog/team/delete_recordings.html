@@ -546,14 +546,15 @@
 
     // Each POST mints a fresh Temporal workflow id server-side (team_admin.py), so a double submit
     // starts a second, redundant deletion workflow. Lock the form once a submit is accepted.
-    // Sibling admin templates do this with an inline `onsubmit=` attribute, which cannot work here:
-    // the admin CSP has no 'unsafe-inline' for script-src, so attribute handlers are blocked.
+    // The shared `js-disable-on-submit` marker in admin/base_site.html does not fit: `inFlight` is
+    // page-global across the four forms here, and it must short-circuit before `shouldSubmit()`
+    // prompts, so that a second submit raises no dialog at all.
     var inFlight = false;
 
     function lock(form) {
-        // Safe to do synchronously: the submit event has already committed the navigation, and these
-        // controls have no `name`, so removing them cannot drop a field from the POST body. Deferring
-        // it to a timeout does NOT work, because the pending navigation means the callback never runs.
+        // Safe to do synchronously: these controls have no `name`, so disabling them cannot drop a
+        // field from the POST body. The shared listener defers the same work because it cannot know
+        // that about an arbitrary form.
         var controls = form.querySelectorAll('input[type="submit"], button[type="submit"]');
         Array.prototype.forEach.call(controls, function(c) { c.disabled = true; });
     }

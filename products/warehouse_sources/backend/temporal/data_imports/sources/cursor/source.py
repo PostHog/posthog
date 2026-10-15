@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -18,7 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cursor import (
+    ANALYTICS_PLAN_MESSAGE,
     CURSOR_BASE_URL,
+    ENTERPRISE_PLAN_ERROR,
     KEY_FORBIDDEN_MESSAGE,
     KEY_REJECTED_MESSAGE,
     CursorResumeConfig,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CursorSource(ResumableSource[CursorSourceConfig, CursorResumeConfig]):
+    codebase_detection = detect(env=("^CURSOR_API_KEY$",), npm=("@cursor/sdk",))
+
     api_docs_url = "https://cursor.com/docs/account/teams/admin-api"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -46,7 +49,7 @@ class CursorSource(ResumableSource[CursorSourceConfig, CursorResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CURSOR,
+            name=ExternalDataSourceType.CURSOR,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cursor",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -81,6 +84,7 @@ You need a Cursor team plan (Business or Enterprise). A team admin can create an
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            ENTERPRISE_PLAN_ERROR: ANALYTICS_PLAN_MESSAGE,
             # An invalid or revoked Admin API key surfaces as a requests HTTPError when `_fetch`
             # calls `raise_for_status()`. Retrying can never satisfy a credential problem, so stop
             # the sync. Match the stable status text and base host, not the per-request path.

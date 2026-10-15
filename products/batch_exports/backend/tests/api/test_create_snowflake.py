@@ -18,14 +18,22 @@ pytestmark = [
 
 
 @pytest.mark.parametrize(
-    "auth_type,credentials",
+    "auth_type,credentials,expected_detail",
     [
-        ("password", {"password": "abc123"}),
-        ("keypair", {"private_key": "SECRET_KEY"}),
+        (
+            "password",
+            {"password": "abc123"},
+            "Configuration has unknown field/s: 'account', 'authentication_type', 'password', 'user'",
+        ),
+        (
+            "keypair",
+            {"private_key": "SECRET_KEY"},
+            "Configuration has unknown field/s: 'account', 'authentication_type', 'private_key', 'user'",
+        ),
     ],
 )
 def test_create_snowflake_batch_export_with_inline_credentials_is_rejected(
-    client: HttpClient, auth_type, credentials, temporal, organization, team, user
+    client: HttpClient, auth_type, credentials, expected_detail, temporal, organization, team, user
 ):
     client.force_login(user)
     response = create_batch_export(
@@ -50,7 +58,7 @@ def test_create_snowflake_batch_export_with_inline_credentials_is_rejected(
         },
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert response.json()["detail"] == "Integration is required for Snowflake batch exports"
+    assert response.json()["detail"] == expected_detail
 
 
 def test_create_snowflake_batch_export_using_integration(client: HttpClient, temporal, organization, team, user):
@@ -91,4 +99,4 @@ def test_create_snowflake_batch_export_rejects_mismatched_integration_kind(
         },
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert response.json()["detail"] == "Integration is not a Snowflake integration."
+    assert response.json()["detail"] == ("Integration provided is not a Snowflake integration (got kind='aws-s3')")

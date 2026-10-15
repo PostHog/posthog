@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -42,6 +41,45 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]):
+    codebase_detection = detect(
+        env=("^SENDGRID_",),
+        script_hosts=("cdn.forms-content.sg-form.com", "cdn.forms-content-1.sg-form.com"),
+        npm=(
+            "@sendgrid/mail",
+            "@sendgrid/client",
+            "sendgrid",
+            "@sendgrid/eventwebhook",
+            "@sendgrid/helpers",
+            "@sendgrid/inbound-mail-parser",
+            "@sendgrid/contact-importer",
+            "@sendgrid/subscription-widget",
+            "smtpapi",
+            "nodemailer-sendgrid-transport",
+            "nodemailer-sendgrid",
+        ),
+        pypi=("sendgrid", "smtpapi", "django-sendgrid-v5", "sendgrid-django"),
+        cargo=("sendgrid",),
+        cocoapods=("SendGrid",),
+        composer=(
+            "sendgrid/sendgrid",
+            "sendgrid/smtpapi",
+            "s-ichikawa/laravel-sendgrid-driver",
+            "symfony/sendgrid-mailer",
+        ),
+        go=("github.com/sendgrid/sendgrid-go", "github.com/sendgrid/smtpapi-go"),
+        hex=("sendgrid",),
+        maven=("com.sendgrid:sendgrid-java", "com.sendgrid:smtpapi-java"),
+        rubygems=(
+            "sendgrid-ruby",
+            "smtpapi",
+            "sendgrid-actionmailer",
+            "sendgrid-rails",
+            "sendgrid",
+            "griddler-sendgrid",
+        ),
+        swiftpm=("github.com/scottkawai/sendgrid-swift",),
+    )
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://www.twilio.com/docs/sendgrid"
@@ -153,18 +191,18 @@ class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SEND_GRID,
+            name=ExternalDataSourceType.SENDGRID,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="SendGrid",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your SendGrid API key to pull your SendGrid data into the PostHog Data warehouse.
 
 You can create an API key in your [SendGrid account settings](https://app.sendgrid.com/settings/api_keys).
 
 Grant the following read access (Restricted Access) so the key can reach the data you want to sync:
-- **Suppressions**: bounces, blocks, invalid emails, spam reports, global unsubscribes, unsubscribe groups
+- **Suppressions**: bounces, blocks, invalid emails, spam reports, global unsubscribes, unsubscribe groups and their members
 - **Stats**: global email statistics (daily requests, delivered, opens, clicks, bounces)
-- **Marketing**: marketing lists. This also needs an account with Marketing Campaigns enabled.
+- **Marketing**: marketing lists, single sends, and single send stats. This also needs an account with Marketing Campaigns enabled.
 - **Template Engine**: templates
 - **Email Activity**: message activity. This table is off by default and also needs SendGrid's paid additional email activity history add-on.
 

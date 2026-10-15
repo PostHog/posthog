@@ -50,6 +50,7 @@ async def create_batch_trace_summarization_schedule(client: Client):
             task_queue=settings.LLMA_TASK_QUEUE,
             execution_timeout=timedelta(minutes=COORDINATOR_EXECUTION_TIMEOUT_MINUTES),
         ),
+        # nosemgrep: schedule-must-avoid-minute-zero -- the rolling one-hour lookback has no cursor, so shifting the schedule skips data
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=SCHEDULE_INTERVAL_HOURS))]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )

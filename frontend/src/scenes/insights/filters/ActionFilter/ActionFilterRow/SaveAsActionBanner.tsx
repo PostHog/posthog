@@ -1,17 +1,17 @@
 import { LemonBanner } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
-import { saveActionFromFilter } from '~/models/saveAsActionDialog'
+import { saveActionFromSeriesNode } from '~/models/saveAsActionDialog'
 
-import { LocalFilter } from '../entityFilterLogic'
-import { isAutocaptureFilterWithElements } from './saveAsActionUtils'
+import { SeriesNode } from '../seriesNode'
+import { isAutocaptureSeriesWithElements } from './saveAsActionUtils'
 
 interface SaveAsActionBannerProps {
-    filter: LocalFilter
+    node: SeriesNode
 }
 
-export function SaveAsActionBanner({ filter }: SaveAsActionBannerProps): JSX.Element | null {
-    if (!isAutocaptureFilterWithElements(filter)) {
+export function SaveAsActionBanner({ node }: SaveAsActionBannerProps): JSX.Element | null {
+    if (!isAutocaptureSeriesWithElements(node)) {
         return null
     }
 
@@ -23,7 +23,7 @@ export function SaveAsActionBanner({ filter }: SaveAsActionBannerProps): JSX.Ele
                 dismissKey="autocapture-save-as-action-nudge"
                 action={{
                     children: 'Save as action',
-                    onClick: () => saveActionFromFilter(filter),
+                    onClick: () => saveActionFromSeriesNode(node),
                     'data-attr': 'autocapture-save-as-action',
                 }}
             >

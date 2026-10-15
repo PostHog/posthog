@@ -1,0 +1,250 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Personal finance assistant logs a bill and checks balances",
+  "scenario": "A budgeting copilot receives a message about a paid electric bill, routes it through a small classifier model, then uses Claude via MCP tools to log the expense and fetch account totals before composing a friendly summary reply with a balance breakdown.",
+  "summary": {
+    "events": {
+      "$ai_generation": 3,
+      "$ai_span": 3,
+      "$ai_trace": 2
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-ruby"
+    ],
+    "providers": [
+      "anthropic",
+      "google"
+    ],
+    "frameworks": [],
+    "models": [
+      "claude-sonnet-4-6",
+      "gemini-2.5-flash"
+    ],
+    "content_types": []
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_trace_id": "92c4d709-c65c-7216-9d4e-6d6dce765fcd",
+        "$ai_http_status": 200,
+        "$ai_output_tokens": null,
+        "$ai_provider": "google",
+        "$is_server": true,
+        "$lib": "posthog-ruby",
+        "user_id": "user_S0JFEFLe2oLFh6ALjysy",
+        "$ai_model": "gemini-2.5-flash",
+        "$ai_latency": 0.997,
+        "environment": "production",
+        "$ai_input_tokens": null,
+        "$ai_is_error": false,
+        "$lib_version": "3.21.0",
+        "$ai_input": [
+          {
+            "content": "Classify the following incoming user message into a task_type for routing, and give one short sentence of reasoning.\n\nUser message:\n\"I just paid my electric bill, it was $1,064.65 today. Can you log it and tell me where my accounts stand?\"\n\nRespond as JSON with keys task_type and reasoning only.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": "{\"task_type\": \"finance\", \"reasoning\": \"The user is reporting a bill payment and asking for it to be recorded, plus an account status check.\"}"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 10310,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_provider": "anthropic",
+        "$ai_input_tokens": 814,
+        "$ai_latency": 10.292,
+        "$ai_is_error": false,
+        "$is_server": true,
+        "$lib": "posthog-ruby",
+        "$ai_cache_read_input_tokens": 28147,
+        "user_id": "user_S0JFEFLe2oLFh6ALjysy",
+        "$ai_model": "claude-sonnet-4-6",
+        "$ai_cache_creation_input_tokens": 0,
+        "$lib_version": "3.21.0",
+        "$ai_output_tokens": 511,
+        "$ai_trace_id": "92c4d709-c65c-7216-9d4e-6d6dce765fcd",
+        "$ai_http_status": 200,
+        "environment": "production",
+        "$ai_input": [
+          {
+            "content": "You are Budget Copilot, a finance assistant with access to the user's linked bank and credit accounts through MCP tools. Record expenses accurately, always confirm the amount and date back to the user in your reply, and check account totals whenever the user asks how they are doing. Never invent a balance; always call a tool to look it up.\n\nConversation so far:\nUser: I just paid my electric bill, it was $1,064.65 today. Can you log it and tell me where my accounts stand?\n\nRouting note: task_type=finance. The user wants an expense logged and a balance check. Use the create_budget_expense tool for the electric bill (category: bills, paid from the credit account), then call get_summary to pull current totals across accounts before replying.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": "{\"tool_calls\": [{\"name\": \"create_budget_expense\", \"params\": {\"name\": \"Electric Bill\", \"date\": \"2026-08-18\", \"amount\": 1064.651194, \"app_category\": \"bills\", \"category\": \"credit\"}}, {\"name\": \"get_summary\", \"params\": {}}], \"parallel_tool_calls\": false, \"cache_control_applied\": null, \"notice\": \"I'll log this bill as an expense and then pull your current account totals so you can see where things\", \"variant\": \"tool\", \"err\": null, \"is_partial\": false, \"needs_approval\": false, \"warnings\": [], \"plan_summary\": {\"headline\": \"Log the $1,064.65 electric bill against the credit account, then check the current balance across all linked accounts before replying to the user.\", \"checkpoints\": [\"Create the expense entry with the exact amount, date, and category the user gave.\", \"Pull fresh account totals rather than relying on a cached balance from earlier.\"], \"explanation\": \"The user mentioned the payment happened today, so the expense should be dated 2026-09-25 rather than backdated to when the bill was issued. Categorizing it under bills keeps it consistent with how other utility payments have been logged for this user previously, which will matter later if they ask for a monthly breakdown by category.\"}, \"assistant_commentary\": \"This user tends to ask a follow-up balance question right after logging any bill over $1,000, so it is worth proactively pulling the summary now instead of waiting for them to ask again. Once both tool calls return, the final reply should confirm the logged amount and date plainly, then give a short, readable breakdown of balances rather than a raw dump of every linked account.\"}"
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 10342,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_span_type": "scheduler",
+        "user_id": "user_S0JFEFLe2oLFh6ALjysy",
+        "$is_server": true,
+        "environment": "production",
+        "$lib": "posthog-ruby",
+        "$ai_is_error": false,
+        "$lib_version": "3.21.0",
+        "$ai_trace_id": "92c4d709-c65c-7216-9d4e-6d6dce765fcd",
+        "$ai_span_name": "fetch_IMtpjRlN",
+        "$ai_span_id": "f40dde34-6f95-7d91-57a5-87c38a71fcac",
+        "$ai_latency": 0.010116856545209885,
+        "$ai_input": {
+          "refresh_cache": true,
+          "user_id": "user_S0JFEFLe2oLFh6ALjysy"
+        },
+        "$ai_output": {
+          "status": "ok",
+          "success": true
+        }
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 10356,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_latency": 0.01090899296104908,
+        "user_id": "user_S0JFEFLe2oLFh6ALjysy",
+        "$lib_version": "3.21.0",
+        "$ai_span_name": "get_summary",
+        "$is_server": true,
+        "$ai_span_id": "d74e9c3a-0c1d-7ffb-3179-aefbd1726f52",
+        "$ai_trace_id": "92c4d709-c65c-7216-9d4e-6d6dce765fcd",
+        "$ai_span_type": "scheduler",
+        "$ai_is_error": false,
+        "$lib": "posthog-ruby",
+        "environment": "production",
+        "$ai_input": {
+          "user_id": "user_S0JFEFLe2oLFh6ALjysy"
+        },
+        "$ai_output": {
+          "status": "ok",
+          "success": true
+        }
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 10362,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_trace_id": "92c4d709-c65c-7216-9d4e-6d6dce765fcd",
+        "$ai_latency": 0.03402341902256012,
+        "$lib_version": "3.21.0",
+        "$lib": "posthog-ruby",
+        "$is_server": true,
+        "$ai_metadata": {
+          "account_tier": "premium"
+        },
+        "$ai_is_error": false,
+        "environment": "production",
+        "user_id": "user_S0JFEFLe2oLFh6ALjysy",
+        "$ai_trace_name": "expense_review",
+        "$ai_input": {
+          "goal": "Log today's electric bill payment as an expense and give the user a quick summary of"
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 23291,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_http_status": 200,
+        "$ai_model": "claude-sonnet-4-6",
+        "$ai_is_error": false,
+        "$ai_cache_creation_input_tokens": 0,
+        "user_id": "user_S0JFEFLe2oLFh6ALjysy",
+        "environment": "production",
+        "$lib": "posthog-ruby",
+        "$ai_input_tokens": 1472,
+        "$ai_latency": 12.914,
+        "$ai_output_tokens": 591,
+        "$is_server": true,
+        "$lib_version": "3.21.0",
+        "$ai_trace_id": "92c4d709-c65c-7216-9d4e-6d6dce765fcd",
+        "$ai_provider": "anthropic",
+        "$ai_cache_read_input_tokens": 28119,
+        "$ai_input": [
+          {
+            "content": "Tool results are in. create_budget_expense succeeded: it recorded a $1,064.65 expense dated 2026-09-25, categorized as bills, drawn from the credit account. get_summary succeeded and returned current totals across the user's linked accounts.\n\nChecking account, balance $2,340.12. Savings account, balance $8,915.47. Credit account, balance owed $1,972.30 after today's payment. Rewards checking, balance $410.08.\n\nCompose a short, friendly reply to the user that confirms the expense was logged with the exact amount and date, then gives a compact breakdown of the four account balances. Mention that the credit account balance already reflects today's payment. Keep the tone warm but brief; do not repeat the raw tool output verbatim, and do not add any accounts that were not returned by get_summary.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\n\n## Budget Copilot categories\nExpenses fall into one of eight categories: bills, groceries, dining, transport, entertainment, health, shopping, and other. Bills covers recurring fixed costs like utilities, rent, and subscriptions, and is the category most users expect for anything billed monthly by a utility provider, a landlord, or a subscription service. When a category is ambiguous, prefer the category the user has used most often for similar merchant names in the past, rather than asking a clarifying question for every transaction, since repeated clarifying questions are the top complaint in user feedback about logging expenses through chat.\n\n## Balance freshness\nAccount totals returned by get_summary reflect the linked institution's last sync, which for most banks happens every few hours rather than in real time. If a user just made a payment and the balance does not yet reflect it, say so explicitly rather than presenting a stale number as current, since users frequently make decisions based on the number shown right after asking. Credit card issuers in particular can take up to a business day to post a payment, so a credit balance that looks unchanged immediately after a payment is not necessarily a sign that anything went wrong.\n\n## Logging expenses accurately\nAlways use the exact amount and date the user provided rather than rounding or defaulting to today's date when a specific date was mentioned. If a user reports a payment in a message without a date, assume it happened today rather than asking, unless the amount is large enough that a wrong date would materially change a monthly summary. Never silently adjust an amount the user gave, even if it looks like a typo; if a number seems implausible, such as a $10,000 electric bill, ask once before logging it rather than logging first and correcting later.\n\n## Proactive balance checks\nUsers who log an expense over $500 ask for a balance check immediately afterward in the majority of past sessions, so it's reasonable to pull get_summary right after logging a large expense without waiting to be asked, as long as the reply still leads with confirming the expense itself rather than opening with account balances. For smaller, routine expenses under $50, skip the automatic balance check entirely unless the user has explicitly asked for one in this session, since pulling a full account summary after every coffee purchase adds noticeable latency for little benefit.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "content": "Done! I logged your electric bill:\n\n- $1,064.65, dated 2026-09-25, categorized as Bills, paid from your credit account.\n\nHere's where things stand right now:\n\n| Account | Balance |\n|---|---|\n| Checking | $2,340.12 |\n| Savings | $8,915.47 |\n| Credit (owed) | $1,972.30 |\n| Rewards checking | $410.08 |\n\nThe credit balance already includes today's payment, so that $1,972.30 is what's left after this bill. Your checking and savings look steady month over month. Let me know if you'd like me to break the Bills category down further, or set a reminder before next month's electric bill is due.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently.\nLet me know if you'd like this broken down differently."
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 23304,
+      "distinct_id": "user-1",
+      "properties": {
+        "$is_server": true,
+        "$ai_span_name": "fetch_IMtpjRlN",
+        "$ai_trace_id": "92c4d709-c65c-7216-9d4e-6d6dce765fcd",
+        "$ai_span_type": "scheduler",
+        "$ai_is_error": false,
+        "user_id": "user_S0JFEFLe2oLFh6ALjysy",
+        "environment": "production",
+        "$lib_version": "3.21.0",
+        "$ai_latency": 0.007509928196668625,
+        "$lib": "posthog-ruby",
+        "$ai_span_id": "52da191f-5ed0-7751-e279-6afa49349f0c",
+        "$ai_input": {
+          "refresh_cache": true,
+          "user_id": "user_S0JFEFLe2oLFh6ALjysy"
+        },
+        "$ai_output": {
+          "status": "ok",
+          "success": true
+        }
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 23315,
+      "distinct_id": "user-1",
+      "properties": {
+        "$lib_version": "3.21.0",
+        "environment": "production",
+        "$ai_latency": 0.0132941585034132,
+        "$ai_is_error": false,
+        "$ai_metadata": {
+          "account_tier": "premium"
+        },
+        "$lib": "posthog-ruby",
+        "$ai_trace_id": "92c4d709-c65c-7216-9d4e-6d6dce765fcd",
+        "user_id": "user_S0JFEFLe2oLFh6ALjysy",
+        "$ai_trace_name": "expense_review",
+        "$is_server": true,
+        "$ai_input": {
+          "goal": "Log today's electric bill payment as an expense and give the user a quick summary of"
+        }
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

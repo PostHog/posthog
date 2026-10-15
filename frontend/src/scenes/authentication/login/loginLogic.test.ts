@@ -153,12 +153,16 @@ describe('loginLogic', () => {
             jest.clearAllMocks()
         })
 
-        it('auto-triggers the passkey prompt on non-WebKit browsers', async () => {
+        it('auto-triggers the passkey prompt once per email on non-WebKit browsers', async () => {
             logic.actions.precheck({ email: 'user@example.com' })
             // Drain the whole passkey flow (begin request included) so nothing leaks into the next test.
             await expectLogic(passkeyLogic)
                 .toDispatchActions(['beginPasskeyLogin', 'startPasskeyAuthenticationSuccess'])
                 .toFinishAllListeners()
+            expect(beginHandler).toHaveBeenCalledTimes(1)
+
+            logic.actions.precheck({ email: 'user@example.com', autoAttempt: true })
+            await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
             expect(beginHandler).toHaveBeenCalledTimes(1)
         })
 
@@ -284,6 +288,24 @@ describe('loginLogic', () => {
             expect(precheckHandler).toHaveBeenCalledTimes(2)
         })
 
+        it('prechecks the latest email only after typing pauses for 3 seconds', async () => {
+            jest.useFakeTimers()
+            try {
+                logic.actions.setLoginValue('email', 'a@example.co')
+                await jest.advanceTimersByTimeAsync(2999)
+                logic.actions.setLoginValue('email', 'a@example.com')
+                await jest.advanceTimersByTimeAsync(2999)
+                expect(precheckHandler).not.toHaveBeenCalled()
+
+                await jest.advanceTimersByTimeAsync(1)
+                expect(precheckHandler).toHaveBeenCalledTimes(1)
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.precheckResponse).toMatchObject({ status: 'completed', email: 'a@example.com' })
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('retries a failed precheck instead of caching its fallback for the page session', async () => {
             precheckHandler.mockImplementationOnce(() => [429, { detail: 'Request was throttled.' }])
 
@@ -379,6 +401,17 @@ describe('loginLogic', () => {
         it('offers SAML for a passwordless account on a SAML domain', async () => {
             await precheck({ saml_available: true, password_login_available: false, social_providers: [] })
             expect(logic.values.availableLoginMethods).toEqual(['saml'])
+            expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
+        })
+
+        it('offers OIDC for a passwordless account on an OIDC domain', async () => {
+            await precheck({
+                saml_available: false,
+                oidc_available: true,
+                password_login_available: false,
+                social_providers: [],
+            })
+            expect(logic.values.availableLoginMethods).toEqual(['oidc'])
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
         })
 

@@ -1291,6 +1291,7 @@ class TestLogsPersonIdFilter(_LogsScopeFilterTestMixin, ClickhouseTestMixin, API
         [
             ("single_key", ["team_ref"], {"team_ref"}),
             ("multiple_keys", ["team_ref", "account_ref"], {"team_ref", "account_ref"}),
+            ("flattened_json_key", ["attributes.personId"], {"attributes.personId"}),
         ]
     )
     def test_person_id_respects_configured_attribute_keys(
@@ -1307,6 +1308,7 @@ class TestLogsPersonIdFilter(_LogsScopeFilterTestMixin, ClickhouseTestMixin, API
             [
                 self._log_row("person-id-test-cfg", attribute_key="team_ref"),
                 self._log_row("person-id-test-cfg", attribute_key="account_ref"),
+                self._log_row("person-id-test-cfg", attribute_key="attributes.personId"),
             ]
         )
 

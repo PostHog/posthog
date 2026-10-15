@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BillingActivationRequestApi,
+    BillingActivationResponseApi,
     BillingAlertCheckNowResponseApi,
     BillingAlertConfigurationApi,
     BillingAlertDeleteDestinationApi,
@@ -17,18 +19,48 @@ import type {
     BillingAlertsEventsListParams,
     BillingAlertsListParams,
     BillingApi,
+    BillingAuthorizationResponseApi,
+    BillingAuthorizationStatusRequestApi,
+    BillingAuthorizationStatusResponseApi,
+    BillingFeaturesApi,
+    BillingForecastApi,
+    BillingInvoicesApi,
+    BillingInvoicesListParams,
+    BillingLimitsApi,
+    BillingListParams,
     BillingOverviewResponseApi,
+    BillingPaymentOrganizationApi,
     BillingPeriodResponseApi,
+    BillingProductApi,
+    BillingProductsApi,
+    BillingProductsListParams,
+    BillingProductsRetrieveParams,
+    BillingProductsSummaryApi,
+    BillingProjectSpendExportDownloadParams,
+    BillingProjectSpendTimeseriesRetrieveParams,
+    BillingProjectUsageExportDownloadParams,
+    BillingProjectUsageTimeseriesRetrieveParams,
+    BillingProjectsApi,
+    BillingSpendExportDownloadParams,
     BillingSpendExportRetrieveParams,
     BillingSpendRetrieveParams,
+    BillingSpendSummaryApi,
+    BillingSpendTimeseriesRetrieveParams,
+    BillingSubscriptionApi,
     BillingTeamOptionsResponseApi,
     BillingTimeSeriesResponseApi,
+    BillingUsageExportDownloadParams,
     BillingUsageExportRetrieveParams,
     BillingUsageRetrieveParams,
+    BillingUsageStatusApi,
+    BillingUsageSummaryApi,
+    BillingUsageTimeseriesRetrieveParams,
     PaginatedBillingAlertConfigurationListApi,
     PaginatedBillingAlertEventListApi,
+    PaginatedBillingTimeSeriesPointListApi,
     PatchedBillingAlertConfigurationApi,
     PatchedBillingApi,
+    ProjectUsageSummaryApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -48,12 +80,25 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getBillingListUrl = () => {
-    return `/api/billing/`
+export const getBillingListUrl = (params?: BillingListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0 ? `/api/billing/?${stringifiedParams}` : `/api/billing/`
 }
 
-export const billingList = async (options?: RequestInit): Promise<BillingOverviewResponseApi> => {
-    return apiMutator<BillingOverviewResponseApi>(getBillingListUrl(), {
+export const billingList = async (
+    params?: BillingListParams,
+    options?: RequestInit
+): Promise<BillingOverviewResponseApi> => {
+    return apiMutator<BillingOverviewResponseApi>(getBillingListUrl(params), {
         ...options,
         method: 'GET',
     })
@@ -63,12 +108,15 @@ export const getBillingActivateCreateUrl = () => {
     return `/api/billing/activate/`
 }
 
-export const billingActivateCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBillingActivateCreateUrl(), {
+export const billingActivateCreate = async (
+    billingActivationRequestApi: BillingActivationRequestApi,
+    options?: RequestInit
+): Promise<BillingActivationResponseApi> => {
+    return apiMutator<BillingActivationResponseApi>(getBillingActivateCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingActivationRequestApi),
     })
 }
 
@@ -76,12 +124,15 @@ export const getBillingActivateAuthorizeCreateUrl = () => {
     return `/api/billing/activate/authorize/`
 }
 
-export const billingActivateAuthorizeCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBillingActivateAuthorizeCreateUrl(), {
+export const billingActivateAuthorizeCreate = async (
+    billingPaymentOrganizationApi: BillingPaymentOrganizationApi,
+    options?: RequestInit
+): Promise<BillingAuthorizationResponseApi> => {
+    return apiMutator<BillingAuthorizationResponseApi>(getBillingActivateAuthorizeCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingPaymentOrganizationApi),
     })
 }
 
@@ -90,14 +141,14 @@ export const getBillingActivateAuthorizeStatusCreateUrl = () => {
 }
 
 export const billingActivateAuthorizeStatusCreate = async (
-    billingApi: BillingApi,
+    billingAuthorizationStatusRequestApi: BillingAuthorizationStatusRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingActivateAuthorizeStatusCreateUrl(), {
+): Promise<BillingAuthorizationStatusResponseApi> => {
+    return apiMutator<BillingAuthorizationStatusResponseApi>(getBillingActivateAuthorizeStatusCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingAuthorizationStatusRequestApi),
     })
 }
 
@@ -600,4 +651,579 @@ export const billingAlertsEventsList = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getBillingFeaturesRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/features/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get the features the organization's plans include
+ */
+export const billingFeaturesRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingFeaturesApi> => {
+    return apiMutator<BillingFeaturesApi>(getBillingFeaturesRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingForecastRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/forecast/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get the forecast for the rest of the billing period
+ */
+export const billingForecastRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingForecastApi> => {
+    return apiMutator<BillingForecastApi>(getBillingForecastRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingInvoicesListUrl = (organizationId: string, params?: BillingInvoicesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/invoices/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/invoices/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary List the organization's invoices
+ */
+export const billingInvoicesList = async (
+    organizationId: string,
+    params?: BillingInvoicesListParams,
+    options?: RequestInit
+): Promise<BillingInvoicesApi> => {
+    return apiMutator<BillingInvoicesApi>(getBillingInvoicesListUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingInvoicesContentRetrieveUrl = (organizationId: string, invoiceId: string) => {
+    return `/api/organizations/${organizationId}/billing/invoices/${invoiceId}/content/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Download an invoice as PDF
+ */
+export const billingInvoicesContentRetrieve = async (
+    organizationId: string,
+    invoiceId: string,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getBillingInvoicesContentRetrieveUrl(organizationId, invoiceId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingLimitsRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/limits/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get the organization's spend limits
+ */
+export const billingLimitsRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingLimitsApi> => {
+    return apiMutator<BillingLimitsApi>(getBillingLimitsRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProductsListUrl = (organizationId: string, params?: BillingProductsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/products/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/products/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary List the organization's products
+ */
+export const billingProductsList = async (
+    organizationId: string,
+    params?: BillingProductsListParams,
+    options?: RequestInit
+): Promise<BillingProductsApi> => {
+    return apiMutator<BillingProductsApi>(getBillingProductsListUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProductsRetrieveUrl = (
+    organizationId: string,
+    productKey: string,
+    params?: BillingProductsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/products/${productKey}/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/products/${productKey}/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get one product
+ */
+export const billingProductsRetrieve = async (
+    organizationId: string,
+    productKey: string,
+    params?: BillingProductsRetrieveParams,
+    options?: RequestInit
+): Promise<BillingProductApi> => {
+    return apiMutator<BillingProductApi>(getBillingProductsRetrieveUrl(organizationId, productKey, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProductsSummaryRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/products/summary/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get every product in summary
+ */
+export const billingProductsSummaryRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingProductsSummaryApi> => {
+    return apiMutator<BillingProductsSummaryApi>(getBillingProductsSummaryRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProjectListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/projects/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta. Every project the organization has reported usage for, deleted ones included, so a caller knows which ids a project breakdown or a team_ids filter can name. Below full billing access the list is the projects the caller can see.
+ * @summary List the projects with usage
+ */
+export const billingProjectList = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingProjectsApi> => {
+    return apiMutator<BillingProjectsApi>(getBillingProjectListUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingSpendSummaryRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/spend/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get spend so far this billing period
+ */
+export const billingSpendSummaryRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingSpendSummaryApi> => {
+    return apiMutator<BillingSpendSummaryApi>(getBillingSpendSummaryRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingSpendExportDownloadUrl = (organizationId: string, params?: BillingSpendExportDownloadParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/spend/export/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/spend/export/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Export spend as CSV
+ */
+export const billingSpendExportDownload = async (
+    organizationId: string,
+    params?: BillingSpendExportDownloadParams,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getBillingSpendExportDownloadUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingSpendTimeseriesRetrieveUrl = (
+    organizationId: string,
+    params?: BillingSpendTimeseriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/spend/timeseries/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/spend/timeseries/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Spend over time
+ */
+export const billingSpendTimeseriesRetrieve = async (
+    organizationId: string,
+    params?: BillingSpendTimeseriesRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedBillingTimeSeriesPointListApi> => {
+    return apiMutator<PaginatedBillingTimeSeriesPointListApi>(
+        getBillingSpendTimeseriesRetrieveUrl(organizationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getBillingSubscriptionRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/subscription/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get the organization's subscription
+ */
+export const billingSubscriptionRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingSubscriptionApi> => {
+    return apiMutator<BillingSubscriptionApi>(getBillingSubscriptionRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingUsageSummaryRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/usage/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get usage so far this billing period
+ */
+export const billingUsageSummaryRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingUsageSummaryApi> => {
+    return apiMutator<BillingUsageSummaryApi>(getBillingUsageSummaryRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingUsageExportDownloadUrl = (organizationId: string, params?: BillingUsageExportDownloadParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/usage/export/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/usage/export/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Export usage as CSV
+ */
+export const billingUsageExportDownload = async (
+    organizationId: string,
+    params?: BillingUsageExportDownloadParams,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getBillingUsageExportDownloadUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingUsageStatusRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/usage/status/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get usage against limits, without the counts
+ */
+export const billingUsageStatusRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingUsageStatusApi> => {
+    return apiMutator<BillingUsageStatusApi>(getBillingUsageStatusRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingUsageTimeseriesRetrieveUrl = (
+    organizationId: string,
+    params?: BillingUsageTimeseriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/usage/timeseries/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/usage/timeseries/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Usage over time
+ */
+export const billingUsageTimeseriesRetrieve = async (
+    organizationId: string,
+    params?: BillingUsageTimeseriesRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedBillingTimeSeriesPointListApi> => {
+    return apiMutator<PaginatedBillingTimeSeriesPointListApi>(
+        getBillingUsageTimeseriesRetrieveUrl(organizationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getBillingProjectSpendExportDownloadUrl = (
+    projectId: string,
+    params?: BillingProjectSpendExportDownloadParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/billing/spend/export/?${stringifiedParams}`
+        : `/api/projects/${projectId}/billing/spend/export/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Export a project's share of spend as CSV
+ */
+export const billingProjectSpendExportDownload = async (
+    projectId: string,
+    params?: BillingProjectSpendExportDownloadParams,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getBillingProjectSpendExportDownloadUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProjectSpendTimeseriesRetrieveUrl = (
+    projectId: string,
+    params?: BillingProjectSpendTimeseriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/billing/spend/timeseries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/billing/spend/timeseries/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary A project's share of spend over time
+ */
+export const billingProjectSpendTimeseriesRetrieve = async (
+    projectId: string,
+    params?: BillingProjectSpendTimeseriesRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedBillingTimeSeriesPointListApi> => {
+    return apiMutator<PaginatedBillingTimeSeriesPointListApi>(
+        getBillingProjectSpendTimeseriesRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getBillingProjectUsageRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/billing/usage/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get a project's usage so far this billing period
+ */
+export const billingProjectUsageRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ProjectUsageSummaryApi> => {
+    return apiMutator<ProjectUsageSummaryApi>(getBillingProjectUsageRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProjectUsageExportDownloadUrl = (
+    projectId: string,
+    params?: BillingProjectUsageExportDownloadParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/billing/usage/export/?${stringifiedParams}`
+        : `/api/projects/${projectId}/billing/usage/export/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Export a project's usage as CSV
+ */
+export const billingProjectUsageExportDownload = async (
+    projectId: string,
+    params?: BillingProjectUsageExportDownloadParams,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getBillingProjectUsageExportDownloadUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProjectUsageTimeseriesRetrieveUrl = (
+    projectId: string,
+    params?: BillingProjectUsageTimeseriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/billing/usage/timeseries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/billing/usage/timeseries/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary A project's usage over time
+ */
+export const billingProjectUsageTimeseriesRetrieve = async (
+    projectId: string,
+    params?: BillingProjectUsageTimeseriesRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedBillingTimeSeriesPointListApi> => {
+    return apiMutator<PaginatedBillingTimeSeriesPointListApi>(
+        getBillingProjectUsageTimeseriesRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }

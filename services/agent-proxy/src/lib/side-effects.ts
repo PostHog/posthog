@@ -21,6 +21,7 @@ import type { SideEffectKind } from './types.js'
 const ACP_NOTIFICATION_TYPE = 'notification'
 const TURN_COMPLETE_METHOD = '_posthog/turn_complete'
 const STOP_REASON_END_TURN = 'end_turn'
+const IDLE_RESUME_STOP_REASON = 'idle_resume'
 const ACP_METHOD_SESSION_UPDATE = 'session/update'
 const AGENT_COMMAND_DISPATCHED_METHOD = '_posthog/agent_command_dispatched'
 const ACP_GENERATION_UPDATES = new Set([
@@ -91,6 +92,47 @@ export function isPiTurnError(event: Record<string, unknown>): boolean {
     return piTurnCompleted !== null && piTurnCompleted['stopReason'] === PI_STOP_REASON_ERROR
 }
 
+export function turnCompletedSuccessfully(event: Record<string, unknown>): boolean {
+    if (event['type'] === PI_EVENT_TYPE) {
+        const piTurnCompleted = asPiTurnCompletedEvent(event)
+        return piTurnCompleted !== null && piTurnCompleted['stopReason'] === STOP_REASON_END_TURN
+    }
+    if (event['type'] !== ACP_NOTIFICATION_TYPE) {
+        return false
+    }
+    const notification = event['notification']
+    if (typeof notification !== 'object' || notification === null) {
+        return false
+    }
+    const notif = notification as Record<string, unknown>
+    const payload = notif['method'] === TURN_COMPLETE_METHOD ? notif['params'] : notif['result']
+    return (
+        typeof payload === 'object' &&
+        payload !== null &&
+        (payload as Record<string, unknown>)['stopReason'] === STOP_REASON_END_TURN
+    )
+}
+
+export function isIdleResumeTurnComplete(event: Record<string, unknown>): boolean {
+    if (event['type'] !== ACP_NOTIFICATION_TYPE) {
+        return false
+    }
+    const notification = event['notification']
+    if (typeof notification !== 'object' || notification === null) {
+        return false
+    }
+    const notif = notification as Record<string, unknown>
+    if (notif['method'] !== TURN_COMPLETE_METHOD) {
+        return false
+    }
+    const params = notif['params']
+    return (
+        typeof params === 'object' &&
+        params !== null &&
+        (params as Record<string, unknown>)['stopReason'] === IDLE_RESUME_STOP_REASON
+    )
+}
+
 // isSessionUpdate mirrors event_ingest.py:_is_session_update exactly.
 export function isSessionUpdate(event: Record<string, unknown>): boolean {
     if (event['type'] !== ACP_NOTIFICATION_TYPE) {
@@ -142,7 +184,21 @@ export function isAgentGenerationEvent(event: Record<string, unknown>): boolean 
 
 const CALLBACK_TIMEOUT_MS = 10_000
 const RETRY_DELAY_MS = 1000
-const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set(['awaiting_input', 'turn_failed'])
+const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set([
+    'awaiting_input',
+    'turn_failed',
+    'budget_steer',
+    'process_killed',
+])
+const PROCESS_KILLED_METHOD = '_posthog/process_killed'
+
+interface ProcessKilledPayload {
+    comm: string
+    signal: string
+    tree_rss_bytes: number
+    memory_current_bytes: number
+    memory_limit_bytes: number
+}
 
 function fetchErrorCode(err: unknown): string | undefined {
     if (!(err instanceof Error)) {
@@ -188,8 +244,16 @@ function fireCallback(
     teamId: number,
     originalToken: string,
     config: Config,
-    releaseClaim?: () => Promise<void>
+    options: {
+        releaseClaim?: () => Promise<void>
+        turnCompleted?: boolean
+        turnSucceeded?: boolean
+        activityStarted?: boolean
+        budgetSteer?: { sequence: number; timestamp?: string; params: Record<string, unknown> }
+        processKilled?: { sequence: number; payload: ProcessKilledPayload }
+    } = {}
 ): void {
+    const { releaseClaim, turnCompleted, turnSucceeded, activityStarted, budgetSteer, processKilled } = options
     if (!config.djangoCallbackBaseUrl) {
         // Dev environment without AGENT_PROXY_DJANGO_CALLBACK_URL — skip silently.
         void releaseMilestoneClaim(releaseClaim, runId, kind)
@@ -197,7 +261,30 @@ function fireCallback(
     }
 
     const url = `${config.djangoCallbackBaseUrl}/internal/tasks/runs/${runId}/agent-proxy-callback/`
-    const body = JSON.stringify({ kind, agent_active: agentActive, task_id: taskId, team_id: teamId })
+    const body = JSON.stringify({
+        ...(budgetSteer
+            ? {
+                  sequence: budgetSteer.sequence,
+                  timestamp: budgetSteer.timestamp,
+                  stage: budgetSteer.params['stage'],
+                  mode: budgetSteer.params['mode'],
+                  delivered: budgetSteer.params['delivered'],
+                  spent_usd: budgetSteer.params['spent_usd'],
+                  cap_usd: budgetSteer.params['cap_usd'],
+                  threshold_spent_usd: budgetSteer.params['threshold_spent_usd'],
+                  threshold_at: budgetSteer.params['threshold_at'],
+                  delivered_at: budgetSteer.params['delivered_at'],
+              }
+            : {}),
+        ...(processKilled ? { sequence: processKilled.sequence, process_killed: processKilled.payload } : {}),
+        kind,
+        agent_active: agentActive,
+        task_id: taskId,
+        team_id: teamId,
+        turn_completed: turnCompleted,
+        turn_succeeded: turnSucceeded,
+        activity_started: activityStarted,
+    })
 
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -228,6 +315,9 @@ function fireCallback(
                 'dispatched' in payload &&
                 payload.dispatched === true
             if (!dispatched) {
+                if (kind === 'budget_steer' || kind === 'process_killed') {
+                    logger.warn(`side_effect:${kind}_not_captured`, { run: runId })
+                }
                 await releaseMilestoneClaim(releaseClaim, runId, kind)
             }
         })
@@ -236,6 +326,90 @@ function fireCallback(
             logger.error('side_effect:failed', { run: runId, kind, error: message, code: fetchErrorCode(err) })
             await releaseMilestoneClaim(releaseClaim, runId, kind)
         })
+}
+
+export function captureBudgetSteerIfNeeded(
+    runId: string,
+    sequence: number,
+    event: Record<string, unknown>,
+    taskId: string,
+    teamId: number,
+    originalToken: string,
+    config: Config
+): void {
+    if (event['type'] !== ACP_NOTIFICATION_TYPE) {
+        return
+    }
+    const notification = event['notification']
+    if (typeof notification !== 'object' || notification === null || Array.isArray(notification)) {
+        return
+    }
+    const { method, params } = notification as Record<string, unknown>
+    if (method !== '_posthog/budget_steer' || typeof params !== 'object' || params === null || Array.isArray(params)) {
+        return
+    }
+    fireCallback(runId, 'budget_steer', false, taskId, teamId, originalToken, config, {
+        budgetSteer: {
+            sequence,
+            ...(typeof event['timestamp'] === 'string' ? { timestamp: event['timestamp'] } : {}),
+            params: params as Record<string, unknown>,
+        },
+    })
+}
+
+function byteCount(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null
+}
+
+function parseProcessKilled(event: Record<string, unknown>): ProcessKilledPayload | null {
+    if (event['type'] !== ACP_NOTIFICATION_TYPE) {
+        return null
+    }
+    const notification = event['notification']
+    if (typeof notification !== 'object' || notification === null || Array.isArray(notification)) {
+        return null
+    }
+    const { method, params } = notification as Record<string, unknown>
+    if (method !== PROCESS_KILLED_METHOD || typeof params !== 'object' || params === null || Array.isArray(params)) {
+        return null
+    }
+    const fields = params as Record<string, unknown>
+    const comm = fields['comm']
+    const signal = fields['signal']
+    const treeRssBytes = byteCount(fields['treeRssBytes'])
+    const memoryCurrentBytes = byteCount(fields['memoryCurrentBytes'])
+    const memoryLimitBytes = byteCount(fields['memoryLimitBytes'])
+    if (typeof comm !== 'string' || typeof signal !== 'string') {
+        return null
+    }
+    if (treeRssBytes === null || memoryCurrentBytes === null || memoryLimitBytes === null) {
+        return null
+    }
+    return {
+        comm,
+        signal,
+        tree_rss_bytes: treeRssBytes,
+        memory_current_bytes: memoryCurrentBytes,
+        memory_limit_bytes: memoryLimitBytes,
+    }
+}
+
+export function captureProcessKilledIfNeeded(
+    runId: string,
+    sequence: number,
+    event: Record<string, unknown>,
+    taskId: string,
+    teamId: number,
+    originalToken: string,
+    config: Config
+): void {
+    const payload = parseProcessKilled(event)
+    if (payload === null) {
+        return
+    }
+    fireCallback(runId, 'process_killed', false, taskId, teamId, originalToken, config, {
+        processKilled: { sequence, payload },
+    })
 }
 
 async function releaseMilestoneClaim(
@@ -254,20 +428,6 @@ async function releaseMilestoneClaim(
     }
 }
 
-// heartbeatWorkflowIfNeeded implements the side-effect decision from docs/DESIGN.md §2
-// and mirrors event_ingest.py:_heartbeat_workflow_if_needed exactly.
-//
-// Decision tree:
-//  1. isTurnComplete  -> setAgentActive(false), fire awaiting_input callback (or turn_failed
-//                        for a pi runtime error), return.
-//  2. isSessionUpdate -> setAgentActive(true), set agentActive=true.
-//  3. else            -> agentActive = getAgentActive().
-//  4. if !agentActive -> return.
-//  5. claimAgentActiveHeartbeat(30s) -> if throttled, return.
-//  6. fire heartbeat callback.
-//
-// Redis operations are awaited synchronously (they gate the callback decision).
-// The Django HTTP callback is fire-and-forget in both branches.
 export async function heartbeatWorkflowIfNeeded(
     redisStream: TaskRunRedisStream,
     runId: string,
@@ -278,13 +438,13 @@ export async function heartbeatWorkflowIfNeeded(
     config: Config
 ): Promise<void> {
     if (isAgentCommandDispatched(event) && (await redisStream.claimFirstAgentCommand())) {
-        fireCallback(runId, 'command_dispatched', false, taskId, teamId, originalToken, config, () =>
-            redisStream.releaseFirstAgentCommand()
-        )
+        fireCallback(runId, 'command_dispatched', false, taskId, teamId, originalToken, config, {
+            releaseClaim: () => redisStream.releaseFirstAgentCommand(),
+        })
     } else if (isAgentGenerationEvent(event) && (await redisStream.claimFirstAgentActivity())) {
-        fireCallback(runId, 'agent_activity', true, taskId, teamId, originalToken, config, () =>
-            redisStream.releaseFirstAgentActivity()
-        )
+        fireCallback(runId, 'agent_activity', true, taskId, teamId, originalToken, config, {
+            releaseClaim: () => redisStream.releaseFirstAgentActivity(),
+        })
     }
 
     if (isTurnComplete(event)) {
@@ -296,14 +456,18 @@ export async function heartbeatWorkflowIfNeeded(
         } else {
             // Let Django decide whether the run is interactive; it will only
             // dispatch the push notification for interactive mode runs.
-            fireCallback(runId, 'awaiting_input', false, taskId, teamId, originalToken, config)
+            fireCallback(runId, 'awaiting_input', false, taskId, teamId, originalToken, config, {
+                turnCompleted: !isIdleResumeTurnComplete(event),
+                turnSucceeded: turnCompletedSuccessfully(event),
+            })
         }
         return
     }
 
     let agentActive: boolean
-    if (isSessionUpdate(event)) {
-        await redisStream.setAgentActive(true)
+    let activityStarted = false
+    if (isSessionUpdate(event) || isAgentGenerationEvent(event)) {
+        activityStarted = !(await redisStream.setAgentActive(true))
         agentActive = true
     } else {
         agentActive = await redisStream.getAgentActive()
@@ -314,9 +478,9 @@ export async function heartbeatWorkflowIfNeeded(
     }
 
     const claimed = await redisStream.claimAgentActiveHeartbeat(HEARTBEAT_THROTTLE_SECONDS)
-    if (!claimed) {
+    if (!claimed && !activityStarted) {
         return
     }
 
-    fireCallback(runId, 'heartbeat', true, taskId, teamId, originalToken, config)
+    fireCallback(runId, 'heartbeat', true, taskId, teamId, originalToken, config, { activityStarted })
 }

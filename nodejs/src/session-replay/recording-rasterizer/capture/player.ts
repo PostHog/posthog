@@ -1,12 +1,18 @@
 import type { Page } from 'puppeteer'
 
-import { PLAYER_CONFIG_KEY, PLAYER_EMIT_FN, PLAYER_START_EVENT } from '@posthog/replay-headless/protocol'
-import type { InactivityPeriod, PlayerConfig, PlayerMessage } from '@posthog/replay-headless/protocol'
+import {
+    PLAYER_CONFIG_KEY,
+    PLAYER_EMIT_FN,
+    PLAYER_FRAME_TIMELINE_KEY,
+    PLAYER_NAVIGATION_KEY,
+    PLAYER_START_EVENT,
+} from '@posthog/replay-headless/protocol'
+import type { InactivityPeriod, NavigationSample, PlayerConfig, PlayerMessage } from '@posthog/replay-headless/protocol'
 
 import { RasterizationError, toRasterizationErrorCode } from '~/session-replay/recording-rasterizer/errors'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
 
-import { BlockProxy } from './block-proxy'
+import { BlockSource } from './block-proxy'
 import { CapturePage } from './capture-page'
 import { RequestInterceptor } from './request-interceptor'
 
@@ -26,6 +32,7 @@ export class PlayerController {
     private state = {
         ended: false,
         inactivityPeriods: [] as InactivityPeriod[],
+        frameSessionMs: [] as number[],
     }
 
     private startedResolve: (() => void) | null = null
@@ -35,7 +42,7 @@ export class PlayerController {
 
     constructor(
         capturePage: CapturePage,
-        blockProxy: BlockProxy,
+        blockProxy: BlockSource,
         onProgress: () => void,
         log: Logger = createLogger()
     ) {
@@ -88,6 +95,9 @@ export class PlayerController {
                 break
             case 'inactivity_periods':
                 this.state.inactivityPeriods = msg.periods
+                break
+            case 'frame_timeline':
+                this.state.frameSessionMs = msg.frameSessionMs
                 break
         }
     }
@@ -237,6 +247,33 @@ export class PlayerController {
 
     getInactivityPeriods(): InactivityPeriod[] {
         return this.state.inactivityPeriods
+    }
+
+    getFrameSessionMs(): number[] {
+        return this.state.frameSessionMs
+    }
+
+    /** Read the frame timeline off the page. Works for a capture that was trimmed or timed out, where
+     * the replayer never finished and so never pushed it. Falls back to whatever was pushed. */
+    async readFrameTimeline(): Promise<number[]> {
+        const samples = await this.readPageArray<number>(PLAYER_FRAME_TIMELINE_KEY)
+        // Empty when the page is already gone: use whatever the player managed to push before teardown.
+        return samples.length > 0 ? samples : this.state.frameSessionMs
+    }
+
+    async readNavigation(): Promise<NavigationSample[]> {
+        return this.readPageArray<NavigationSample>(PLAYER_NAVIGATION_KEY)
+    }
+
+    private async readPageArray<T>(key: string): Promise<T[]> {
+        try {
+            return await this.capturePage.page.evaluate(
+                (windowKey: string) => (window as unknown as Record<string, T[]>)[windowKey] ?? [],
+                key
+            )
+        } catch {
+            return []
+        }
     }
 
     dispose(): void {

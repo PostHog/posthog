@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.coda.coda import (
     coda_source,
     validate_credentials as validate_coda_credentials,
@@ -30,6 +29,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CodaSource(SimpleSource[CodaSourceConfig]):
+    codebase_detection = detect(env=("^CODA_API_",), npm=("@codahq/packs-sdk",), pypi=("codaio",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v1",)
@@ -49,7 +50,7 @@ class CodaSource(SimpleSource[CodaSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CODA,
+            name=ExternalDataSourceType.CODA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Coda",
             caption="""Enter your Coda API token to pull your docs, tables, and rows into the PostHog Data warehouse.

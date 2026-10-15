@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ConvertKitSource(ResumableSource[ConvertKitSourceConfig, ConvertKitResumeConfig]):
+    codebase_detection = detect(env=("^CONVERTKIT_",), script_hosts=("f.convertkit.com",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v4",)
@@ -50,7 +51,7 @@ class ConvertKitSource(ResumableSource[ConvertKitSourceConfig, ConvertKitResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CONVERT_KIT,
+            name=ExternalDataSourceType.CONVERTKIT,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             keywords=["kit"],
             label="ConvertKit",
@@ -59,7 +60,7 @@ class ConvertKitSource(ResumableSource[ConvertKitSourceConfig, ConvertKitResumeC
 You can create a v4 API key in your [Kit account settings](https://app.kit.com/account_settings/developer_settings).""",
             iconPath="/static/services/convertkit.png",
             docsUrl="https://posthog.com/docs/cdp/sources/convertkit",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

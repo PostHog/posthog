@@ -4,10 +4,10 @@ import { IconDecisionTree } from '@posthog/icons'
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
 import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { WorkflowsPathChoice } from '../setupGuide/WorkflowsPathChoice'
 import { WorkflowsPreview } from './WorkflowsPreview'
 import { workflowsSetupLogic } from './workflowsSetupLogic'
 
@@ -28,14 +28,11 @@ export const workflowsEmptyState: SceneProductEmptyState = {
         hedgehog: HedgehogWorkflows,
         text: {
             'needs-setup': {
-                headline: 'Message users when it matters',
-                lead: 'Build journeys on a canvas: trigger on any event or cohort, wait, branch on behavior, and send email, SMS, or push. Connect a channel and design your first message along the way.',
+                headline: 'What do you want to build first?',
+                lead: 'Message your users with email, SMS and push, send a one-off broadcast, or automate work with Slack alerts, webhooks and AI tasks. You can do all of them later. This choice only picks where we start.',
             },
         },
-        primaryAction: {
-            label: 'New workflow',
-            to: urls.workflowNew(),
-        },
+        PrimaryAction: WorkflowsPathChoice,
         docsUrl: 'https://posthog.com/docs/workflows',
         previewLabel: 'Your journeys, once running',
         Preview: WorkflowsPreview,

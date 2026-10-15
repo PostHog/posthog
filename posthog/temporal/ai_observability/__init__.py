@@ -23,6 +23,7 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     advance_evaluation_backfill_cursor_activity,
     fail_evaluation_backfill_activity,
     find_evaluation_backfill_candidates_activity,
+    measure_evaluation_backfill_remainder_activity,
     prepare_evaluation_backfill_tick_activity,
 )
 from posthog.temporal.ai_observability.evaluation_clustering import (
@@ -76,6 +77,7 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
     execute_trace_llm_judge_activity,
 )
 from posthog.temporal.ai_observability.shared_activities import (
+    check_ai_data_processing_consent_activity,
     fetch_all_clustering_filters_activity,
     fetch_all_clustering_jobs_activity,
 )
@@ -167,6 +169,7 @@ ACTIVITIES = [
     fetch_and_format_activity,
     summarize_and_save_activity,
     # Shared activities
+    check_ai_data_processing_consent_activity,
     fetch_all_clustering_filters_activity,
     fetch_all_clustering_jobs_activity,
     # Clustering activities
@@ -195,6 +198,7 @@ ACTIVITIES = [
     # Evaluation backfill activities
     prepare_evaluation_backfill_tick_activity,
     find_evaluation_backfill_candidates_activity,
+    measure_evaluation_backfill_remainder_activity,
     advance_evaluation_backfill_cursor_activity,
     fail_evaluation_backfill_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete

@@ -8,7 +8,9 @@
 //! step handlers.
 
 pub mod delete;
+pub mod detach;
 pub mod engine;
+pub(crate) mod leader_calls;
 pub mod merge;
 pub mod validation;
 
@@ -39,10 +41,16 @@ impl PersonHogLifecycleService {
         leader: Arc<dyn LifecycleLeader>,
         tables: crate::config::IdentityTables,
         leader_call_concurrency: usize,
+        num_partitions: u32,
     ) -> Self {
         Self {
             engine,
-            delete_driver: DeleteDriver::new(leader, tables, leader_call_concurrency),
+            delete_driver: DeleteDriver::new(
+                leader,
+                tables,
+                leader_call_concurrency,
+                num_partitions,
+            ),
         }
     }
 }

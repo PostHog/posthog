@@ -34,7 +34,7 @@ pub fn parse_relative_date(date_str: &str) -> Option<DateTime<Utc>> {
     parse_relative_date_naive(date_str, Utc::now().naive_utc()).map(|naive| naive.and_utc())
 }
 
-/// Parse a relative date string anchored to the current wall clock in `tz`,
+/// Parse a relative date string anchored to `now` (default: the current wall clock) in `tz`,
 /// returning the resulting instant in UTC.
 ///
 /// This mirrors HogQL's `relative_date_parse(value, team.timezone_info)`: the
@@ -43,13 +43,20 @@ pub fn parse_relative_date(date_str: &str) -> Option<DateTime<Utc>> {
 /// the subtraction on the naive wall clock (rather than on an absolute UTC
 /// instant) is what makes "in the last N days" land on the same local day
 /// boundary in both engines.
-pub fn parse_relative_date_in_tz(date_str: &str, tz: Tz) -> Option<DateTime<Utc>> {
+pub fn parse_relative_date_in_tz(
+    date_str: &str,
+    tz: Tz,
+    now: Option<DateTime<Utc>>,
+) -> Option<DateTime<Utc>> {
     // Cheap reject for the common case (absolute date strings) before reading the
     // clock and localizing — that work is wasted whenever the regex won't match.
     if !RELATIVE_DATE_REGEX.is_match(date_str) {
         return None;
     }
-    let now_local = Utc::now().with_timezone(&tz).naive_local();
+    let now_local = now
+        .unwrap_or_else(Utc::now)
+        .with_timezone(&tz)
+        .naive_local();
     let result = parse_relative_date_naive(date_str, now_local)?;
     naive_to_utc_in_tz(result, tz)
 }
@@ -69,21 +76,19 @@ pub(crate) fn naive_to_utc_in_tz(naive: NaiveDateTime, tz: Tz) -> Option<DateTim
     }
 }
 
+pub(crate) fn parse_relative_date_parts(date_str: &str) -> Option<(i64, &str)> {
+    let captures = RELATIVE_DATE_REGEX.captures(date_str)?;
+    let number = captures.name("number")?.as_str().parse::<i64>().ok()?;
+    (number < 10_000).then_some((number, captures.name("interval")?.as_str()))
+}
+
 /// Apply the relativedelta-style subtraction purely on a naive wall clock.
 ///
 /// All arithmetic is timezone-agnostic here; callers decide how to anchor `now`
 /// and how to interpret the result. Time-of-day (including sub-second precision)
 /// is preserved across calendar month/year shifts.
 fn parse_relative_date_naive(date_str: &str, now: NaiveDateTime) -> Option<NaiveDateTime> {
-    let captures = RELATIVE_DATE_REGEX.captures(date_str)?;
-
-    let number: i64 = captures.name("number")?.as_str().parse().ok()?;
-    if number >= 10_000 {
-        // Guard against overflow, disallow numbers greater than 10_000
-        return None;
-    }
-
-    let interval = captures.name("interval")?.as_str();
+    let (number, interval) = parse_relative_date_parts(date_str)?;
 
     match interval {
         "h" => Some(now - Duration::hours(number)),

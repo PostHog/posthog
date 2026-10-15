@@ -54,6 +54,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     loop_mcp_installation_allowlist,
     mark_sandbox_github_identity,
     mark_sandbox_mcp_session,
+    mcp_exclude_tools_from_state,
     record_message_actor,
     sandbox_identity_scope,
     upgrade_run_to_user_authorship,
@@ -99,6 +100,7 @@ SEND_FOLLOWUP_MAX_ATTEMPTS = 3
 # 1-minute timeout both callers set gives a 15-second interval.
 SEND_FOLLOWUP_HEARTBEAT_FACTOR = 4
 STEER_DECLINED_OUTCOME = "steer_declined"
+TURN_IN_FLIGHT_OUTCOME = "turn_in_flight"
 STEER_DECLINE_REASON_UNREPORTED = "unreported"
 STEER_DECLINE_REASON_ACTOR_MISMATCH = "actor_mismatch"
 
@@ -295,9 +297,8 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
     # Reject the marker written by user-initiated cancel, and the bare CANCELLED status that
-    # loop overlap and lifecycle cancellation set without that marker (loop_runs.py,
-    # loop_lifecycle.py). Either means the run is winding down, so no follow-up should rebind
-    # credentials or reach the sandbox.
+    # out-of-band cancellation sets without that marker. Either means the run is winding down,
+    # so no follow-up should rebind credentials or reach the sandbox.
     if (task_run.state or {}).get("cancel_requested_at") or task_run.status == TaskRun.Status.CANCELLED:
         if peer_message_id is not None:
             _mark_peer_delivery_outcome(
@@ -500,6 +501,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             run_id=input.run_id,
             timeout_seconds=FOLLOWUP_TIMEOUT_SECONDS,
         )
+        return TURN_IN_FLIGHT_OUTCOME
     elif result.retryable and input.message_id:
         if _is_denied_permission_stop(input.run_id, result.error, steer=input.steer):
             observe_followup_denied_permission_stop(task_run)
@@ -694,7 +696,7 @@ def _deliver_peer_message(input: SendFollowupToSandboxInput, task_run: TaskRun, 
         # The read timeout means the message reached the sandbox and the turn is
         # simply still running (see the user path for why this is not a failure).
         _mark_peer_delivery_outcome(peer_message_id, AgentPeerMessage.Outcome.DELIVERED)
-        return None
+        return TURN_IN_FLIGHT_OUTCOME
     if result.retryable and input.message_id and _current_attempt() < input.max_attempts:
         # Row stays signaled; a retried delivery is deduped by message_id and the
         # final attempt terminalizes below.
@@ -755,7 +757,7 @@ def _refresh_sandbox_mcp(
         )
 
     try:
-        access_token = create_oauth_access_token_for_run(task_run.task, state, scopes=scopes)
+        access_token = create_oauth_access_token_for_run(task_run.task, state, scopes=scopes, run_id=run_id)
     except Exception as e:
         logger.warning(
             "refresh_mcp_token_mint_failed",
@@ -777,6 +779,7 @@ def _refresh_sandbox_mcp(
         slack_reply_context=(state or {}).get("slack_reply_context") is True,
         task_id=str(task_run.task_id),
         origin_product=task_run.task.origin_product,
+        exclude_tools=mcp_exclude_tools_from_state(state),
     )
     user_mcp_configs = get_user_mcp_server_configs(
         token=access_token,

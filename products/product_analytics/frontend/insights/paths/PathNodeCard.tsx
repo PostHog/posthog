@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { CSSProperties, useState } from 'react'
+import { CSSProperties } from 'react'
 
 import { Popover } from 'lib/lemon-ui/Popover'
 
@@ -16,8 +16,9 @@ export type PathNodeCardProps = {
     insightProps: InsightLogicProps
     node: PathNodeData
     canvasHeight: number
-    onMouseEnter?: () => void
-    onMouseLeave?: () => void
+    popoverVisible: boolean
+    onMouseEnter: () => void
+    onMouseLeave: () => void
 }
 
 function getCardStyle(
@@ -43,10 +44,10 @@ export function PathNodeCard({
     insightProps,
     node,
     canvasHeight,
+    popoverVisible,
     onMouseEnter,
     onMouseLeave,
 }: PathNodeCardProps): JSX.Element | null {
-    const [popoverVisible, setPopoverVisible] = useState(false)
     const { pathsFilter: _pathsFilter, funnelPathsFilter: _funnelPathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter, openPersonsModal, viewPathToFunnel } = useActions(pathsDataLogic(insightProps))
 
@@ -67,16 +68,6 @@ export function PathNodeCard({
           node.targetLinks.length
         : null
 
-    const handleMouseEnter = (): void => {
-        setPopoverVisible(true)
-        onMouseEnter?.()
-    }
-
-    const handleMouseLeave = (): void => {
-        setPopoverVisible(false)
-        onMouseLeave?.()
-    }
-
     return (
         <Popover
             visible={popoverVisible}
@@ -95,10 +86,14 @@ export function PathNodeCard({
             placement="bottom"
             padded={false}
             matchWidth
-            onMouseLeaveInside={handleMouseLeave}
+            // The overlay is portaled, so it is not a DOM child of the card: moving the pointer
+            // onto it fires the card's mouseleave. Without the enter handler below, the popover
+            // closes the moment the pointer touches it, and then opens again on the card.
+            onMouseEnterInside={onMouseEnter}
+            onMouseLeaveInside={onMouseLeave}
         >
             <div
-                className={`PathNodeCard absolute rounded bg-surface-primary p-1${node.active ? ' PathNodeCard--active' : ''}`}
+                className={`PathNodeCard absolute rounded bg-surface-primary p-1 pointer-events-auto${node.active ? ' PathNodeCard--active' : ''}`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={getCardStyle(
                     node,
@@ -107,8 +102,11 @@ export function PathNodeCard({
                     canvasHeight
                 )}
                 data-attr="path-node-card-button"
-                onMouseEnter={handleMouseEnter}
-                onMouseLeave={handleMouseLeave}
+                // Inside the chart overlay, the card owns the cursor: the chart stops hit-testing
+                // the nodes and ribbons under it.
+                data-hog-charts-interactive-overlay
+                onMouseEnter={onMouseEnter}
+                onMouseLeave={onMouseLeave}
             >
                 <PathNodeCardButton
                     name={node.name}

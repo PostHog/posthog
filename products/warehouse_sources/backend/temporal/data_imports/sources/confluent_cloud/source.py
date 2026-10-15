@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -42,6 +41,8 @@ _FALLBACK_PROBE_RESOURCE_ID = "lkc-00000"
 
 @SourceRegistry.register
 class ConfluentCloudSource(ResumableSource[ConfluentCloudSourceConfig, ConfluentCloudResumeConfig]):
+    codebase_detection = detect(env=("^(CONFLUENT_CLOUD|CONFLUENTCLOUD)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -51,7 +52,7 @@ class ConfluentCloudSource(ResumableSource[ConfluentCloudSourceConfig, Confluent
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CONFLUENT_CLOUD,
+            name=ExternalDataSourceType.CONFLUENTCLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Confluent Cloud",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DebugbearSource(SimpleSource[DebugbearSourceConfig]):
+    codebase_detection = detect(env=("^DEBUGBEAR_",), script_hosts=("cdn.debugbear.com",), npm=("debugbear",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.debugbear.com/docs/api"
 
@@ -46,6 +47,9 @@ class DebugbearSource(SimpleSource[DebugbearSourceConfig]):
         return {
             "401 Client Error": "Your DebugBear API key is invalid or expired. Please generate a new key and reconnect.",
             "403 Client Error": "Your DebugBear API key doesn't have permission for this request. Use an Admin API key (Account settings > API Keys) and reconnect.",
+            # Raised by `_iter_rum_metrics_for_project` after DebugBear 400s on a project with no
+            # RUM data; the raw message already names the project and the likely fix.
+            "DebugBear rejected the RUM metrics request": None,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -88,7 +92,7 @@ class DebugbearSource(SimpleSource[DebugbearSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DEBUGBEAR,
+            name=ExternalDataSourceType.DEBUGBEAR,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="DebugBear",
             caption="Sync DebugBear's monitored projects and synthetic Lighthouse / Core Web Vitals test results into your warehouse.",

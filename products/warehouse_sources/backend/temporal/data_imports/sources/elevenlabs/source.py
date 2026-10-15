@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ElevenLabsSource(ResumableSource[ElevenLabsSourceConfig, ElevenLabsResumeConfig]):
+    codebase_detection = detect(
+        env=("^ELEVENLABS_", "^ELEVEN_LABS_"),
+        npm=(
+            "@elevenlabs/elevenlabs-js",
+            "elevenlabs",
+            "@elevenlabs/client",
+            "@elevenlabs/react",
+            "@elevenlabs/react-native",
+        ),
+        pypi=("elevenlabs",),
+        swiftpm=("github.com/elevenlabs/elevenlabs-swift-sdk",),
+    )
+
     api_docs_url = "https://elevenlabs.io/docs/api-reference/introduction"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -45,7 +57,7 @@ class ElevenLabsSource(ResumableSource[ElevenLabsSourceConfig, ElevenLabsResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ELEVEN_LABS,
+            name=ExternalDataSourceType.ELEVENLABS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="ElevenLabs",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -55,8 +67,11 @@ You can create an API key in your [ElevenLabs account settings](https://elevenla
 
 Grant the following read permissions when creating the key:
 - **History** (text-to-speech generation history)
-- **Conversational AI** (conversations and agents)
+- **Conversational AI** (conversations, agents, triage tickets, tools, tool executions, phone numbers, and batch calls)
 - **Voices**
+- **Models**
+- **Workspace** (members and groups)
+- **User** (subscription)
 """,
             iconPath="/static/services/elevenlabs.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/elevenlabs",

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SpotIoSource(ResumableSource[SpotIoSourceConfig, SpotIoResumeConfig]):
+    codebase_detection = detect(
+        env=("^SPOTINST_",), pypi=("spotinst-sdk2",), go=("github.com/spotinst/spotinst-sdk-go",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.flexera.com/spot/"
 
@@ -101,7 +104,7 @@ class SpotIoSource(ResumableSource[SpotIoSourceConfig, SpotIoResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SPOT_IO,
+            name=ExternalDataSourceType.SPOTIO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Spot by Flexera (Spotinst)",
             caption="Import Elastigroup and Ocean cloud cost optimization data from your Spot by Flexera account.",

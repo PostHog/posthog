@@ -8,7 +8,15 @@
 // pinned: URL search param — the callback redirect and the landing page both read it.
 export const INTEGRATION_ERROR_PARAM = 'integration_error'
 
+// Not a provider code: PostHog's own CSRF state cookie outlived the authorization round-trip, so
+// the callback can't be verified. It rides the same param as the provider codes to reach whichever
+// page the user lands on.
+// pinned: URL search param value — the callback redirect and the landing page both read it.
+export const OAUTH_STATE_EXPIRED = 'posthog_state_expired'
+
 const OAUTH_CALLBACK_ERROR_MESSAGES: Record<string, string> = {
+    [OAUTH_STATE_EXPIRED]:
+        'This connection attempt expired before it could finish. Start it again and approve access without waiting in between.',
     access_denied: 'Authorization was canceled. Please try connecting again and approve access to continue.',
     user_connector_authorize:
         'Authorization was not completed. Please try connecting again and approve access to continue.',

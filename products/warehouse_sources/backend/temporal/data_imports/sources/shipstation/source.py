@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -43,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShipStationSource(ResumableSource[ShipStationSourceConfig, ShipStationResumeConfig]):
+    codebase_detection = detect(env=("^SHIPSTATION_",))
+
     api_docs_url = "https://docs.shipstation.com/"
 
     supported_versions = SHIPSTATION_SUPPORTED_VERSIONS
@@ -75,7 +76,7 @@ class ShipStationSource(ResumableSource[ShipStationSourceConfig, ShipStationResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SHIP_STATION,
+            name=ExternalDataSourceType.SHIPSTATION,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="ShipStation",
             caption="""Enter your ShipStation API credentials to pull your ShipStation shipping data into the PostHog data warehouse.

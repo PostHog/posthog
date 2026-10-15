@@ -21,7 +21,7 @@ from products.tasks.backend.logic.services.local_skills import (
 )
 from products.tasks.backend.models import SandboxEnvironment
 
-PATCH_TARGET = "products.posthog_ai.scripts.build_skills.SkillBuilder"
+PATCH_TARGET = "products.posthog_ai.scripts.build_skills.skill_builder.SkillBuilder"
 
 
 def _mock_builder(cache: LocalSkillsCache, *, produce_files: bool = True):
@@ -69,9 +69,9 @@ class TestLocalSkills(BaseTest):
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text("# skill body\n")
 
-        scripts_dir = self.base_dir / "products" / "posthog_ai" / "scripts"
+        scripts_dir = self.base_dir / "products" / "posthog_ai" / "scripts" / "build_skills"
         scripts_dir.mkdir(parents=True)
-        (scripts_dir / "build_skills.py").write_text("# stub renderer\n")
+        (scripts_dir / "skill_builder.py").write_text("# stub renderer\n")
 
     def _seed_dist(self, filename: str = "placeholder.md") -> Path:
         self.cache.dist_dir.mkdir(parents=True, exist_ok=True)
@@ -139,7 +139,7 @@ class TestLocalSkills(BaseTest):
 
     def test_hash_reacts_to_relevant_changes_only(self) -> None:
         skill_file = self.base_dir / "products" / "alpha" / "skills" / "my-skill" / "SKILL.md"
-        builder_script = self.base_dir / "products" / "posthog_ai" / "scripts" / "build_skills.py"
+        builder_script = self.base_dir / "products" / "posthog_ai" / "scripts" / "build_skills" / "skill_builder.py"
 
         baseline = self.cache._compute_source_hash()
 

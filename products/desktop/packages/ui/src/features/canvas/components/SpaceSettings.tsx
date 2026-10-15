@@ -1,3 +1,4 @@
+import { Text } from "@posthog/quill";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { SpaceMembersSettings } from "@posthog/ui/features/canvas/components/SpaceMembersSettings";
 import { SpaceRepositories } from "@posthog/ui/features/canvas/components/SpaceRepositories";
@@ -8,6 +9,7 @@ import {
   useChannels,
 } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { SettingsSection } from "@posthog/ui/features/settings/components/SettingsCard";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import {
@@ -33,11 +35,12 @@ export function SpaceSettings({ channelId }: { channelId: string }) {
   const { channels: taskChannels, isLoading: tasksLoading } = useTaskChannels();
   const channel = channels.find((item) => item.id === channelId);
   const taskChannel = taskChannels.find((item) => item.id === channelId);
+  const workLayout = useWorkLayout();
   const header = useMemo(
     () => <ChannelHeader channelId={channelId} page="settings" />,
     [channelId],
   );
-  useSetHeaderContent(header);
+  useSetHeaderContent(header, !workLayout);
   const isPrivate = channel?.channelType === "private";
   const { members } = useChannelMembers(isPrivate ? channelId : null);
 
@@ -54,16 +57,25 @@ export function SpaceSettings({ channelId }: { channelId: string }) {
 
   return (
     <div className="h-full overflow-y-auto">
-      <PageHeader>
-        <PageHeaderHeading>
-          <PageHeaderTitle>Settings</PageHeaderTitle>
-          <PageHeaderDescription>
+      {workLayout ? (
+        <div className="flex h-11 shrink-0 items-center border-border border-b px-6">
+          <Text size="xs" variant="muted">
             Repositories and who can see this space. Changes save as you make
             them.
-          </PageHeaderDescription>
-        </PageHeaderHeading>
-      </PageHeader>
-      <div className="flex max-w-[800px] flex-col gap-7 px-6 py-5">
+          </Text>
+        </div>
+      ) : (
+        <PageHeader>
+          <PageHeaderHeading>
+            <PageHeaderTitle>Settings</PageHeaderTitle>
+            <PageHeaderDescription>
+              Repositories and who can see this space. Changes save as you make
+              them.
+            </PageHeaderDescription>
+          </PageHeaderHeading>
+        </PageHeader>
+      )}
+      <div className="flex max-w-[800px] flex-col gap-7 px-6 pt-6 pb-5">
         <SettingsSection
           label="Repositories"
           description="Sessions in this space start with these repositories checked out."

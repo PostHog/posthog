@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -40,6 +39,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZuoraSource(ResumableSource[ZuoraSourceConfig, ZuoraResumeConfig]):
+    codebase_detection = detect(
+        env=("^ZUORA_",),
+        script_hosts=("static.zuora.com",),
+        pypi=("zuora-sdk",),
+        maven=(
+            "com.zuora.sdk:zuora-sdk-java",
+            "com.zuora.sdk:zuora-java",
+            "com.zuora.sdk:zuora-sdk-java-core",
+            "com.zuora.sdk:zuora-sdk-java-root",
+        ),
+    )
+
     api_docs_url = "https://developer.zuora.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -68,7 +79,7 @@ class ZuoraSource(ResumableSource[ZuoraSourceConfig, ZuoraResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ZUORA,
+            name=ExternalDataSourceType.ZUORA,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Zuora",
             caption="""Connect your Zuora tenant to pull your subscription billing data into the PostHog Data warehouse.

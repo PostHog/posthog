@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -8,9 +9,22 @@ BODY_EXCERPT_MAX_CHARS = 1500
 
 CONFLICT_KEY = "merge-conflict"
 
+# `@posthog <command>` lines belong to the pull request comment dispatcher (products/commands),
+# which also marks its replies. Neither is feedback for this loop, and acting on a command such as
+# `@posthog stamp` here would run it a second time.
+_DISPATCHER_COMMAND_LINE_RE = re.compile(r"^ {0,3}@posthog(?![\w-])", re.IGNORECASE)
+_DISPATCHER_REPLY_MARKER = "<!-- posthog-github-command:"
+
 
 def _excerpt(body: str | None) -> str:
     return truncate_for_temporal_payload((body or "").strip(), BODY_EXCERPT_MAX_CHARS)
+
+
+def _without_dispatcher_text(body: str | None) -> str:
+    """The comment without dispatcher commands, or nothing for a dispatcher reply."""
+    if not body or _DISPATCHER_REPLY_MARKER in body:
+        return ""
+    return "\n".join(line for line in body.splitlines() if not _DISPATCHER_COMMAND_LINE_RE.match(line)).strip()
 
 
 @dataclass(frozen=True)
@@ -49,6 +63,26 @@ class PRSnapshot:
     failing_checks: list[FailingCheck] = field(default_factory=list)
     unresolved_threads: list[ReviewThreadItem] = field(default_factory=list)
     comments: list[CommentItem] = field(default_factory=list)
+    ci_status: str = "none"
+    mergeable: bool = False
+    review_decision: str | None = None
+    review_threads_complete: bool = False
+    head_ref: str = ""
+    merge_queue_push_would_eject: bool = False
+
+    @property
+    def can_mark_ready(self) -> bool:
+        return (
+            self.pr_state == "draft"
+            and bool(self.head_sha)
+            and self.ci_status == "passing"
+            and self.mergeable
+            and self.review_threads_complete
+            and not self.has_conflict
+            and not self.failing_checks
+            and not self.unresolved_threads
+            and self.review_decision != "CHANGES_REQUESTED"
+        )
 
     @property
     def is_terminal(self) -> bool:
@@ -62,6 +96,12 @@ class PRSnapshot:
             head_sha=raw.get("head_sha") or "",
             has_conflict=bool(raw.get("has_conflict")),
             author_login=raw.get("author_login"),
+            ci_status=raw.get("ci_status") or "none",
+            mergeable=raw.get("mergeable") is True,
+            review_decision=raw.get("review_decision"),
+            review_threads_complete=raw.get("review_threads_complete") is True,
+            head_ref=raw.get("head_ref") or "",
+            merge_queue_push_would_eject=raw.get("merge_queue_push_would_eject") is True,
             failing_checks=[
                 FailingCheck(key=check["key"], details_url=check.get("details_url"))
                 for check in raw.get("failing_checks") or []
@@ -84,11 +124,11 @@ class PRSnapshot:
                     id=comment["id"],
                     author=comment.get("author"),
                     author_association=comment.get("author_association"),
-                    body_excerpt=_excerpt(comment.get("body")),
+                    body_excerpt=_excerpt(body),
                     url=comment.get("url"),
                 )
                 for comment in raw.get("comments") or []
-                if comment.get("id")
+                if comment.get("id") and (body := _without_dispatcher_text(comment.get("body")))
             ],
         )
 

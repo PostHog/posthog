@@ -2,9 +2,11 @@ from typing import Optional, cast
 
 import requests
 
-from posthog.schema import (
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
+
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -12,9 +14,6 @@ from posthog.schema import (
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
 )
-
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -53,6 +52,8 @@ RECONNECT_MESSAGE = (
 
 @SourceRegistry.register
 class YouTubeAnalyticsSource(ResumableSource[YouTubeAnalyticsSourceConfig, YouTubeAnalyticsResumeConfig], OAuthMixin):
+    codebase_detection = NOT_DETECTABLE
+
     api_docs_url = "https://developers.google.com/youtube/analytics/reference/reports/query"
     supported_versions = ("v2",)
     default_version = "v2"
@@ -240,7 +241,7 @@ class YouTubeAnalyticsSource(ResumableSource[YouTubeAnalyticsSourceConfig, YouTu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.YOU_TUBE_ANALYTICS,
+            name=ExternalDataSourceType.YOUTUBEANALYTICS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="YouTube Analytics",
             caption=(

@@ -70,8 +70,8 @@ def team_day_start(team: "Team", at: datetime | None = None) -> datetime:
 def reports_generated_today(team: "Team", *, day_start: datetime) -> int:
     """How many reports first became user-visible since `day_start`.
 
-    Counts `first_visible_at` stamps (set once, on the first transition into READY or
-    PENDING_INPUT), so re-research of an already-visible report never recounts.
+    Counts `first_visible_at` stamps (set once, on the first transition into READY,
+    PENDING_INPUT, or FAILED), so re-research of an already-visible report never recounts.
     """
     return SignalReport.objects.filter(team_id=team.id, first_visible_at__gte=day_start).count()
 

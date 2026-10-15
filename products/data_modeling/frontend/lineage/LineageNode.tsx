@@ -5,18 +5,32 @@ import React, { useCallback, useState } from 'react'
 import {
     IconActivity,
     IconClockRewind,
+    IconCopy,
+    IconExternal,
     IconPauseFilled,
     IconPencil,
     IconPlay,
     IconPlayFilled,
     IconTarget,
+    IconWarning,
 } from '@posthog/icons'
-import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuGroup,
+    ContextMenuItem,
+    ContextMenuTrigger,
+} from 'lib/ui/ContextMenu/ContextMenu'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { DataModelingNode } from '~/types'
 
+import { MATERIALIZING_TYPES } from 'products/data_modeling/frontend/freshness'
 import { servingSuspension } from 'products/data_modeling/frontend/suspension'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
@@ -39,6 +53,7 @@ export type LineageNodeShape = Pick<
     | 'downstream_count'
     | 'user_tag'
     | 'suspended'
+    | 'lineage_issue'
 >
 
 export interface LineageNodeState {
@@ -46,10 +61,14 @@ export interface LineageNodeState {
     isRunning?: boolean
     /** Ringed when a search or type filter highlights this node */
     isHighlighted?: boolean
+    isSelected?: boolean
+    /** Faded while another node's lineage is selected */
+    isDimmed?: boolean
+    loading?: 'placeholder' | 'focus'
 }
 
 export interface LineageNodeCallbacks {
-    onClick?: () => void
+    onClick?: (event: React.MouseEvent | React.KeyboardEvent) => void
     onEdit?: () => void
     onMaterialize?: () => void
     onRunUpstream?: () => void
@@ -62,9 +81,31 @@ export interface LineageNodeData extends Record<string, unknown> {
     node: LineageNodeShape
     variant: LineageVariant
     direction: ElkDirection
+    draggable?: boolean
+    openUrl?: string
+    selectable?: boolean
     state: LineageNodeState
     callbacks: LineageNodeCallbacks
     handles: NodeHandle[]
+}
+
+export function lineageIssueMessage(issue: NonNullable<DataModelingNode['lineage_issue']>): string {
+    if (issue.kind === 'sync_failed') {
+        return `Lineage could not be refreshed: ${issue.detail}`
+    }
+    return `Couldn't find ${issue.detail}. This may read a table that was renamed or removed.`
+}
+
+/** The warning mark drawn on a lineage node, and repeated beside the name in the editor's table. */
+export function LineageIssueMarker({ issue }: { issue: NonNullable<DataModelingNode['lineage_issue']> }): JSX.Element {
+    const message = lineageIssueMessage(issue)
+    return (
+        <Tooltip title={message}>
+            <span className="flex items-center" role="img" aria-label={message}>
+                <IconWarning className="text-warning text-sm" />
+            </span>
+        </Tooltip>
+    )
 }
 
 function StatusDot({ node }: { node: LineageNodeShape }): JSX.Element {
@@ -167,11 +208,61 @@ function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
     )
 }
 
+function LineageNodeContextMenu({
+    data,
+    children,
+}: {
+    data: LineageNodeData
+    children: React.ReactElement
+}): JSX.Element {
+    const { node, openUrl } = data
+    const trigger = (
+        <Tooltip title={node.name} delayMs={500}>
+            {openUrl ? <ContextMenuTrigger asChild>{children}</ContextMenuTrigger> : children}
+        </Tooltip>
+    )
+
+    if (!openUrl) {
+        return trigger
+    }
+
+    return (
+        <ContextMenu>
+            {trigger}
+            <ContextMenuContent>
+                <ContextMenuGroup>
+                    <ContextMenuItem
+                        asChild
+                        onClick={() => window.open(openUrl, '_blank', 'noopener')}
+                        data-attr="lineage-node-menu-open"
+                    >
+                        <ButtonPrimitive menuItem>
+                            <IconExternal />
+                            Open in new tab
+                        </ButtonPrimitive>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                        asChild
+                        onClick={() => void copyToClipboard(node.name, 'node name')}
+                        data-attr="lineage-node-menu-copy-name"
+                    >
+                        <ButtonPrimitive menuItem>
+                            <IconCopy />
+                            Copy name
+                        </ButtonPrimitive>
+                    </ContextMenuItem>
+                </ContextMenuGroup>
+            </ContextMenuContent>
+        </ContextMenu>
+    )
+}
+
 export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const { node, variant, direction, state, callbacks } = data
     const [isHovered, setIsHovered] = useState(false)
+    const loadingRef = useCancelAnimationsOnUnmount<HTMLDivElement>()
 
-    const showMetadata = node.type === 'matview' || node.type === 'endpoint'
+    const showMetadata = MATERIALIZING_TYPES.has(node.type)
     const showRunArrows = variant === 'canvas' && isHovered && !state.isRunning
     const { color } = NODE_TYPE_TAG_SETTINGS[node.type]
 
@@ -184,28 +275,19 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
         callbacks.onMouseLeave?.()
     }, [callbacks])
 
-    const stop = (fn?: () => void) => (e: React.MouseEvent) => {
-        e.stopPropagation()
-        fn?.()
-    }
-
-    return (
-        <Tooltip title={node.name} delayMs={500}>
+    if (state.loading) {
+        return (
             <div
+                ref={loadingRef}
                 className={clsx(
-                    'relative rounded-lg border bg-bg-light cursor-pointer min-w-[180px]',
-                    state.isRunning && 'border-warning ring-2 ring-warning/30 animate-pulse',
-                    !state.isRunning && state.isHighlighted && 'border-link ring-2 ring-link/30',
-                    !state.isRunning && !state.isHighlighted && !state.isCurrent && 'border-border',
-                    state.isCurrent && 'border-2'
+                    'relative flex h-full w-full min-w-[180px] animate-pulse flex-col rounded-lg border bg-bg-light/70 motion-reduce:animate-none',
+                    state.loading === 'focus' ? 'border-border' : 'border-border/50'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    borderColor: state.isCurrent ? color : undefined,
+                    borderColor:
+                        state.loading === 'focus' ? `color-mix(in srgb, ${color} 60%, transparent)` : undefined,
                 }}
-                onMouseEnter={handleMouseEnter}
-                onMouseLeave={handleMouseLeave}
-                onClick={callbacks.onClick}
             >
                 {data.handles.map((handle) => (
                     <Handle
@@ -217,65 +299,166 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                         isConnectable={false}
                     />
                 ))}
-
-                {showRunArrows && node.upstream_count > 0 && callbacks.onRunUpstream && (
-                    <RunArrow
-                        direction="upstream"
-                        layoutDirection={direction}
-                        onClick={stop(callbacks.onRunUpstream)}
-                    />
-                )}
-                {showRunArrows && node.downstream_count > 0 && callbacks.onRunDownstream && (
-                    <RunArrow
-                        direction="downstream"
-                        layoutDirection={direction}
-                        onClick={stop(callbacks.onRunDownstream)}
-                    />
-                )}
-
-                <div className="px-3 pt-3">
-                    <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1 min-w-0">
-                            {state.isCurrent && (
-                                <Tooltip title="This is the currently viewed node">
-                                    <IconTarget className="text-warning text-sm shrink-0" />
-                                </Tooltip>
-                            )}
+                <div className="flex flex-1 flex-col justify-center gap-2 px-3">
+                    {state.loading === 'focus' ? (
+                        <div className="opacity-70">
                             <NodeTypeTag type={node.type} />
                         </div>
+                    ) : (
+                        <LemonSkeleton className="h-4 w-16" active={false} />
+                    )}
+                    {node.name ? (
+                        <span
+                            className={clsx(
+                                'truncate text-sm font-medium',
+                                state.loading === 'focus' ? 'text-primary' : 'text-secondary'
+                            )}
+                        >
+                            {node.name}
+                        </span>
+                    ) : (
+                        <LemonSkeleton className="h-4 w-4/5" active={false} />
+                    )}
+                </div>
+                <div className="flex h-6 items-center rounded-b-lg bg-primary/50 px-3">
+                    <LemonSkeleton className="h-2 w-2/3" />
+                </div>
+            </div>
+        )
+    }
+
+    const stop = (fn?: () => void) => (e: React.MouseEvent) => {
+        e.stopPropagation()
+        fn?.()
+    }
+
+    const destination = node.type === 'metric' ? 'the metric' : 'the model'
+    const cardAction = data.selectable ? 'highlights its lineage' : `opens ${destination}`
+    const ariaLabel = [
+        `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, ${cardAction}`,
+        node.lineage_issue && lineageIssueMessage(node.lineage_issue),
+    ]
+        .filter(Boolean)
+        .join('. ')
+
+    const nodeCard = (
+        <div
+            className={clsx(
+                'group/lineage-node relative pointer-events-auto rounded-lg border bg-bg-light min-w-[180px]',
+                data.draggable && 'cursor-grab active:cursor-grabbing',
+                !data.draggable && callbacks.onClick && 'cursor-pointer',
+                state.isRunning && 'animate-pulse',
+                state.isRunning && !state.isSelected && 'border-warning ring-2 ring-warning/30',
+                state.isSelected && 'border-link ring-4 ring-link/40',
+                !state.isRunning && !state.isSelected && state.isHighlighted && 'border-link ring-2 ring-link/30',
+                !state.isRunning && !state.isSelected && !state.isHighlighted && !state.isCurrent && 'border-border',
+                node.lineage_issue && !state.isRunning && !state.isSelected && !state.isHighlighted && 'border-warning',
+                state.isCurrent && 'border-2',
+                state.isDimmed && 'opacity-30'
+            )}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                borderColor: state.isCurrent ? color : undefined,
+            }}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+            onClick={callbacks.onClick}
+            data-attr="lineage-node"
+        >
+            {callbacks.onClick && (
+                <button
+                    type="button"
+                    className="absolute inset-0 pointer-events-none rounded-lg focus-visible:ring-4 focus-visible:ring-link/40"
+                    onClick={(event) => {
+                        event.stopPropagation()
+                        callbacks.onClick?.(event)
+                    }}
+                    aria-label={ariaLabel}
+                />
+            )}
+            {data.handles.map((handle) => (
+                <Handle
+                    key={handle.id}
+                    id={handle.id}
+                    type={handle.type}
+                    position={handle.position ?? (handle.type === 'target' ? Position.Left : Position.Right)}
+                    className="opacity-0"
+                    isConnectable={false}
+                />
+            ))}
+
+            {showRunArrows && node.upstream_count > 0 && callbacks.onRunUpstream && (
+                <RunArrow direction="upstream" layoutDirection={direction} onClick={stop(callbacks.onRunUpstream)} />
+            )}
+            {showRunArrows && node.downstream_count > 0 && callbacks.onRunDownstream && (
+                <RunArrow
+                    direction="downstream"
+                    layoutDirection={direction}
+                    onClick={stop(callbacks.onRunDownstream)}
+                />
+            )}
+
+            <div className="px-3 pt-3">
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1 min-w-0">
+                        {state.isCurrent && (
+                            <Tooltip title="This is the currently viewed node">
+                                <IconTarget className="text-warning text-sm shrink-0" />
+                            </Tooltip>
+                        )}
+                        <NodeTypeTag type={node.type} />
+                        {node.lineage_issue && <LineageIssueMarker issue={node.lineage_issue} />}
+                    </div>
+                    <div className="flex items-center gap-1">
                         {node.user_tag && (
                             <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
                                 #{node.user_tag}
                             </span>
                         )}
-                    </div>
-                    <div className="flex items-center justify-between gap-2 py-2">
-                        <span className="font-medium text-sm truncate">{node.name}</span>
-                        {callbacks.onEdit && (
+                        {data.openUrl && (
                             <LemonButton
+                                className="nodrag nopan relative z-10 opacity-0 transition-opacity group-hover/lineage-node:opacity-100 group-focus-within/lineage-node:opacity-100"
                                 size="xxsmall"
                                 type="secondary"
-                                icon={<IconPencil />}
-                                onClick={stop(callbacks.onEdit)}
+                                to={data.openUrl}
+                                targetBlank
+                                stopPropagation
+                                tooltip="Open in new tab"
+                                aria-label={`Open ${node.name} in new tab`}
+                                icon={<IconExternal />}
+                                data-attr="lineage-node-open"
                             />
-                        )}
-                        {callbacks.onMaterialize && (node.type === 'matview' || node.type === 'endpoint') && (
-                            <Tooltip title={state.isRunning ? null : 'Run this node'}>
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    onClick={stop(callbacks.onMaterialize)}
-                                    disabledReason={state.isRunning && 'This node is already running...'}
-                                    icon={state.isRunning ? <Spinner textColored /> : <IconPlay className="w-3 h-3" />}
-                                />
-                            </Tooltip>
                         )}
                     </div>
                 </div>
-                {showMetadata && <MetadataBar node={node} />}
+                <div className="flex items-center justify-between gap-2 py-2">
+                    <span className="font-medium text-sm truncate">{node.name}</span>
+                    {callbacks.onEdit && (
+                        <LemonButton
+                            size="xxsmall"
+                            type="secondary"
+                            icon={<IconPencil />}
+                            onClick={stop(callbacks.onEdit)}
+                        />
+                    )}
+                    {callbacks.onMaterialize && MATERIALIZING_TYPES.has(node.type) && (
+                        <Tooltip title={state.isRunning ? null : 'Run this node'}>
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={stop(callbacks.onMaterialize)}
+                                disabledReason={state.isRunning && 'This node is already running...'}
+                                icon={state.isRunning ? <Spinner textColored /> : <IconPlay className="w-3 h-3" />}
+                            />
+                        </Tooltip>
+                    )}
+                </div>
             </div>
-        </Tooltip>
+            {showMetadata && <MetadataBar node={node} />}
+        </div>
     )
+
+    return <LineageNodeContextMenu data={data}>{nodeCard}</LineageNodeContextMenu>
 }
 
 export const LINEAGE_NODE_TYPES = { lineage: LineageNode }

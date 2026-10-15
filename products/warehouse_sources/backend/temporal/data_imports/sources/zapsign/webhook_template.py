@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="alpha",
@@ -24,9 +24,10 @@ if (not inputs.bypass_authorization_check) {
   if (empty(inputs.authorization_header)) {
     return {
       'httpResponse': {
-        'status': 400,
-        'body': 'Authorization header value not configured',
-      }
+        'status': 200,
+        'body': 'Authorization header value not configured, delivery dropped',
+      },
+      'appMetric': 'missing_credential'
     }
   }
 

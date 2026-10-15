@@ -441,7 +441,9 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
         queryset = (
             queryset.filter(team_id=self.team_id)
             .annotate(severity_order=SEVERITY_ORDERING)
-            .order_by("severity_order", "-created_at")
+            # `bulk_upsert` stamps one `created_at` on a whole batch, so severity and
+            # `created_at` leave ties. The id breaks them, so limit-offset pages stay stable.
+            .order_by("severity_order", "-created_at", "-id")
         )
 
         if status_filter := self.request.query_params.get("status"):

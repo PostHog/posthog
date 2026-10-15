@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -29,6 +28,24 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LinodeSource(ResumableSource[LinodeSourceConfig, LinodeResumeConfig]):
+    codebase_detection = detect(
+        env=("^LINODE_",),
+        npm=("@linode/api-v4",),
+        pypi=("linode-api4", "linode-cli"),
+        go=(
+            "github.com/linode/linodego",
+            "github.com/linode/docker-machine-driver-linode",
+            "github.com/linode/docker-volume-linode",
+            "github.com/linode/karpenter-provider-linode",
+            "github.com/linode/linode-blockstorage-csi-driver",
+            "github.com/linode/linode-cloud-controller-manager",
+            "github.com/linode/linode-cosi-driver",
+            "github.com/linode/linode-filestorage-csi-driver",
+            "github.com/linode/packer-plugin-linode",
+            "github.com/linode/provider-linode",
+        ),
+    )
+
     # get_schemas iterates the static ENDPOINTS catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.
     lists_tables_without_credentials = True
@@ -43,14 +60,14 @@ class LinodeSource(ResumableSource[LinodeSourceConfig, LinodeResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LINODE,
+            name=ExternalDataSourceType.LINODE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Linode",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Linode (Akamai Connected Cloud) personal access token to pull your account data into the PostHog Data warehouse.
 
 Create a personal access token in the [Linode Cloud Manager](https://cloud.linode.com/profile/tokens). Grant **read-only** access to the resources you want to sync:
-- Account (invoices, payments, events, users)
+- Account (invoices, invoice items, payments, network transfer, events, users)
 - Linodes
 - Volumes
 - NodeBalancers

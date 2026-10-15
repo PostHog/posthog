@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -40,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PersonioSource(ResumableSource[PersonioSourceConfig, PersonioResumeConfig]):
+    codebase_detection = detect(env=("^PERSONIO_", "^PERSONIO_CLIENT_ID$", "^PERSONIO_CLIENT_SECRET$"))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developer.personio.de"
@@ -61,7 +62,7 @@ class PersonioSource(ResumableSource[PersonioSourceConfig, PersonioResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PERSONIO,
+            name=ExternalDataSourceType.PERSONIO,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Personio",
             caption="""Enter your Personio API credentials to pull your Personio HR data into the PostHog Data warehouse.

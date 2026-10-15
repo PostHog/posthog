@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,6 +37,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailtrapSource(ResumableSource[MailtrapSourceConfig, MailtrapResumeConfig]):
+    codebase_detection = detect(
+        env=("^MAILTRAP_",),
+        npm=("mailtrap",),
+        pypi=("mailtrap",),
+        composer=("railsware/mailtrap-php",),
+        maven=("io.mailtrap:mailtrap-java",),
+        rubygems=("mailtrap",),
+    )
+
     api_docs_url = "https://docs.mailtrap.io/developers"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -49,7 +57,7 @@ class MailtrapSource(ResumableSource[MailtrapSourceConfig, MailtrapResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MAILTRAP,
+            name=ExternalDataSourceType.MAILTRAP,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Mailtrap",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -97,7 +105,7 @@ You can create an API token under **Settings → API Tokens** in [Mailtrap](http
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Only email_logs (filters[sent_after]) and suppressions (start_time) expose a server-side
-        # timestamp bound; the other endpoints are unpaginated full-refresh lists.
+        # timestamp bound; the other endpoints are full refresh only.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(

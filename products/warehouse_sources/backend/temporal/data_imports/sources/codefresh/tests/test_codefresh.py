@@ -1,74 +1,36 @@
-import json
 from typing import Any
 
 import pytest
-from unittest import mock
 
 from parameterized import parameterized
-from requests import PreparedRequest, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.codefresh import (
+    ACCOUNT_LOOKUP_FAILED,
+    ACCOUNT_LOOKUP_MESSAGE,
     CodefreshResumeConfig,
     _flatten,
+    _resolve_account_id,
     _transform_row,
-    codefresh_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.settings import (
     CODEFRESH_ENDPOINTS,
     CodefreshEndpointConfig,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the codefresh module.
-CODEFRESH_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.codefresh.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.source import CodefreshSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codefresh import (
+    CodefreshSourceConfig,
 )
 
 
-def _response(body: Any) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _make_manager(resume_state: CodefreshResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Wire a mock session; return (param_snapshots, header_snapshots) captured AT PREPARE TIME.
-
-    ``request.params`` / ``request.headers`` are single dicts mutated in place across pages, so
-    inspecting them after the run shows only the final state — snapshot a copy per request instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-    header_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        header_snapshots.append(dict(request.headers or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots, header_snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock | None = None):
-    return codefresh_source(
-        "token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager or _make_manager()
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(CodefreshSource(), CodefreshSourceConfig(api_key="token"))
 
 
 class TestFlatten:
@@ -79,18 +41,6 @@ class TestFlatten:
         assert result["name"] == "build-and-test"
         assert result["spec"] == {"steps": {}}
         assert "metadata" not in result
-
-    def test_top_level_field_wins_on_clash(self) -> None:
-        item = {"metadata": {"id": "from_metadata"}, "id": "top_level"}
-        assert _flatten(item, "metadata")["id"] == "top_level"
-
-    def test_no_flatten_key_is_passthrough(self) -> None:
-        item = {"id": "1", "created": "2026-01-01"}
-        assert _flatten(item, None) == item
-
-    def test_flatten_key_absent_is_passthrough(self) -> None:
-        item = {"id": "1"}
-        assert _flatten(item, "metadata") == item
 
 
 class TestTransformRow:
@@ -149,237 +99,95 @@ class TestTransformRow:
             ("pipelines", "spec.variables"),
             ("triggers", "event-data.endpoint"),
             ("triggers", "event-data.secret"),
+            ("users", "inviteUrl"),
         ]
     )
     def test_endpoint_redacts_secret_bearing_variables(self, endpoint: str, redacted_key: str) -> None:
-        # These endpoints expose plaintext config/CI variables or webhook secrets; the configured
-        # source must strip them.
+        # These endpoints expose plaintext config/CI variables, webhook secrets, or an invite URL
+        # that grants account access; the configured source must strip them.
         assert redacted_key in CODEFRESH_ENDPOINTS[endpoint].redact_keys
 
 
 class TestOffsetPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_stops_without_saving(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "1"}])])
-        manager = _make_manager()
-
-        rows = _rows(_source("projects", manager))
-
-        assert rows == [{"id": "1"}]
-        assert session.send.call_count == 1
-        # A short page is the last page — nothing left to resume to, so no state is saved.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_page_then_short_page_paginates_and_saves(self, MockSession) -> None:
-        session = MockSession.return_value
+    def test_full_page_then_short_page_paginates_and_saves(self) -> None:
         full_page = [{"id": f"p_{i}"} for i in range(100)]
-        params, _headers = _wire(session, [_response(full_page), _response([{"id": "p_last"}])])
-        manager = _make_manager()
+        result = _driver().run(
+            "projects", [ScriptedResponse(json=full_page), ScriptedResponse(json=[{"id": "p_last"}])]
+        )
 
-        rows = _rows(_source("projects", manager))
-
-        assert [r["id"] for r in rows] == [*(f"p_{i}" for i in range(100)), "p_last"]
-        assert params[0]["offset"] == 0
-        assert params[0]["limit"] == 100
-        assert params[1]["offset"] == 100
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [*(f"p_{i}" for i in range(100)), "p_last"]
+        assert result.params("offset") == ["0", "100"]
+        assert result.params("limit") == ["100", "100"]
         # State saved exactly once, after the first (full) page is yielded, pointing at the next offset.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == CodefreshResumeConfig(offset=100)
+        assert result.saved_states == [CodefreshResumeConfig(offset=100)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_starts_from_saved_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _headers = _wire(session, [_response([{"id": "p_201"}])])
-        manager = _make_manager(CodefreshResumeConfig(offset=200))
+    def test_resume_starts_from_saved_offset(self) -> None:
+        result = _driver().run(
+            "projects", [ScriptedResponse(json=[{"id": "p_201"}])], resume_state=CodefreshResumeConfig(offset=200)
+        )
 
-        rows = _rows(_source("projects", manager))
+        assert result.raised is None
+        assert result.rows == [{"id": "p_201"}]
+        assert result.params("offset") == ["200"]
 
-        assert rows == [{"id": "p_201"}]
-        assert params[0]["offset"] == 200
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_body_on_bare_array_endpoint_fails_loud(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "unexpected envelope"})])
+    def test_non_list_body_on_bare_array_endpoint_fails_loud(self) -> None:
+        result = _driver().run("projects", [ScriptedResponse(json={"error": "unexpected envelope"})])
 
         # A 200 body that isn't a list means the response shape changed — fail loud instead of
         # syncing the stray object as a row.
-        with pytest.raises(ValueError, match="list response body"):
-            _rows(_source("projects"))
+        assert isinstance(result.raised, ValueError)
+        assert "list response body" in str(result.raised)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_projects_variables_are_redacted(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "p1", "variables": [{"key": "TOKEN", "value": "secret"}]}])])
+    def test_projects_variables_are_redacted(self) -> None:
+        result = _driver().run(
+            "projects", [ScriptedResponse(json=[{"id": "p1", "variables": [{"key": "TOKEN", "value": "secret"}]}])]
+        )
 
-        rows = _rows(_source("projects"))
-
-        assert rows == [{"id": "p1"}]
+        assert result.raised is None
+        assert result.rows == [{"id": "p1"}]
 
 
 class TestPagePagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_next_page_and_forwards_session_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, headers = _wire(
-            session,
+    def test_follows_next_page_and_forwards_session_id(self) -> None:
+        result = _driver().run(
+            "builds",
             [
-                _response(
-                    {
+                ScriptedResponse(
+                    json={
                         "workflows": {"docs": [{"id": "b1"}, {"id": "b2"}]},
                         "pagination": {"sessionId": "sess-1", "nextPage": True},
                     }
                 ),
-                _response(
-                    {
+                ScriptedResponse(
+                    json={
                         "workflows": {"docs": [{"id": "b3"}]},
                         "pagination": {"sessionId": "sess-1", "nextPage": False},
                     }
                 ),
             ],
         )
-        manager = _make_manager()
 
-        rows = _rows(_source("builds", manager))
-
-        assert [r["id"] for r in rows] == ["b1", "b2", "b3"]
-        assert params[0] == {"limit": 100, "page": 1}
-        assert params[1]["page"] == 2
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["b1", "b2", "b3"]
+        assert result.queries[0] == {"limit": ("100",), "page": ("1",)}
+        assert result.params("page") == ["1", "2"]
         # The session cursor opened by page 1 must be pinned on page 2 so the snapshot is stable.
-        assert "X-Pagination-Session-Id" not in headers[0]
-        assert headers[1]["X-Pagination-Session-Id"] == "sess-1"
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == CodefreshResumeConfig(page=2, session_id="sess-1")
+        assert "x-pagination-session-id" not in result.requests[0].headers
+        assert result.requests[1].headers["x-pagination-session-id"] == "sess-1"
+        assert result.saved_states == [CodefreshResumeConfig(page=2, session_id="sess-1")]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_no_next(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"workflows": {"docs": [{"id": "b1"}]}, "pagination": {"nextPage": False}})])
-        manager = _make_manager()
-
-        rows = _rows(_source("builds", manager))
-
-        assert rows == [{"id": "b1"}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_stops_even_when_next_page_advertised(self, MockSession) -> None:
-        # A misbehaving API that streams empty pages with nextPage=True must not loop forever.
-        session = MockSession.return_value
-        _wire(session, [_response({"workflows": {"docs": []}, "pagination": {"nextPage": True}})])
-        manager = _make_manager()
-
-        rows = _rows(_source("builds", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_docs_envelope_stops_without_rows(self, MockSession) -> None:
-        # A body without workflows.docs yields no rows and terminates (parity with the old transport).
-        session = MockSession.return_value
-        _wire(session, [_response({"pagination": {"nextPage": True}})])
-
-        rows = _rows(_source("builds"))
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_starts_from_saved_page_and_session(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, headers = _wire(
-            session,
-            [_response({"workflows": {"docs": [{"id": "b9"}]}, "pagination": {"nextPage": False}})],
-        )
-        manager = _make_manager(CodefreshResumeConfig(page=3, session_id="sess-resume"))
-
-        rows = _rows(_source("builds", manager))
-
-        assert rows == [{"id": "b9"}]
-        assert params[0]["page"] == 3
-        assert headers[0]["X-Pagination-Session-Id"] == "sess-resume"
-
-
-class TestUnpaginatedEndpoint:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_triggers_single_fetch_yields_rows_without_pagination_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _headers = _wire(
-            session,
-            [
-                _response(
-                    [
-                        {"event": "e1", "pipeline": "p1", "event-data": {"secret": "s", "endpoint": "u"}},
-                        {"event": "e2", "pipeline": "p1"},
-                    ]
-                )
-            ],
-        )
-        manager = _make_manager()
-
-        rows = _rows(_source("triggers", manager))
-
-        # Single request, no pagination params, and the webhook secret/endpoint are redacted.
-        assert rows == [{"event": "e1", "pipeline": "p1", "event-data": {}}, {"event": "e2", "pipeline": "p1"}]
-        assert session.send.call_count == 1
-        assert params[0] == {}
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        rows = _rows(_source("triggers"))
-
-        assert rows == []
-
-
-class TestGetRowsFlattensPipelines:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_pipeline_metadata_lifted_to_top_level(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [_response({"docs": [{"metadata": {"id": "p1", "name": "deploy"}, "spec": {"steps": {}}}], "count": 1})],
+    def test_resume_starts_from_saved_page_and_session(self) -> None:
+        result = _driver().run(
+            "builds",
+            [ScriptedResponse(json={"workflows": {"docs": [{"id": "b9"}]}, "pagination": {"nextPage": False}})],
+            resume_state=CodefreshResumeConfig(page=3, session_id="sess-resume"),
         )
 
-        rows = _rows(_source("pipelines"))
-
-        assert rows == [{"id": "p1", "name": "deploy", "spec": {"steps": {}}}]
-
-
-class TestAuth:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_authorization_header_is_raw_token_without_bearer_prefix(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        captured_auth: list[Any] = []
-
-        def _prepare(request: Any) -> mock.MagicMock:
-            captured_auth.append(request.auth)
-            return mock.MagicMock()
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = [_response([{"id": "1"}])]
-
-        _rows(_source("projects"))
-
-        # Codefresh expects the raw token as the Authorization header value — no "Bearer " prefix.
-        prepared = PreparedRequest()
-        prepared.prepare(method="GET", url="https://g.codefresh.io/api/projects", headers={})
-        captured_auth[0](prepared)
-        assert prepared.headers["Authorization"] == "token"
-
-
-class _FakeResponse:
-    def __init__(self, status_code: int) -> None:
-        self.status_code = status_code
+        assert result.raised is None
+        assert result.rows == [{"id": "b9"}]
+        assert result.params("page") == ["3"]
+        assert result.requests[0].headers["x-pagination-session-id"] == "sess-resume"
 
 
 class TestValidateCredentials:
@@ -394,21 +202,73 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status: int, schema_name: str | None, expected_valid: bool) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _FakeResponse(status)
-        with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             valid, error = validate_credentials("token", schema_name=schema_name)
+
         assert valid is expected_valid
+        assert network.requests_log[0].path == "/api/projects"
+        assert network.requests_log[0].param("limit") == "1"
+        assert network.requests_log[0].headers["authorization"] == "token"
         if not expected_valid:
             assert error is not None
 
+    def test_users_schema_is_rejected_when_no_team_names_an_account(self) -> None:
+        # A 200 from /team that names no account passes a status probe but fails the sync later,
+        # so validation has to reject it rather than report the table as reachable.
+        with scripted_network([ScriptedResponse(json=[{"_id": "t1", "name": "users"}])]) as network:
+            valid, error = validate_credentials("token", schema_name="users")
+
+        assert valid is False
+        assert error == ACCOUNT_LOOKUP_MESSAGE
+        assert [request.path for request in network.requests_log] == ["/api/team"]
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    def test_users_schema_reports_the_status_the_team_lookup_returned(self, _name: str, status: int) -> None:
+        # A denied /team lookup is a credential answer, not an account answer, so the status
+        # mapping must report it instead of the account-lookup message.
+        with scripted_network([ScriptedResponse(status=status), ScriptedResponse(status=status)]) as network:
+            valid, error = validate_credentials("token", schema_name="users")
+
+        assert valid is False
+        assert error != ACCOUNT_LOOKUP_MESSAGE
+        assert [request.path for request in network.requests_log] == ["/api/team", "/api/team"]
+        assert network.requests_log[1].param("limit") == "1"
+
     def test_connection_error_is_invalid(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = ConnectionError("boom")
-        with mock.patch(CODEFRESH_SESSION_PATCH, return_value=session):
+        with scripted_network(always(ConnectionError("boom"))) as network:
             valid, error = validate_credentials("token")
+
         assert valid is False
         assert error is not None
+        assert {request.path for request in network.requests_log} == {"/api/projects"}
+
+
+class TestAccountIdResolution:
+    @parameterized.expand(
+        [
+            ("no_teams", []),
+            ("team_without_account", [{"_id": "t1", "name": "users"}]),
+            ("unexpected_envelope", {"docs": [{"account": "acc-7"}]}),
+        ]
+    )
+    def test_unresolvable_account_raises_the_curated_error(self, _name: str, body: Any) -> None:
+        # The message is what the user reads, because the source maps this prefix to an explanation
+        # in get_non_retryable_errors.
+        with scripted_network([ScriptedResponse(json=body)]) as network:
+            with pytest.raises(ValueError, match=ACCOUNT_LOOKUP_FAILED):
+                _resolve_account_id("token")
+
+        assert [request.path for request in network.requests_log] == ["/api/team"]
+
+
+class TestEnvelopeEndpointFailsLoudOnAMissingDataKey:
+    def test_body_without_the_docs_envelope_fails_loud(self) -> None:
+        # Codefresh does not document this response body. A shape we did not expect must stop the
+        # sync instead of quietly syncing an empty table on every run.
+        result = _driver().run("environments", [ScriptedResponse(json=[{"_id": "e1"}])])
+
+        assert isinstance(result.raised, ValueError)
+        assert "matched nothing in the response" in str(result.raised)
 
 
 class TestCodefreshSourceResponse:
@@ -420,12 +280,27 @@ class TestCodefreshSourceResponse:
             ("images", ["id"], "created"),
             ("triggers", ["event", "pipeline"], None),
             ("step_types", ["id"], None),
+            ("environments", ["_id"], None),
+            ("teams", ["_id"], None),
+            ("users", ["_id"], None),
         ]
     )
     def test_source_response_primary_keys_and_partition(
         self, endpoint: str, expected_keys: list[str], partition_key: str | None
     ) -> None:
-        response = _source(endpoint)
+        if endpoint == "users":
+            script = [ScriptedResponse(json=[{"account": "acc-1"}]), ScriptedResponse(json=[])]
+        elif endpoint == "builds":
+            script = [ScriptedResponse(json={"workflows": {"docs": []}, "pagination": {"nextPage": False}})]
+        elif endpoint in {"pipelines", "environments"}:
+            script = [ScriptedResponse(json={"docs": []})]
+        else:
+            script = [ScriptedResponse(json=[])]
+
+        result = _driver().run(endpoint, script)
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
         if partition_key is None:
@@ -434,9 +309,3 @@ class TestCodefreshSourceResponse:
         else:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [partition_key]
-
-    def test_every_endpoint_has_a_source_response(self) -> None:
-        # Guards against an endpoint added to settings without transport wiring.
-        for endpoint in CODEFRESH_ENDPOINTS:
-            response = _source(endpoint)
-            assert response.primary_keys

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -40,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TeamtailorSource(ResumableSource[TeamtailorSourceConfig, TeamtailorResumeConfig]):
+    codebase_detection = detect(env=("^TEAMTAILOR_",))
+
     supported_versions = SUPPORTED_API_VERSIONS
     default_version = DEFAULT_API_VERSION
     api_docs_url = "https://docs.teamtailor.com"
@@ -53,7 +54,7 @@ class TeamtailorSource(ResumableSource[TeamtailorSourceConfig, TeamtailorResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TEAMTAILOR,
+            name=ExternalDataSourceType.TEAMTAILOR,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Teamtailor",
             releaseStatus=ReleaseStatus.ALPHA,

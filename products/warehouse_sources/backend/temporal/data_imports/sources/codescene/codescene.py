@@ -8,7 +8,10 @@ from requests.exceptions import RequestException
 
 from posthog.cloud_utils import is_cloud
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.settings import CODESCENE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.settings import (
+    CODESCENE_ENDPOINTS,
+    CodesceneEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -19,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     build_dependent_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     PageNumberPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
@@ -118,7 +123,9 @@ def _client_config(base_url: str | None, api_token: str) -> ClientConfig:
     }
 
 
-def _page_paginator() -> PageNumberPaginator:
+def _paginator(config: CodesceneEndpointConfig) -> BasePaginator:
+    if not config.paginated:
+        return SinglePagePaginator()
     # CodeScene's paginated list endpoints default to page 1 and report `max_pages` in the
     # response body so the last page can be detected without an extra empty-page request.
     return PageNumberPaginator(base_page=1, page=1, page_param="page", total_path="max_pages")
@@ -157,12 +164,13 @@ def _get_resource(endpoint: str) -> EndpointResource:
         "write_disposition": "replace",
         "endpoint": {
             "path": config.path,
-            "params": {"page_size": config.page_size},
+            "params": {config.page_size_param: config.page_size} if config.page_size_param else {},
             "data_selector": config.data_selector,
-            # The wrapper key is documented, so a response without it means the API shape
-            # changed — fail loud rather than silently syncing 0 rows.
+            # The response shape is documented, so a body without the wrapper key (or, for an
+            # envelope-free endpoint, a body that isn't a list) means the API changed — fail
+            # loud rather than silently syncing 0 rows.
             "data_selector_required": True,
-            "paginator": _page_paginator(),
+            "paginator": _paginator(config),
         },
         "table_format": "delta",
     }
@@ -207,16 +215,18 @@ def codescene_source(
                 team_id=team_id,
                 job_id=job_id,
                 db_incremental_field_last_value=None,
-                page_size_param="page_size",
+                # One setting covers parent and child, so a child endpoint that takes no
+                # page-size param also leaves the projects listing on the server default.
+                page_size_param=endpoint_config.page_size_param,
                 parent_endpoint_extra={
                     "data_selector": parent_config.data_selector,
                     "data_selector_required": True,
-                    "paginator": _page_paginator(),
+                    "paginator": _paginator(parent_config),
                 },
                 child_endpoint_extra={
                     "data_selector": endpoint_config.data_selector,
                     "data_selector_required": True,
-                    "paginator": _page_paginator(),
+                    "paginator": _paginator(endpoint_config),
                 },
             ),
         )

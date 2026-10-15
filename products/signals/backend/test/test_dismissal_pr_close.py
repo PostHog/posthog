@@ -5,15 +5,25 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import Dismissal
 from products.signals.backend.implementation_pr import (
     PrCloseReason,
     close_implementation_pr_for_report,
     fetch_implementation_pr_state_for_reports,
 )
-from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportAssignment, SignalReportTask
+from products.signals.backend.models import (
+    SignalActorKind,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportAssignment,
+    SignalReportTask,
+)
+from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.report_assignments import update_assignments_for_pull_request
 from products.signals.backend.tasks import close_dismissed_report_pr
 from products.tasks.backend.models import Task, TaskRun
@@ -68,7 +78,7 @@ class TestClosePrWhenReportDismissed(BaseTest):
     ):
         report = self._create_report(report_status=source_status)
         if with_actor:
-            report._transition_actor_user_id = self.user.id  # type: ignore[attr-defined]
+            report._transition_actor = ArtefactAttribution.from_user(self.user.id)  # type: ignore[attr-defined]
         with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             self._save_transition(report, new_status, **transition_kwargs)
         mock_task.delay.assert_called_once_with(
@@ -164,6 +174,12 @@ class TestClosePrWhenReportDismissed(BaseTest):
     def test_pr_closed_webhook_does_not_enqueue_for_any_linked_report(self):
         reports = [self._create_report(), self._create_report()]
         for report in reports:
+            SignalReportArtefact.append_dismissal(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=Dismissal(reason="already_fixed"),
+                attribution=ArtefactAttribution.system(),
+            )
             SignalReportAssignment.all_teams.create(
                 team=self.team,
                 report=report,
@@ -186,6 +202,7 @@ class TestClosePrWhenReportDismissed(BaseTest):
         for report in reports:
             report.refresh_from_db()
             assert report.status == SignalReport.Status.SUPPRESSED
+            assert fixed_dismissal_at(report) is None
 
     def test_unrelated_save_of_suppressed_report_does_not_enqueue(self):
         report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
@@ -294,7 +311,9 @@ class TestCloseImplementationPrForReport(BaseTest):
         ) as mock_resolve:
             assert close_implementation_pr_for_report(self.team.id, str(self.report.id), reason=reason) is True
 
-        mock_resolve.assert_called_once_with(self.team.id, "PostHog/posthog")
+        mock_resolve.assert_called_once_with(
+            self.team.id, "PostHog/posthog", source="signals_implementation_pr", priority=Priority.CRITICAL
+        )
         comment_body = github.comment_on_pull_request.call_args.args[2]
         assert reason in comment_body
         github.close_pull_request.assert_called_once_with("PostHog/posthog", 123)
@@ -337,7 +356,7 @@ class TestCloseImplementationPrForReport(BaseTest):
         if login != "octocat":
             assert "@" not in comment_body
         # The report link carries the attribution GitHub cannot: it names everyone who acted.
-        assert f"/project/{self.team.id}/inbox/reports/{self.report.id})" in comment_body
+        assert f"/project/{self.team.id}/inbox/reports/{self.report.id}?link_source=github_pr)" in comment_body
 
     def test_returns_false_and_skips_github_without_linked_pr(self):
         self.assignment.pr_url = None
@@ -531,3 +550,66 @@ class TestCloseImplementationPrForReport(BaseTest):
         github.close_pull_request.assert_not_called()
         self.assignment.refresh_from_db()
         assert self.assignment.pr_state == SignalReportAssignment.PrState.OPEN
+
+
+_REPLACEMENT_PR_URL = "https://github.com/PostHog/posthog/pull/456"
+
+
+class TestSupersededPrClose(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="Test report", summary="Test summary"
+        )
+        for pr_url in (_PR_URL, _REPLACEMENT_PR_URL):
+            task = Task.objects.create(
+                team=self.team, title="Implementation", origin_product=Task.OriginProduct.SIGNAL_REPORT
+            )
+            SignalReportTask.objects.create(
+                team=self.team, report=self.report, task=task, relationship="implementation"
+            )
+            TaskRun.objects.create(team=self.team, task=task, output={"pr_url": pr_url})
+
+    def _github(self) -> MagicMock:
+        github = MagicMock()
+        github.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
+        github.comment_on_pull_request.return_value = {"success": True}
+        github.close_pull_request.return_value = {"success": True, "number": 123, "state": "closed"}
+        return github
+
+    def test_closes_the_named_pr_and_points_at_its_replacement(self):
+        github = self._github()
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            closed = close_implementation_pr_for_report(
+                self.team.id,
+                str(self.report.id),
+                reason="superseded",
+                pr_url=_PR_URL,
+                replacement_pr_url=_REPLACEMENT_PR_URL,
+            )
+
+        assert closed is True
+        github.close_pull_request.assert_called_once_with("PostHog/posthog", 123)
+        comment_body = github.comment_on_pull_request.call_args.args[2]
+        assert _REPLACEMENT_PR_URL in comment_body
+        assert "superseded" not in comment_body
+        # Closing the replacement is the one undo the comment must never offer: the replacement is
+        # the report's newest implementation task, so closing it unmerged archives a report that is
+        # still being worked.
+        assert "completed the replacement" in comment_body
+
+    def test_superseded_comment_stands_alone_without_a_replacement_url(self):
+        github = self._github()
+        with (
+            patch(
+                "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+            ),
+        ):
+            close_implementation_pr_for_report(self.team.id, str(self.report.id), reason="superseded", pr_url=_PR_URL)
+
+        comment_body = github.comment_on_pull_request.call_args.args[2]
+        assert "a new PR replaces this one" in comment_body

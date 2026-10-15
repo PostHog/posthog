@@ -1,0 +1,55 @@
+cases:
+    - name: a path is normalized before resolution
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+          billing/owners.yaml: |
+              version: 1
+              owners: team-b
+              rules:
+                - match: '/api/'
+                  owners: team-api
+      expect:
+          ./billing/x.py:
+              owners: [team-b]
+              unowned_by_design: false
+              status: active
+              source: billing/owners.yaml
+              slack: '#team-b'
+          /billing/x.py:
+              owners: [team-b]
+              unowned_by_design: false
+              status: active
+              source: billing/owners.yaml
+              slack: '#team-b'
+          //billing/x.py:
+              owners: [team-b]
+              unowned_by_design: false
+              status: active
+              source: billing/owners.yaml
+              slack: '#team-b'
+          'billing\x.py':
+              owners: [team-b]
+              unowned_by_design: false
+              status: active
+              source: billing/owners.yaml
+              slack: '#team-b'
+          '.\billing\x.py':
+              owners: [team-b]
+              unowned_by_design: false
+              status: active
+              source: billing/owners.yaml
+              slack: '#team-b'
+          'billing\api\views.py':
+              owners: [team-api]
+              unowned_by_design: false
+              status: active
+              source: billing/owners.yaml
+              slack: '#team-api'
+          ./x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-a'

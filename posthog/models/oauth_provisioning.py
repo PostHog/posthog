@@ -68,10 +68,6 @@ class ProvisioningConfig(BaseModel):
 
     can_create_accounts: bool = False
     can_provision_resources: bool = False
-    # Exchanging GitHub OAuth codes and starting cloud wizard runs both act well beyond ordinary
-    # provisioning, so neither follows from being a partner - each is granted on its own.
-    can_use_github_grants: bool = False
-    can_start_wizard_runs: bool = False
 
     # Only for partners trusted enough that the blast radius of the app being compromised is
     # understood: a deep link mints a full web session, and skipping consent links an existing
@@ -81,6 +77,10 @@ class ProvisioningConfig(BaseModel):
 
     # Grandfathered: only the legacy Stripe app still mints a Personal API Key.
     issues_personal_api_key: bool = False
+
+    # Staff-only. Billing refuses to move an organization to partner billing once the organization
+    # has its own Stripe customer, so the partner's organizations must not start self-serve billing.
+    pays_for_customers: bool = False
 
     # Per-endpoint hourly overrides, keyed by rate-limit endpoint name. An absent key
     # means the tier-derived budget applies; UNLIMITED_OVERRIDE disables the limit.

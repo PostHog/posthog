@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -33,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PexelsSource(ResumableSource[PexelsSourceConfig, PexelsResumeConfig]):
+    codebase_detection = detect(env=("^PEXELS_",), npm=("pexels",), rubygems=("pexels",))
+
     api_docs_url = "https://www.pexels.com/api/documentation/"
 
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
@@ -46,7 +47,7 @@ class PexelsSource(ResumableSource[PexelsSourceConfig, PexelsResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PEXELS,
+            name=ExternalDataSourceType.PEXELS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Pexels",
             releaseStatus=ReleaseStatus.ALPHA,

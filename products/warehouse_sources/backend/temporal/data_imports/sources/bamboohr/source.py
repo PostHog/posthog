@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.bamboohr import (
     BambooHRResumeConfig,
     bamboohr_source,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BambooHRSource(ResumableSource[BambooHRSourceConfig, BambooHRResumeConfig]):
+    codebase_detection = detect(env=("^BAMBOOHR_", "^BAMBOO_HR_"), pypi=("pybamboohr",), composer=("bamboohr/api",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://documentation.bamboohr.com"
@@ -50,7 +51,7 @@ class BambooHRSource(ResumableSource[BambooHRSourceConfig, BambooHRResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BAMBOO_HR,
+            name=ExternalDataSourceType.BAMBOOHR,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="BambooHR",
             releaseStatus=ReleaseStatus.ALPHA,

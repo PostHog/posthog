@@ -15,22 +15,21 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.tests.utils.models import afetch_batch_export_runs
-
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
-    FILE_FORMAT_EXTENSIONS,
     SUPPORTED_COMPRESSIONS,
     AzureBlobBatchExportInputs,
     AzureBlobBatchExportWorkflow,
     azure_blob_default_fields,
     insert_into_azure_blob_activity_from_stage,
 )
+from products.batch_exports.backend.temporal.destinations.constants import FILE_FORMAT_EXTENSIONS
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
+from products.batch_exports.backend.tests.temporal.utils.models import afetch_batch_export_runs
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
 
 
@@ -141,7 +140,7 @@ def extract_model_configuration(
             schema["values"] if schema else None,
         )
 
-    return "custom", batch_export_model["fields"], None, batch_export_model["values"]
+    return "events", batch_export_model["fields"], None, batch_export_model["values"]
 
 
 async def assert_clickhouse_records_in_azure_blob(
@@ -167,7 +166,7 @@ async def assert_clickhouse_records_in_azure_blob(
     )
     model_name, fields, filters, extra_query_parameters = extract_model_configuration(batch_export_model)
 
-    if model_name == "events":
+    if model_name == "events" and fields is None:
         assert all("azure_blob_ingested_timestamp" in record for record in exported_records), (
             "Export didn't include ingested timestamp when expected"
         )
@@ -217,6 +216,9 @@ async def assert_clickhouse_records_in_azure_blob(
 
     expected_columns = list(expected_records[0].keys())
 
+    if model_name == "events" and fields is None:
+        assert "person_id" in expected_columns
+
     if "team_id" in expected_columns:
         assert all(record.get("team_id") == team_id for record in exported_records), (
             f"Some exported records have wrong team_id (expected {team_id})"
@@ -234,7 +236,7 @@ async def assert_clickhouse_records_in_azure_blob(
 
 TEST_AZURE_BLOB_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
     BatchExportModel(
-        name="a-custom-model",
+        name="events",
         schema={
             "fields": [
                 {"expression": "uuid", "alias": "uuid"},
@@ -288,7 +290,7 @@ async def run_azure_blob_batch_export_workflow(
     file_format: str = "JSONLines",
     compression: str | None = None,
     batch_export_model: BatchExportModel | None = None,
-    batch_export_schema: BatchExportSchema | None = None,
+    legacy_parquet_extension: bool = True,
 ):
     """Run the Azure Blob batch export workflow and return the run result."""
     workflow_id = str(uuid.uuid4())
@@ -301,9 +303,9 @@ async def run_azure_blob_batch_export_workflow(
         prefix=prefix,
         file_format=file_format,
         compression=compression,
+        legacy_parquet_extension=legacy_parquet_extension,
         integration_id=integration_id,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:

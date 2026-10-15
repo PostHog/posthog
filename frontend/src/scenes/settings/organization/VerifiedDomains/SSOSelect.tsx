@@ -13,6 +13,7 @@ export interface SSOSelectInterface {
     loading: boolean
     onChange: (value: SSOProvider | '') => void
     samlAvailable: boolean
+    oidcAvailable?: boolean
     disabledReason?: string | null
 }
 
@@ -21,6 +22,7 @@ export function SSOSelect({
     loading,
     onChange,
     samlAvailable,
+    oidcAvailable,
     disabledReason,
 }: SSOSelectInterface): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
@@ -49,6 +51,15 @@ export function SSOSelect({
         disabledReason: !samlAvailable ? 'This provider is not configured.' : undefined,
         icon: <SocialLoginIcon provider="saml" className="w-4 h-4" />,
     })
+
+    if (oidcAvailable !== undefined) {
+        options.push({
+            value: 'oidc',
+            label: SSO_PROVIDER_NAMES.oidc,
+            disabledReason: oidcAvailable ? undefined : 'This provider is not configured.',
+            icon: <SocialLoginIcon provider="oidc" className="w-4 h-4" />,
+        })
+    }
 
     return (
         <LemonSelect

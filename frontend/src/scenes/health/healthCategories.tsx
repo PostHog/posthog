@@ -28,6 +28,7 @@ export type HealthIssueKind =
     | 'partial_proxy'
     | 'web_vitals'
     | 'path_cleaning_suggestions'
+    | 'missing_session_id'
     | 'ingestion_lag'
     | 'ingestion_warning'
     | 'sdk_outdated'
@@ -90,7 +91,7 @@ export const HEALTH_CATEGORY_CONFIG: Record<HealthIssueCategory, CategoryConfig>
     feature_flags: {
         label: 'Feature flags',
         description: 'Feature flags that may be ready for cleanup',
-        healthyDescription: 'No stale flags',
+        healthyDescription: 'No flags to clean up',
         icon: <IconToggle className="size-5" />,
         showInSummary: true,
     },
@@ -131,6 +132,7 @@ const KIND_TO_CATEGORY: Record<HealthIssueKind, HealthIssueCategory> = {
     partial_proxy: 'web_analytics',
     web_vitals: 'web_analytics',
     path_cleaning_suggestions: 'web_analytics',
+    missing_session_id: 'web_analytics',
 }
 
 export const KIND_LABELS: Record<HealthIssueKind, string> = {
@@ -142,13 +144,14 @@ export const KIND_LABELS: Record<HealthIssueKind, string> = {
     partial_proxy: 'Partial reverse proxy',
     web_vitals: 'No web vitals',
     path_cleaning_suggestions: 'Path cleaning suggestions',
+    missing_session_id: 'Missing session IDs',
     ingestion_lag: 'Ingestion lag',
     external_data_failure: 'External data failures',
     ingestion_warning: 'Ingestion warning',
     sdk_outdated: 'SDK outdated',
     materialized_view_failure: 'Materialized view failure',
     error_tracking_missing_source_maps: 'Missing source maps',
-    stale_feature_flags: 'Stale feature flag',
+    stale_feature_flags: 'Feature flag cleanup candidate',
 }
 
 export const categoryForKind = (kind: string): HealthIssueCategory => {

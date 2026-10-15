@@ -1,15 +1,16 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.clerk import (
+    FORBIDDEN_KEY_MESSAGE,
+    INSTANCE_NOT_FOUND_MESSAGE,
     ClerkResumeConfig,
     clerk_source,
     validate_credentials as validate_clerk_credentials,
@@ -29,6 +30,116 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^CLERK_SECRET_KEY$",
+            "^NEXT_PUBLIC_CLERK_",
+            "^CLERK_PUBLISHABLE_KEY$",
+            "^CLERK_WEBHOOK_SIGNING_SECRET$",
+            "^CLERK_ENCRYPTION_KEY$",
+            "^VITE_CLERK_",
+            "^EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY$",
+            "^PUBLIC_CLERK_PUBLISHABLE_KEY$",
+            "^PUBLIC_CLERK_",
+            "^NUXT_PUBLIC_CLERK_",
+            "^NUXT_CLERK_",
+            "^EXPO_PUBLIC_CLERK_",
+            "^PLASMO_PUBLIC_CLERK_",
+            "^REACT_APP_CLERK_",
+            "^GATSBY_CLERK_",
+            "^PUBLIC_ASTRO_APP_CLERK_",
+            "^CLERK_JWT_KEY$",
+            "^CLERK_PEM_PUBLIC_KEY$",
+            "^CLERK_MACHINE_SECRET_KEY$",
+            "^CLERK_API_KEY$",
+            "^CLERK_PLATFORM_API_KEY$",
+            "^CLERK_API_(URL|VERSION|BASE)$",
+            "^CLERK_FRONTEND_API(_URL)?$",
+            "^CLERK_JS_(URL|VERSION)$",
+            "^CLERK_(DOMAIN|PROXY_URL|IS_SATELLITE)$",
+            "^CLERK_SIGN_(IN|UP|OUT)_URL$",
+            "^CLERK_SIGN_(IN|UP)_(FALLBACK|FORCE)_REDIRECT_URL$",
+            "^CLERK_AFTER_SIGN_(IN|UP)_URL$",
+            "^CLERK_USER_PROFILE_URL$",
+            "^CLERK_TELEMETRY_(DISABLED|DEBUG)$",
+            "^CLERK_TESTING_TOKEN$",
+            "^CLERK_KEYLESS_DISABLED$",
+            "^CLERK_SKIP_RAILTIE$",
+        ),
+        script_hosts=("clerk.accounts.dev", "lcl.dev"),
+        npm=(
+            "@clerk/nextjs",
+            "@clerk/clerk-react",
+            "@clerk/backend",
+            "@clerk/express",
+            "@clerk/fastify",
+            "@clerk/remix",
+            "@clerk/react",
+            "@clerk/clerk-js",
+            "@clerk/astro",
+            "@clerk/vue",
+            "@clerk/nuxt",
+            "@clerk/react-router",
+            "@clerk/tanstack-react-start",
+            "@clerk/expo",
+            "@clerk/clerk-expo",
+            "@clerk/chrome-extension",
+            "@clerk/clerk-sdk-node",
+            "clerk",
+            "@clerk/hono",
+            "@clerk/electron",
+            "@clerk/electron-passkeys",
+            "@clerk/expo-passkeys",
+            "@clerk/expo-biometrics",
+            "@clerk/expo-google-signin",
+            "@clerk/expo-native-components",
+            "@clerk/ui",
+            "@clerk/shared",
+            "@clerk/types",
+            "@clerk/themes",
+            "@clerk/localizations",
+            "@clerk/elements",
+            "@clerk/mosaic",
+            "@clerk/testing",
+            "@clerk/eslint-plugin",
+            "@clerk/mcp-tools",
+            "@clerk/agent-toolkit",
+            "@clerk/tanstack-start",
+            "@clerk/edge",
+            "@clerk/backend-core",
+            "gatsby-plugin-clerk",
+            "ngx-clerk",
+            "elysia-clerk",
+            "@hono/clerk-auth",
+            "@dimkl/clerk-koa",
+            "clerk-solidjs",
+            "svelte-clerk",
+            "clerk-sveltekit",
+            "vue-clerk",
+            "astro-clerk-auth",
+            "tauri-plugin-clerk",
+            "@redwoodjs/auth-clerk-web",
+            "@redwoodjs/auth-clerk-api",
+        ),
+        pypi=("clerk-backend-api", "fastapi-clerk-auth"),
+        cargo=("clerk-rs", "tauri-plugin-clerk"),
+        composer=("clerkinc/backend-php",),
+        go=("github.com/clerk/clerk-sdk-go",),
+        hex=("clerk",),
+        maven=(
+            "com.clerk:backend-api",
+            "com.clerk:backend-api-spring-boot-starter",
+            "com.clerk:backend-api-spring-boot-autoconfigure",
+            "com.clerk:clerk-android",
+            "com.clerk:clerk-android-api",
+            "com.clerk:clerk-android-ui",
+            "com.clerk:clerk-convex-kotlin",
+        ),
+        pub=("clerk_flutter", "clerk_auth", "clerk_backend_api"),
+        rubygems=("clerk-sdk-ruby", "clerk-http-client", "clerk-rails"),
+        swiftpm=("github.com/clerk/clerk-ios", "github.com/clerk/clerk-convex-swift"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v1",)
@@ -42,7 +153,7 @@ class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLERK,
+            name=ExternalDataSourceType.CLERK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Clerk",
             releaseStatus=ReleaseStatus.GA,
@@ -104,7 +215,14 @@ The secret key starts with `sk_live_`.
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://api.clerk.com": "Your Clerk secret key is invalid or has been revoked. Please update the secret key in your Clerk dashboard and reconnect.",
-            "403 Client Error: Forbidden for url: https://api.clerk.com": "Your Clerk secret key does not have permission to access this endpoint. Please check the key's permissions in your Clerk dashboard.",
+            # Listed before the host-wide 403 below, since the first matching key supplies the message.
+            "403 Client Error: Forbidden for url: https://api.clerk.com/v1/users": FORBIDDEN_KEY_MESSAGE,
+            # Clerk secret keys carry no per-key permissions, so a 403 on any other table usually means
+            # the table's feature is off for the instance. Pointing the customer at key permissions dead-ends.
+            "403 Client Error: Forbidden for url: https://api.clerk.com": (
+                "Clerk denied access to this table. Check that the feature it needs is turned on for "
+                "your Clerk instance, or turn off syncing for this table."
+            ),
             # Clerk answers 410 for endpoints it has removed. Schema discovery retires the table
             # within a few hours, so this only covers runs that start in between.
             "410 Client Error: Gone for url: https://api.clerk.com": "Clerk removed this endpoint from its API, so this table can't sync any more. Turn off syncing for this table.",
@@ -137,6 +255,13 @@ The secret key starts with `sk_live_`.
             # unfiltered list request is identical every run, so it re-fails on every schedule.
             # Scoped to this path for the same reason as redirect_urls above.
             "404 Client Error: Not Found for url: https://api.clerk.com/v1/jwt_templates": "The JWT templates table isn't available on your Clerk plan or instance. Turn off syncing for this table.",
+            # The users list exists on every Clerk instance, and an instance with no users answers
+            # 200 with an empty array, so a 404 resource_not_found here can't mean a missing record
+            # — Clerk won't resolve the instance the key belongs to at all. The request is identical
+            # every run, so it re-fails on every schedule. Scoped to this path, like the two
+            # entries above; `users` is also the parent of the sessions fan-out, so the copy names
+            # the key rather than one table.
+            "404 Client Error: Not Found for url: https://api.clerk.com/v1/users": INSTANCE_NOT_FOUND_MESSAGE,
             **{reason: reason for reason in RETIRED_ENDPOINTS.values()},
         }
 

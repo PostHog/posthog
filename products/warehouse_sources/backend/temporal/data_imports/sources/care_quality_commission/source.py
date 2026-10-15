@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.care_quality_commission.care_quality_commission import (
     CQCResumeConfig,
     care_quality_commission_source,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CareQualityCommissionSource(ResumableSource[CareQualityCommissionSourceConfig, CQCResumeConfig]):
+    codebase_detection = detect(env=("^(CARE_QUALITY_COMMISSION|CAREQUALITYCOMMISSION)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -47,7 +48,7 @@ class CareQualityCommissionSource(ResumableSource[CareQualityCommissionSourceCon
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CARE_QUALITY_COMMISSION,
+            name=ExternalDataSourceType.CAREQUALITYCOMMISSION,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Care Quality Commission",
             releaseStatus=ReleaseStatus.ALPHA,

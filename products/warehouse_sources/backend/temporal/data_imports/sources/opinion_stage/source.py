@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpinionStageSource(ResumableSource[OpinionStageSourceConfig, OpinionStageResumeConfig]):
+    codebase_detection = detect(env=("^(OPINION_STAGE|OPINIONSTAGE)_",), script_hosts=("www.opinionstage.com",))
+
     supported_versions = ("v2",)
     default_version = "v2"
 
@@ -50,13 +51,13 @@ class OpinionStageSource(ResumableSource[OpinionStageSourceConfig, OpinionStageR
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.OPINION_STAGE,
+            name=ExternalDataSourceType.OPINIONSTAGE,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Opinion Stage",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Opinion Stage personal API key to pull your interactive content data into the PostHog Data warehouse.
 
-You can find your API key on your account settings page in [Opinion Stage](https://www.opinionstage.com/). The key grants read access to your items (quizzes, surveys, and forms) via the Public Result API.
+You can find your API key on your account settings page in [Opinion Stage](https://www.opinionstage.com/). The key grants read access to your items (quizzes, surveys, and forms), their questions, and their responses via the Public Result API.
 """,
             iconPath="/static/services/opinion_stage.png",
             docsUrl="https://posthog.com/docs/cdp/sources/opinion-stage",

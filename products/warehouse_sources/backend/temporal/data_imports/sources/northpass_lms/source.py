@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NorthpassLMSSource(ResumableSource[NorthpassLMSSourceConfig, NorthpassResumeConfig]):
+    codebase_detection = detect(env=("^(NORTHPASS_LMS|NORTHPASSLMS)_",))
+
     supported_versions = ("v2",)
     default_version = "v2"
 
@@ -50,7 +51,7 @@ class NorthpassLMSSource(ResumableSource[NorthpassLMSSourceConfig, NorthpassResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.NORTHPASS_LMS,
+            name=ExternalDataSourceType.NORTHPASSLMS,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Northpass LMS",
             releaseStatus=ReleaseStatus.ALPHA,

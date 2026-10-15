@@ -4,6 +4,7 @@ import {
   type Task,
   type TaskRunStatus,
 } from "@posthog/shared/domain-types";
+import { isGithubConnectionRequiredError } from "../integrations/connectErrors";
 import { resolveEffectiveCloudStatus } from "../task-detail/cloudRunState";
 
 export interface SessionViewState {
@@ -21,6 +22,7 @@ export interface SessionViewState {
   errorTitle: string | undefined;
   errorMessage: string | undefined;
   errorRetryable: boolean | undefined;
+  githubConnectionRequired: boolean;
 }
 
 export interface SessionLifecycleState {
@@ -116,6 +118,21 @@ export function deriveSessionViewState(
     ? (workspace?.baseBranch ?? task.latest_run?.branch ?? null)
     : null;
 
+  const errorMessage =
+    session?.errorMessage ??
+    (effectiveIsCloud ? (session?.cloudErrorMessage ?? undefined) : undefined);
+
+  // A cloud run that fails before the agent boots never reaches
+  // `session.status === "error"`: the reason lands on the run, and reopening
+  // the task hydrates neither the session error nor `cloudErrorMessage`. Read
+  // the run's own message too, or the failure the recovery exists for is the
+  // one case it cannot classify.
+  const githubConnectionRequired =
+    (hasError || (effectiveIsCloud && cloudStatus === "failed")) &&
+    isGithubConnectionRequiredError(
+      errorMessage ?? task.latest_run?.error_message,
+    );
+
   return {
     isCloud: effectiveIsCloud,
     isCloudRunNotTerminal,
@@ -129,11 +146,8 @@ export function deriveSessionViewState(
     isInitializing: isInitializing || (!effectiveIsCloud && !session),
     cloudBranch,
     errorTitle: session?.errorTitle,
-    errorMessage:
-      session?.errorMessage ??
-      (effectiveIsCloud
-        ? (session?.cloudErrorMessage ?? undefined)
-        : undefined),
+    errorMessage,
     errorRetryable: session?.errorRetryable,
+    githubConnectionRequired,
   };
 }

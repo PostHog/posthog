@@ -1,0 +1,72 @@
+import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { useState } from 'react'
+
+import { SpinnerOverlay } from '@posthog/lemon-ui'
+
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { cn } from 'lib/utils/css-classes'
+import { InsightErrorState } from 'scenes/insights/EmptyStates'
+
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { AnyResponseType, MetricsHistogramQuery, MetricsHistogramQueryResponse } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
+
+import { HeatmapPanel } from '../panels/HeatmapPanel'
+
+let uniqueNode = 0
+
+/** Renders a `MetricsHistogramQuery` (a latency-over-time heatmap) wherever the generic `Query`
+ * component is used — saved insights, dashboard tiles, notebooks. */
+export function MetricsHistogramQueryNode(props: {
+    query: MetricsHistogramQuery
+    cachedResults?: AnyResponseType
+    context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
+    /** Set by dashboard tiles and notebooks, which reduce the UI to the data. */
+    embedded?: boolean
+}): JSX.Element | null {
+    const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
+    const [key] = useState(() => `MetricsHistogramQueryNode.${uniqueNode++}`)
+    // A dashboard tile passes its saved insight, whose `result` cannot hold a heatmap. Then the node loads the query.
+    const cachedHistogram =
+        typeof props.cachedResults === 'object' && props.cachedResults !== null && 'times' in props.cachedResults
+            ? props.cachedResults
+            : undefined
+    const logic = dataNodeLogic({
+        query: props.query,
+        key,
+        cachedResults: cachedHistogram,
+        loadPriority,
+        onData,
+        dataNodeCollectionId: dataNodeCollectionId ?? key,
+    })
+
+    useAttachedLogic(logic, props.attachTo)
+
+    const { response, responseLoading, responseError } = useValues(logic)
+    const histogram = response as MetricsHistogramQueryResponse | undefined
+    const unit = props.query.unit
+
+    return (
+        // A dashboard tile sets the height, so a minimum would overflow a short tile. Elsewhere the
+        // parent can have no height, and the heatmap then needs the minimum to draw at all. The insight
+        // scene also gets a `dashboardId` when it opens from a tile, so `embedded` must also be set.
+        <div
+            className={cn(
+                'relative flex flex-col w-full h-full',
+                !(props.embedded && props.context.insightProps?.dashboardId != null) && 'min-h-[200px]'
+            )}
+        >
+            {responseError ? (
+                <InsightErrorState query={props.query} excludeDetail title={responseError} />
+            ) : histogram && histogram.times?.length ? (
+                <HeatmapPanel response={histogram} unit={unit} />
+            ) : !responseLoading ? (
+                <div className="flex-1 flex items-center justify-center text-secondary text-sm">
+                    No data for this metric in the selected range.
+                </div>
+            ) : null}
+            {responseLoading && <SpinnerOverlay />}
+        </div>
+    )
+}

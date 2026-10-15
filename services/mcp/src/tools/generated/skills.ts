@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/skills/api'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SkillArchiveSchema = () => {
@@ -134,7 +135,16 @@ const skillFileCreate = (): ToolBase<ReturnType<typeof SkillFileCreateSchema>, S
 const SkillFileDeleteSchema = () => {
     const LlmSkillsNameFilesDestroyParams = orvalSchemas.LlmSkillsNameFilesDestroyParams()
     const LlmSkillsNameFilesDestroyQueryParams = orvalSchemas.LlmSkillsNameFilesDestroyQueryParams()
-    return LlmSkillsNameFilesDestroyParams.omit({ project_id: true }).extend(LlmSkillsNameFilesDestroyQueryParams.shape)
+    return z.preprocess(
+        normalizeParamAliases({ file_path: ['path'] }),
+        LlmSkillsNameFilesDestroyParams.omit({ project_id: true })
+            .extend(LlmSkillsNameFilesDestroyQueryParams.shape)
+            .extend({
+                file_path: LlmSkillsNameFilesDestroyParams.shape['file_path'].describe(
+                    "The file's path, copied from the `path` field of a skill-get manifest entry (e.g. `references/limits.md`). Sending it as `path` also works."
+                ),
+            })
+    )
 }
 
 const skillFileDelete = (): ToolBase<ReturnType<typeof SkillFileDeleteSchema>, Schemas.LLMSkill> => ({
@@ -156,8 +166,15 @@ const skillFileDelete = (): ToolBase<ReturnType<typeof SkillFileDeleteSchema>, S
 const SkillFileGetSchema = () => {
     const LlmSkillsNameFilesRetrieveParams = orvalSchemas.LlmSkillsNameFilesRetrieveParams()
     const LlmSkillsNameFilesRetrieveQueryParams = orvalSchemas.LlmSkillsNameFilesRetrieveQueryParams()
-    return LlmSkillsNameFilesRetrieveParams.omit({ project_id: true }).extend(
-        LlmSkillsNameFilesRetrieveQueryParams.shape
+    return z.preprocess(
+        normalizeParamAliases({ file_path: ['path'] }),
+        LlmSkillsNameFilesRetrieveParams.omit({ project_id: true })
+            .extend(LlmSkillsNameFilesRetrieveQueryParams.shape)
+            .extend({
+                file_path: LlmSkillsNameFilesRetrieveParams.shape['file_path'].describe(
+                    "The file's path, copied from the `path` field of a skill-get manifest entry (e.g. `references/limits.md`). Sending it as `path` also works."
+                ),
+            })
     )
 }
 

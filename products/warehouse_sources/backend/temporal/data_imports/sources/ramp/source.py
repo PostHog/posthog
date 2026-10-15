@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RampSource(ResumableSource[RampSourceConfig, RampResumeConfig]):
+    codebase_detection = detect(env=("^RAMP_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.ramp.com/developer-api/v1"
@@ -72,7 +73,7 @@ class RampSource(ResumableSource[RampSourceConfig, RampResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.RAMP,
+            name=ExternalDataSourceType.RAMP,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Ramp",
             caption="""Connect your Ramp account to pull your spend data into the PostHog Data warehouse.
@@ -80,7 +81,7 @@ class RampSource(ResumableSource[RampSourceConfig, RampResumeConfig]):
 A Ramp admin can create a developer app under Settings > Developer API. Grant it the `transactions:read`, `reimbursements:read`, `users:read`, `cards:read`, and `departments:read` scopes (scopes are fixed at app creation) and enable client credentials, then enter the app's client ID and secret here.""",
             iconPath="/static/services/ramp.png",
             docsUrl="https://posthog.com/docs/cdp/sources/ramp",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,6 +35,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FrontSource(ResumableSource[FrontSourceConfig, FrontResumeConfig]):
+    codebase_detection = detect(
+        env=("^FRONTAPP_", "^FRONT_API_"),
+        script_hosts=("chat-assets.frontapp.com",),
+        npm=("front-chat-sdk", "@frontapp/plugin-sdk"),
+    )
+
     api_docs_url = "https://dev.frontapp.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -47,7 +52,7 @@ class FrontSource(ResumableSource[FrontSourceConfig, FrontResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FRONT,
+            name=ExternalDataSourceType.FRONT,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Front",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -99,7 +104,11 @@ Grant read scopes for the resources you want to sync (e.g. `shared_resources:rea
             ENDPOINTS,
             INCREMENTAL_FIELDS,
             names,
-            descriptions={"events": "Only syncs the last 365 days on initial sync"},
+            descriptions={
+                "events": "Only syncs the last 365 days on initial sync",
+                "conversation_messages": "Fetched one conversation at a time, so a sync takes longer the more conversations you have",
+                "conversation_comments": "Fetched one conversation at a time, so a sync takes longer the more conversations you have",
+            },
         )
 
     def validate_credentials(
@@ -111,7 +120,13 @@ Grant read scopes for the resources you want to sync (e.g. `shared_resources:rea
             return validate_front_credentials(config.api_token, "/teammates", require_scope=False)
 
         endpoint_config = FRONT_ENDPOINTS.get(schema_name)
-        path = endpoint_config.path if endpoint_config else "/teammates"
+        if endpoint_config is None:
+            path = "/teammates"
+        elif endpoint_config.fanout is not None:
+            # A fan-out path needs a parent id we don't have here, so probe the parent listing.
+            path = FRONT_ENDPOINTS[endpoint_config.fanout.parent_name].path
+        else:
+            path = endpoint_config.path
         return validate_front_credentials(config.api_token, path, require_scope=True)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[FrontResumeConfig]:

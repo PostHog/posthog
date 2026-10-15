@@ -1,0 +1,19 @@
+{
+    "groups": [
+        {
+            "id": "stamphog_connected_replica_lag",
+            "finding_ids": ["XA3", "XA15"],
+            "claim": "A replica-lagged Stamphog connection flag blocks opt-in after setup until settings refresh.",
+            "reason": "All six fresh votes retain the same unpinned connection-state query and cached false UI response. XA3's provider-filter claim, which determined its registry match, is refuted. XA3 and XA15 therefore describe one surviving minor issue.",
+            "evidence": [
+                "products/stamphog/backend/facade/api.py:120-124",
+                "products/review_hog/backend/api/settings.py:72-81",
+                "posthog/product_db_router.py:27-40",
+                "products/review_hog/frontend/CodeReviewScene.tsx:1063-1068",
+                "products/review_hog/frontend/reviewHogSettingsLogic.ts:443-452",
+                "findings/verify_result_XA.json:XA3",
+                "findings/verify_result_XA.json:XA15"
+            ]
+        }
+    ]
+}

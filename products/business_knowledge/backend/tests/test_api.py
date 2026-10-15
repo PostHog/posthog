@@ -1,8 +1,9 @@
 from uuid import UUID
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -13,7 +14,17 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.api.serializers import _derive_scope_globs
 from products.business_knowledge.backend.constants import CLASSIFY_MAX_ATTEMPTS
-from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SafetyVerdict
+from products.business_knowledge.backend.models import (
+    KnowledgeChunk,
+    KnowledgeDocument,
+    KnowledgeLibrary,
+    KnowledgeLibraryRepository,
+    KnowledgeLibrarySource,
+    KnowledgeSource,
+    SafetyVerdict,
+    SourceStatus,
+    SourceType,
+)
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -34,6 +45,7 @@ class TestKnowledgeSourceAPI(APIBaseTest):
                 analysis_version="post_resolution_v1",
                 title="Refund policy",
                 content="Refunds are available within 30 days.",
+                evidence_revision_at=timezone.now(),
             )
         )
         return str(result.source_id)
@@ -88,6 +100,9 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         KnowledgeSource.objects.unscoped().create(
             team=self.team, name="Gamma report", source_type="file", status="ready"
         )
+        KnowledgeSource.objects.unscoped().create(
+            team=self.team, name="Learned policy", source_type="text", status="ready", is_generated=True
+        )
         other_team = Team.objects.create_with_data(
             organization=self.organization, initiating_user=self.user, name="Other"
         )
@@ -110,9 +125,41 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         # Search and type combine as AND.
         assert names("source_type=file&search=gamma") == ["Gamma report"]
         assert names("source_type=text&search=beta") == []
+        # added_by splits sources you created from ones learned from support tickets.
+        assert names("added_by=human") == ["Alpha docs", "Beta guide", "Gamma report"]
+        assert names("added_by=learned") == ["Learned policy"]
+        assert names("added_by=learned&source_type=text&search=policy") == ["Learned policy"]
+        assert names("added_by=human&search=policy") == []
+
+    def test_list_pages_do_not_skip_or_repeat_sources_with_equal_timestamps(self, _ff) -> None:
+        created_ids = sorted(
+            str(
+                KnowledgeSource.objects.unscoped()
+                .create(team=self.team, name=f"Tied {index}", source_type="text", status="ready")
+                .id
+            )
+            for index in range(4)
+        )
+        sources = KnowledgeSource.objects.unscoped().filter(team=self.team)
+        sources.update(created_at=timezone.now())
+
+        def page(offset: int) -> list[str]:
+            resp = self.client.get(f"{self.url}?limit=2&offset={offset}")
+            assert resp.status_code == status.HTTP_200_OK, resp.content
+            return [row["id"] for row in resp.json()["results"]]
+
+        first_page = page(0)
+        # An edit between the two reads rewrites the row, which moves it in the
+        # database's own tie order. Only the id tie-breaker keeps the pages aligned.
+        sources.filter(id=first_page[0]).update(name="Edited between pages")
+        paged_ids = first_page + page(2)
+
+        assert paged_ids == created_ids
 
     def test_list_rejects_unknown_source_type(self, _ff) -> None:
         response = self.client.get(f"{self.url}?source_type=bogus")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response = self.client.get(f"{self.url}?added_by=robot")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_cannot_read_other_team_source_via_id(self, _ff) -> None:
@@ -323,6 +370,203 @@ class TestKnowledgeSourceAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_deleting_a_library_keeps_the_source(self, _ff) -> None:
+        created = self.client.post(self.url, {"name": "Docs", "text": "Pricing is public."}, format="json")
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        source_id = created.json()["id"]
+        library = self.client.post(self._libraries_url(), {"name": "Docs"}, format="json")
+        assert library.status_code == status.HTTP_201_CREATED, library.content
+        library_id = library.json()["id"]
+        patched = self.client.patch(f"{self.url}{source_id}/", {"library_ids": [library_id]}, format="json")
+        assert patched.status_code == status.HTTP_200_OK, patched.content
+        assert patched.json()["library_ids"] == [library_id]
+
+        deleted = self.client.delete(f"{self._libraries_url()}{library_id}/")
+
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+        assert KnowledgeSource.objects.unscoped().filter(id=source_id).exists()
+        assert KnowledgeDocument.objects.unscoped().filter(source_id=source_id).exists()
+        assert KnowledgeChunk.objects.unscoped().filter(source_id=source_id).exists()
+        assert not KnowledgeLibrary.objects.unscoped().filter(id=library_id).exists()
+        assert not KnowledgeLibrarySource.objects.unscoped().filter(source_id=source_id).exists()
+
+    def test_library_ids_patch_succeeds_while_a_url_source_is_refreshing(self, _ff) -> None:
+        created = self.client.post(self.url, {"name": "Docs", "text": "Pricing is public."}, format="json")
+        source_id = created.json()["id"]
+        KnowledgeSource.objects.unscoped().filter(id=source_id).update(
+            source_type=SourceType.URL, status=SourceStatus.PROCESSING
+        )
+        library = self.client.post(self._libraries_url(), {"name": "Docs"}, format="json")
+        library_id = library.json()["id"]
+
+        patched = self.client.patch(f"{self.url}{source_id}/", {"library_ids": [library_id]}, format="json")
+
+        assert patched.status_code == status.HTTP_200_OK, patched.content
+        assert patched.json()["library_ids"] == [library_id]
+
+    @parameterized.expand([("source",), ("library",)])
+    def test_a_rejected_patch_keeps_the_old_name(self, _ff, target: str) -> None:
+        created = self.client.post(self.url, {"name": "Docs", "text": "Pricing is public."}, format="json")
+        library = self.client.post(self._libraries_url(), {"name": "Docs"}, format="json")
+        unknown_id = "11111111-1111-1111-1111-111111111111"
+        if target == "source":
+            url = f"{self.url}{created.json()['id']}/"
+            payload = {"name": "Renamed", "library_ids": [unknown_id]}
+        else:
+            url = f"{self._libraries_url()}{library.json()['id']}/"
+            payload = {"name": "Renamed", "source_ids": [unknown_id]}
+
+        response = self.client.patch(url, payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert self.client.get(url).json()["name"] == "Docs"
+
+    def test_list_rejects_library_and_unfiled_together(self, _ff) -> None:
+        response = self.client.get(self.url, {"library_id": "11111111-1111-1111-1111-111111111111", "unfiled": "true"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_library_from_another_team_is_not_found(self, _ff) -> None:
+        from posthog.models.organization import Organization
+        from posthog.models.project import Project
+        from posthog.models.team import Team
+
+        from products.business_knowledge.backend.libraries import create_library
+
+        other_org = Organization.objects.create(name="other_org")
+        other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=other_org)
+        other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)
+        library = create_library(other_team.id, "Theirs")
+
+        retrieve = self.client.get(f"{self._libraries_url()}{library.id}/")
+        search = self.client.get(
+            f"/api/projects/{self.team.id}/business_knowledge/documents/search/",
+            {"query": "pricing", "library_id": str(library.id)},
+        )
+
+        assert retrieve.status_code == status.HTTP_404_NOT_FOUND
+        assert search.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("products.business_knowledge.backend.api.libraries.has_github_repos_feature_flag", return_value=True)
+    def test_parent_repo_replace_keeps_a_child_only_link(self, _ff, _repos_flag) -> None:
+        from posthog.models.integration import Integration
+        from posthog.models.scoping import team_scope
+        from posthog.models.team import Team
+        from posthog.models.team.extensions import get_or_create_team_extension
+
+        from products.business_knowledge.backend.models import TeamBusinessKnowledgeConfig
+
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="inst-parent",
+            config={"account": {"name": "Acme"}},
+            created_by=self.user,
+        )
+        parent_config = get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig)
+        parent_config.github_integration_id = integration.id
+        parent_config.github_repos = ["acme/parent", "acme/shared"]
+        parent_config.save(update_fields=["github_integration_id", "github_repos"])
+        child = Team.objects.create(
+            organization=self.organization,
+            parent_team=self.team,
+            project=self.team.project,
+            name="Child environment",
+        )
+        child_config = get_or_create_team_extension(child, TeamBusinessKnowledgeConfig)
+        child_config.github_repos = ["acme/child-only"]
+        child_config.save(update_fields=["github_repos"])
+        library = self.client.post(self._libraries_url(), {"name": "Repos"}, format="json")
+        library_id = library.json()["id"]
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeLibraryRepository.objects.create(
+                team_id=self.team.id, library_id=library_id, repo="acme/child-only"
+            )
+
+        replaced = self.client.patch(
+            f"{self._libraries_url()}{library_id}/",
+            {"repos": ["acme/parent"]},
+            format="json",
+        )
+
+        assert replaced.status_code == status.HTTP_200_OK, replaced.content
+        assert replaced.json()["repos"] == ["acme/parent"]
+        assert set(
+            KnowledgeLibraryRepository.objects.unscoped().filter(library_id=library_id).values_list("repo", flat=True)
+        ) == {"acme/parent", "acme/child-only"}
+
+    def _libraries_url(self) -> str:
+        return f"/api/projects/{self.team.id}/business_knowledge/libraries/"
+
+    def test_lists_live_indexed_urls(self, _ff) -> None:
+        from posthog.models.team import Team
+
+        source = KnowledgeSource.objects.unscoped().create(
+            team=self.team,
+            name="Docs",
+            source_type="url",
+            status="ready",
+            source_url="https://docs.example.com",
+        )
+        KnowledgeDocument.objects.unscoped().create(
+            team=self.team,
+            source=source,
+            stable_id="https://docs.example.com/b",
+            title="Beta",
+            content="secret page body",
+            url="https://docs.example.com/b",
+            safety_verdict=SafetyVerdict.SAFE,
+        )
+        KnowledgeDocument.objects.unscoped().create(
+            team=self.team,
+            source=source,
+            stable_id="https://docs.example.com/a",
+            title="Alpha",
+            content="another secret body",
+            url="https://docs.example.com/a",
+            safety_verdict=SafetyVerdict.UNKNOWN,
+        )
+        KnowledgeDocument.objects.unscoped().create(
+            team=self.team,
+            source=source,
+            stable_id="https://docs.example.com/gone",
+            title="Gone",
+            content="removed page",
+            url="https://docs.example.com/gone",
+            safety_verdict=SafetyVerdict.SAFE,
+            tombstoned_at=timezone.now(),
+        )
+        other_team = Team.objects.create_with_data(
+            organization=self.organization, initiating_user=self.user, name="Other"
+        )
+        other_source = KnowledgeSource.objects.unscoped().create(
+            team=other_team,
+            name="Theirs",
+            source_type="url",
+            status="ready",
+            source_url="https://other.example.com",
+        )
+        KnowledgeDocument.objects.unscoped().create(
+            team=other_team,
+            source=other_source,
+            stable_id="https://other.example.com/secret",
+            title="Secret",
+            content="other team",
+            url="https://other.example.com/secret",
+        )
+
+        response = self.client.get(f"{self.url}{source.id}/documents/?limit=500")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = response.json()["results"]
+        assert [row["url"] for row in rows] == [
+            "https://docs.example.com/a",
+            "https://docs.example.com/b",
+        ]
+        assert rows[0]["title"] == "Alpha"
+        assert rows[0]["safety_verdict"] == "unknown"
+        assert "content" not in rows[0]
+        assert self.client.get(f"{self.url}{other_source.id}/documents/").status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.get(f"{self.url}not-a-uuid/documents/").status_code == status.HTTP_404_NOT_FOUND
+
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
 class TestEmbeddingStatusAPI(APIBaseTest):
@@ -408,8 +652,10 @@ class TestKnowledgeDocumentWindowAPI(APIBaseTest):
             "heading_path",
             "source_name",
             "document_title",
+            "url",
         }
         assert first["source_name"] == "Docs"
+        assert first["url"] == ""
 
     def test_window_defaults_radius(self, _ff) -> None:
         doc = self._ready_safe_document(paragraphs=20)
@@ -537,8 +783,12 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
             "document_title",
             "heading_path",
             "content",
+            "is_generated",
+            "url",
         }
         assert first["source_name"] == "Docs"
+        assert first["url"] == ""
+        assert first["is_generated"] is False
         assert "pricing" in first["content"].lower() or "Pricing" in first["content"]
 
     @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
@@ -601,7 +851,7 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
     @patch("products.business_knowledge.backend.logic.rerank_chunks")
     def test_search_rerank_param_calls_reranker(self, mock_rerank, _embed, _ff) -> None:
         self._ready_safe_source(text="Return policy details " * 60)
-        mock_rerank.side_effect = lambda _team, query, results, *, top_k: list(reversed(results))
+        mock_rerank.side_effect = lambda _team, query, results, *, top_k, trace: list(reversed(results))
 
         response = self.client.get(self.url, {"query": "return policy", "rerank": "true"})
         assert response.status_code == status.HTTP_200_OK, response.content
@@ -646,7 +896,7 @@ class TestKnowledgeDocumentSearchScopes(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
-class TestDeriveScopeGlobs(BaseTest):
+class TestDeriveScopeGlobs(SimpleTestCase):
     @parameterized.expand(
         [
             ("subpath", "https://posthog.com/docs/support", ["/docs/support", "/docs/support/*"]),

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SecodaSource(ResumableSource[SecodaSourceConfig, SecodaResumeConfig]):
+    codebase_detection = detect(env=("^SECODA_",), pypi=("secodadk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -48,13 +49,13 @@ class SecodaSource(ResumableSource[SecodaSourceConfig, SecodaResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SECODA,
+            name=ExternalDataSourceType.SECODA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Secoda",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Secoda API key to pull your data catalog into the PostHog Data warehouse.
 
-You can create an API key under **Settings → API** in [Secoda](https://app.secoda.co). The key inherits your workspace permissions and grants read access to your tables, columns, collections, users, groups, and tags.
+You can create an API key under **Settings → API** in [Secoda](https://app.secoda.co). The key inherits your workspace permissions and grants read access to your databases, schemas, tables, columns, lineage, integrations, collections, users, groups, and tags.
 """,
             iconPath="/static/services/secoda.png",
             docsUrl="https://posthog.com/docs/cdp/sources/secoda",

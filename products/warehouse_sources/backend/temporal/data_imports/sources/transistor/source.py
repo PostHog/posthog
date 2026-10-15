@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TransistorSource(ResumableSource[TransistorSourceConfig, TransistorResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # `/v1` is the only path Transistor has ever published and is not a documented version
     # choice, so the source stays on the framework's unversioned default.
@@ -47,7 +48,7 @@ class TransistorSource(ResumableSource[TransistorSourceConfig, TransistorResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TRANSISTOR,
+            name=ExternalDataSourceType.TRANSISTOR,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Transistor.fm",
             keywords=["podcast", "transistor fm"],

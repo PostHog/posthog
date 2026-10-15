@@ -23,11 +23,11 @@ use chrono::{DateTime, Utc};
 use common_sqlx_macros::{mirrored_query, mirrored_query_as, mirrored_query_scalar};
 use rand::Rng;
 use serde_json::Value;
-use sqlx::postgres::PgPool;
 use tonic::Status;
 use uuid::Uuid;
 
 use crate::config::IdentityTables;
+use crate::pools::{IdentityPools, Lane};
 
 /// Terminal step: the op ran to the end.
 pub const STEP_COMPLETED: &str = "completed";
@@ -41,13 +41,15 @@ const STEP_FAILURES_TOTAL: &str = "personhog_lifecycle_step_failures_total";
 const OPS_PARKED_TOTAL: &str = "personhog_lifecycle_ops_parked_total";
 const OPS_PARKED: &str = "personhog_lifecycle_ops_parked";
 const STEP_DURATION_MS: &str = "personhog_lifecycle_step_duration_ms";
+const LEASES_LOST_TOTAL: &str = "personhog_lifecycle_leases_lost_total";
+const CLAIM_WAIT_MS: &str = "personhog_lifecycle_claim_wait_ms";
 
 /// How many abandoned ops one sweep pass will pick up.
 const SWEEP_BATCH_SIZE: i64 = 100;
 
-/// Pause before re-driving a step that lost a database conflict. Long
-/// enough for the competing statement (typically a writer flush) to finish;
-/// the execute deadline still bounds the total retry time.
+/// Pause before re-driving a step that lost a database conflict or its
+/// connection. Long enough for the competing statement (typically a writer
+/// flush) to finish; the execute deadline still bounds the total retry time.
 const DB_CONFLICT_BACKOFF: Duration = Duration::from_millis(50);
 
 pub type Tx<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
@@ -105,6 +107,22 @@ impl SagaError {
         matches!(db.code().as_deref(), Some("40P01" | "40001" | "57014"))
     }
 
+    /// The connection broke (class 08) or the server shut down (57P01,
+    /// 57P02). A re-drive runs on a fresh connection, and the reloaded row
+    /// shows any commit the break hid.
+    pub fn is_db_connection_lost(&self) -> bool {
+        let SagaError::Db(err) = self else {
+            return false;
+        };
+        match err {
+            sqlx::Error::Io(_) | sqlx::Error::Tls(_) => true,
+            sqlx::Error::Database(db) => db
+                .code()
+                .is_some_and(|code| code.starts_with("08") || code == "57P01" || code == "57P02"),
+            _ => false,
+        }
+    }
+
     /// The Postgres error detail for a database conflict. For a deadlock it
     /// names the processes, lock targets, and relations in the cycle — the
     /// only place that evidence surfaces when server-side error logging is
@@ -120,6 +138,9 @@ impl SagaError {
 
 impl From<SagaError> for Status {
     fn from(err: SagaError) -> Status {
+        if err.is_db_connection_lost() {
+            return Status::unavailable(format!("{err}; retry with the same op_id"));
+        }
         match err {
             SagaError::Db(e) => Status::internal(format!("database error: {e}")),
             // A definitive refusal (the op_id belongs to a different
@@ -191,7 +212,7 @@ pub trait OpDriver: Send + Sync {
     fn op_type(&self) -> &'static str;
     /// The step a freshly created op row starts on.
     fn initial_step(&self) -> &'static str;
-    async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError>;
+    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError>;
 }
 
 #[derive(Clone, Debug)]
@@ -211,23 +232,43 @@ pub struct EngineConfig {
 }
 
 pub struct Engine {
-    pool: PgPool,
+    pools: IdentityPools,
     config: EngineConfig,
     tables: IdentityTables,
 }
 
+/// Records a driver displaced from its op. Another driver can then repeat
+/// the step this one was on, so a climb for one step shows which step outlives
+/// the lease left at its start.
+fn lease_lost(row: &OpRow) {
+    tracing::warn!(
+        op_id = %row.op_id,
+        op_type = %row.op_type,
+        step = %row.step,
+        "lifecycle op driver lost its lease; going back to claiming"
+    );
+    common_metrics::inc(
+        LEASES_LOST_TOTAL,
+        &[
+            ("op_type".to_string(), row.op_type.clone()),
+            ("step".to_string(), row.step.clone()),
+        ],
+        1,
+    );
+}
+
 impl Engine {
-    pub fn new(pool: PgPool, config: EngineConfig, tables: IdentityTables) -> Self {
+    pub fn new(pools: IdentityPools, config: EngineConfig, tables: IdentityTables) -> Self {
         tables.validate().expect("invalid identity table set");
         Self {
-            pool,
+            pools,
             config,
             tables,
         }
     }
 
-    pub fn pool(&self) -> &PgPool {
-        &self.pool
+    pub fn pools(&self) -> &IdentityPools {
+        &self.pools
     }
 
     pub fn tables(&self) -> &IdentityTables {
@@ -246,9 +287,47 @@ impl Engine {
         team_id: i64,
         request: &Value,
     ) -> Result<OpRow, SagaError> {
+        self.execute_by(driver, op_id, team_id, request, self.execute_deadline())
+            .await
+    }
+
+    pub fn execute_deadline(&self) -> tokio::time::Instant {
+        tokio::time::Instant::now() + self.config.execute_timeout
+    }
+
+    pub async fn execute_by(
+        &self,
+        driver: &dyn OpDriver,
+        op_id: Uuid,
+        team_id: i64,
+        request: &Value,
+        deadline: tokio::time::Instant,
+    ) -> Result<OpRow, SagaError> {
         self.create_or_attach(driver, op_id, team_id, request)
             .await?;
-        self.drive(driver, op_id, true).await
+        self.drive(driver, op_id, true, deadline).await
+    }
+
+    pub async fn wait_for_lease_lapse(
+        &self,
+        op_id: Uuid,
+        deadline: tokio::time::Instant,
+    ) -> Result<bool, SagaError> {
+        loop {
+            let Some(row) = self.load(op_id).await? else {
+                return Ok(false);
+            };
+            if row.completed_at.is_some() {
+                return Ok(true);
+            }
+            if !row.lease_live {
+                return Ok(false);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(SagaError::Busy);
+            }
+            self.poll_pause().await;
+        }
     }
 
     /// The create-or-attach half of [`execute`], without driving: create
@@ -267,6 +346,7 @@ impl Engine {
     ) -> Result<OpRow, SagaError> {
         let inserted = mirrored_query!(
             self.tables.is_validation(),
+            op = "op_create_or_attach",
             r#"
             INSERT INTO {lifecycle_op} (op_id, op_type, team_id, step, request)
             VALUES ($1, $2, $3, $4, $5)
@@ -277,7 +357,7 @@ impl Engine {
             team_id as i32,
             driver.initial_step(),
             request
-            => execute(&self.pool)
+            => execute(self.pools.fast())
         )?
         .rows_affected()
             > 0;
@@ -328,7 +408,7 @@ impl Engine {
             return Ok(row);
         }
         let step_start = Instant::now();
-        let stepped = driver.run_step(&self.pool, &row).await;
+        let stepped = driver.run_step(&self.pools, &row).await;
         record_step_duration(&row, step_start);
         stepped?;
         self.load(op_id).await?.ok_or_else(|| {
@@ -341,7 +421,8 @@ impl Engine {
     /// sweeper a live lease means "not abandoned", so this bails with `Busy`
     /// instead of polling out the execute timeout.
     pub async fn resume(&self, driver: &dyn OpDriver, op_id: Uuid) -> Result<OpRow, SagaError> {
-        self.drive(driver, op_id, false).await
+        self.drive(driver, op_id, false, self.execute_deadline())
+            .await
     }
 
     async fn drive(
@@ -349,13 +430,16 @@ impl Engine {
         driver: &dyn OpDriver,
         op_id: Uuid,
         wait_for_lease: bool,
+        deadline: tokio::time::Instant,
     ) -> Result<OpRow, SagaError> {
-        let deadline = tokio::time::Instant::now() + self.config.execute_timeout;
+        let drive_start = deadline - self.config.execute_timeout;
         // The attempt number returned by our claim, used as a fencing token:
         // renew/release only touch the lease while `attempt` still matches,
         // so a driver whose lease was stolen (the stealer bumped `attempt`)
         // cannot extend or clear the stealer's lease.
         let mut claim_attempt: Option<i32> = None;
+        // When our lease was last set, taken before the statement that set it so it errs early.
+        let mut lease_set_at = tokio::time::Instant::now();
 
         loop {
             let Some(row) = self.load(op_id).await? else {
@@ -383,7 +467,10 @@ impl Engine {
                     // reports its full lifetime, not the last drive's.
                     common_metrics::histogram(
                         OP_DURATION_MS,
-                        &[("op_type".to_string(), row.op_type.clone())],
+                        &[
+                            ("op_type".to_string(), row.op_type.clone()),
+                            ("final_step".to_string(), row.step.clone()),
+                        ],
                         (completed_at - row.created_at).num_milliseconds() as f64,
                     );
                 }
@@ -401,11 +488,25 @@ impl Engine {
 
             match claim_attempt {
                 Some(attempt) => {
-                    if !self.renew_lease(op_id, attempt).await? {
-                        // Another driver stole the lease; go back to
-                        // claiming instead of running a step we would lose.
+                    // Only a claim bumps `attempt`, so the row just loaded
+                    // shows a stolen lease without a write. Go back to
+                    // claiming instead of running a step we would lose.
+                    if row.attempt != attempt {
+                        lease_lost(&row);
                         claim_attempt = None;
                         continue;
+                    }
+                    // Renewing only once a third of the lease has passed
+                    // starts every step with at least two thirds of it; most
+                    // ops finish inside the first third and never renew.
+                    if lease_set_at.elapsed() >= self.config.lease / 3 {
+                        let sent = tokio::time::Instant::now();
+                        if !self.renew_lease(op_id, attempt).await? {
+                            lease_lost(&row);
+                            claim_attempt = None;
+                            continue;
+                        }
+                        lease_set_at = sent;
                     }
                 }
                 None => {
@@ -420,9 +521,17 @@ impl Engine {
                         self.poll_pause().await;
                         continue;
                     }
+                    let sent = tokio::time::Instant::now();
                     match self.try_claim(op_id, wait_for_lease).await? {
                         Some(attempt) => {
                             claim_attempt = Some(attempt);
+                            lease_set_at = sent;
+                            // Includes polling behind another driver's lease.
+                            common_metrics::histogram(
+                                CLAIM_WAIT_MS,
+                                &[("op_type".to_string(), row.op_type.clone())],
+                                drive_start.elapsed().as_secs_f64() * 1000.0,
+                            );
                             if attempt >= self.config.attempt_alert_threshold {
                                 tracing::warn!(
                                     op_id = %op_id,
@@ -447,7 +556,7 @@ impl Engine {
             }
 
             let step_start = Instant::now();
-            let stepped = driver.run_step(&self.pool, &row).await;
+            let stepped = driver.run_step(&self.pools, &row).await;
             record_step_duration(&row, step_start);
             if let Err(err) = stepped {
                 // Attributable escalation: a persistently failing op (a
@@ -456,6 +565,7 @@ impl Engine {
                 // retry noise. Alert on it — a wedged op can hold fences.
                 let kind = match &err {
                     SagaError::Db(_) if err.is_db_conflict() => "db_conflict",
+                    SagaError::Db(_) if err.is_db_connection_lost() => "db_connection",
                     SagaError::Db(_) => "db",
                     SagaError::Leader(_) => "leader",
                     SagaError::LeaderRefused(_) => "leader_refused",
@@ -487,6 +597,17 @@ impl Engine {
                         error = %err,
                         detail = %err.db_detail().unwrap_or(""),
                         "lifecycle step lost a database conflict; retrying"
+                    );
+                    tokio::time::sleep(DB_CONFLICT_BACKOFF).await;
+                    continue;
+                }
+                if err.is_db_connection_lost() {
+                    tracing::warn!(
+                        op_id = %op_id,
+                        op_type = %row.op_type,
+                        step = %row.step,
+                        error = %err,
+                        "lifecycle step lost its database connection; retrying"
                     );
                     tokio::time::sleep(DB_CONFLICT_BACKOFF).await;
                     continue;
@@ -529,6 +650,7 @@ impl Engine {
         mirrored_query_as!(
             OpRow,
             self.tables.is_validation(),
+            op = "op_load",
             r#"
             SELECT op_id, op_type, team_id::bigint as "team_id!", step, attempt,
                    request as "request: Value", outcome as "outcome: Value",
@@ -539,7 +661,7 @@ impl Engine {
             WHERE op_id = $1
             "#,
             op_id
-            => fetch_optional(&self.pool)
+            => fetch_optional(self.pools.fast())
         )
     }
 
@@ -564,6 +686,7 @@ impl Engine {
     async fn try_claim(&self, op_id: Uuid, unpark: bool) -> Result<Option<i32>, sqlx::Error> {
         mirrored_query_scalar!(
             self.tables.is_validation(),
+            op = "op_try_claim",
             r#"
             UPDATE {lifecycle_op}
             SET lease_expires_at = now() + make_interval(secs => $2),
@@ -582,7 +705,7 @@ impl Engine {
             op_id,
             self.config.lease.as_secs_f64(),
             unpark
-            => fetch_optional(&self.pool)
+            => fetch_optional(self.pools.fast())
         )
     }
 
@@ -600,6 +723,7 @@ impl Engine {
         let reason = personhog_common::grpc::refusal_reason_label(status).to_string();
         let parked = mirrored_query!(
             self.tables.is_validation(),
+            op = "op_park",
             r#"
             UPDATE {lifecycle_op}
             SET parked_at = now(), parked_reason = $3, lease_expires_at = NULL
@@ -608,7 +732,7 @@ impl Engine {
             op_id,
             attempt,
             reason
-            => execute(&self.pool)
+            => execute(self.pools.fast())
         )?
         .rows_affected()
             > 0;
@@ -638,6 +762,7 @@ impl Engine {
     async fn renew_lease(&self, op_id: Uuid, attempt: i32) -> Result<bool, sqlx::Error> {
         let result = mirrored_query!(
             self.tables.is_validation(),
+            op = "op_renew_lease",
             r#"
             UPDATE {lifecycle_op}
             SET lease_expires_at = now() + make_interval(secs => $2)
@@ -646,7 +771,7 @@ impl Engine {
             op_id,
             self.config.lease.as_secs_f64(),
             attempt
-            => execute(&self.pool)
+            => execute(self.pools.fast())
         )?;
         Ok(result.rows_affected() > 0)
     }
@@ -654,10 +779,11 @@ impl Engine {
     async fn release_lease(&self, op_id: Uuid, attempt: i32) -> Result<(), sqlx::Error> {
         mirrored_query!(
             self.tables.is_validation(),
+            op = "op_release_lease",
             "UPDATE {lifecycle_op} SET lease_expires_at = NULL WHERE op_id = $1 AND completed_at IS NULL AND attempt = $2",
             op_id,
             attempt
-            => execute(&self.pool)
+            => execute(self.pools.fast())
         )?;
         Ok(())
     }
@@ -670,6 +796,7 @@ impl Engine {
         let abandoned = mirrored_query_as!(
             AbandonedOp,
             self.tables.is_validation(),
+            op = "op_sweep_abandoned",
             r#"
             SELECT op_id, op_type
             FROM {lifecycle_op}
@@ -682,7 +809,7 @@ impl Engine {
             "#,
             self.config.lease.as_secs_f64(),
             SWEEP_BATCH_SIZE
-            => fetch_all(&self.pool)
+            => fetch_all(self.pools.fast())
         )?;
 
         let mut resumed = 0u32;
@@ -716,8 +843,9 @@ impl Engine {
         // only: a failure must not fail a pass whose resumes succeeded.
         match mirrored_query_scalar!(
             self.tables.is_validation(),
+            op = "op_sweep_backlog",
             r#"SELECT count(*) AS "count!" FROM {lifecycle_op} WHERE completed_at IS NULL AND parked_at IS NOT NULL"#
-            => fetch_one(&self.pool)
+            => fetch_one(self.pools.fast())
         ) {
             Ok(parked) => common_metrics::gauge(OPS_PARKED, &[], parked as f64),
             Err(e) => tracing::warn!(error = %e, "failed to refresh the parked-ops gauge"),
@@ -732,6 +860,7 @@ impl Engine {
     pub async fn gc(&self, retention: Duration) -> Result<u64, SagaError> {
         let result = mirrored_query!(
             self.tables.is_validation(),
+            op = "op_gc",
             r#"
             DELETE FROM {lifecycle_op}
             WHERE op_id IN (
@@ -743,7 +872,7 @@ impl Engine {
             "#,
             retention.as_secs_f64(),
             self.config.gc_batch_limit
-            => execute(&self.pool)
+            => execute(self.pools.get(Lane::Heavy))
         )?;
         Ok(result.rows_affected())
     }
@@ -767,6 +896,7 @@ pub async fn advance_step_in_tx(
 ) -> Result<bool, sqlx::Error> {
     let result = mirrored_query!(
         tables.is_validation(),
+        op = "op_advance_step",
         "UPDATE {lifecycle_op} SET step = $3 WHERE op_id = $1 AND step = $2",
         op_id,
         from,
@@ -788,6 +918,7 @@ pub async fn complete_op_in_tx(
 ) -> Result<bool, sqlx::Error> {
     let result = mirrored_query!(
         tables.is_validation(),
+        op = "op_complete",
         r#"
         UPDATE {lifecycle_op}
         SET step = $3, outcome = $4, completed_at = now(), lease_expires_at = NULL

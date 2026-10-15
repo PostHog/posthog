@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='delete_mark_active_claims' */ \n        SELECT count(*) as \"count!\" FROM lifecycle_op_person\n        WHERE op_id = $1 AND mark_active\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0e120bb92582b62872a069b94d1dfd54ab6eff24bdb493dbe36d9c81448f6084"
+}

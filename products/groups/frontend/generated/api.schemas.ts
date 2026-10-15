@@ -7,6 +7,11 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * The group's properties.
+ */
+export type GroupApiGroupProperties = { [key: string]: unknown }
+
 export interface GroupApi {
     /**
      * @minimum -2147483648
@@ -15,7 +20,8 @@ export interface GroupApi {
     group_type_index: number
     /** @maxLength 400 */
     group_key: string
-    group_properties?: unknown
+    /** The group's properties. */
+    group_properties: GroupApiGroupProperties
     readonly created_at: string
 }
 
@@ -28,6 +34,190 @@ export interface CreateGroupApi {
     /** @maxLength 400 */
     group_key: string
     group_properties?: unknown
+}
+
+export interface GroupDeletePropertyApi {
+    /** Name of the property to delete. */
+    $unset: string
+}
+
+/**
+ * The group's properties.
+ */
+export type FindGroupApiGroupProperties = { [key: string]: unknown }
+
+export interface FindGroupApi {
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    group_type_index: number
+    /** @maxLength 400 */
+    group_key: string
+    /** The group's properties. */
+    group_properties: FindGroupApiGroupProperties
+    readonly created_at: string
+    /** @nullable */
+    readonly notebook: string | null
+}
+
+/**
+ * Marks this actor as a person.
+ */
+export type SerializedPersonActorApiType =
+    (typeof SerializedPersonActorApiType)[keyof typeof SerializedPersonActorApiType]
+
+export const SerializedPersonActorApiType = {
+    Person: 'person',
+} as const
+
+/**
+ * The actor's properties.
+ */
+export type SerializedPersonActorApiProperties = { [key: string]: unknown }
+
+export type SerializedPersonActorApiMatchedRecordingsItem = { [key: string]: unknown }
+
+export interface SerializedPersonActorApi {
+    /** The person's UUID, or the group's key. */
+    id: string
+    /** The actor's properties. */
+    properties: SerializedPersonActorApiProperties
+    /**
+     * When the actor was first seen.
+     * @nullable
+     */
+    created_at: string | null
+    /** Recordings that matched the query. Empty unless the endpoint asks for them. */
+    matched_recordings: SerializedPersonActorApiMatchedRecordingsItem[]
+    /**
+     * The actor's value at the data point it was queried for. Null unless the query computes one.
+     * @nullable
+     */
+    value_at_data_point: number | null
+    /** Marks this actor as a person. */
+    type: SerializedPersonActorApiType
+    /** The person's UUID. Same value as `id`. */
+    uuid: string
+    /** Display name, resolved from the person's properties or distinct IDs. */
+    name: string
+    /** The person's distinct IDs, newest first. */
+    distinct_ids: string[]
+    /**
+     * When the person was last seen.
+     * @nullable
+     */
+    last_seen_at: string | null
+    /**
+     * Whether the person has been identified.
+     * @nullable
+     */
+    is_identified: boolean | null
+}
+
+/**
+ * Marks this actor as a group.
+ */
+export type SerializedGroupActorApiType = (typeof SerializedGroupActorApiType)[keyof typeof SerializedGroupActorApiType]
+
+export const SerializedGroupActorApiType = {
+    Group: 'group',
+} as const
+
+/**
+ * The actor's properties.
+ */
+export type SerializedGroupActorApiProperties = { [key: string]: unknown }
+
+export type SerializedGroupActorApiMatchedRecordingsItem = { [key: string]: unknown }
+
+export interface SerializedGroupActorApi {
+    /** The person's UUID, or the group's key. */
+    id: string
+    /** The actor's properties. */
+    properties: SerializedGroupActorApiProperties
+    /**
+     * When the actor was first seen.
+     * @nullable
+     */
+    created_at: string | null
+    /** Recordings that matched the query. Empty unless the endpoint asks for them. */
+    matched_recordings: SerializedGroupActorApiMatchedRecordingsItem[]
+    /**
+     * The actor's value at the data point it was queried for. Null unless the query computes one.
+     * @nullable
+     */
+    value_at_data_point: number | null
+    /** Marks this actor as a group. */
+    type: SerializedGroupActorApiType
+    /** Key identifying the group within its group type. */
+    group_key: string
+    /** Index of the group type this group belongs to. */
+    group_type_index: number
+}
+
+export type RelatedActorApi = SerializedPersonActorApi | SerializedGroupActorApi
+
+/**
+ * Value to set. Any JSON value other than null.
+ */
+export type GroupUpdatePropertyRequestApiValue = string | number | boolean | { [key: string]: unknown } | unknown[]
+
+export interface GroupUpdatePropertyRequestApi {
+    /** Name of the property to set. */
+    key: string
+    /** Value to set. Any JSON value other than null. */
+    value: GroupUpdatePropertyRequestApiValue
+}
+
+export interface GroupTypeApi {
+    readonly group_type: string
+    readonly group_type_index: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name_singular?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name_plural?: string | null
+    /** @nullable */
+    detail_dashboard?: number | null
+    /** @nullable */
+    default_columns?: string[] | null
+    /** @nullable */
+    created_at?: string | null
+}
+
+export interface GroupTypeCreateDetailDashboardApi {
+    /** Index of the group type that gets the detail dashboard. */
+    group_type_index: number
+}
+
+export interface GroupTypeSetDefaultColumnsApi {
+    /** Index of the group type to update. */
+    group_type_index: number
+    /** Columns that the groups list of this group type shows by default. */
+    default_columns: string[]
+}
+
+export interface GroupTypeMetadataUpdateApi {
+    /** Index of the group type to update. */
+    group_type_index: number
+    /**
+     * Singular display name of the group type.
+     * @maxLength 400
+     * @nullable
+     */
+    name_singular?: string | null
+    /**
+     * Plural display name of the group type.
+     * @maxLength 400
+     * @nullable
+     */
+    name_plural?: string | null
 }
 
 export type GroupsListParams = {
@@ -86,11 +276,11 @@ export type GroupsFindRetrieveParams = {
     skip_create_notebook?: boolean
 }
 
-export type GroupsRelatedRetrieveParams = {
+export type GroupsRelatedListParams = {
     /**
-     * Specify the group type to find
+     * Group type of the actor to find related actors for. Omit when the actor is a person.
      */
-    group_type_index: number
+    group_type_index?: number
     /**
      * Specify the id of the user to find groups for
      */

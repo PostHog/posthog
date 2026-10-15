@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MistralAISource(ResumableSource[MistralAISourceConfig, MistralAIResumeConfig]):
+    codebase_detection = detect(
+        env=("^MISTRAL_", "^MISTRAL_API_KEY$"), npm=("@mistralai/mistralai",), pypi=("mistralai",)
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.mistral.ai/api/"
@@ -47,7 +50,7 @@ class MistralAISource(ResumableSource[MistralAISourceConfig, MistralAIResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MISTRAL_AI,
+            name=ExternalDataSourceType.MISTRALAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Mistral AI",
             releaseStatus=ReleaseStatus.ALPHA,

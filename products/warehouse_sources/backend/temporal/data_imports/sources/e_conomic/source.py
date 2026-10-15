@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EConomicSource(ResumableSource[EConomicSourceConfig, EConomicResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     api_docs_url = "https://restdocs.e-conomic.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -48,7 +49,7 @@ class EConomicSource(ResumableSource[EConomicSourceConfig, EConomicResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.E_CONOMIC,
+            name=ExternalDataSourceType.ECONOMIC,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="e-conomic",
             releaseStatus=ReleaseStatus.ALPHA,

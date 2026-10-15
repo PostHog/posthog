@@ -10,9 +10,11 @@ the prompt context (``product_context``, ``event_descriptions``) the production 
 """
 
 import os
+import json
 import random
 import datetime as dt
 from collections.abc import Iterator
+from dataclasses import field
 from pathlib import Path
 from typing import Any
 
@@ -150,6 +152,21 @@ def order_candidates(candidates: list[dict[str, Any]], rng: random.Random) -> di
 class _VideoAsset:
     asset_id: int
     created_at: dt.datetime
+    # Absent on assets rendered before the rasterizer recorded its cut map.
+    inactivity_periods: list[dict[str, Any]] = field(default_factory=list)
+    # Absent on assets rendered before the renderer recorded the page and tab changes it shows.
+    navigation: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _load_json_list(raw: Any) -> list[dict[str, Any]]:
+    """A list the rasterizer wrote into `export_context`, empty on assets rendered before it wrote it."""
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    return parsed if isinstance(parsed, list) else []
 
 
 def lookup_video_assets(api: PostHogApi, team_id: int, session_ids: list[str]) -> dict[str, _VideoAsset]:
@@ -165,7 +182,9 @@ def lookup_video_assets(api: PostHogApi, team_id: int, session_ids: list[str]) -
             """
             SELECT JSONExtractString(toString(export_context), 'session_recording_id') AS sid,
                    min(id) AS asset_id,
-                   argMin(toTimeZone(created_at, 'UTC'), id) AS asset_created_at
+                   argMin(toTimeZone(created_at, 'UTC'), id) AS asset_created_at,
+                   argMin(JSONExtractString(toString(export_context), 'inactivity_periods'), id) AS inactivity_periods,
+                   argMin(JSONExtractRaw(toString(export_context), 'navigation'), id) AS navigation
             FROM postgres.posthog_exportedasset
             WHERE team_id = {team_id}
               AND export_format = {export_format}
@@ -188,8 +207,13 @@ def lookup_video_assets(api: PostHogApi, team_id: int, session_ids: list[str]) -
                 "session_ids": chunk,
             },
         )
-        for sid, asset_id, created_raw in rows:
-            found[str(sid)] = _VideoAsset(asset_id=int(asset_id), created_at=parse_utc(created_raw))
+        for sid, asset_id, created_raw, periods_raw, navigation_raw in rows:
+            found[str(sid)] = _VideoAsset(
+                asset_id=int(asset_id),
+                created_at=parse_utc(created_raw),
+                inactivity_periods=_load_json_list(periods_raw),
+                navigation=_load_json_list(navigation_raw),
+            )
     return found
 
 
@@ -331,8 +355,6 @@ def build_llm_inputs(
         url_mapping=processed.url_mapping,
         window_mapping=processed.window_mapping,
         event_timestamps=processed.event_timestamps,
-        navigation=processed.navigation,
-        navigation_dropped=processed.navigation_dropped,
         product_context=product_context,
         event_descriptions=event_descriptions.for_session(processed.columns, processed.rows)
         if event_descriptions
@@ -436,7 +458,7 @@ class _SourceProject:
 
 
 def _write_case(
-    api: PostHogApi, root: Path, candidate: dict[str, Any], asset_id: int, source: _SourceProject
+    api: PostHogApi, root: Path, candidate: dict[str, Any], asset: _VideoAsset, source: _SourceProject
 ) -> GoldenCase | None:
     observation = candidate["observation"]
     scanner = candidate["scanner"]
@@ -454,6 +476,8 @@ def _write_case(
         known_freeform_tags=candidate.get("known_freeform_tags") or [],
         label_is_correct=label.get("is_correct"),
         label_feedback=label.get("feedback") or "",
+        inactivity_periods=asset.inactivity_periods,
+        navigation=asset.navigation,
         collected_at=dt.datetime.now(dt.UTC).isoformat(),
     )
     case_dir = case.case_dir(root)
@@ -475,7 +499,9 @@ def _write_case(
         logger.warning("collector.no_events_for_session", session_id=case.session_id)
         return None
     case_dir.mkdir(parents=True, exist_ok=True)
-    api.download(f"/api/environments/{api.project_id}/exports/{asset_id}/content/?download=true", case.video_path(root))
+    api.download(
+        f"/api/environments/{api.project_id}/exports/{asset.asset_id}/content/?download=true", case.video_path(root)
+    )
     # inputs.json lands last, so the reuse shortcut above only ever sees fully written cases.
     case.inputs_path(root).write_text(inputs.model_dump_json())
     return case
@@ -560,7 +586,7 @@ def collect(
             if asset is None or not asset_is_recorded_video(asset, candidate["observation"]):
                 continue
             try:
-                case = _write_case(api, output, candidate, asset.asset_id, source)
+                case = _write_case(api, output, candidate, asset, source)
             except requests.HTTPError as exc:
                 logger.warning("collector.case_failed", observation_id=candidate["observation"]["id"], error=str(exc))
                 continue

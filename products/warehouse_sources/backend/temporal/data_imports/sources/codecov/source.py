@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.codecov import (
     CodecovResumeConfig,
     codecov_source,
@@ -39,11 +38,35 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "coverage_trend": "Daily min/max/avg coverage time series per repository (default branch)",
     "flags": "Current coverage percentage per flag, per repository",
     "components": "Current coverage percentage per component, per repository",
+    "repo_totals": "Current coverage totals per repository (lines, hits, misses, partials, coverage percentage)",
+    "report_files": "Current coverage per file, with line-by-line coverage values",
+    "report_tree": "Current coverage rolled up per directory and file, following the repository's file tree",
+    "test_results": "Individual test runs from Test Analytics, with outcome, duration and failure message",
+    "users": "Members of the Codecov organization, resolving the author usernames on commits and pulls",
+    "flag_coverage_trend": "Daily min/max/avg coverage time series per flag, per repository (default branch)",
+    "commit_uploads": "Coverage uploads received for each commit, with the CI job, flags and processing state",
+    "pull_impacted_files": "Per-file coverage change of each pull request against its base commit",
+    "pull_flag_comparisons": "Per-flag coverage of each pull request's base and head commits, and of its diff",
+    "pull_component_comparisons": "Per-component coverage of each pull request's base and head commits, and of its diff",
 }
 
 
 @SourceRegistry.register
 class CodecovSource(ResumableSource[CodecovSourceConfig, CodecovResumeConfig]):
+    codebase_detection = detect(
+        env=("^CODECOV_",),
+        npm=(
+            "codecov",
+            "@codecov/bundler-plugin-core",
+            "@codecov/webpack-plugin",
+            "@codecov/vite-plugin",
+            "@codecov/rollup-plugin",
+            "@codecov/nextjs-webpack-plugin",
+        ),
+        pypi=("codecov-cli", "codecov"),
+        rubygems=("codecov", "codecov_opentelem"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -61,7 +84,7 @@ class CodecovSource(ResumableSource[CodecovSourceConfig, CodecovResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CODECOV,
+            name=ExternalDataSourceType.CODECOV,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Codecov (Sentry)",
             releaseStatus=ReleaseStatus.ALPHA,

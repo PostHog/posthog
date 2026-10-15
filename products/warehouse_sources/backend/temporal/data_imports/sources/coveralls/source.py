@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoverallsSource(ResumableSource[CoverallsSourceConfig, CoverallsResumeConfig]):
+    codebase_detection = detect(
+        env=("^COVERALLS_",),
+        npm=("coveralls", "coveralls-next"),
+        pypi=("coveralls",),
+        composer=("php-coveralls/php-coveralls",),
+        go=("github.com/mattn/goveralls",),
+        hex=("excoveralls",),
+        rubygems=("coveralls", "coveralls_reborn", "ajax-datatables-rails-coveralls"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -53,7 +62,7 @@ class CoverallsSource(ResumableSource[CoverallsSourceConfig, CoverallsResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.COVERALLS,
+            name=ExternalDataSourceType.COVERALLS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Coveralls",
             releaseStatus=ReleaseStatus.ALPHA,

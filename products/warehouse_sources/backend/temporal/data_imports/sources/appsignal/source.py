@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.appsignal import (
     AppsignalResumeConfig,
     appsignal_source,
@@ -35,6 +34,21 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppsignalSource(ResumableSource[AppsignalSourceConfig, AppsignalResumeConfig]):
+    codebase_detection = detect(
+        env=("^APPSIGNAL_",),
+        npm=("@appsignal/nodejs", "@appsignal/javascript"),
+        pypi=("appsignal",),
+        hex=("appsignal", "appsignal_phoenix"),
+        rubygems=(
+            "appsignal",
+            "appsignal-mongo",
+            "appsignal-moped",
+            "appsignal-opentelemetry",
+            "appsignal-redis",
+            "appsignal-tire",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -58,7 +72,7 @@ class AppsignalSource(ResumableSource[AppsignalSourceConfig, AppsignalResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APPSIGNAL,
+            name=ExternalDataSourceType.APPSIGNAL,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AppSignal",
             caption="""Enter your AppSignal personal API token and app ID to pull your AppSignal errors, performance data, logs, metrics and traces into the PostHog Data warehouse.

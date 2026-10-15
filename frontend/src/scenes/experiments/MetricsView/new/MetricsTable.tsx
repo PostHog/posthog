@@ -1,6 +1,7 @@
 import { DndContext, DragEndEvent, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
@@ -38,22 +39,23 @@ const sectionHasRecalculatingMetric =
 
 interface MetricsTableProps {
     metrics: ExperimentMetric[]
-    results: NewExperimentQueryResponse[]
+    results: (NewExperimentQueryResponse | undefined)[]
     errors: any[]
-    metricIndexes: number[]
     isSecondary: boolean
     getInsightType: (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery) => InsightType
     showDetailsModal?: boolean
+    /** Drops the table's own border so it can sit inside a parent panel. */
+    embedded?: boolean
 }
 
 export function MetricsTable({
     metrics,
     results,
     errors,
-    metricIndexes,
     isSecondary,
     getInsightType,
     showDetailsModal = true,
+    embedded = false,
 }: MetricsTableProps): JSX.Element {
     const { experiment, exposuresLoading } = useValues(experimentLogic)
     const { recalculatingMetricUuids } = useValues(experimentMetricsLogic({ experiment }))
@@ -122,7 +124,7 @@ export function MetricsTable({
 
     // Calculate shared axisRange across all metrics
     let hasBreakdowns = false
-    const allIntervalValues = results.flatMap((result: NewExperimentQueryResponse) => {
+    const allIntervalValues = results.flatMap((result: NewExperimentQueryResponse | undefined) => {
         const allVariants: ExperimentVariantResult[] = []
 
         // Include main variant results
@@ -161,8 +163,7 @@ export function MetricsTable({
     }
 
     const hasColdMetric = isLaunched(experiment) && metrics.some((_, index) => !results[index] && !errors[index])
-    const sectionLoading =
-        sectionHasRecalculatingMetric(metrics)(recalculatingMetricUuids) || hasColdMetric || exposuresLoading
+    const sectionLoading = sectionHasRecalculatingMetric(metrics)(recalculatingMetricUuids) || hasColdMetric
 
     return (
         <DndContext
@@ -177,7 +178,7 @@ export function MetricsTable({
             accessibility={{ announcements }}
             onDragEnd={handleDragEnd}
         >
-            <div className="w-full overflow-x-auto rounded-md border">
+            <div className={clsx('w-full overflow-x-auto', !embedded && 'rounded-md border')}>
                 <table className="w-full border-collapse text-sm">
                     <colgroup>
                         <col className="min-w-[200px]" />
@@ -196,9 +197,8 @@ export function MetricsTable({
                     />
                     <SortableContext items={orderedUuids} strategy={verticalListSortingStrategy}>
                         {metrics.map((metric, index) => {
-                            const result = results[index]
+                            const result = results[index] ?? null
                             const error = errors[index]
-                            const metricIndex = metricIndexes[index]
 
                             const isLoading = !result && !error && isLaunched(experiment)
 
@@ -217,7 +217,6 @@ export function MetricsTable({
                                             result={result}
                                             experiment={experiment}
                                             metricType={getInsightType(metric)}
-                                            metricIndex={metricIndex}
                                             displayOrder={index}
                                             axisRange={axisRange}
                                             isSecondary={isSecondary}

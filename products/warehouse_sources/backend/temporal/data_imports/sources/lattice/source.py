@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -36,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LatticeSource(ResumableSource[LatticeSourceConfig, LatticeResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     api_docs_url = "https://developers.lattice.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -62,7 +63,7 @@ class LatticeSource(ResumableSource[LatticeSourceConfig, LatticeResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LATTICE,
+            name=ExternalDataSourceType.LATTICE,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Lattice",
             caption="""Enter your Lattice API key to pull your Lattice performance management data into the PostHog Data warehouse.

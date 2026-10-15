@@ -24,19 +24,27 @@ and breaking a later merge.
 from __future__ import annotations
 
 import io
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 from typing import ClassVar
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+from snowflake.connector.errors import ProgrammingError
 
-from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
+from products.batch_exports.backend.facade.destinations.snowflake import (
+    InvalidPrivateKeyError,
     NamedBytesIO,
+    SnowflakeAuthenticationError,
     SnowflakeClient,
+    SnowflakeConnectionError,
     SnowflakeField,
+    SnowflakeInsufficientPrivilegesError,
+    SnowflakeIntegrationNotFoundError,
     SnowflakeTable,
     SnowflakeType,
-    _get_snowflake_integration,
+    SnowflakeWarehouseUsageError,
+    get_snowflake_integration,
     load_private_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
@@ -44,9 +52,64 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
     DestinationBatchContext,
     DestinationRunContext,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    MISSING_INTEGRATION_DETAIL,
+    DestinationConfigurationError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.merge_dedup import (
+    dedupe_merge_source,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.run_markers import (
+    BATCH_INDEX_COLUMN,
+    is_owned_by,
+    is_published_by,
+    owned_marker,
+    published_marker,
+    run_scope,
+    stamp_batch_index,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.sql_types import (
     quote_identifier,
 )
+
+AUTHENTICATION_DETAIL = (
+    "Snowflake authentication failed. Check the user and password or private key, then run the sync again."
+)
+CONNECTION_DETAIL = (
+    "Snowflake could not connect. Check the account, user, credentials and role, then run the sync again."
+)
+PRIVILEGES_DETAIL = (
+    "The Snowflake role lacks privileges. Grant it privileges to create tables and load data in the database and schema, "
+    "then run the sync again."
+)
+WAREHOUSE_DETAIL = (
+    "The Snowflake warehouse does not exist or the role lacks USAGE. "
+    "Check the warehouse and grant the role USAGE, then run the sync again."
+)
+DATABASE_SCHEMA_DETAIL = (
+    "The Snowflake database or schema does not exist or the role cannot use it. "
+    "Check the database and schema and grant the role access, then run the sync again."
+)
+
+
+def _configuration_error_detail(err: Exception) -> str | None:
+    if isinstance(err, SnowflakeAuthenticationError | InvalidPrivateKeyError):
+        return AUTHENTICATION_DETAIL
+    if isinstance(err, SnowflakeConnectionError):
+        return CONNECTION_DETAIL
+    if isinstance(err, SnowflakeInsufficientPrivilegesError):
+        return PRIVILEGES_DETAIL
+    if isinstance(err, SnowflakeWarehouseUsageError):
+        return WAREHOUSE_DETAIL
+    if isinstance(err, SnowflakeIntegrationNotFoundError):
+        return MISSING_INTEGRATION_DETAIL
+    if isinstance(err, ProgrammingError):
+        if err.errno == 3001:
+            return PRIVILEGES_DETAIL
+        if err.errno == 2043:
+            return DATABASE_SCHEMA_DETAIL
+    return None
+
 
 _SNOWFLAKE_BY_ARROW = {
     pa.bool_(): "BOOLEAN",
@@ -69,8 +132,6 @@ _SNOWFLAKE_BY_ARROW = {
     pa.date64(): "DATE",
 }
 
-BATCH_INDEX_COLUMN = "_ph_batch_index"
-
 # batch exports' `SnowflakeClient` writes the stage path and the COPY INTO column list by
 # interpolating the names it is handed with no escaping of its own: a raw double-quoted
 # identifier, inside a single-quoted path. Batch exports only ever passes it names it derived
@@ -89,20 +150,8 @@ def _assert_safe_identifier(value: str, what: str) -> str:
     return value
 
 
-# Proof this writer created a table, so a sync never drops, merges into, or replaces one the
-# customer already had. `table_name` comes from the source's resource name, which a custom-source
-# manifest controls, so without it any table sharing that name in the configured role's reach is
-# fair game.
-#
-# Stored as a Snowflake table comment because that survives the `RENAME TO` in `finalize_run`.
-# Scoped by schema id because `table_name` collides across sources on purpose and ownership must
-# not.
-_OWNERSHIP_COMMENT = "posthog-warehouse-sync-owned"
-
-
-def _owned_marker(schema_id: str) -> str:
-    """Ownership marker scoped to the schema whose sync created the table."""
-    return f"{_OWNERSHIP_COMMENT}:{schema_id}"
+# The ownership and publish markers are stored as Snowflake table comments because a comment
+# survives the `RENAME TO` in `finalize_run`.
 
 
 class UnrelatedTableExistsError(RuntimeError):
@@ -178,7 +227,24 @@ def _rows_of(result) -> list:
 
 
 def staging_table_name(ctx: DestinationRunContext) -> str:
-    return f"{ctx.table_name}__PH_STAGE_{ctx.run_uuid.replace('-', '')[:12]}"
+    return f"{ctx.table_name}__PH_STAGE_{run_scope(ctx.run_uuid)}"
+
+
+# This writer does not hold the sync lock (`holds_sync_lock` is False), so two runs of the same
+# table's incremental sync_type can be in flight together. Both write into the same live table,
+# and so into the same internal stage, which is why both names below carry the run: without it
+# one run's stage cleanup deletes the file the other just PUT but has not yet copied, and one
+# run's `DROP TABLE` drops the merge source the other is reading.
+
+
+def stage_prefix(run_uuid: str, batch_index: int, chunk: int) -> str:
+    """The internal-stage path one chunk's parquet file is uploaded under."""
+    return f"ph_{run_scope(run_uuid)}_{batch_index}_{chunk}"
+
+
+def merge_stage_name(target: str, run_uuid: str, batch_index: int, chunk: int) -> str:
+    """The scratch table one chunk is merged from."""
+    return f"{target}__PH_MERGE_{run_scope(run_uuid)}_{batch_index}_{chunk}"
 
 
 class SnowflakeDestinationWriter:
@@ -188,29 +254,47 @@ class SnowflakeDestinationWriter:
     def __init__(self, ctx: DestinationRunContext) -> None:
         self._ctx = ctx
         config = ctx.config or {}
-        self._database = config.get("database") or ""
-        self._schema = config.get("schema") or "PUBLIC"
-        self._warehouse = config.get("warehouse") or ""
-        self._role = config.get("role")
+        # `SnowflakeClient` interpolates all four straight into `USE DATABASE "..."`,
+        # `USE SCHEMA "..."`, `USE WAREHOUSE "..."` and the connector's `role` argument, with no
+        # escaping of its own. They come from a destination's config, which a team member edits,
+        # so anything that could break out of that quoting is rejected here.
+        self._database = _assert_safe_identifier(config.get("database") or "", "database")
+        self._schema = _assert_safe_identifier(config.get("schema") or "PUBLIC", "schema")
+        self._warehouse = _assert_safe_identifier(config.get("warehouse") or "", "warehouse")
+        role = config.get("role")
+        self._role = _assert_safe_identifier(role, "role") if role else None
 
     # --- connection -------------------------------------------------------------------
 
+    @contextmanager
+    def _configuration_errors(self) -> Iterator[None]:
+        try:
+            yield
+        except Exception as err:
+            detail = _configuration_error_detail(err)
+            if detail is not None:
+                raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
+            raise
+
     async def _make_client(self) -> SnowflakeClient:
         if self._ctx.integration_id is None:
-            raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL)
 
-        creds = await _get_snowflake_integration(self._ctx.integration_id, self._ctx.team_id)
+        try:
+            creds = await get_snowflake_integration(self._ctx.integration_id, self._ctx.team_id)
+        except SnowflakeIntegrationNotFoundError as err:
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL) from err
 
         private_key: bytes | None = None
         password: str | None = None
         if creds.authentication_type == "keypair":
-            if creds.private_key is None:
-                raise ValueError(
-                    f"Destination {self._ctx.destination_name} has keypair authentication but no private key"
-                )
+            if not creds.private_key:
+                raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL)
             private_key = load_private_key(creds.private_key, creds.private_key_passphrase)
         else:
             password = creds.password
+            if not password:
+                raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL)
 
         return SnowflakeClient(
             user=creds.user,
@@ -273,23 +357,24 @@ class SnowflakeDestinationWriter:
         rows = _rows_of(result)
         return rows[0][0] if rows else None
 
-    async def _mark_owned(self, client: SnowflakeClient, table: str, schema_id: str) -> None:
+    async def _set_comment(self, client: SnowflakeClient, table: str, marker: str) -> None:
         await client.execute_async_query(
-            f"ALTER TABLE {self._qualified(table)} SET COMMENT = {_sql_string_literal(_owned_marker(schema_id))}"
+            f"ALTER TABLE {self._qualified(table)} SET COMMENT = {_sql_string_literal(marker)}"
         )
 
+    async def _mark_owned(self, client: SnowflakeClient, table: str, schema_id: str) -> None:
+        await self._set_comment(client, table, owned_marker(schema_id))
+
     async def _is_owned(self, client: SnowflakeClient, table: str, schema_id: str) -> bool:
-        # Not a plain `startswith`: schema ids are arbitrary strings, and one could be a
-        # character-prefix of another ("abc" of "abc123"), which would let a table another
-        # schema owns pass as owned here. Split on the marker's own `:` separator instead so the
-        # owning schema id is compared for exact equality.
-        comment = await self._table_comment(client, table)
-        if comment is None:
+        return is_owned_by(await self._table_comment(client, table), schema_id)
+
+    async def _already_published(self, client: SnowflakeClient, ctx: DestinationRunContext) -> bool:
+        """Whether this run already swapped its staging table into place."""
+        if await self._table_exists(client, staging_table_name(ctx)):
             return False
-        marker, sep, owner = comment.partition(":")
-        if marker != _OWNERSHIP_COMMENT or not sep:
+        if not await self._table_exists(client, ctx.table_name):
             return False
-        return owner == schema_id
+        return is_published_by(await self._table_comment(client, ctx.table_name), ctx.schema_id, ctx.run_uuid)
 
     # --- writer protocol ----------------------------------------------------------------
 
@@ -297,6 +382,12 @@ class SnowflakeDestinationWriter:
         return None
 
     async def write_batch(
+        self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
+    ) -> BatchWriteOutcome:
+        with self._configuration_errors():
+            return await self._write_batch(batches, ctx)
+
+    async def _write_batch(
         self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
     ) -> BatchWriteOutcome:
         run = ctx.run
@@ -307,20 +398,19 @@ class SnowflakeDestinationWriter:
         rows_written = 0
 
         async with client.connect():
+            if full_refresh and await self._already_published(client, run):
+                # This run's staging table is gone and the live table carries this run's publish
+                # stamp, so the run finished. Re-creating a staging table from this one batch and
+                # swapping it in would replace the whole table with it.
+                return BatchWriteOutcome(rows_written=0)
+
             first = True
             chunk = 0
             async for batch in batches:
                 if batch.num_rows == 0:
                     continue
 
-                stamped = (
-                    batch.append_column(
-                        BATCH_INDEX_COLUMN,
-                        pa.array([ctx.batch_index] * batch.num_rows, type=pa.int32()),
-                    )
-                    if full_refresh
-                    else batch
-                )
+                stamped = stamp_batch_index(batch, ctx.batch_index) if full_refresh else batch
 
                 if first:
                     # `target` is the live table on an incremental run, and this writer's own
@@ -358,11 +448,12 @@ class SnowflakeDestinationWriter:
                     first = False
 
                 if run.is_incremental and run.primary_keys and not full_refresh:
-                    await self._merge_chunk(client, target, stamped, list(run.primary_keys), ctx.batch_index, chunk)
+                    rows_written += await self._merge_chunk(
+                        client, target, stamped, list(run.primary_keys), run.run_uuid, ctx.batch_index, chunk
+                    )
                 else:
-                    await self._copy_chunk(client, target, stamped, ctx.batch_index, chunk)
-
-                rows_written += batch.num_rows
+                    await self._copy_chunk(client, target, stamped, run.run_uuid, ctx.batch_index, chunk)
+                    rows_written += batch.num_rows
                 chunk += 1
 
         return BatchWriteOutcome(rows_written=rows_written)
@@ -376,9 +467,9 @@ class SnowflakeDestinationWriter:
         return NamedBytesIO(buffer.getvalue(), name)
 
     async def _copy_chunk(
-        self, client: SnowflakeClient, target: str, batch: pa.RecordBatch, batch_index: int, chunk: int
+        self, client: SnowflakeClient, target: str, batch: pa.RecordBatch, run_uuid: str, batch_index: int, chunk: int
     ) -> None:
-        prefix = f"ph_{batch_index}_{chunk}"
+        prefix = stage_prefix(run_uuid, batch_index, chunk)
         table = _stage_table(target, batch.schema, prefix)
 
         # The stage path is derived from the batch index, so a retry of this chunk lands on the
@@ -397,16 +488,20 @@ class SnowflakeDestinationWriter:
         target: str,
         batch: pa.RecordBatch,
         primary_keys: list[str],
+        run_uuid: str,
         batch_index: int,
         chunk: int,
-    ) -> None:
+    ) -> int:
         """Upsert on the primary keys, staging the chunk in a scratch table first."""
+        # A `MERGE` whose source holds one key twice is rejected as a nondeterministic update,
+        # and it is rejected again on every retry.
+        batch = dedupe_merge_source(batch, primary_keys)
         columns = list(batch.schema.names)
-        stage_table = f"{target}__PH_MERGE_{batch_index}_{chunk}"
+        stage_table = merge_stage_name(target, run_uuid, batch_index, chunk)
 
         await self._ensure_table(client, stage_table, batch.schema, with_batch_index=False)
         try:
-            await self._copy_chunk(client, stage_table, batch, batch_index, chunk)
+            await self._copy_chunk(client, stage_table, batch, run_uuid, batch_index, chunk)
 
             on_clause = " AND ".join(
                 f"target.{quote_identifier(k)} = source.{quote_identifier(k)}" for k in primary_keys
@@ -427,7 +522,13 @@ class SnowflakeDestinationWriter:
         finally:
             await client.execute_async_query(f"DROP TABLE IF EXISTS {self._qualified(stage_table)}")
 
+        return batch.num_rows
+
     async def finalize_run(self, ctx: DestinationRunContext) -> None:
+        with self._configuration_errors():
+            await self._finalize_run(ctx)
+
+    async def _finalize_run(self, ctx: DestinationRunContext) -> None:
         """Publish a full refresh by swapping the staging table into place."""
         if not ctx.is_full_refresh:
             return
@@ -455,12 +556,23 @@ class SnowflakeDestinationWriter:
             await client.execute_async_query(
                 f"ALTER TABLE {self._qualified(staging)} DROP COLUMN IF EXISTS {quote_identifier(BATCH_INDEX_COLUMN)}"
             )
+            # Stamp the run that published on the staging table, before it swaps into place.
+            # The comment survives the rename below, so the table is never visible under its
+            # live name without the marker already on it. Stamping after the rename would leave
+            # a crash window where the swap completes but the marker never lands, and a
+            # redelivered final batch would then rebuild staging from just that batch and
+            # publish over the table that already holds the complete data.
+            await self._set_comment(client, staging, published_marker(ctx.schema_id, ctx.run_uuid))
             await client.execute_async_query(f"DROP TABLE IF EXISTS {self._qualified(ctx.table_name)}")
             await client.execute_async_query(
                 f"ALTER TABLE {self._qualified(staging)} RENAME TO {self._qualified(ctx.table_name)}"
             )
 
     async def abort_run(self, ctx: DestinationRunContext) -> None:
+        with self._configuration_errors():
+            await self._abort_run(ctx)
+
+    async def _abort_run(self, ctx: DestinationRunContext) -> None:
         # The next run stages under its own id, so a leftover table costs storage only.
         client = await self._make_client()
         async with client.connect():

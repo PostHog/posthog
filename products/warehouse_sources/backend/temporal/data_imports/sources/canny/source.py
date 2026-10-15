@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.canny.canny import (
     CannyResumeConfig,
     canny_source,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CannySource(ResumableSource[CannySourceConfig, CannyResumeConfig]):
+    codebase_detection = detect(env=("^CANNY_",), script_hosts=("sdk.canny.io", "canny.io"))
+
     # Oldest→newest; the default is always the last entry. v2 is Canny's cursor-paginated wire,
     # served today for a subset of endpoints (see settings.py) — new sources default to it while
     # v1-pinned rows keep their skip/limit request path unchanged.
@@ -51,7 +52,7 @@ class CannySource(ResumableSource[CannySourceConfig, CannyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CANNY,
+            name=ExternalDataSourceType.CANNY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Canny",
             releaseStatus=ReleaseStatus.ALPHA,

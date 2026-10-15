@@ -52,21 +52,22 @@ from rest_framework.request import Request
 from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
-from posthog.constants import AvailableFeature
+from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN, AvailableFeature
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
+from posthog.run_mode import run_mode
 from posthog.security.url_validation import has_ambiguous_authority
+from posthog.stable_chunks import persist_stable_chunks_choice, stable_chunks_for_request
 
 from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
 
 tracer = trace.get_tracer(__name__)
 
-# Cardinality is bounded: render_template is only called with the literal template
-# names "index.html", "demo.html", and "render_query.html" — 3 templates × 2 auth
-# states = 6 series total.
+# Cardinality is bounded because every render_template caller passes a literal template
+# name, so each template adds one series per auth state.
 TEMPLATE_CONTEXT_DURATION_HISTOGRAM = Histogram(
     "posthog_template_context_duration_seconds",
     "Time spent building the SPA template context (get_context_for_template).",
@@ -496,6 +497,17 @@ def get_context_for_template(
         return _build_template_context(template_name, request, context, team_for_public_context)
 
 
+def get_persisted_feature_flags_for_app_context() -> list[str]:
+    static_keys = list(settings.PERSISTED_FEATURE_FLAGS)
+    non_cloud = not is_cloud()
+    if non_cloud and settings.WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED:
+        static_keys = [*static_keys, *settings.WAREHOUSE_PERSON_PROPERTIES_PERSISTED_FEATURE_FLAGS]
+    flags = get_dynamic_persisted_feature_flags(posthoganalytics.feature_flag_definitions(), static_keys)
+    if non_cloud and not settings.WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED:
+        return [flag for flag in flags if flag not in settings.WAREHOUSE_PERSON_PROPERTIES_PERSISTED_FEATURE_FLAGS]
+    return flags
+
+
 def _build_template_context(
     template_name: str,
     request: HttpRequest,
@@ -511,6 +523,9 @@ def _build_template_context(
 
     if settings.STRIPE_PUBLIC_KEY:
         context["stripe_public_key"] = settings.STRIPE_PUBLIC_KEY
+
+    if settings.ORIGIN_TRIAL_TOKENS:
+        context["origin_trial_tokens"] = settings.ORIGIN_TRIAL_TOKENS
 
     context["git_rev"] = get_git_commit_short()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
@@ -539,7 +554,7 @@ def _build_template_context(
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
         context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
-        context["js_posthog_host"] = "https://internal-j.posthog.com"
+        context["js_posthog_host"] = "https://internal-cf.posthog.com"
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
@@ -560,29 +575,29 @@ def _build_template_context(
             context["js_posthog_api_key"] = posthoganalytics.api_key
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
-        context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
-        context["js_posthog_host"] = "https://internal-j.posthog.com"
+        context["js_posthog_api_key"] = POSTHOG_JS_CLOUD_TOKEN
+        context["js_posthog_host"] = POSTHOG_JS_CLOUD_HOST
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: dict[str, Any] = {
-        "persisted_feature_flags": get_dynamic_persisted_feature_flags(
-            posthoganalytics.feature_flag_definitions(), settings.PERSISTED_FEATURE_FLAGS
-        ),
+        "persisted_feature_flags": get_persisted_feature_flags_for_app_context(),
         "anonymous": not request.user or not request.user.is_authenticated,
+        "run_mode": run_mode().value,
     }
 
     posthog_bootstrap: dict[str, Any] = {}
     posthog_distinct_id: Optional[str] = None
 
     # Set the frontend app context
+    # nosemgrep: api-query-param-underscore -- shipped public API param, a rename breaks clients
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.file_system.user_product_list import UserProductListSerializer
         from posthog.api.project import ProjectSerializer
         from posthog.api.shared import TeamPublicSerializer
-        from posthog.api.team import TeamSerializer
+        from posthog.api.team.team_serializer import TeamSerializer
         from posthog.api.user import UserSerializer
         from posthog.models.file_system.user_product_list import UserProductList
         from posthog.models.user_home_settings import UserHomeSettings
@@ -606,6 +621,7 @@ def _build_template_context(
             "custom_products": [],
             "switched_team": getattr(request, "switched_team", None),
             "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
+            "project_access_denied": getattr(request, "project_access_denied", None),
             "commit_sha": context["git_rev"],
             "livestream_host": settings.LIVESTREAM_HOST,
             **posthog_app_context,
@@ -621,6 +637,13 @@ def _build_template_context(
 
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
+            team = user.team
+            if team and not user_access_control.has_project_access:
+                user.current_team = None
+                user.team = None
+                user.save(update_fields=["current_team"])
+                user_permissions = UserPermissions(user=user, team=None)
+                user_access_control = UserAccessControl(user=user, team=None)
             with tracer.start_as_current_span("template.rbac.effective"):
                 effective_access: dict[str, Any] = {}
                 for resource in ACCESS_CONTROL_RESOURCES:
@@ -688,19 +711,23 @@ def _build_template_context(
                     home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
                     posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
 
-    # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
-    if "oauth_application" in context:
-        posthog_app_context["oauth_application"] = context.pop("oauth_application")
-    if "oauth_mcp_consent" in context:
-        posthog_app_context["oauth_mcp_consent"] = context.pop("oauth_mcp_consent")
+    # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view).
+    # A key absent from this list never reaches `window.POSTHOG_APP_CONTEXT`, so the scene that reads it
+    # silently falls back.
+    for caller_key in (
+        "oauth_application",
+        "oauth_mcp_consent",
+        "oauth_consent_access_controls_apply",
+        "oauth_scope_resolution",
+    ):
+        if caller_key in context:
+            posthog_app_context[caller_key] = context.pop(caller_key)
 
-    # JSON dumps here since there may be objects like Queries
-    # that are not serializable by Django's JSON serializer
-    context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
+    context["posthog_app_context"] = posthog_app_context
 
     if posthog_distinct_id:
         groups = {}
-        group_properties = {}
+        group_properties: dict[str, dict[str, str | int]] = {}
         person_properties = {}
         if request.user and request.user.is_authenticated:
             user = cast("User", request.user)
@@ -711,6 +738,13 @@ def _build_template_context(
                 group_properties["organization"] = {
                     "name": user.organization.name,
                     "created_at": user.organization.created_at.isoformat(),
+                }
+            if user.team:
+                groups["project"] = str(user.team.uuid)
+                group_properties["project"] = {
+                    "id": user.team.id,
+                    "uuid": str(user.team.uuid),
+                    "name": user.team.name,
                 }
 
         with tracer.start_as_current_span("template.feature_flag_bootstrap"):
@@ -727,15 +761,25 @@ def _build_template_context(
     # This allows immediate flag availability on the frontend, atleast for flags
     # that don't depend on any person properties. To get these flags, add person properties to the
     # `get_all_flags` call above.
-    context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
+    context["posthog_bootstrap"] = posthog_bootstrap
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
 
     # Only the SPA shell references these; other templates (exporter, layout, ...) load different bundles
     if template_name == "index.html":
+        is_authenticated = bool(request.user and request.user.is_authenticated)
         context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
-            bool(request.user and request.user.is_authenticated)
+            is_authenticated
         )
+        stable_chunks = stable_chunks_for_request(request, posthog_bootstrap.get("featureFlags"))
+        if stable_chunks:
+            context["stable_chunks"] = True
+            context["stable_chunks_importmap"] = stable_chunks.import_map_json(context["js_url"])
+            context["preload_js_urls"] = stable_chunks.preload_urls(is_authenticated)
+            if stable_chunks.eager_css_urls:
+                # The stable page links its split stylesheets and loads the full one only as a fallback.
+                context["preload_css_url"] = ""
+                context["stable_preload_css_urls"] = stable_chunks.eager_css_urls
         # Theme for the pre-React shell (critical CSS in index.html), mirroring the app's
         # themeLogic.isDarkModeOn: anonymous pages are always light, a missing theme_mode
         # means light, and only "system" defers to prefers-color-scheme.
@@ -773,21 +817,19 @@ def _build_template_context(
             if user_email:
                 canonical_email = canonicalize_claim_value("email", user_email)
                 expires_at = int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS
-                context["js_posthog_identity_claims"] = json.dumps(
-                    {
-                        "email": {
-                            "value": canonical_email,
-                            "expires_at": expires_at,
-                            "hash": compute_identity_claim_hash(
-                                posthog_distinct_id,
-                                "email",
-                                canonical_email,
-                                support_secret,
-                                expires_at=expires_at,
-                            ),
-                        }
+                context["js_posthog_identity_claims"] = {
+                    "email": {
+                        "value": canonical_email,
+                        "expires_at": expires_at,
+                        "hash": compute_identity_claim_hash(
+                            posthog_distinct_id,
+                            "email",
+                            canonical_email,
+                            support_secret,
+                            expires_at=expires_at,
+                        ),
                     }
-                )
+                }
 
     return context
 
@@ -814,6 +856,7 @@ def render_template(
         response.status_code = status_code
     if not request.user.is_anonymous:
         patch_cache_control(response, no_store=True)
+    persist_stable_chunks_choice(request, response)
 
     return response
 
@@ -954,7 +997,7 @@ async def initialize_self_capture_api_token():
     if local_api_key is not None:
         posthoganalytics.disabled = False
         posthoganalytics.api_key = local_api_key
-        posthoganalytics.host = settings.SITE_URL
+        posthoganalytics.host = settings.SELF_CAPTURE_HOST or settings.SITE_URL
 
         # ready() wires the flag-definition provider only when posthoganalytics is enabled at
         # that point — true for WSGI but NOT for ASGI, where self-capture is deferred to here.
@@ -1123,11 +1166,6 @@ def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
         }
 
     return frontend_apps
-
-
-def json_uuid_convert(o):
-    if isinstance(o, uuid.UUID):
-        return str(o)
 
 
 def friendly_time(seconds: float):

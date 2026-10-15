@@ -6,7 +6,13 @@ import pytest
 from temporalio import activity
 from temporalio.testing import ActivityEnvironment
 
-from products.tasks.backend.exceptions import SandboxNotRunningError, SandboxRateLimitedError
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
+
+from products.tasks.backend.exceptions import (
+    SandboxControlPlaneUnavailableError,
+    SandboxNotRunningError,
+    SandboxRateLimitedError,
+)
 
 
 @activity.defn
@@ -18,6 +24,11 @@ def test_temporal_failure_type_defaults_to_class_name():
     error = SandboxNotRunningError("boom", {}, cause=RuntimeError("x"), capture=False)
     assert error.type == "SandboxNotRunningError"
     assert not error.non_retryable
+
+
+@pytest.mark.parametrize("error", [SandboxRateLimitedError("x", {}), SandboxControlPlaneUnavailableError("x", {})])
+def test_control_plane_errors_are_expected_activity_failures(error: Exception):
+    assert is_expected_activity_failure(error) is True
 
 
 @pytest.mark.parametrize(

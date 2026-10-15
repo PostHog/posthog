@@ -1,23 +1,26 @@
 mod common;
 
-use common::TestContext;
+use common::{TestContext, TestPerson};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
-    DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest, GetGroupRequest,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
-    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
-    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
-    GetPersonsRequest, GroupIdentifier, GroupKey, SetPersonDistinctIdVersionFloorRequest,
-    SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
-    UpsertHashKeyOverridesRequest,
+    DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest, DeletePersonsMode,
+    DeletePersonsRequest, DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
+    EnsurePersonVersionFloorsRequest, GetDistinctIdsForPersonRequest,
+    GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
+    GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
+    GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
+    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey, PersonVersionFloor,
+    PersonVersionFloorResult, SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest,
+    SplitPersonRequest, TeamDistinctId, UpsertHashKeyOverridesRequest, VersionBoundedPerson,
+    VersionFloorOutcome,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
 use tonic::Request;
+use uuid::Uuid;
 
 /// Test context that wraps TestContext and adds a service instance.
 pub struct ServiceTestContext {
@@ -279,6 +282,7 @@ async fn test_get_distinct_ids_for_person() {
             person_id: person.id,
             read_options: None,
             limit: None,
+            cursor_id: None,
         }))
         .await
         .expect("RPC failed");
@@ -314,10 +318,116 @@ async fn test_get_distinct_ids_for_person_with_limit(
             person_id: person.id,
             read_options: None,
             limit,
+            cursor_id: None,
         }))
         .await
         .expect("RPC failed");
     assert_eq!(response.into_inner().distinct_ids.len(), expected_count);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_distinct_ids_for_person_cursor_pagination() {
+    let ctx = ServiceTestContext::new().await;
+    // Mix of anonymous-format UUIDs and identified strings. The anonymous-
+    // deprioritizing sort would reorder these differently than ORDER BY id ASC.
+    let person = ctx
+        .insert_person("0190f8e1-1234-7abc-89de-f0123456789a", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "user@example.com")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "another_identified")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "01234567-abcd-efab-cdef-0123456789ab")
+        .await
+        .unwrap();
+
+    let resp1 = ctx
+        .service
+        .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
+            team_id: ctx.team_id,
+            person_id: person.id,
+            read_options: None,
+            limit: Some(2),
+            cursor_id: Some(0),
+        }))
+        .await
+        .expect("page 1 failed");
+    let page1 = resp1.into_inner();
+    assert_eq!(page1.distinct_ids.len(), 2);
+    assert!(
+        page1.next_cursor_id.is_some(),
+        "page was full, next_cursor_id should be present"
+    );
+
+    let cursor1 = page1.next_cursor_id.unwrap();
+    let resp2 = ctx
+        .service
+        .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
+            team_id: ctx.team_id,
+            person_id: person.id,
+            read_options: None,
+            limit: Some(2),
+            cursor_id: Some(cursor1),
+        }))
+        .await
+        .expect("page 2 failed");
+    let page2 = resp2.into_inner();
+    assert_eq!(page2.distinct_ids.len(), 2);
+    assert!(page2.next_cursor_id.is_some());
+
+    let cursor2 = page2.next_cursor_id.unwrap();
+    let resp3 = ctx
+        .service
+        .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
+            team_id: ctx.team_id,
+            person_id: person.id,
+            read_options: None,
+            limit: Some(2),
+            cursor_id: Some(cursor2),
+        }))
+        .await
+        .expect("page 3 failed");
+    let page3 = resp3.into_inner();
+    assert_eq!(page3.distinct_ids.len(), 1);
+    assert!(
+        page3.next_cursor_id.is_none(),
+        "last page should have no cursor"
+    );
+
+    let mut all_dids: Vec<String> = page1
+        .distinct_ids
+        .iter()
+        .chain(page2.distinct_ids.iter())
+        .chain(page3.distinct_ids.iter())
+        .map(|d| d.distinct_id.clone())
+        .collect();
+    all_dids.sort();
+    let mut expected = vec![
+        "0190f8e1-1234-7abc-89de-f0123456789a",
+        "01234567-abcd-efab-cdef-0123456789ab",
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "another_identified",
+        "user@example.com",
+    ];
+    expected.sort();
+    assert_eq!(all_dids, expected);
+
+    for page in [&page1.distinct_ids, &page2.distinct_ids] {
+        for pair in page.windows(2) {
+            assert!(
+                pair[0].id.unwrap() < pair[1].id.unwrap(),
+                "rows within a page should be in ascending id order"
+            );
+        }
+    }
 
     ctx.cleanup().await.ok();
 }
@@ -689,6 +799,7 @@ async fn test_get_distinct_ids_for_person_limit_keeps_identified() {
             person_id: person.id,
             read_options: None,
             limit: Some(1),
+            cursor_id: None,
         }))
         .await
         .expect("RPC failed");
@@ -1252,8 +1363,188 @@ async fn test_delete_hash_key_overrides_by_teams_invalid_batch_size(#[case] batc
 }
 
 // ============================================================
-// Delete persons batch for team tests
+// Delete tombstoned persons tests
 // ============================================================
+
+#[rstest]
+#[case::server_default(0, 10)]
+#[case::caller_budget(5, 3)]
+#[tokio::test]
+async fn test_delete_tombstoned_persons_reports_each_outcome(
+    #[case] max_rows: i64,
+    #[case] expected_trimmed: i64,
+) {
+    // The test storage clamps max_rows to 12. The gone and blocked persons take 2 rows of the
+    // budget; the 20-row person is trimmed with what is left and comes back pending.
+    let ctx = ServiceTestContext::new().await;
+    let gone = ctx.insert_person("svc_tomb_gone", None).await.unwrap();
+    ctx.tombstone_person(gone.id, None).await.unwrap();
+    let live = ctx.insert_person("svc_tomb_live", None).await.unwrap();
+    let blocked = ctx.insert_person("svc_tomb_blocked", None).await.unwrap();
+    ctx.tombstone_person(blocked.id, Some("svc_tomb_blocked"))
+        .await
+        .unwrap();
+    let big = ctx.insert_person("svc_tomb_big", None).await.unwrap();
+    for i in 0..19 {
+        ctx.add_distinct_id_to_person(big.id, &format!("svc_tomb_big_{i}"))
+            .await
+            .unwrap();
+    }
+    ctx.tombstone_person(big.id, None).await.unwrap();
+
+    let response = ctx
+        .service
+        .delete_tombstoned_persons(Request::new(DeleteTombstonedPersonsRequest {
+            team_id: ctx.team_id,
+            person_uuids: vec![
+                gone.uuid.to_string(),
+                live.uuid.to_string(),
+                blocked.uuid.to_string(),
+                big.uuid.to_string(),
+                Uuid::now_v7().to_string(),
+            ],
+            max_rows,
+            bounded_persons: vec![],
+        }))
+        .await
+        .expect("RPC failed")
+        .into_inner();
+
+    assert_eq!(response.deleted_count, 1);
+    assert_eq!(response.skipped_live_count, 1);
+    assert!(!response.version_guard_applied);
+    assert_eq!(response.skipped_version_count, 0);
+    assert_eq!(
+        response.blocked_person_uuids,
+        vec![blocked.uuid.to_string()]
+    );
+    assert_eq!(response.pending_person_uuids, vec![big.uuid.to_string()]);
+    assert_eq!(response.rows_deleted, 1 + expected_trimmed);
+    assert!(!ctx.person_row_exists(gone.id).await.unwrap());
+    assert!(ctx.person_row_exists(live.id).await.unwrap());
+    assert!(ctx.person_row_exists(blocked.id).await.unwrap());
+    assert!(ctx.person_row_exists(big.id).await.unwrap());
+    assert_eq!(
+        ctx.distinct_id_row_count(big.id).await.unwrap(),
+        20 - expected_trimmed
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_tombstoned_persons_applies_version_bounds() {
+    // Every person is tombstoned once (version 1). `again` is tombstoned a second time
+    // (version 2), and `duplicate` is sent twice, so its lower bound must win.
+    let ctx = ServiceTestContext::new().await;
+    let at_bound = ctx.insert_person("svc_bound_at", None).await.unwrap();
+    let again = ctx.insert_person("svc_bound_again", None).await.unwrap();
+    let duplicate = ctx.insert_person("svc_bound_dup", None).await.unwrap();
+    for person in [&at_bound, &again, &duplicate] {
+        ctx.tombstone_person(person.id, None).await.unwrap();
+    }
+    ctx.tombstone_person(again.id, None).await.unwrap();
+    let live = ctx.insert_person("svc_bound_live", None).await.unwrap();
+    let bound = |person: &TestPerson, max_version: i64| VersionBoundedPerson {
+        person_uuid: person.uuid.to_string(),
+        max_version,
+    };
+
+    let response = ctx
+        .service
+        .delete_tombstoned_persons(Request::new(DeleteTombstonedPersonsRequest {
+            team_id: ctx.team_id,
+            person_uuids: vec![],
+            max_rows: 0,
+            bounded_persons: vec![
+                bound(&at_bound, 1),
+                bound(&again, 1),
+                bound(&duplicate, 5),
+                bound(&duplicate, 0),
+                bound(&live, 5),
+            ],
+        }))
+        .await
+        .expect("RPC failed")
+        .into_inner();
+
+    assert_eq!(
+        response,
+        DeleteTombstonedPersonsResponse {
+            deleted_count: 1,
+            skipped_live_count: 1,
+            rows_deleted: 1,
+            version_guard_applied: true,
+            skipped_version_count: 2,
+            ..Default::default()
+        }
+    );
+    assert!(!ctx.person_row_exists(at_bound.id).await.unwrap());
+    for person in [&again, &duplicate, &live] {
+        assert!(ctx.person_row_exists(person.id).await.unwrap());
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::unspecified(DeletePersonsMode::Unspecified as i32)]
+#[case::tombstone(DeletePersonsMode::Tombstone as i32)]
+#[tokio::test]
+async fn test_delete_persons_tombstone_mode_reports_versions(#[case] mode: i32) {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx.insert_person("svc_tomb_mode", None).await.unwrap();
+
+    let response = ctx
+        .service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: ctx.team_id,
+            person_uuids: vec![person.uuid.to_string()],
+            mode,
+        }))
+        .await
+        .expect("RPC failed")
+        .into_inner();
+
+    assert_eq!(response.deleted_count, 1);
+    assert!(response.tombstoned);
+    assert_eq!(response.tombstones.len(), 1);
+    assert_eq!(response.tombstones[0].person_uuid, person.uuid.to_string());
+    assert_eq!(response.tombstones[0].version, 1);
+    assert_eq!(response.tombstones[0].distinct_ids.len(), 1);
+    assert_eq!(
+        response.tombstones[0].distinct_ids[0].distinct_id,
+        "svc_tomb_mode"
+    );
+    assert_eq!(response.tombstones[0].distinct_ids[0].version, 1);
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::hard(DeletePersonsMode::Hard as i32)]
+#[case::unknown(99)]
+#[tokio::test]
+async fn test_delete_persons_rejects_unsupported_modes(#[case] mode: i32) {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx.insert_person("svc_rejected_mode", None).await.unwrap();
+
+    let status = ctx
+        .service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: ctx.team_id,
+            person_uuids: vec![person.uuid.to_string()],
+            mode,
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(ctx.person_row_exists(person.id).await.unwrap());
+    assert_eq!(ctx.distinct_id_row_count(person.id).await.unwrap(), 1);
+
+    ctx.cleanup().await.ok();
+}
 
 #[tokio::test]
 async fn test_delete_persons_batch_for_team() {
@@ -1432,6 +1723,49 @@ async fn test_set_person_version_floor() {
         .await
         .expect("RPC failed");
     assert!(!response.into_inner().updated);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_ensure_person_version_floors_maps_results_to_proto() {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx.insert_person("svc_floor_live", None).await.unwrap();
+    let absent_person = Uuid::now_v7();
+
+    let person_floors = ctx
+        .service
+        .ensure_person_version_floors(Request::new(EnsurePersonVersionFloorsRequest {
+            team_id: ctx.team_id,
+            floors: vec![
+                PersonVersionFloor {
+                    person_uuid: person.uuid.to_string(),
+                    min_version: 2,
+                },
+                PersonVersionFloor {
+                    person_uuid: absent_person.to_string(),
+                    min_version: 5,
+                },
+            ],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        person_floors.results,
+        vec![
+            PersonVersionFloorResult {
+                person_uuid: person.uuid.to_string(),
+                outcome: VersionFloorOutcome::Live as i32,
+                version: 0,
+            },
+            PersonVersionFloorResult {
+                person_uuid: absent_person.to_string(),
+                outcome: VersionFloorOutcome::TombstoneInserted as i32,
+                version: 5,
+            },
+        ]
+    );
 
     ctx.cleanup().await.ok();
 }

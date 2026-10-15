@@ -15,7 +15,7 @@ CANONICAL_WORKFLOW = ".github/workflows/ci-backend.yml"
 SHADOW_WORKFLOW = ".depot/workflows/ci-backend.yml"
 # These mirrors carry intentional deltas that each mirror's header documents.
 # Every other mirror stays byte-identical to its canonical action.
-DELTA_MIRRORS = frozenset({"pnpm-install", "setup-pnpm"})
+DELTA_MIRRORS = frozenset({"commit-snapshots", "pnpm-install", "setup-pnpm"})
 # Depot resolves both `./.github/actions/<name>` and `./.depot/actions/<name>` from .depot/actions/<name>.
 LOCAL_ACTION_USE = re.compile(r"""uses:\s*['"]?\./\.(?:github|depot)/actions/([A-Za-z0-9_.-]+)""")
 

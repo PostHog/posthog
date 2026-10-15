@@ -1,4 +1,4 @@
-import * as noirDeskPng from '@posthog/brand/hoggies/png/noir-5'
+import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconEye } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -11,7 +11,7 @@ import { visionDocsUrl } from '../components/DocsLink'
 import { replayVisionSetupLogic } from '../replayVisionSetupLogic'
 import { ReplayVisionObservationPreview } from './ReplayVisionObservationPreview'
 
-const HedgehogNoirDesk = pngHoggie(noirDeskPng)
+const HedgehogXRay = pngHoggie(xRayPng)
 
 export const replayVisionEmptyState: SceneProductEmptyState = {
     statusLogic: replayVisionSetupLogic,
@@ -22,7 +22,7 @@ export const replayVisionEmptyState: SceneProductEmptyState = {
         // Replay vision shares session replay's product color (see the manifest's iconColor).
         accentColor: 'var(--color-product-session-replay-light)',
         accentColorDark: 'var(--color-product-session-replay-dark)',
-        hedgehog: HedgehogNoirDesk,
+        hedgehog: HedgehogXRay,
         hedgehogPlacement: 'beside',
         text: {
             'needs-setup': {

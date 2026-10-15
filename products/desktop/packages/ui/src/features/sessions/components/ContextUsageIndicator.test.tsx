@@ -55,20 +55,23 @@ describe("ContextUsageIndicator", () => {
     expect(container.querySelector("button")).toBeNull();
   });
 
-  it("shows the cost on its own when usage is null", () => {
-    enableCost(true);
-    const { container } = render(
-      <Theme>
-        <ContextUsageIndicator
-          usage={null}
-          taskId="task-1"
-          originProduct="user_created"
-        />
-      </Theme>,
-    );
-    expect(screen.getByText("$0.42")).toBeInTheDocument();
-    expect(container.querySelector("button")).toBeNull();
-  });
+  it.each(["user_created", "loop", "workflow"])(
+    "shows the cost on its own when usage is null for %s",
+    (originProduct) => {
+      enableCost(true);
+      const { container } = render(
+        <Theme>
+          <ContextUsageIndicator
+            usage={null}
+            taskId="task-1"
+            originProduct={originProduct}
+          />
+        </Theme>,
+      );
+      expect(screen.getByText("$0.42")).toBeInTheDocument();
+      expect(container.querySelector("button")).toBeNull();
+    },
+  );
 
   // The ring carries no text, so the accessible name is the only way the
   // numbers reach a reader — including the "/0 · 0%" an unknown window must
@@ -103,19 +106,22 @@ describe("ContextUsageIndicator", () => {
     },
   );
 
-  it("shows the cost beside the ring once the visible flag is on", () => {
-    enableCost(true);
-    render(
-      <Theme>
-        <ContextUsageIndicator
-          usage={usage()}
-          taskId="task-1"
-          originProduct="user_created"
-        />
-      </Theme>,
-    );
-    expect(screen.getByText("$0.42")).toBeInTheDocument();
-  });
+  it.each(["user_created", "loop", "workflow"])(
+    "shows the cost beside the ring once the visible flag is on for %s",
+    (originProduct) => {
+      enableCost(true);
+      render(
+        <Theme>
+          <ContextUsageIndicator
+            usage={usage()}
+            taskId="task-1"
+            originProduct={originProduct}
+          />
+        </Theme>,
+      );
+      expect(screen.getByText("$0.42")).toBeInTheDocument();
+    },
+  );
 
   it("hides the cost for a task from another product", () => {
     enableCost(true);
@@ -134,19 +140,25 @@ describe("ContextUsageIndicator", () => {
     );
   });
 
-  it("keeps the cost in the popover while the visible flag is off", () => {
-    enableCost();
-    render(
-      <Theme>
-        <ContextUsageIndicator
-          usage={usage()}
-          taskId="task-1"
-          originProduct="user_created"
-        />
-      </Theme>,
-    );
-    expect(screen.queryByText("$0.42")).not.toBeInTheDocument();
-  });
+  it.each(["user_created", "loop", "workflow"])(
+    "keeps the cost in the popover while the visible flag is off for %s",
+    (originProduct) => {
+      enableCost();
+      render(
+        <Theme>
+          <ContextUsageIndicator
+            usage={usage()}
+            taskId="task-1"
+            originProduct={originProduct}
+          />
+        </Theme>,
+      );
+      expect(screen.queryByText("$0.42")).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Context usage: 25% · $0.42" }),
+      ).toBeInTheDocument();
+    },
+  );
 
   it("renders a finite stroke offset at 0% (no NaN/Infinity)", () => {
     const { container } = render(

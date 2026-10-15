@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,23 @@ TRANSACTIONS_ENDPOINT = "transactions"
 
 @SourceRegistry.register
 class XenditSource(ResumableSource[XenditSourceConfig, XenditResumeConfig]):
+    codebase_detection = detect(
+        env=("^XENDIT_",),
+        script_hosts=("js.xendit.co",),
+        npm=("xendit-node",),
+        pypi=("xendit-python",),
+        cocoapods=("Xendit",),
+        composer=("xendit/xendit-php", "xendit/xendit-php-clients"),
+        go=("github.com/xendit/xendit-go",),
+        maven=("com.xendit:xendit-java-lib", "com.xendit:xendit-android", "com.xendit:xendit-sdk-android"),
+        rubygems=("xendit",),
+        swiftpm=(
+            "github.com/xendit/xendit-sdk-ios-src",
+            "github.com/xendit/xendit-components-ios",
+            "github.com/xendit/xendit-terminal-ios",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Xendit has no account-wide API version: the endpoints this source calls take no version
     # header or version query param, and the `/v2` path segment on the accounts endpoint is part of
@@ -71,7 +87,7 @@ class XenditSource(ResumableSource[XenditSourceConfig, XenditResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.XENDIT,
+            name=ExternalDataSourceType.XENDIT,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Xendit",
             releaseStatus=ReleaseStatus.ALPHA,

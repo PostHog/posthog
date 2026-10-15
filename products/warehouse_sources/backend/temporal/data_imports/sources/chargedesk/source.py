@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.chargedesk import (
     ChargedeskResumeConfig,
     chargedesk_source,
@@ -17,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -37,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ChargedeskSource(ResumableSource[ChargedeskSourceConfig, ChargedeskResumeConfig]):
+    codebase_detection = detect(env=("^CHARGEDESK_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://chargedesk.com/api-docs"
@@ -49,7 +51,7 @@ class ChargedeskSource(ResumableSource[ChargedeskSourceConfig, ChargedeskResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CHARGEDESK,
+            name=ExternalDataSourceType.CHARGEDESK,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Chargedesk",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -98,7 +100,7 @@ Each company has its own secret key. Create one in your ChargeDesk account under
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,

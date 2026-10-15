@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShortcutSource(SimpleSource[ShortcutSourceConfig]):
+    codebase_detection = detect(
+        env=("^SHORTCUT_API_TOKEN$", "^SHORTCUT_TOKEN$"), npm=("@shortcut/client", "@useshortcut/client")
+    )
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://developer.shortcut.com/api/rest/v3"
@@ -48,7 +51,7 @@ class ShortcutSource(SimpleSource[ShortcutSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SHORTCUT,
+            name=ExternalDataSourceType.SHORTCUT,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Shortcut",
             releaseStatus=ReleaseStatus.ALPHA,

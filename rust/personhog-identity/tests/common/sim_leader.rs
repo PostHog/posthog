@@ -22,6 +22,7 @@
 //! as authoritative not-found exactly like the real cache's tombstones.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use async_trait::async_trait;
@@ -32,11 +33,12 @@ use uuid::Uuid;
 
 use personhog_common::grpc::semantic_refusal;
 use personhog_identity::config::IdentityTables;
-use personhog_identity::leader::{LifecycleLeader, PropertyWriter};
+use personhog_identity::leader::{LifecycleLeader, PersonStateReader, PropertyWriter};
 use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
-    LifecycleOpType, Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseOutcome,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    FencePersonRequest, FencePersonResponse, FencePersonsRequest, FencePersonsResponse,
+    FencedPersonSeal, FoldPersonDocumentRequest, FoldPersonDocumentResponse, LifecycleOpType,
+    Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
+    ReleaseOutcome, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 
 /// Which RPC a scripted failure applies to.
@@ -46,6 +48,7 @@ pub enum Rpc {
     Fold,
     Release,
     PropertyPush,
+    IdentifiedRead,
 }
 
 /// A person's live fence in the simulated leader.
@@ -70,6 +73,10 @@ pub enum LeaderCall {
         person_id: i64,
         op_type: LifecycleOpType,
     },
+    /// A `FencePersons` call, recorded before its per-person fences.
+    FenceBatch {
+        person_ids: Vec<i64>,
+    },
     Fold {
         target_person_id: i64,
         snapshot_versions: Vec<i64>,
@@ -86,6 +93,10 @@ pub enum LeaderCall {
     },
     ReleaseAborted {
         person_id: i64,
+    },
+    /// A `ReleaseFences` call, recorded before its per-person releases.
+    ReleaseBatch {
+        person_ids: Vec<i64>,
     },
     PropertyPush {
         person_id: i64,
@@ -130,9 +141,14 @@ pub struct SimLeader {
     /// be ahead of Postgres, which is exactly what the seal-time re-check
     /// exists for.
     sealed_identified: Mutex<HashMap<i64, bool>>,
+    /// Person ids whose identified flag the entrance read, in order.
+    identified_reads: Mutex<Vec<i64>>,
     /// Injected `last_seen_at` per person: leader-side state with no
     /// Postgres column.
     last_seen: Mutex<HashMap<i64, i64>>,
+    /// Whether the batch RPCs are served; off, they answer UNIMPLEMENTED
+    /// like a router or leader that predates them.
+    batch_rpcs_supported: AtomicBool,
 }
 
 impl SimLeader {
@@ -145,12 +161,18 @@ impl SimLeader {
             deaths: Mutex::new(HashMap::new()),
             scripted: Mutex::new(HashMap::new()),
             sealed_identified: Mutex::new(HashMap::new()),
+            identified_reads: Mutex::new(Vec::new()),
             last_seen: Mutex::new(HashMap::new()),
+            batch_rpcs_supported: AtomicBool::new(true),
         }
     }
 
     pub fn calls(&self) -> Vec<LeaderCall> {
         self.calls.lock().unwrap().clone()
+    }
+
+    pub fn disable_batch_rpcs(&self) {
+        self.batch_rpcs_supported.store(false, Ordering::SeqCst);
     }
 
     /// Script the next matching call for `person_id` (the fold matches on
@@ -175,6 +197,10 @@ impl SimLeader {
             .is_none_or(|queue| queue.is_empty())
     }
 
+    pub fn identified_reads(&self) -> Vec<i64> {
+        self.identified_reads.lock().unwrap().clone()
+    }
+
     pub fn set_sealed_identified(&self, person_id: i64, identified: bool) {
         self.sealed_identified
             .lock()
@@ -184,6 +210,23 @@ impl SimLeader {
 
     pub fn set_last_seen(&self, person_id: i64, epoch: i64) {
         self.last_seen.lock().unwrap().insert(person_id, epoch);
+    }
+
+    /// Destroy a live person on the leader only; its Postgres row stays.
+    pub async fn declare_dead(&self, team_id: i64, person_id: i64) {
+        let person = self
+            .live_person(team_id, person_id)
+            .await
+            .expect("person must be live to be destroyed");
+        self.deaths.lock().unwrap().insert(
+            person_id,
+            DeathDocument {
+                person_id,
+                person_uuid: person.uuid,
+                version: person.version,
+                created_at: person.created_at,
+            },
+        );
     }
 
     pub fn fence_for(&self, person_id: i64) -> Option<Fence> {
@@ -339,6 +382,85 @@ impl LifecycleLeader for SimLeader {
         Ok(FencePersonResponse {
             sealed: Some(person),
         })
+    }
+
+    async fn fence_persons(
+        &self,
+        request: FencePersonsRequest,
+    ) -> Result<FencePersonsResponse, Status> {
+        if !self.batch_rpcs_supported.load(Ordering::SeqCst) {
+            return Err(Status::unimplemented("unknown method: FencePersons"));
+        }
+        if request.person_ids.is_empty() {
+            return Err(Status::invalid_argument(
+                "FencePersons needs at least one person",
+            ));
+        }
+        self.record(LeaderCall::FenceBatch {
+            person_ids: request.person_ids.clone(),
+        });
+        let mut response = FencePersonsResponse::default();
+        for person_id in request.person_ids {
+            let single = self
+                .fence_person(FencePersonRequest {
+                    team_id: request.team_id,
+                    person_id,
+                    op_id: request.op_id.clone(),
+                    op_type: request.op_type,
+                })
+                .await;
+            match single {
+                Ok(fenced) => {
+                    let sealed = fenced.sealed.expect("the sim always seals");
+                    response.sealed.push(FencedPersonSeal {
+                        person_id,
+                        version: sealed.version,
+                        created_at: sealed.created_at,
+                    });
+                }
+                Err(status) if status.code() == tonic::Code::NotFound => {
+                    response.not_found.push(person_id);
+                }
+                Err(status) => return Err(status),
+            }
+        }
+        Ok(response)
+    }
+
+    async fn release_fences(
+        &self,
+        request: ReleaseFencesRequest,
+    ) -> Result<ReleaseFencesResponse, Status> {
+        if !self.batch_rpcs_supported.load(Ordering::SeqCst) {
+            return Err(Status::unimplemented("unknown method: ReleaseFences"));
+        }
+        let ReleaseFencesRequest {
+            team_id,
+            op_id,
+            outcome,
+            persons,
+        } = request;
+        if persons.is_empty() {
+            return Err(Status::invalid_argument(
+                "ReleaseFences needs at least one person",
+            ));
+        }
+        self.record(LeaderCall::ReleaseBatch {
+            person_ids: persons.iter().map(|p| p.person_id).collect(),
+        });
+        for person in persons {
+            self.release_fence(ReleaseFenceRequest {
+                team_id,
+                person_id: person.person_id,
+                person_uuid: person.person_uuid,
+                op_id: op_id.clone(),
+                outcome,
+                sealed_version: person.sealed_version,
+                created_at: person.created_at,
+            })
+            .await?;
+        }
+        Ok(ReleaseFencesResponse {})
     }
 
     async fn release_fence(
@@ -536,6 +658,30 @@ impl LifecycleLeader for SimLeader {
                 ..target
             }),
         })
+    }
+}
+
+/// The leader's flag: the sealed override where one is set, else the live row.
+#[async_trait]
+impl PersonStateReader for SimLeader {
+    async fn is_identified(&self, team_id: i64, person_id: i64) -> Result<Option<bool>, Status> {
+        self.identified_reads.lock().unwrap().push(person_id);
+        if let Some(status) = self.take_scripted(Rpc::IdentifiedRead, person_id) {
+            return Err(status);
+        }
+        if self.deaths.lock().unwrap().contains_key(&person_id) {
+            return Ok(None);
+        }
+        let Some(person) = self.live_person(team_id, person_id).await else {
+            return Ok(None);
+        };
+        let overridden = self
+            .sealed_identified
+            .lock()
+            .unwrap()
+            .get(&person_id)
+            .copied();
+        Ok(Some(overridden.unwrap_or(person.is_identified)))
     }
 }
 

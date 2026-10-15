@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -38,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZenloopSource(ResumableSource[ZenloopSourceConfig, ZenloopResumeConfig]):
+    codebase_detection = detect(env=("^ZENLOOP_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.zenloop.com/reference"
@@ -51,7 +52,7 @@ class ZenloopSource(ResumableSource[ZenloopSourceConfig, ZenloopResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ZENLOOP,
+            name=ExternalDataSourceType.ZENLOOP,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Zenloop",
             releaseStatus=ReleaseStatus.ALPHA,

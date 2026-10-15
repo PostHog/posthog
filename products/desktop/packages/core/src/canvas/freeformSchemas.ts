@@ -55,6 +55,14 @@ export const canvasDataResultSchema = z.object({
   //     through untouched so the canvas reads the native trends shape.
   // Hence `unknown` per element rather than `unknown[]`.
   results: z.array(z.unknown()),
+  hogql: z.string().optional(),
+  insight: z
+    .object({
+      name: z.string().nullable(),
+      kind: z.string().nullable(),
+      display: z.string().nullable(),
+    })
+    .optional(),
 });
 export type CanvasDataResult = z.infer<typeof canvasDataResultSchema>;
 
@@ -86,6 +94,12 @@ export const canvasLoadInsightInput = z.object({
   refresh: z.number().int().min(30).max(86_400).optional(),
 });
 export type CanvasLoadInsightInput = z.infer<typeof canvasLoadInsightInput>;
+
+export const savedInsightSchema = z.object({
+  shortId: z.string(),
+  name: z.string(),
+});
+export type SavedInsight = z.infer<typeof savedInsightSchema>;
 
 // Capture (write) avenue behind the `ph.capture` shim. The host sends the event
 // to the project using its PUBLIC project key (phc_…, safe to be client-side) —
@@ -173,13 +187,15 @@ export type CanvasAnalyticsConfig = z.infer<typeof canvasAnalyticsConfigSchema>;
 export const canvasThemeSchema = z.enum(["light", "dark"]);
 export type CanvasTheme = z.infer<typeof canvasThemeSchema>;
 
+const canvasRectSchema = z.object({
+  top: z.number().finite(),
+  right: z.number().finite(),
+  bottom: z.number().finite(),
+  left: z.number().finite(),
+});
+
 const canvasTextSelectionDataSchema = textCommentAnchorDataSchema.extend({
-  rect: z.object({
-    top: z.number().finite(),
-    right: z.number().finite(),
-    bottom: z.number().finite(),
-    left: z.number().finite(),
-  }),
+  rect: canvasRectSchema,
 });
 export const canvasTextSelectionSchema = canvasTextSelectionDataSchema.refine(
   ({ start, end }) => end > start,
@@ -269,6 +285,9 @@ export const hostToCanvasMessageSchema = z.discriminatedUnion("type", [
     ok: z.boolean(),
     result: z.unknown().optional(),
     error: z.string().optional(),
+    // The failure clears on its own, so the canvas runtime may send the same
+    // request again after a backoff.
+    retryable: z.boolean().optional(),
   }),
 ]);
 export type HostToCanvasMessage = z.infer<typeof hostToCanvasMessageSchema>;
@@ -375,6 +394,7 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("comment-activate"),
     id: z.string().min(1).max(128),
+    rect: canvasRectSchema.optional(),
   }),
   z.object({
     channel: z.literal(CANVAS_CHANNEL),

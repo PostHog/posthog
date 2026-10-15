@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -83,15 +84,24 @@ describe('teamLogic', () => {
         })
 
         it('renames the parent project and syncs it into projectLogic', async () => {
-            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
-            expect(projectLogic.values.currentProject).toBeNull()
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            try {
+                await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+                expect(projectLogic.values.currentProject).toBeNull()
 
-            await expectLogic(logic, () => {
-                logic.actions.updateCurrentTeam({ name: 'Renamed project' })
-            }).toDispatchActions([projectLogic.actionTypes.loadCurrentProjectSuccess, 'updateCurrentTeamSuccess'])
+                await expectLogic(logic, () => {
+                    logic.actions.updateCurrentTeam({ name: 'Renamed project' })
+                }).toDispatchActions([projectLogic.actionTypes.loadCurrentProjectSuccess, 'updateCurrentTeamSuccess'])
 
-            expect(logic.values.currentTeam?.name).toBe('Renamed project')
-            expect(projectLogic.values.currentProject?.name).toBe('Renamed project')
+                expect(logic.values.currentTeam?.name).toBe('Renamed project')
+                expect(projectLogic.values.currentProject?.name).toBe('Renamed project')
+                expect(capture).toHaveBeenCalledWith('name team setting updated', {
+                    setting: 'name',
+                    value: 'Renamed project',
+                })
+            } finally {
+                capture.mockRestore()
+            }
         })
     })
 

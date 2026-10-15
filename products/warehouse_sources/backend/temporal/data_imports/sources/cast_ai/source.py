@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.cast_ai import (
     CastAiResumeConfig,
     cast_ai_source,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CastAiSource(ResumableSource[CastAiSourceConfig, CastAiResumeConfig]):
+    codebase_detection = detect(env=("^(CAST_AI|CASTAI)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.cast.ai/docs/api-access"
 
@@ -100,7 +101,7 @@ class CastAiSource(ResumableSource[CastAiSourceConfig, CastAiResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CAST_AI,
+            name=ExternalDataSourceType.CASTAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="CAST AI",
             caption="Import Kubernetes cost and savings reports from your CAST AI organization.",

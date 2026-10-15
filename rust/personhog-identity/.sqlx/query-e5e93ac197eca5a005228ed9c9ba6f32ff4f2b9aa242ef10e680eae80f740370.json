@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='op_complete' */ \n        UPDATE lifecycle_op\n        SET step = $3, outcome = $4, completed_at = now(), lease_expires_at = NULL\n        WHERE op_id = $1 AND step = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e5e93ac197eca5a005228ed9c9ba6f32ff4f2b9aa242ef10e680eae80f740370"
+}

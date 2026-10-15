@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -32,6 +31,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DixaSource(ResumableSource[DixaSourceConfig, DixaResumeConfig]):
+    codebase_detection = detect(
+        env=("^DIXA_",),
+        script_hosts=("messenger.dixa.io",),
+        cocoapods=("DixaMessengerKit",),
+        swiftpm=("github.com/dixahq/ios-messenger",),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.dixa.io"
@@ -53,7 +59,7 @@ class DixaSource(ResumableSource[DixaSourceConfig, DixaResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DIXA,
+            name=ExternalDataSourceType.DIXA,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Dixa",
             caption="""Enter your Dixa API token to pull your Dixa customer service data into the PostHog Data warehouse.

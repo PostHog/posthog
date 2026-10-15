@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.bitbucket import (
     BitbucketAuth,
     BitbucketResumeConfig,
@@ -38,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BitbucketSource(ResumableSource[BitbucketSourceConfig, BitbucketResumeConfig]):
+    codebase_detection = detect(env=("^BITBUCKET_",), npm=("bitbucket",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -53,7 +54,7 @@ class BitbucketSource(ResumableSource[BitbucketSourceConfig, BitbucketResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BITBUCKET,
+            name=ExternalDataSourceType.BITBUCKET,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Atlassian Bitbucket Cloud",
             releaseStatus=ReleaseStatus.ALPHA,

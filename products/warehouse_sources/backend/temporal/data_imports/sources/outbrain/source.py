@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OutbrainSource(ResumableSource[OutbrainSourceConfig, OutbrainResumeConfig]):
+    codebase_detection = detect(env=("^OUTBRAIN_",), script_hosts=("amplify.outbrain.com", "widgets.outbrain.com"))
+
     supported_versions = ("v0.1",)
     default_version = "v0.1"
     api_docs_url = "https://developers.outbrain.com"
@@ -67,7 +68,7 @@ class OutbrainSource(ResumableSource[OutbrainSourceConfig, OutbrainResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.OUTBRAIN,
+            name=ExternalDataSourceType.OUTBRAIN,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Outbrain",
             caption="""Connect your Outbrain Amplify account to pull your advertising data into the PostHog Data warehouse.
@@ -75,7 +76,7 @@ class OutbrainSource(ResumableSource[OutbrainSourceConfig, OutbrainResumeConfig]
 Uses your Outbrain login credentials. Amplify API access must be enabled for your account — request it through your Outbrain account manager if API calls are rejected.""",
             iconPath="/static/services/outbrain.png",
             docsUrl="https://posthog.com/docs/cdp/sources/outbrain",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

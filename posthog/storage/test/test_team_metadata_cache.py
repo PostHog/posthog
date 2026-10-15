@@ -8,13 +8,15 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 import posthog.storage.team_access_cache_signal_handlers  # noqa: F401 — registers PSAK delete handler
 from posthog.models.team.team import Team
+from posthog.storage.cache_expiry_manager import select_expiring_teams
 from posthog.storage.team_metadata_cache import (
+    TEAM_HYPERCACHE_MANAGEMENT_CONFIG,
     TEAM_METADATA_FIELDS,
     _serialize_team_field,
     clear_team_metadata_cache,
@@ -360,6 +362,31 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         self.assertEqual(len(result), 0)
 
     @patch("posthog.storage.cache_expiry_manager.get_client")
+    def test_a_full_range_reports_the_limit_even_when_an_identifier_is_stale(self, mock_get_client: MagicMock) -> None:
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+        # The range comes back full, but one identifier belongs to a team that no longer
+        # exists, which is the steady state of a sorted set the cleanup task has not reached.
+        mock_redis.zrangebyscore.return_value = [self.team.api_token.encode(), b"phc_deleted_team"]
+
+        selection = select_expiring_teams(TEAM_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours=24, limit=2)
+
+        self.assertEqual(len(selection.teams), 1)
+        # Reading the limit from the resolved teams would report this run as having room
+        # to spare, while Redis still holds work it did not take.
+        self.assertTrue(selection.limit_reached)
+
+    @patch("posthog.storage.cache_expiry_manager.get_client")
+    def test_an_unreadable_range_reports_the_limit_as_unknown(self, mock_get_client: MagicMock) -> None:
+        mock_get_client.side_effect = RuntimeError("redis unreachable")
+
+        selection = select_expiring_teams(TEAM_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours=24)
+
+        # Reporting False here pushes a 0 that Pushgateway keeps serving, which states the
+        # queue was drained by a run that never read it.
+        self.assertIsNone(selection.limit_reached)
+
+    @patch("posthog.storage.cache_expiry_manager.get_client")
     def test_narrows_selected_columns_to_refresh_fields(self, mock_get_client):
         """The refresh SELECT is narrowed via .only(), so a Team column the read replica
         hasn't migrated yet can't turn the whole batch into an UndefinedColumn error.
@@ -667,7 +694,7 @@ class TestSampleRateSerializationForRustCompatibility(BaseTest):
 # test_team_llm_gateway_policy_cache.py); we explicitly assert the field is NOT
 # in the shared team_metadata blob so the flags-pipeline consumers stay
 # unaffected by llm-gateway changes.
-class TestLLMGatewayFieldsNotInSharedProjection(BaseTest):
+class TestLLMGatewayFieldsNotInSharedProjection(SimpleTestCase):
     def test_llm_gateway_fields_excluded_from_shared_metadata(self):
         self.assertNotIn("llm_gateway_enabled_at", TEAM_METADATA_FIELDS)
         self.assertNotIn("llm_gateway_revoked_at", TEAM_METADATA_FIELDS)

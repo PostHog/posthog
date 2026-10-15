@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -43,6 +42,8 @@ def _has_custom_query(config: UsBeaSourceConfig) -> bool:
 
 @SourceRegistry.register
 class UsBeaSource(SimpleSource[UsBeaSourceConfig]):
+    codebase_detection = detect(env=("^(US_BEA|USBEA)_",), pypi=("beaapi",))
+
     # Static endpoint catalog with no I/O in get_schemas - safe for public docs.
     lists_tables_without_credentials = True
     # BEA's Data Retrieval API has no version segment or header - the URI and method names
@@ -119,7 +120,7 @@ class UsBeaSource(SimpleSource[UsBeaSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.US_BEA,
+            name=ExternalDataSourceType.USBEA,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="US Bureau of Economic Analysis (BEA)",
             keywords=["bea", "gdp", "economic data", "personal income"],

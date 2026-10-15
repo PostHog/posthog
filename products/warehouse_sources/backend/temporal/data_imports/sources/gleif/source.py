@@ -1,12 +1,11 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -33,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GleifSource(ResumableSource[GleifSourceConfig, GleifResumeConfig]):
+    codebase_detection = detect(env=("^GLEIF_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.gleif.org/en/lei-data/gleif-api"
 
@@ -92,7 +93,7 @@ class GleifSource(ResumableSource[GleifSourceConfig, GleifResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GLEIF,
+            name=ExternalDataSourceType.GLEIF,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             keywords=["lei", "legal entity identifier"],
             label="GLEIF (Global Legal Entity Identifier Foundation)",
@@ -101,6 +102,7 @@ class GleifSource(ResumableSource[GleifSourceConfig, GleifResumeConfig]):
                 "registry. No API key or account is required."
             ),
             iconPath="/static/services/gleif.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/gleif",
             releaseStatus=ReleaseStatus.ALPHA,
             fields=cast(list[FieldType], []),
         )

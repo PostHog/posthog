@@ -1,0 +1,388 @@
+{
+  "fixture_version": "1.0.0",
+  "schema": "schemas/definitions_entry.schema.json",
+  "templates": {
+    "v2": {
+      "id": 201,
+      "key": "garden-layout",
+      "active": true,
+      "version": 7,
+      "filters": {
+        "version": 2,
+        "return_type": "boolean",
+        "default_value": false,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "account_tier",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": "preview",
+                  "label": "Account tier"
+                }
+              ]
+            },
+            "description": "Enable the preview for selected accounts.",
+            "metadata": {
+              "display_color": "blue"
+            },
+            "value": true
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "percentage_rollout",
+            "targeting": {
+              "properties": []
+            },
+            "value": true,
+            "rollout_percentage": 25.5,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "release-preview",
+            "assign_by": "person"
+          },
+          {
+            "id": "44444444-4444-4444-8444-444444444444",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": 42,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "experiment-preview",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": true
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": true
+              }
+            ],
+            "holdout": {
+              "id": 7,
+              "seed": "holdout-",
+              "exclusion_percentage": 5
+            }
+          }
+        ]
+      }
+    },
+    "v1": {
+      "id": 202,
+      "key": "legacy-garden",
+      "active": true,
+      "version": 9,
+      "filters": {
+        "groups": [
+          {
+            "properties": [],
+            "rollout_percentage": 100
+          }
+        ]
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "definitions.v2_canonical",
+      "template": "v2",
+      "expected": "valid"
+    },
+    {
+      "id": "definitions.v1_implicit",
+      "template": "v1",
+      "expected": "valid"
+    },
+    {
+      "id": "definitions.v1_explicit",
+      "template": "v1",
+      "set": {
+        "/filters/version": 1
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "definitions.v2_numeric_version",
+      "template": "v2",
+      "set": {
+        "/filters/version": 2.0
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "definitions.inactive",
+      "template": "v2",
+      "set": {
+        "/active": false
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "definitions.unsupported_version_future",
+      "template": "v2",
+      "set": {
+        "/filters/version": 3
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "const",
+        "instance_path": "/filters/version"
+      },
+      "reader": {
+        "auto": "remote_fallback",
+        "local_only": "unsupported"
+      }
+    },
+    {
+      "id": "definitions.unsupported_version_string",
+      "template": "v2",
+      "set": {
+        "/filters/version": "2"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "const",
+        "instance_path": "/filters/version"
+      },
+      "reader": {
+        "auto": "remote_fallback",
+        "local_only": "unsupported"
+      }
+    },
+    {
+      "id": "definitions.unsupported_version_boolean",
+      "template": "v2",
+      "set": {
+        "/filters/version": true
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "const",
+        "instance_path": "/filters/version"
+      },
+      "reader": {
+        "auto": "remote_fallback",
+        "local_only": "unsupported"
+      }
+    },
+    {
+      "id": "definitions.unsupported_version_null",
+      "template": "v2",
+      "set": {
+        "/filters/version": null
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "const",
+        "instance_path": "/filters/version"
+      },
+      "reader": {
+        "auto": "remote_fallback",
+        "local_only": "unsupported"
+      }
+    },
+    {
+      "id": "definitions.unknown_semantic_field",
+      "template": "v2",
+      "set": {
+        "/filters/future_assignment": true
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "additionalProperties",
+        "instance_path": "/filters"
+      },
+      "reader": {
+        "auto": "remote_fallback",
+        "local_only": "unsupported"
+      }
+    },
+    {
+      "id": "definitions.unknown_rule_field",
+      "template": "v2",
+      "set": {
+        "/filters/rules/0/future_targeting": true
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "additionalProperties",
+        "instance_path": "/filters/rules/0"
+      },
+      "reader": {
+        "auto": "remote_fallback",
+        "local_only": "unsupported"
+      }
+    },
+    {
+      "id": "definitions.unsupported_rule_type",
+      "template": "v2",
+      "set": {
+        "/filters/rules/0/rule_type": "future_rule"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "const",
+        "instance_path": "/filters/rules/0/rule_type"
+      },
+      "reader": {
+        "auto": "remote_fallback",
+        "local_only": "unsupported"
+      }
+    },
+    {
+      "id": "definitions.missing_assignment_seed",
+      "template": "v2",
+      "remove": [
+        "/filters/rules/1/seed"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "/filters/rules/1",
+        "message_contains": "seed"
+      }
+    },
+    {
+      "id": "definitions.v1_null_version",
+      "template": "v1",
+      "set": {
+        "/version": null
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "definitions.v1_wrong_type_version",
+      "template": "v1",
+      "set": {
+        "/version": "invalid"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "type",
+        "instance_path": "/version"
+      }
+    },
+    {
+      "id": "definitions.v1_null_ensure_experience_continuity",
+      "template": "v1",
+      "set": {
+        "/ensure_experience_continuity": null
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "definitions.v1_wrong_type_ensure_experience_continuity",
+      "template": "v1",
+      "set": {
+        "/ensure_experience_continuity": "invalid"
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "type",
+        "instance_path": "/ensure_experience_continuity"
+      }
+    },
+    {
+      "id": "definitions.v1_explicit_null_row_fields",
+      "template": "v1",
+      "set": {
+        "/filters/version": 1,
+        "/version": null,
+        "/ensure_experience_continuity": null
+      },
+      "expected": "valid"
+    },
+    {
+      "id": "definitions.missing_id",
+      "template": "v2",
+      "remove": [
+        "/id"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "",
+        "message_contains": "id"
+      }
+    },
+    {
+      "id": "definitions.missing_key",
+      "template": "v2",
+      "remove": [
+        "/key"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "",
+        "message_contains": "key"
+      }
+    },
+    {
+      "id": "definitions.missing_active",
+      "template": "v2",
+      "remove": [
+        "/active"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "",
+        "message_contains": "active"
+      }
+    },
+    {
+      "id": "definitions.missing_filters",
+      "template": "v2",
+      "remove": [
+        "/filters"
+      ],
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "required",
+        "instance_path": "",
+        "message_contains": "filters"
+      }
+    },
+    {
+      "id": "definitions.unknown_field",
+      "template": "v2",
+      "set": {
+        "/future_row_field": 1
+      },
+      "expected": "invalid",
+      "expected_failure": {
+        "layer": "schema",
+        "keyword": "additionalProperties",
+        "instance_path": "",
+        "message_contains": "future_row_field"
+      }
+    }
+  ]
+}

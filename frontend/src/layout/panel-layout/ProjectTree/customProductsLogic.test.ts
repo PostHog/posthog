@@ -46,21 +46,21 @@ describe('customProductsLogic', () => {
     })
 
     it('keeps a toggle made while an earlier save was in flight', async () => {
-        // The server still only knows about tool A. A refetch on A's success would answer with
+        // The server still only knows about product A. A refetch on A's success would answer with
         // just A and wipe B off the screen, which is what the user notices.
         serverPaths = ['a']
 
         await expectLogic(logic, () => {
-            logic.actions.setToolEnabled('a', true)
-            logic.actions.setToolEnabled('b', true)
+            logic.actions.setProductEnabled('a', true)
+            logic.actions.setProductEnabled('b', true)
         }).toFinishAllListeners()
 
-        expect(logic.values.enabledToolPaths).toEqual(new Set(['a', 'b']))
+        expect(logic.values.enabledProductPaths).toEqual(new Set(['a', 'b']))
     })
 
     it('does not refetch when a save succeeds', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setToolEnabled('a', true)
+            logic.actions.setProductEnabled('a', true)
         }).toFinishAllListeners()
 
         expect(listCalls).toBe(0)
@@ -71,10 +71,10 @@ describe('customProductsLogic', () => {
         serverPaths = []
 
         await expectLogic(logic, () => {
-            logic.actions.setToolEnabled('a', true)
+            logic.actions.setProductEnabled('a', true)
         }).toFinishAllListeners()
 
         expect(listCalls).toBe(1)
-        expect(logic.values.enabledToolPaths).toEqual(new Set())
+        expect(logic.values.enabledProductPaths).toEqual(new Set())
     })
 })

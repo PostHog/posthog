@@ -1,7 +1,6 @@
 import json
 import time
 import hashlib
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -11,10 +10,13 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.settings import (
     CHECKMARX_ENDPOINTS,
     CHECKMARX_REGION_HOSTS,
     CheckmarxEndpointConfig,
+    CheckmarxFanOutConfig,
     RegionHosts,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -41,13 +43,13 @@ class CheckmarxAuthError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class CheckmarxResumeConfig:
     # Row offset to resume the current page loop from.
     offset: int = 0
-    # For fan-out endpoints: the scan currently being processed. A stable scan-id bookmark (not a
-    # positional index) so scans created between a crash and the retry can't shift the resume point.
-    scan_id: str | None = None
+    # For fan-out endpoints: the parent row currently being processed. A stable id bookmark (not a
+    # positional index) so parents created between a crash and the retry can't shift the resume point.
+    parent_id: str | None = None
 
 
 def _make_session(api_key: str) -> requests.Session:
@@ -151,7 +153,7 @@ def _fetch_json(
     url: str,
     params: dict[str, Any],
     logger: FilteringBoundLogger,
-) -> dict[str, Any]:
+) -> Any:
     # The token is fetched inside the retried function so a transient IAM failure is retried too.
     headers = {
         "Authorization": f"Bearer {auth.get_token()}",
@@ -170,30 +172,48 @@ def _fetch_json(
     return response.json()
 
 
+def _extract_rows(data: Any, config: CheckmarxEndpointConfig) -> list[dict[str, Any]]:
+    """Rows out of a response body, which is either a bare JSON array or wrapped under `data_key`."""
+    if config.data_key is None:
+        items = data if isinstance(data, list) else []
+    else:
+        items = data.get(config.data_key) or []
+
+    if config.scalar_row_field is not None:
+        return [{config.scalar_row_field: item} for item in items]
+    return items
+
+
 def _iter_pages(
     session: requests.Session,
     auth: CheckmarxAuth,
     url: str,
     params: dict[str, Any],
-    data_key: str,
-    page_size: int,
+    config: CheckmarxEndpointConfig,
     logger: FilteringBoundLogger,
     start_offset: int = 0,
 ) -> Iterator[tuple[list[dict[str, Any]], int | None]]:
-    """Walk an offset/limit paginated endpoint, yielding (rows, next_offset) per page.
+    """Walk an endpoint's rows, yielding (rows, next_offset) per page.
 
     next_offset is None on the terminal page. Termination is by short page: Checkmarx One list
     responses wrap rows under `data_key` alongside totalCount/filteredTotalCount, and a page with
-    fewer than `limit` rows is the last one.
+    fewer than `limit` rows is the last one. The lookup endpoints return their whole collection in
+    one unpaginated response, so they are fetched without offset/limit.
     """
+    if not config.paginated:
+        rows = _extract_rows(_fetch_json(session, auth, url, params, logger), config)
+        if rows:
+            yield rows, None
+        return
+
     offset = start_offset
     while True:
-        data = _fetch_json(session, auth, url, {**params, "offset": offset, "limit": page_size}, logger)
-        items = data.get(data_key) or []
+        data = _fetch_json(session, auth, url, {**params, "offset": offset, "limit": config.page_size}, logger)
+        items = _extract_rows(data, config)
         if not items:
             break
 
-        next_offset: int | None = offset + len(items) if len(items) >= page_size else None
+        next_offset: int | None = offset + len(items) if len(items) >= config.page_size else None
         yield items, next_offset
 
         if next_offset is None:
@@ -233,33 +253,50 @@ def _result_id(item: dict[str, Any]) -> str:
     return f"{item.get('type', 'unknown')}:{raw}"
 
 
-def _shape_fan_out_row(item: dict[str, Any], scan_id: str, scan_created_at: Any, endpoint: str) -> dict[str, Any]:
+def _change_id(item: dict[str, Any]) -> str:
+    """A stable identifier for a predicate change, which the changelog returns without one.
+
+    Hashed from the whole row so every sync merges onto the same key instead of appending a
+    duplicate. Two changes identical in action, timestamp, user and origin collapse into one row.
+    """
+    return hashlib.sha256(json.dumps(item, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _shape_fan_out_row(
+    item: dict[str, Any],
+    parent_id: str,
+    parent_created_at: Any,
+    endpoint: str,
+    fan_out: CheckmarxFanOutConfig,
+) -> dict[str, Any]:
     row = dict(item)
     if endpoint == "scan_results":
         row["result_id"] = _result_id(item)
-    row["scan_id"] = scan_id
-    row["scan_created_at"] = scan_created_at
+    elif endpoint == "sast_predicates_changelog":
+        row["change_id"] = _change_id(item)
+    row[fan_out.parent_id_field] = parent_id
+    row[fan_out.parent_created_at_field] = parent_created_at
     return row
 
 
-def _enumerate_scans(
+def _enumerate_parents(
     session: requests.Session,
     auth: CheckmarxAuth,
     api_base_url: str,
+    parent_config: CheckmarxEndpointConfig,
     from_date: str | None,
-    page_size: int,
     logger: FilteringBoundLogger,
 ) -> list[tuple[str, Any]]:
-    params: dict[str, Any] = {}
-    if from_date:
-        params["from-date"] = from_date
+    params: dict[str, Any] = dict(parent_config.params)
+    if from_date and parent_config.from_date_param:
+        params[parent_config.from_date_param] = from_date
 
-    scans: list[tuple[str, Any]] = []
+    parents: list[tuple[str, Any]] = []
     for items, _next_offset in _iter_pages(
-        session, auth, f"{api_base_url}/api/scans", params, "scans", page_size, logger
+        session, auth, f"{api_base_url}{parent_config.path}", params, parent_config, logger
     ):
-        scans.extend((item["id"], item.get("createdAt")) for item in items)
-    return scans
+        parents.extend((item["id"], item.get("createdAt")) for item in items)
+    return parents
 
 
 def _get_fan_out_rows(
@@ -272,53 +309,57 @@ def _get_fan_out_rows(
     from_date: str | None,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Fetch `config.path` once per scan, stamping each row with the parent scan's id and creation time.
+    """Fetch `config.path` once per parent row, stamping each row with the parent's id and creation time.
 
-    Each request targets a single scan id — the summary endpoint accepts multiple ids per call, but
-    the batching syntax isn't verifiable without a live tenant, so one-id-per-request keeps the
-    behavior unambiguous at the cost of extra calls.
+    Each request targets a single parent id — the scan summary endpoint accepts multiple ids per
+    call, but the batching syntax isn't verifiable without a live tenant, so one-id-per-request
+    keeps the behavior unambiguous at the cost of extra calls.
     """
-    scans = _enumerate_scans(session, auth, api_base_url, from_date, config.page_size, logger)
+    fan_out = config.fan_out
+    assert fan_out is not None
+    parents = _enumerate_parents(session, auth, api_base_url, CHECKMARX_ENDPOINTS[fan_out.parent], from_date, logger)
 
-    # Resolve the saved scan-id bookmark to the slice of scans still to process. If the bookmarked
-    # scan no longer exists (deleted between runs), start over — merge dedupes on the primary key.
+    # Resolve the saved parent-id bookmark to the slice of parents still to process. If the
+    # bookmarked parent no longer exists (deleted between runs), start over — merge dedupes on the
+    # primary key.
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    remaining = scans
+    remaining = parents
     resume_offset = 0
-    if resume is not None and resume.scan_id is not None:
-        scan_ids = [scan_id for scan_id, _created_at in scans]
-        if resume.scan_id in scan_ids:
-            remaining = scans[scan_ids.index(resume.scan_id) :]
+    if resume is not None and resume.parent_id is not None:
+        parent_ids = [parent_id for parent_id, _created_at in parents]
+        if resume.parent_id in parent_ids:
+            remaining = parents[parent_ids.index(resume.parent_id) :]
             resume_offset = resume.offset
-            logger.debug(f"Checkmarx: resuming {endpoint} from scan_id={resume.scan_id}, offset={resume_offset}")
+            logger.debug(f"Checkmarx: resuming {endpoint} from parent_id={resume.parent_id}, offset={resume_offset}")
 
-    assert config.scan_id_param is not None
-    url = f"{api_base_url}{config.path}"
-
-    for index, (scan_id, scan_created_at) in enumerate(remaining):
+    for index, (parent_id, parent_created_at) in enumerate(remaining):
         start_offset = resume_offset
-        resume_offset = 0  # only the resumed-into scan starts mid-way; the rest start fresh
+        resume_offset = 0  # only the resumed-into parent starts mid-way; the rest start fresh
+
+        url = f"{api_base_url}{config.path}".replace("{parent_id}", quote(parent_id, safe=""))
+        params: dict[str, Any] = dict(config.params)
+        if fan_out.id_param is not None:
+            params[fan_out.id_param] = parent_id
 
         for items, next_offset in _iter_pages(
             session,
             auth,
             url,
-            {config.scan_id_param: scan_id},
-            config.data_key,
-            config.page_size,
+            params,
+            config,
             logger,
             start_offset=start_offset,
         ):
-            yield [_shape_fan_out_row(item, scan_id, scan_created_at, endpoint) for item in items]
+            yield [_shape_fan_out_row(item, parent_id, parent_created_at, endpoint, fan_out) for item in items]
             # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last
             # page rather than skipping it — merge dedupes on the primary key.
             if next_offset is not None:
-                resumable_source_manager.save_state(CheckmarxResumeConfig(offset=next_offset, scan_id=scan_id))
+                resumable_source_manager.save_state(CheckmarxResumeConfig(offset=next_offset, parent_id=parent_id))
 
-        # Advance the bookmark to the next scan so a crash between scans resumes correctly.
+        # Advance the bookmark to the next parent so a crash between parents resumes correctly.
         if index + 1 < len(remaining):
-            next_scan_id = remaining[index + 1][0]
-            resumable_source_manager.save_state(CheckmarxResumeConfig(offset=0, scan_id=next_scan_id))
+            next_parent_id = remaining[index + 1][0]
+            resumable_source_manager.save_state(CheckmarxResumeConfig(offset=0, parent_id=next_parent_id))
 
 
 def get_rows(
@@ -340,15 +381,15 @@ def get_rows(
 
     from_date = _build_incremental_value(config, should_use_incremental_field, db_incremental_field_last_value)
 
-    if config.fan_out_over_scans:
+    if config.fan_out is not None:
         yield from _get_fan_out_rows(
             session, auth, hosts.api_base_url, endpoint, config, resumable_source_manager, from_date, logger
         )
         return
 
-    params: dict[str, Any] = {}
-    if from_date:
-        params["from-date"] = from_date
+    params: dict[str, Any] = dict(config.params)
+    if from_date and config.from_date_param:
+        params[config.from_date_param] = from_date
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     start_offset = resume.offset if resume is not None else 0
@@ -360,8 +401,7 @@ def get_rows(
         auth,
         f"{hosts.api_base_url}{config.path}",
         params,
-        config.data_key,
-        config.page_size,
+        config,
         logger,
         start_offset=start_offset,
     ):

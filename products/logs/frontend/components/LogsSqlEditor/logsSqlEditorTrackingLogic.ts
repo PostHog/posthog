@@ -17,18 +17,18 @@ const captureSaved = (target: SaveAsMenuItem['action']): void => {
 export interface logsSqlEditorTrackingLogicActions {
     sqlEditorRunQuery: (
         queryOverride?: string | undefined,
-        switchTab?: boolean | undefined
+        switchTab?: boolean | undefined,
+        reuseResults?: boolean | undefined
     ) => {
         queryOverride: string | undefined
+        reuseResults: boolean
         switchTab: boolean | undefined
     } // sqlEditorLogic
     sqlEditorSaveAsEndpointSubmit: (
         name: string,
         description?: string | undefined,
-        queryOverride?: string | undefined,
-        dagId?: string | undefined
+        queryOverride?: string | undefined
     ) => {
-        dagId: string | undefined
         description: string | undefined
         name: string
         queryOverride: string | undefined

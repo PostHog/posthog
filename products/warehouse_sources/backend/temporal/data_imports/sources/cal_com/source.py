@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.cal_com import (
     ORGANIZATION_REQUIRED_ERROR,
     CalComResumeConfig,
@@ -42,6 +41,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CalComSource(ResumableSource[CalComSourceConfig, CalComResumeConfig]):
+    codebase_detection = detect(
+        env=("^CALCOM_", "^CAL_API_KEY$"),
+        script_hosts=("app.cal.com",),
+        npm=("@calcom/embed-react", "@calcom/embed-snippet", "@calcom/embed-core", "@calcom/atoms"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -54,7 +59,7 @@ class CalComSource(ResumableSource[CalComSourceConfig, CalComResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CAL_COM,
+            name=ExternalDataSourceType.CALCOM,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Cal.com",
             releaseStatus=ReleaseStatus.ALPHA,

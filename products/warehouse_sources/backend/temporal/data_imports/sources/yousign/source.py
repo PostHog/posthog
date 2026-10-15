@@ -2,12 +2,13 @@ from typing import TYPE_CHECKING, Optional, cast
 
 import structlog
 
-if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 
-from posthog.schema import (
+if TYPE_CHECKING:
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -15,7 +16,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -67,6 +67,8 @@ class YouSignSource(
     ResumableSource[YouSignSourceConfig, YousignResumeConfig],
     WebhookSource[YouSignSourceConfig],
 ):
+    codebase_detection = detect(env=("^(YOU_SIGN|YOUSIGN)_",), script_hosts=("cdn.yousign.tech",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v3",)
@@ -80,7 +82,7 @@ class YouSignSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.YOU_SIGN,
+            name=ExternalDataSourceType.YOUSIGN,
             category=DataWarehouseSourceCategory.SALES,
             label="Yousign",
             releaseStatus=ReleaseStatus.ALPHA,

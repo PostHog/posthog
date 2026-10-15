@@ -25,10 +25,14 @@ from products.data_quality.backend.facade.enums import (
     SuiteRunTrigger,
 )
 from products.data_quality.backend.logic.runner import run_check
+from products.data_quality.backend.logic.staged_audit import StagedSubjectOverride
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
+STAGED_FOLDER = "query_2000000000000"
+SAVED_QUERY_SQL = "products.data_modeling.backend.logic.saved_query_reads.get_saved_query_sql"
+CREATE_NOTIFICATION = "products.data_quality.backend.logic.notifications.create_notification"
 
 
 class _Response:
@@ -46,6 +50,20 @@ class TestCheckRunner(BaseTest):
         self.suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team, trigger=SuiteRunTrigger.MANUAL
         )
+
+    def _materialize_view(self) -> None:
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="_key", access_secret="_secret")
+        self.view.table = DataWarehouseTable.objects.create(
+            name="orders",
+            team=self.team,
+            columns={"customer_id": "String"},
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="http://localhost:19000/bucket/team_1_model_x/modeling/orders",
+            queryable_folder="query_1000000000000",
+        )
+        self.view.is_materialized = True
+        self.view.save()
 
     def _check(self, **kwargs) -> DataQualityCheck:
         defaults = {
@@ -253,13 +271,41 @@ class TestCheckRunner(BaseTest):
         assert tags.data_quality_subject_type == SubjectType.VIEW
         assert tags.data_quality_subject_id == str(self.view.id)
 
-    def test_the_stored_query_selects_failing_rows(self) -> None:
+    @parameterized.expand(
+        [
+            ("published", False, "SELECT * FROM orders WHERE isNull(customer_id)"),
+            (
+                "staged",
+                True,
+                "WITH orders AS (SELECT 1 AS customer_id) SELECT * FROM orders WHERE isNull(customer_id)",
+            ),
+        ]
+    )
+    def test_the_stored_query_selects_failing_rows(self, _name: str, audit_staged: bool, expected: str) -> None:
+        self._materialize_view()
         check = self._check()
+        staged = (
+            StagedSubjectOverride(saved_query_id=str(self.view.id), queryable_folder=STAGED_FOLDER)
+            if audit_staged
+            else None
+        )
         with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
-            run_check(check, self.suite_run, self.team)
+            run_check(check, self.suite_run, self.team, staged=staged)
 
         run = DataQualityCheckRun.objects.for_team(self.team.id).get(quality_check=check)
-        assert run.compiled_query == "SELECT * FROM orders WHERE isNull(customer_id)"
+        assert (run.compiled_query, run.audited_staged_refresh) == (expected, audit_staged)
+
+    def test_a_staged_run_still_audits_when_its_replay_query_cannot_be_built(self) -> None:
+        self._materialize_view()
+        check = self._check()
+        staged = StagedSubjectOverride(saved_query_id=str(self.view.id), queryable_folder=STAGED_FOLDER)
+        with (
+            patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])),
+            patch(SAVED_QUERY_SQL, side_effect=RuntimeError("database unavailable")),
+        ):
+            outcome = run_check(check, self.suite_run, self.team, staged=staged)
+
+        assert (outcome.status, outcome.failed_row_count, outcome.compiled_query) == (CheckRunStatus.FAILED, 3, "")
 
     @parameterized.expand(
         [
@@ -308,6 +354,24 @@ class TestCheckRunner(BaseTest):
             team=self.team, trigger=SuiteRunTrigger.MATERIALIZATION
         )
         check = self._referencing_check(check_type, created_by=self.user)
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [0, 0])) as query:
+            run_check(check, suite_run, self.team)
+
+        assert query.call_args.kwargs["bypass_warehouse_access_control"] is False
+        assert query.call_args.kwargs["user"] == self.user
+
+    def test_an_automated_posthog_table_check_runs_as_its_author(self) -> None:
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger=SuiteRunTrigger.SCHEDULED
+        )
+        check = self._check(
+            subject_type=SubjectType.POSTHOG_TABLE,
+            saved_query_id=None,
+            posthog_table="events",
+            subject_name="events",
+            column_name="properties.$browser",
+            created_by=self.user,
+        )
         with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [0, 0])) as query:
             run_check(check, suite_run, self.team)
 
@@ -497,33 +561,14 @@ class TestCheckRunner(BaseTest):
         query.assert_not_called()
         assert outcome.status == CheckRunStatus.ERRORED
 
-    @parameterized.expand(
-        [
-            ("first_failure", "", CheckSeverity.ERROR, True),
-            ("still_failing", CheckRunStatus.FAILED, CheckSeverity.ERROR, False),
-            ("warn_severity", "", CheckSeverity.WARN, False),
-            ("recovered_then_failed_again", CheckRunStatus.PASSED, CheckSeverity.ERROR, True),
-        ]
-    )
-    def test_became_failing_marks_only_error_severity_transitions(
-        self, _name, previous_status: str, severity: CheckSeverity, expected: bool
-    ) -> None:
-        check = self._check(last_status=previous_status, severity=severity)
-        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
-            outcome = run_check(check, self.suite_run, self.team)
+    def test_a_failing_run_records_the_outcome_without_notifying(self) -> None:
+        check = self._check(last_status=CheckRunStatus.PASSED, severity=CheckSeverity.ERROR)
 
-        assert outcome.became_failing is expected
+        with patch(CREATE_NOTIFICATION) as create_notification:
+            with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
+                outcome = run_check(check, self.suite_run, self.team)
+
+        create_notification.assert_not_called()
+        assert outcome.status == CheckRunStatus.FAILED
         check.refresh_from_db()
         assert check.last_status == CheckRunStatus.FAILED
-
-    def test_an_overlapping_run_does_not_claim_the_same_failing_transition(self) -> None:
-        # Stands in for a manual run racing the scheduled one: this run still holds the passing
-        # status it loaded, but the row already moved to failing, so it must not notify a second time.
-        check = self._check(last_status=CheckRunStatus.PASSED, severity=CheckSeverity.ERROR)
-        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(last_status=CheckRunStatus.FAILED)
-
-        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
-            outcome = run_check(check, self.suite_run, self.team)
-
-        assert outcome.status == CheckRunStatus.FAILED
-        assert outcome.became_failing is False

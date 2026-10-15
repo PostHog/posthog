@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -40,6 +39,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TallySource(ResumableSource[TallySourceConfig, TallyResumeConfig]):
+    # Tally is also an accounting product, so we match the exact key.
+    codebase_detection = detect(env=("^TALLY_API_KEY$",), script_hosts=("tally.so",))
+
     # Tally versions its API by date. 2025-02-01 is the newest version the docs describe, and it is
     # the shape this source is written against (paginated envelopes on the list endpoints).
     supported_versions = (TALLY_API_VERSION,)
@@ -55,7 +57,7 @@ class TallySource(ResumableSource[TallySourceConfig, TallyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TALLY,
+            name=ExternalDataSourceType.TALLY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Tally",
             keywords=["forms", "surveys", "tally.so"],

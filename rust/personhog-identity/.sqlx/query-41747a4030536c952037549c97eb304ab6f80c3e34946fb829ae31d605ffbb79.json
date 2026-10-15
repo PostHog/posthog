@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='delete_unmap_victims' */ \n        SELECT person_id FROM lifecycle_op_person_tmp\n        WHERE op_id = $1 AND status = 'sealed'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "41747a4030536c952037549c97eb304ab6f80c3e34946fb829ae31d605ffbb79"
+}

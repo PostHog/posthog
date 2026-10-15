@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -50,6 +49,16 @@ def _dimension_options() -> list[SourceFieldSelectConfigOption]:
 
 @SourceRegistry.register
 class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
+    codebase_detection = detect(
+        env=("^(MICROSOFT_CLARITY|MICROSOFTCLARITY)_",),
+        script_hosts=("www.clarity.ms",),
+        npm=("@microsoft/clarity", "@microsoft/react-native-clarity", "react-native-clarity"),
+        cocoapods=("Clarity",),
+        maven=("com.microsoft.clarity:clarity", "com.microsoft.clarity:clarity-compose"),
+        pub=("clarity_flutter",),
+        swiftpm=("github.com/microsoft/clarity-apps",),
+    )
+
     lists_tables_without_credentials = True  # static, single endpoint — safe for public docs
     api_docs_url = "https://learn.microsoft.com/en-us/clarity/setup-and-installation/clarity-data-export-api"
 
@@ -64,6 +73,14 @@ class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
             "403 Client Error": TOKEN_WRONG_PROJECT_ERROR,
             "429 Client Error": "The Microsoft Clarity daily quota (10 requests per project) has been used up. Try again after the quota resets.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch` calls `make_tracked_session` directly rather than through the shared REST
+        # engine, so `DEFAULT_RETRY` already retries a dropped connection or read timeout before
+        # re-raising once that budget is exhausted. urllib3 wraps that as "... Max retries exceeded
+        # with url: ..." regardless of the underlying cause. Temporal then retries the whole
+        # activity, so the failure is transient and self-recovering, not a bug to report.
+        return {"Max retries exceeded with url"}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.canonical_descriptions import (
@@ -104,7 +121,7 @@ class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MICROSOFT_CLARITY,
+            name=ExternalDataSourceType.MICROSOFTCLARITY,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Microsoft Clarity",
             releaseStatus=ReleaseStatus.ALPHA,

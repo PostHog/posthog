@@ -1,14 +1,13 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -50,7 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 @SourceRegistry.register
@@ -58,6 +57,8 @@ class UpPromoteSource(
     ResumableSource[UpPromoteSourceConfig, UpPromoteResumeConfig],
     WebhookSource[UpPromoteSourceConfig],
 ):
+    codebase_detection = detect(env=("^(UP_PROMOTE|UPPROMOTE)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -70,7 +71,7 @@ class UpPromoteSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.UP_PROMOTE,
+            name=ExternalDataSourceType.UPPROMOTE,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="UpPromote",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -173,6 +174,10 @@ class UpPromoteSource(
                 "payments_unpaid": (
                     "Outstanding (approved but unpaid) commission per affiliate. An aggregated "
                     "snapshot, refreshed in full on every sync"
+                ),
+                "program_excluded": (
+                    "Products or collections excluded from commission, one row per program. "
+                    "Refreshed in full on every sync"
                 ),
             },
         )

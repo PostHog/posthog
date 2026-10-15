@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -40,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PowerBiAdminSource(ResumableSource[PowerBiAdminSourceConfig, PowerBiAdminResumeConfig]):
+    codebase_detection = detect(env=("^(POWER_BI_ADMIN|POWERBIADMIN)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # `v1.0` is a fixed segment of the admin API base path, not a version the tenant chooses.
     api_docs_url = "https://learn.microsoft.com/en-us/rest/api/power-bi/admin"
@@ -136,7 +137,7 @@ class PowerBiAdminSource(ResumableSource[PowerBiAdminSourceConfig, PowerBiAdminR
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.POWER_BI_ADMIN,
+            name=ExternalDataSourceType.POWERBIADMIN,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Power BI admin",
             keywords=["power bi", "powerbi", "fabric", "microsoft"],

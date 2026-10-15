@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,30 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlaidSource(ResumableSource[PlaidSourceConfig, PlaidResumeConfig]):
+    codebase_detection = detect(
+        env=("^PLAID_", "^VITE_PLAID_ENV$"),
+        script_hosts=("cdn.plaid.com",),
+        npm=(
+            "plaid",
+            "react-plaid-link",
+            "react-native-plaid-link-sdk",
+            "@types/plaid-link",
+            "ngx-plaid-link",
+            "@jcss/vue-plaid-link",
+            "plaid-fetch",
+        ),
+        pypi=("plaid-python",),
+        cargo=("plaid",),
+        cocoapods=("Plaid",),
+        composer=("tomorrow-ideas/plaid-sdk-php",),
+        go=("github.com/plaid/plaid-go",),
+        hex=("plaid_elixir",),
+        maven=("com.plaid:plaid-java", "com.plaid.link:sdk-core"),
+        pub=("plaid_link_flutter", "plaid_flutter"),
+        rubygems=("plaid",),
+        swiftpm=("github.com/plaid/plaid-link-ios-spm", "github.com/plaid/plaid-link-ios"),
+    )
+
     api_docs_url = "https://plaid.com/docs/api/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -56,7 +79,7 @@ class PlaidSource(ResumableSource[PlaidSourceConfig, PlaidResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PLAID,
+            name=ExternalDataSourceType.PLAID,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Plaid",
             keywords=["bank", "banking", "open banking", "financial", "fintech", "transactions"],

@@ -4,6 +4,7 @@ import {
   SPEECH_USER_NAME_PROVIDER,
 } from "@posthog/core/speech/identifiers";
 import type { HostCapabilityRequirement } from "@posthog/di/hostCapabilities";
+import { FEEDBACK_CONTEXT_SERVICE } from "@posthog/platform/feedback-context";
 import { HOST_CAPABILITIES } from "@posthog/platform/host-capabilities";
 import { SPEECH_SERVICE } from "@posthog/platform/speech";
 import { AUTH_SIDE_EFFECTS } from "@posthog/ui/features/auth/identifiers";
@@ -47,6 +48,10 @@ export const REQUIRED_HOST_CAPABILITIES: readonly HostCapabilityRequirement[] =
     {
       token: FEATURE_FLAGS,
       description: "feature-flag gating across the app",
+    },
+    {
+      token: FEEDBACK_CONTEXT_SERVICE,
+      description: "recent app logs for explicit feedback attachments",
     },
     {
       token: AUTH_SIDE_EFFECTS,

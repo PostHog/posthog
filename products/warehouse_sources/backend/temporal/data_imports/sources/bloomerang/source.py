@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.bloomerang import (
     BloomerangResumeConfig,
     bloomerang_source,
@@ -42,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BloomerangSource(ResumableSource[BloomerangSourceConfig, BloomerangResumeConfig]):
+    codebase_detection = detect(env=("^BLOOMERANG_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     # The source has always spoken Bloomerang's current v2 REST API on the wire (BASE_URL ends in
@@ -122,7 +123,7 @@ class BloomerangSource(ResumableSource[BloomerangSourceConfig, BloomerangResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BLOOMERANG,
+            name=ExternalDataSourceType.BLOOMERANG,
             category=DataWarehouseSourceCategory.CRM,
             keywords=["donor", "nonprofit", "fundraising"],
             releaseStatus=ReleaseStatus.ALPHA,

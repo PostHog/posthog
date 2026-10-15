@@ -4,6 +4,15 @@ import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } fro
 import { primaryReportPullRequest, hasActiveReportPullRequest } from './reportPullRequests'
 
 /**
+ * Can the signed-in user take themselves off this report's suggested reviewers? A list scoped to them
+ * holds only reports that name them, even where `is_suggested_reviewer` is false: the server clears
+ * that flag on failed and not-actionable reports, which still list the user as a reviewer.
+ */
+export function canUnassignMe(report: SignalReport, isScopedToMe: boolean): boolean {
+    return isScopedToMe || report.is_suggested_reviewer
+}
+
+/**
  * Should the Create PR action be offered? Mirrors desktop `canCreateImplementationPr` /
  * the server-side autostart rules: only when ready & actionable, or blocked on user input.
  */
@@ -23,14 +32,12 @@ export function canCreateImplementationPr(report: SignalReport): boolean {
     return false
 }
 
-/**
- * Offer Resolve only where the backend accepts a direct transition to RESOLVED — a researched
- * report (ready or pending_input). Other live statuses (potential, candidate, in_progress,
- * failed) return 409, so don't show a dead-end affordance. Mirrors `canCreateImplementationPr`
- * and the server transition guard.
- */
 export function canResolveReport(report: SignalReport): boolean {
-    return report.status === SignalReportStatus.READY || report.status === SignalReportStatus.PENDING_INPUT
+    return (
+        report.status === SignalReportStatus.READY ||
+        report.status === SignalReportStatus.PENDING_INPUT ||
+        report.status === SignalReportStatus.FAILED
+    )
 }
 
 /** The backend closes an open implementation PR on resolve; surfaces use this to say so. */

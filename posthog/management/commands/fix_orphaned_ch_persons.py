@@ -6,7 +6,13 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.kafka_client.routing import flush_all_producers
-from posthog.models.person.deletion import OrphanRepairResult, find_orphaned_ch_persons, tombstone_orphaned_ch_persons
+from posthog.models.person.deletion import (
+    OrphanRepairResult,
+    count_live_ch_persons,
+    find_orphaned_ch_persons,
+    orphan_share_refusal,
+    tombstone_orphaned_ch_persons,
+)
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -16,8 +22,8 @@ _FLUSH_TIMEOUT_SECONDS = 5 * 60
 
 class Command(BaseCommand):
     help = (
-        "Tombstone ClickHouse person rows that are live in ClickHouse but absent from the persons DB "
-        "(the inverse of fix_person_distinct_ids_after_delete). Dry-run by default."
+        "Tombstone ClickHouse person rows that are live in ClickHouse but absent from the persons DB. "
+        "Dry-run by default."
     )
 
     def add_arguments(self, parser):
@@ -39,6 +45,11 @@ class Command(BaseCommand):
             action=argparse.BooleanOptionalAction,
             default=True,
             help="Report what would change without writing (default: on). Pass --no-dry-run to apply.",
+        )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Apply even when the orphans are more than 5%% of the team's live ClickHouse persons.",
         )
 
     def handle(self, *args, **options):
@@ -72,6 +83,13 @@ def run(options) -> None:
                 not_orphaned=not_orphaned,
             )
 
+    refusal = orphan_share_refusal(team_id, len(orphans), count_live_ch_persons(team_id)) if orphans else None
+    if refusal:
+        if not dry_run and not options.get("force"):
+            logger.error(refusal)
+            exit(1)
+        logger.warning(refusal)
+
     result = tombstone_orphaned_ch_persons(team_id, orphans, dry_run=dry_run)
     _log_result(team_id, result)
 
@@ -99,14 +117,14 @@ def _log_result(team_id: int, result: OrphanRepairResult) -> None:
         dry_run=result.dry_run,
         orphaned_persons=len(result.orphaned_person_uuids),
         tombstoned_persons=result.tombstoned_persons,
-        tombstoned_mappings=result.tombstoned_mappings,
-        skipped_reassigned_mappings=result.skipped_reassigned_mappings,
+        republished_persons=result.republished_persons,
+        skipped_live_persons=result.skipped_live_persons,
         reverse_drift_mappings=len(result.reverse_drift_mappings),
     )
     if result.reverse_drift_mappings:
         logger.warning(
             "Found distinct_ids tombstoned in ClickHouse whose person is still live in the persons DB "
-            "(reverse drift). Repair these with fix_person_distinct_ids_after_delete, not this command.",
+            "(reverse drift). Repair these with person_divergence repair, not this command.",
             team_id=team_id,
             reverse_drift=result.reverse_drift_mappings,
         )

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DagsterCloudSource(ResumableSource[DagsterCloudSourceConfig, DagsterCloudResumeConfig]):
+    codebase_detection = detect(env=("^(DAGSTER_CLOUD|DAGSTERCLOUD)_",), pypi=("dagster-cloud", "dagster-cloud-cli"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -50,7 +51,7 @@ class DagsterCloudSource(ResumableSource[DagsterCloudSourceConfig, DagsterCloudR
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DAGSTER_CLOUD,
+            name=ExternalDataSourceType.DAGSTERCLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Dagster+ (Dagster Cloud)",
             releaseStatus=ReleaseStatus.ALPHA,

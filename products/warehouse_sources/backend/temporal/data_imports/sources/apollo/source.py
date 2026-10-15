@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.apollo import (
     ApolloResumeConfig,
     apollo_source,
@@ -35,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ApolloSource(ResumableSource[ApolloSourceConfig, ApolloResumeConfig]):
+    codebase_detection = detect(script_hosts=("assets.apollo.io",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.apollo.io/reference"
@@ -60,7 +61,7 @@ class ApolloSource(ResumableSource[ApolloSourceConfig, ApolloResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APOLLO,
+            name=ExternalDataSourceType.APOLLO,
             category=DataWarehouseSourceCategory.CRM,
             label="Apollo",
             caption="""Enter your Apollo API key to pull your saved contacts, accounts, and deals into the PostHog Data warehouse, along with your sequences, outreach emails, calls, and tasks, and the users and pipeline stages they reference.

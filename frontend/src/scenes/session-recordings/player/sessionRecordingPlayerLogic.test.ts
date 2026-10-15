@@ -15,9 +15,8 @@ import { makeLogger } from 'scenes/session-recordings/player/utils/player-loggin
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { ExporterFormat, RecordingSegment, RecordingSnapshot } from '~/types'
+import { ExporterFormat, RecordingSegment, RecordingSnapshot, SessionPlayerState } from '~/types'
 
-import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
 import { isUsableHeatmapUrl } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
@@ -413,22 +412,32 @@ describe('sessionRecordingPlayerLogic', () => {
             resumeKeaLoadersErrors()
         })
 
+        it('stays paused if autoplay is off', async () => {
+            logic.unmount()
+            logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test', autoPlay: false })
+            logic.mount()
+
+            silenceKeaLoadersErrors()
+
+            await expectLogic(logic).toDispatchActions([
+                sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
+            ])
+
+            expect(logic.values.playingState).toEqual(SessionPlayerState.PAUSE)
+
+            resumeKeaLoadersErrors()
+        })
+
         it('marks as viewed once playing', async () => {
             logic.unmount()
             logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test', autoPlay: true })
             logic.mount()
-            const nudgeLogic = analysisNudgeLogic.build()
-            nudgeLogic.mount()
 
             silenceKeaLoadersErrors()
 
             await expectLogic(logic).toDispatchActions([logic.actionTypes.setPlay, logic.actionTypes.markViewed])
 
-            // The analyzed mark also feeds the replay vision analysis nudge counter.
-            await expectLogic(nudgeLogic).toDispatchActions(['recordingAnalyzed'])
-            expect(nudgeLogic.values.analyzedRecordingIds).toContain('2')
-
-            nudgeLogic.unmount()
             resumeKeaLoadersErrors()
         })
 

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -35,6 +34,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SinglestoreSource(SimpleSource[SinglestoreSourceConfig]):
+    codebase_detection = detect(
+        env=("^SINGLESTORE_", "^SINGLESTOREDB_"),
+        npm=("@singlestore/client",),
+        pypi=("singlestoredb", "sqlalchemy-singlestoredb"),
+    )
+
     # get_schemas below just iterates the static ENDPOINTS catalog — no network call.
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.singlestore.com/cloud/reference/management-api/"
@@ -90,7 +95,7 @@ class SinglestoreSource(SimpleSource[SinglestoreSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SINGLESTORE,
+            name=ExternalDataSourceType.SINGLESTORE,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["database", "usage", "billing"],
             label="SingleStore, Inc.",

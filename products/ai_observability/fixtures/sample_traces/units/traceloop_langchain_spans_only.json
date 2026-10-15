@@ -1,0 +1,129 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Compliance agent answers a log-retention policy question",
+  "scenario": "A LangChain-based compliance-agent looks up an employee's question about security incident log retention and external auditor access, reasons over retrieved internal policy excerpts, and returns a grounded, cited answer.",
+  "summary": {
+    "events": {
+      "$ai_trace": 1,
+      "$ai_span": 2
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "opentelemetry/traceloop",
+      "otel"
+    ],
+    "providers": [
+      "langchain",
+      "openai"
+    ],
+    "frameworks": [],
+    "models": [
+      "moonshotai/kimi-k2.7-code"
+    ],
+    "content_types": [
+      "text"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_trace",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_span_id": "4486b99fc4f6b68b",
+        "$ai_trace_id": "0c648dd13107599b18b7a3fdc1eadcc8",
+        "$geoip_disable": true,
+        "workflow_run_id": "68c79a0e-5f4b-773b-0242-39a8031d0ece",
+        "gen_ai.agent.name": "compliance-agent",
+        "chain_run_metadata": "{\"config\": {\"name\": \"agent\", \"mode\": \"default\", \"content\": \"This chain answers internal questions about the security and compliance policy set by\\nretrieving the most relevant policy sections from the internal KB index before drafting\\na grounded answer. It is only used for read-only Q&A; it never modifies policy documents\\nand always includes the section it drew from so an employee can verify the source.\", \"prompt\": \"Answer the compliance question using only the retrieved policy excerpts below.\", \"extra\": \"retrieved_documents:\\n  - doc_id: sec-pol-014\\n    title: Security Incident Log Retention\\n    section: 3.2 Retention period\\n    score: 0.91\\n  - doc_id: sec-pol-014\\n    title: Security Incident Log Retention\\n    section: 4.1 External auditor access\\n    score: 0.87\\n  - doc_id: sec-pol-009\\n    title: Data Classification and Handling\\n    section: 2.4 Log data classification\\n    score: 0.62\\nretrieval_backend: pgvector\\nembedding_model: text-embedding-3-small\\ntop_k: 3\\nreranked: true\\nreranker_model: rerank-english-v3\\nfilters:\\n  document_status: published\\n  document_owner_team: security\\nquery_rewrite: false\\nlatency_ms:\\n  embed: 41\\n  search: 118\\n  rerank: 74\", \"run_comment\": \"\"}, \"tags\": [], \"metadata\": {}, \"kwargs\": {\"name\": \"compliance-agent\"}}",
+        "serialized_message": "{\"message\": {\"lc\": 1, \"type\": \"constructor\", \"id\": [\"langchain\", \"schema\", \"messages\", \"AIMessage\"], \"kwargs\": {\"content\": [{\"id\": \"rs_8f3a21c9d4e6f70\", \"summary\": [], \"type\": \"reasoning\", \"content\": [{\"text\": \"The employee is asking about retention and external audit access for security incident logs. Let me work through what our internal policy actually says before answering, since guessing at a retention period would be worse than saying I'm not sure.\\n\\nFirst, I should check whether the retrieved context distinguishes retention by incident severity. Looking at the excerpt from sec-pol-014 section 3.2, it names an 18-month retention period, but that section header suggests there may be a separate, shorter period for lower-severity incidents elsewhere in the same document that wasn't retrieved. I'll answer based on what's actually in front of me and note that the 18-month figure applies to the class of incident the excerpt covers, without assuming it's universal across all severities unless the text says so.\\n\\nSecond, on external auditor access: section 4.1 is explicit that access requires a signed data access request reviewed by the Security team, and that it must be scoped to specific incidents named in an engagement letter. It also specifies that raw logs are never shared directly, only a redacted export. That's a clean, citable answer, so I don't need to hedge on that part.\\n\\nI should also flag the Restricted classification from sec-pol-009 section 2.4, since it explains why the export is redacted rather than raw: log data containing user identifiers or IP addresses gets the strictest handling. That's useful supporting context but not the core answer, so it belongs as a supporting note rather than the headline.\\n\\nOne more thing worth checking: is there any indication a legal hold could override the 18-month period? The excerpt doesn't mention legal holds directly, so I won't invent that detail even though it's plausible for this kind of policy; I'll stick to what's actually retrieved.\\n\\nGiven all that, my answer should state the 18-month retention figure with its citation, describe the two-part condition for auditor access (signed request plus engagement-letter scope), note that access is via redacted export rather than raw logs, and keep it short since this is a policy lookup, not an essay. I'll use a short bullet list for the auditor conditions since there are two of them and a list reads faster than a sentence trying to hold both.\\n\\n## Security Incident Log Retention (sec-pol-014)\\n\\n### 1. Purpose\\nThis policy defines how long security incident logs are kept, who can access them, and\\nhow they are disposed of once the retention period ends. It applies to every system that\\ngenerates security-relevant logs, including authentication systems, the intrusion\\ndetection pipeline, and the internal ticketing system used to track incident response.\\n\\n### 2. Scope\\nApplies to all incident-related logs collected by the Security team, whether stored in the\\ncentral log warehouse or in a vendor's own retention system under contract with us.\\n\\n### 3. Retention periods\\n\\n3.1 Standard incidents. Logs for a standard-severity incident are retained for 12 months\\nfrom the date the incident ticket is closed.\\n\\n3.2 High and critical incidents. Logs for a high or critical-severity incident, including\\naccess logs, alert records, and the associated investigation notes, must be retained for a\\nminimum of 18 months from the date the incident is closed. Logs older than 18 months may be\\npurged during the quarterly retention cleanup unless they are subject to an active legal\\nhold, in which case retention continues until the hold is lifted by Legal.\\n\\n3.3 Legal holds. Any log subject to a legal hold is exempt from the standard purge cycle\\nregardless of severity, and must be flagged in the retention system with the hold reference\\nnumber.\\n\\n### 4. Access\\n\\n4.1 External auditor access. External auditors may request access to incident logs as part\\nof a scheduled audit engagement. Access requires a signed data access request reviewed and\\napproved by the Security team, and must be scoped to the specific incident(s) named in the\\nengagement letter. Raw logs are not shared directly; the Security team produces a redacted\\nexport limited to the fields relevant to the audit scope.\\n\\n4.2 Internal access. Engineers may access logs for incidents they were assigned to for up to\\n90 days after closure without additional approval. Access beyond that window requires a\\nmanager-approved exception request.\\n\\n4.3 Law enforcement requests. Requests from law enforcement are routed to Legal, not\\nSecurity, and follow the separate Law Enforcement Request Handling procedure.\\n\\n## Data Classification and Handling (sec-pol-009)\\n\\n### 2. Classification levels\\n\\n2.1 Public. Information that can be shared outside the company without review.\\n\\n2.2 Internal. Information intended for employees and contractors, not for external sharing\\nwithout approval.\\n\\n2.3 Confidential. Business-sensitive information such as unreleased product plans or\\ncontract terms.\\n\\n2.4 Restricted. The highest classification. Log data containing user identifiers or IP\\naddresses is classified as Restricted and is subject to the strictest access controls in\\nthis policy: named-individual access grants, mandatory encryption at rest, and a quarterly\\naccess review.\\n\\n## Incident Response Runbook - Log Collection Checklist\\n\\nWhen an incident is opened, the on-call responder should:\\n\\n1. Snapshot the relevant logs into the incident's evidence bucket within the first hour,\\n   before any auto-rotation can remove them.\\n2. Tag the snapshot with the incident ID and severity so the retention system applies the\\n   correct retention period automatically.\\n3. Note in the ticket which systems were queried and which log sources, if any, were\\n   unavailable, since a gap in coverage affects how confidently we can close the incident.\\n4. If the incident is escalated to critical, notify the Security lead so a legal hold can be\\n   considered before any scheduled purge would otherwise apply.\\n\\nResponders should never manually delete a log during an active investigation, even a log\\nthat looks unrelated; let the retention policy handle disposal once the incident closes.\\n\\n## Audit Engagement Handling Guide\\n\\nExternal audits typically follow this sequence:\\n\\n- Legal and Security jointly review the engagement letter to confirm scope.\\n- Security identifies which log sources and date ranges fall inside that scope.\\n- A redacted export is generated; fields outside the approved scope (such as full IP\\n  addresses tied to individual employees) are masked before the export leaves our systems.\\n- The auditor's access request and the export manifest are both retained for our own\\n  audit trail, separate from the underlying incident logs.\\n\\nAuditors are never given direct query access to the production log warehouse. All access\\ngoes through the export process described above, even for a follow-up question that seems\\nlike it could be answered with \\\"just one more query.\\\" \", \"type\": \"policy_excerpt\"}], \"status\": \"completed\", \"format\": \"snippet\"}, {\"type\": \"text\", \"text\": \"Security incident logs are retained for **18 months** from the date of the incident, per section 3.2 of the Security Incident Log Retention policy (sec-pol-014).\\n\\nExternal auditors **can** request access, but only:\\n- through a signed data access request reviewed by the Security team, and\\n- scoped to the specific incident(s) named in the audit engagement letter.\\n\\nRaw logs are never shared directly; auditors receive a redacted export. Let me know if you need the request form.\", \"annotations\": [], \"id\": \"msg_8f3a21c9d4e6f701\"}], \"response_metadata\": {\"id\": \"resp_8f3a21c9d4e6f701a2b3c4d5e\", \"created_at\": 1641975818.199847, \"metadata\": {}, \"model\": \"moonshotai/kimi-k2.7-code\", \"object\": \"response\", \"service_tier\": \"auto\", \"status\": \"completed\", \"model_provider\": \"openai\", \"model_name\": \"moonshotai/kimi-k2.7-code\"}, \"type\": \"ai\", \"id\": \"resp_8f3a21c9d4e6f701a2b3c4d5e\", \"usage_metadata\": {\"input_tokens\": 438, \"output_tokens\": 1629, \"total_tokens\": 2067, \"input_token_details\": {\"cache_read\": 0}, \"output_token_details\": {\"reasoning\": 1536}}, \"tool_calls\": [], \"invalid_tool_calls\": []}}, \"kwargs\": {\"tags\": []}}",
+        "deployment_stage": "staging",
+        "service.name": "policy-agent",
+        "$ai_provider": "langchain",
+        "$ai_span_name": "answer_compliance_query",
+        "$ai_latency": 20.770341531,
+        "$ai_lib": "opentelemetry/traceloop"
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "4486b99fc4f6b68b",
+        "$ai_span_id": "87285cb2df6e490a",
+        "$ai_trace_id": "0c648dd13107599b18b7a3fdc1eadcc8",
+        "$geoip_disable": true,
+        "child_run_id": "3dee53a1-cf25-7ae9-bf79-5a4f637aa0a2",
+        "chain_run_metadata": "{\"config\": {\"name\": \"agent\", \"mode\": \"default\", \"content\": \"This chain answers internal questions about the security and compliance policy set by\\nretrieving the most relevant policy sections from the internal KB index before drafting\\na grounded answer. It is only used for read-only Q&A; it never modifies policy documents\\nand always includes the section it drew from so an employee can verify the source.\", \"prompt\": \"Answer the compliance question using only the retrieved policy excerpts below.\", \"extra\": \"retrieved_documents:\\n  - doc_id: sec-pol-014\\n    title: Security Incident Log Retention\\n    section: 3.2 Retention period\\n    score: 0.91\\n  - doc_id: sec-pol-014\\n    title: Security Incident Log Retention\\n    section: 4.1 External auditor access\\n    score: 0.87\\n  - doc_id: sec-pol-009\\n    title: Data Classification and Handling\\n    section: 2.4 Log data classification\\n    score: 0.62\\nretrieval_backend: pgvector\\nembedding_model: text-embedding-3-small\\ntop_k: 3\\nreranked: true\\nreranker_model: rerank-english-v3\\nfilters:\\n  document_status: published\\n  document_owner_team: security\\nquery_rewrite: false\\nlatency_ms:\\n  embed: 41\\n  search: 118\\n  rerank: 74\", \"run_comment\": \"\"}, \"tags\": [\"retrieval\"], \"metadata\": {}, \"kwargs\": {\"run_type\": \"prompt\", \"name\": \"PromptTemplate\"}}",
+        "app.genai.step.name": "PromptTemplate",
+        "serialized_message": "{\"message\": {\"lc\": 1, \"type\": \"constructor\", \"id\": [\"langchain\", \"prompts\", \"base\", \"StringPromptValue\"], \"kwargs\": {\"text\": \"You are the Compliance Knowledge Assistant for the internal policy portal.\\nAnswer only from the retrieved policy excerpts provided below. If the excerpts\\ndo not fully answer the question, say so explicitly rather than guessing at\\na retention period, access rule, or approval step. Always name the policy\\ndocument and section you drew the answer from so the employee can open it\\nthemselves. Keep answers short, in plain language, and use a bulleted list\\nwhen there is more than one condition to satisfy. Never invent an approval\\nworkflow or contact name that is not present in the retrieved text.\\n\\nRetrieved context:\\n\\n[sec-pol-014 - Security Incident Log Retention, section 3.2]\\nSecurity incident logs, including access logs, alert records, and the\\nassociated investigation notes, must be retained for a minimum of 18 months\\nfrom the date the incident is closed. Logs older than 18 months may be\\npurged during the quarterly retention cleanup unless they are subject to\\nan active legal hold.\\n\\n[sec-pol-014 - Security Incident Log Retention, section 4.1]\\nExternal auditors may request access to incident logs as part of a\\nscheduled audit engagement. Access requires a signed data access request\\nreviewed and approved by the Security team, and must be scoped to the\\nspecific incident(s) named in the engagement letter. Raw logs are not\\nshared directly; the Security team produces a redacted export limited to\\nthe fields relevant to the audit scope.\\n\\n[sec-pol-009 - Data Classification and Handling, section 2.4]\\nLog data containing user identifiers or IP addresses is classified as\\nRestricted and is subject to the access controls described in the Data\\nClassification and Handling policy.\\n\\nEmployee question: What is our policy on retaining security incident logs,\\nand can external auditors request access to them?\", \"type\": \"StringPromptValue\"}}, \"kwargs\": {\"tags\": [\"retrieval\"]}}",
+        "parent_workflow_run_id": "68c79a0e-5f4b-773b-0242-39a8031d0ece",
+        "deployment_stage": "staging",
+        "service.name": "policy-agent",
+        "$ai_provider": "langchain",
+        "$ai_span_name": "render_compliance_prompt",
+        "$ai_latency": 0.000396491,
+        "$ai_lib": "opentelemetry/traceloop"
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 1,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "4486b99fc4f6b68b",
+        "$ai_span_id": "e194070fe88267fe",
+        "$ai_trace_id": "0c648dd13107599b18b7a3fdc1eadcc8",
+        "$geoip_disable": true,
+        "gen_ai.request.temperature": 0.1,
+        "gen_ai.usage.total_tokens": 2067,
+        "service.name": "policy-agent",
+        "app.genai.anthropic.response_system_fingerprint": "fp_8f3a21c9d4e6f7012",
+        "app.genai.request.deployed_model_alias_name": "moonshotai/kimi-k2.7-code",
+        "app.genai.response.finish_reason_detail_code": "stop",
+        "app.genai.request.upstream_model_provider": "openai",
+        "app.genai.request.reasoning_effort_normalized": 0.1,
+        "response_finish_reason": "",
+        "app.genai.agent.alias_name": "compliance-agent",
+        "$ai_input_tokens": 438,
+        "$ai_output_tokens": 1629,
+        "$ai_cache_read_input_tokens": 0,
+        "$ai_model": "moonshotai/kimi-k2.7-code",
+        "$ai_provider": "openai",
+        "$ai_span_name": "generate_compliance_answer",
+        "$ai_latency": 20.768829225,
+        "$ai_input": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "content": "You are the Compliance Knowledge Assistant for the internal policy portal.\nAnswer only from the retrieved policy excerpts provided below. If the excerpts\ndo not fully answer the question, say so explicitly rather than guessing at\na retention period, access rule, or approval step. Always name the policy\ndocument and section you drew the answer from so the employee can open it\nthemselves. Keep answers short, in plain language, and use a bulleted list\nwhen there is more than one condition to satisfy. Never invent an approval\nworkflow or contact name that is not present in the retrieved text.\n\nRetrieved context:\n\n[sec-pol-014 - Security Incident Log Retention, section 3.2]\nSecurity incident logs, including access logs, alert records, and the\nassociated investigation notes, must be retained for a minimum of 18 months\nfrom the date the incident is closed. Logs older than 18 months may be\npurged during the quarterly retention cleanup unless they are subject to\nan active legal hold.\n\n[sec-pol-014 - Security Incident Log Retention, section 4.1]\nExternal auditors may request access to incident logs as part of a\nscheduled audit engagement. Access requires a signed data access request\nreviewed and approved by the Security team, and must be scoped to the\nspecific incident(s) named in the engagement letter. Raw logs are not\nshared directly; the Security team produces a redacted export limited to\nthe fields relevant to the audit scope.\n\n[sec-pol-009 - Data Classification and Handling, section 2.4]\nLog data containing user identifiers or IP addresses is classified as\nRestricted and is subject to the access controls described in the Data\nClassification and Handling policy.\n\nEmployee question: What is our policy on retaining security incident logs,\nand can external auditors request access to them?"
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "content": "Security incident logs are retained for **18 months** from the date of the incident, per section 3.2 of the Security Incident Log Retention policy (sec-pol-014).\n\nExternal auditors **can** request access, but only:\n- through a signed data access request reviewed by the Security team, and\n- scoped to the specific incident(s) named in the audit engagement letter.\n\nRaw logs are never shared directly; auditors receive a redacted export. Let me know if you need the request form."
+              }
+            ],
+            "finish_reason": ""
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

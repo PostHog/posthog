@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SmartsheetSource(ResumableSource[SmartsheetSourceConfig, SmartsheetResumeConfig]):
+    codebase_detection = detect(
+        env=("^SMARTSHEET_",),
+        npm=("smartsheet",),
+        pypi=("smartsheet-python-sdk",),
+        maven=("com.smartsheet:smartsheet-sdk-java",),
+        rubygems=("smartsheet",),
+    )
+
     supported_versions = ("2.0",)
     default_version = "2.0"
     api_docs_url = "https://smartsheet.redoc.ly"
@@ -63,7 +70,7 @@ class SmartsheetSource(ResumableSource[SmartsheetSourceConfig, SmartsheetResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SMARTSHEET,
+            name=ExternalDataSourceType.SMARTSHEET,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Smartsheet",
             caption="""Enter your Smartsheet API access token to pull your Smartsheet data into the PostHog Data warehouse.

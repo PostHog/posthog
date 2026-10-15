@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlunkSource(ResumableSource[PlunkSourceConfig, PlunkResumeConfig]):
+    codebase_detection = detect(env=("^PLUNK_", "^PLUNK_SECRET_KEY$"), npm=("@plunk/node",))
+
     # Plunk's data endpoints carry no version prefix (only the public send/track endpoints
     # are versioned), so the source is unversioned.
     api_docs_url = "https://docs.useplunk.com/api-reference/overview"
@@ -105,7 +106,7 @@ class PlunkSource(ResumableSource[PlunkSourceConfig, PlunkResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PLUNK,
+            name=ExternalDataSourceType.PLUNK,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Plunk",
             releaseStatus=ReleaseStatus.ALPHA,

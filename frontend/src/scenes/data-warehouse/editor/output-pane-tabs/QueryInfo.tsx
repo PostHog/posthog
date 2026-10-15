@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconExternal, IconTarget } from '@posthog/icons'
 import { LemonBanner, LemonTable, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
@@ -19,6 +20,8 @@ import { urls } from 'scenes/urls'
 import { DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
 import { LineageGraph } from 'products/data_modeling/frontend/lineage/LineageGraph'
+import { LineageIssueMarker } from 'products/data_modeling/frontend/lineage/LineageNode'
+import { lineageNodeUrl } from 'products/data_modeling/frontend/lineage/lineageNodeUrl'
 import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
@@ -147,7 +150,27 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                         upstream?.edges.length === 0 && (
                             <p className="text-secondary py-8 text-center">No connected models yet.</p>
                         )}
-                    {targetView && upstreamLoading && <Spinner />}
+                    {targetView && upstreamLoading && !upstream && (
+                        <div
+                            className={
+                                tabbed
+                                    ? 'h-[min(45vh,500px)] border border-border rounded-md overflow-hidden'
+                                    : 'h-[500px] border border-border rounded-md overflow-hidden'
+                            }
+                        >
+                            <LineageGraph
+                                nodes={[]}
+                                edges={[]}
+                                loading
+                                loadingCenter={{
+                                    name: targetView.name,
+                                    type: targetView.is_materialized ? 'matview' : 'view',
+                                }}
+                                variant="full"
+                                fitViewOptions={tabbed ? { maxZoom: 1 } : undefined}
+                            />
+                        </div>
+                    )}
                     {targetView && upstreamLoadFailed && !upstreamLoading && (
                         <LemonBanner
                             type="warning"
@@ -193,7 +216,7 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                                         {
                                             key: 'name',
                                             title: 'Name',
-                                            render: (_, { name }) => (
+                                            render: (_, { name, lineage_issue }) => (
                                                 <div className="flex items-center gap-1">
                                                     {name === targetView?.name && (
                                                         <Tooltip
@@ -204,6 +227,7 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                                                         </Tooltip>
                                                     )}
                                                     {name}
+                                                    {lineage_issue && <LineageIssueMarker issue={lineage_issue} />}
                                                 </div>
                                             ),
                                         },
@@ -214,7 +238,7 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                                         },
                                         {
                                             key: 'upstream',
-                                            title: 'Direct Upstream',
+                                            title: 'Direct upstream',
                                             render: (_, node) => {
                                                 const upstreamNodes = upstream.edges
                                                     .filter((edge) => edge.target_id === node.id)
@@ -238,8 +262,11 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                                         },
                                         {
                                             key: 'last_run_at',
-                                            title: 'Last Run At',
-                                            render: (_, { last_run_at, sync_interval }) => {
+                                            title: 'Last run',
+                                            render: (_, { type, last_run_at, sync_interval }) => {
+                                                if (type === 'metric') {
+                                                    return <span className="text-secondary">&mdash;</span>
+                                                }
                                                 if (!last_run_at) {
                                                     return 'On demand'
                                                 }
@@ -283,8 +310,12 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                                         }
                                         nodeCallbacks={(node) => ({
                                             onEdit:
-                                                node.type !== 'table' && node.id !== currentNodeId
+                                                node.saved_query_id && node.id !== currentNodeId
                                                     ? () => void openInEditor(node)
+                                                    : undefined,
+                                            onClick:
+                                                node.type === 'metric'
+                                                    ? () => router.actions.push(lineageNodeUrl(node))
                                                     : undefined,
                                         })}
                                     />

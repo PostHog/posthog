@@ -206,7 +206,7 @@ function ProductsSection(): JSX.Element {
                     </span>
                 </>
             }
-            description="Sidebar enablement per product (UserProductList), plus the team capture settings behind each tool. A red dot means the tool renders but captures nothing."
+            description="Sidebar enablement per product (UserProductList), plus the team capture settings behind each product. A red dot means the product renders but captures nothing."
         >
             <div className="space-y-2">
                 <div className="space-y-1.5">
@@ -274,9 +274,9 @@ function SuperpowersContent(): JSX.Element {
         openCHQueriesDebugModal()
     }
 
-    const [view, setView] = useState<'home' | 'tools'>('home')
+    const [view, setView] = useState<'home' | 'products'>('home')
 
-    if (view === 'tools') {
+    if (view === 'products') {
         return (
             <div className="space-y-4">
                 <div className="flex items-center gap-2 -mt-2">
@@ -286,7 +286,7 @@ function SuperpowersContent(): JSX.Element {
                         onClick={() => setView('home')}
                         aria-label="Back"
                     />
-                    <h2 className="text-xl font-bold m-0">Tool status</h2>
+                    <h2 className="text-xl font-bold m-0">Product status</h2>
                 </div>
                 <ProductsSection />
             </div>
@@ -310,14 +310,14 @@ function SuperpowersContent(): JSX.Element {
 
             <Section title="Actions">
                 <SettingRow
-                    title="Tool status"
+                    title="Product status"
                     description="Every product's sidebar enablement and the team capture settings behind it"
                     control={
                         <LemonButton
                             type="secondary"
                             size="small"
                             sideIcon={<IconChevronRight />}
-                            onClick={() => setView('tools')}
+                            onClick={() => setView('products')}
                         >
                             Open
                         </LemonButton>

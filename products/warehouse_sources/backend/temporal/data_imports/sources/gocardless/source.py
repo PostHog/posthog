@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GoCardlessSource(ResumableSource[GoCardlessSourceConfig, GoCardlessResumeConfig]):
+    codebase_detection = detect(
+        env=("^GOCARDLESS_",),
+        script_hosts=("pay.gocardless.com",),
+        npm=("gocardless-nodejs", "@gocardless/react-dropin"),
+        pypi=("gocardless-pro",),
+        composer=("gocardless/gocardless-pro", "gocardless/gocardless", "gocardless/gocardless-pro-php"),
+        go=("github.com/gocardless/gocardless-pro-go",),
+        maven=("com.gocardless:gocardless-pro", "com.gocardless:gocardless-java", "com.gocardless:gocardlesssdk"),
+        rubygems=("gocardless_pro", "gocardless"),
+    )
+
     supported_versions = ("2015-07-06",)
     default_version = "2015-07-06"
     api_docs_url = "https://developer.gocardless.com/api-reference"
@@ -67,7 +77,7 @@ class GoCardlessSource(ResumableSource[GoCardlessSourceConfig, GoCardlessResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GO_CARDLESS,
+            name=ExternalDataSourceType.GOCARDLESS,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="GoCardless",
             caption="""Enter your GoCardless access token to pull your GoCardless payments data into the PostHog Data warehouse.

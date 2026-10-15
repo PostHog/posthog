@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -40,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PropertywareSource(ResumableSource[PropertywareSourceConfig, PropertywareResumeConfig]):
+    codebase_detection = detect(env=("^PROPERTYWARE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Propertyware uses a single major version with no version token in the URL or headers
     # (docs: "Propertyware uses only a major version nomenclature to manage changes").
@@ -52,7 +53,7 @@ class PropertywareSource(ResumableSource[PropertywareSourceConfig, PropertywareR
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PROPERTYWARE,
+            name=ExternalDataSourceType.PROPERTYWARE,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Propertyware (RealPage)",
             releaseStatus=ReleaseStatus.ALPHA,

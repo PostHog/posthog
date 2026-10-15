@@ -18,6 +18,26 @@ const AUTHORITATIVE_METADATA = {
     code_challenge_methods_supported: ['S256'],
     service_documentation: 'https://posthog.com/docs/model-context-protocol',
     client_id_metadata_document_supported: true,
+    agent_auth: {
+        skill: 'https://us.posthog.com/auth.md',
+        identity_endpoint: 'https://us.posthog.com/oauth/token/',
+        identity_types_supported: ['identity_assertion'],
+    },
+    posthog_region: 'us',
+    posthog_base_url: 'https://us.posthog.com',
+}
+
+const AUTHORITATIVE_OPENID_CONFIGURATION = {
+    issuer: 'https://us.posthog.com',
+    authorization_endpoint: 'https://us.posthog.com/oauth/authorize/',
+    token_endpoint: 'https://us.posthog.com/oauth/token/',
+    userinfo_endpoint: 'https://us.posthog.com/oauth/userinfo/',
+    jwks_uri: 'https://us.posthog.com/.well-known/jwks.json',
+    registration_endpoint: 'https://us.posthog.com/oauth/register/',
+    scopes_supported: ['openid', 'profile', 'email'],
+    claims_supported: ['email', 'email_verified', 'family_name', 'given_name', 'sub'],
+    subject_types_supported: ['public'],
+    id_token_signing_alg_values_supported: ['RS256'],
 }
 
 describe('handleMetadata', () => {
@@ -68,6 +88,28 @@ describe('handleMetadata', () => {
         expect(data.code_challenge_methods_supported).toContain('S256')
         expect(data.service_documentation).toBe(AUTHORITATIVE_METADATA.service_documentation)
         expect(data.client_id_metadata_document_supported).toBe(true)
+    })
+
+    it('rewrites the agent_auth endpoints onto the proxy', async () => {
+        // Left pointing at US, an EU user's ID-JAG assertion goes to the wrong region.
+        const { handleMetadata } = await import('@/handlers/metadata')
+        const request = new Request('https://oauth.posthog.com/.well-known/oauth-authorization-server')
+
+        const response = await handleMetadata(request)
+        const data = (await response.json()) as { agent_auth: Record<string, unknown> }
+
+        expect(data.agent_auth.skill).toBe('https://oauth.posthog.com/auth.md')
+        expect(data.agent_auth.identity_endpoint).toBe('https://oauth.posthog.com/oauth/token/')
+    })
+
+    it('keeps posthog_base_url pointing at the region that issues the tokens', async () => {
+        const { handleMetadata } = await import('@/handlers/metadata')
+        const request = new Request('https://oauth.posthog.com/.well-known/oauth-authorization-server')
+
+        const response = await handleMetadata(request)
+        const data = (await response.json()) as Record<string, unknown>
+
+        expect(data.posthog_base_url).toBe('https://us.posthog.com')
     })
 
     it('caches the authoritative metadata', async () => {
@@ -142,5 +184,78 @@ describe('handleMetadata', () => {
         expect(data.error).toBe('server_error')
 
         vi.useRealTimers()
+    })
+})
+
+describe('handleOpenIdConfiguration', () => {
+    beforeEach(() => {
+        vi.resetModules()
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue({
+                ok: true,
+                json: () => Promise.resolve(AUTHORITATIVE_OPENID_CONFIGURATION),
+            })
+        )
+    })
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
+    it('serves the OIDC discovery document a relying party needs to sign users in', async () => {
+        // Without it the proxy is not a discoverable OpenID provider.
+        const { handleOpenIdConfiguration } = await import('@/handlers/metadata')
+        const request = new Request('https://oauth.posthog.com/.well-known/openid-configuration')
+
+        const response = await handleOpenIdConfiguration(request)
+        const data = (await response.json()) as Record<string, unknown>
+
+        expect(response.status).toBe(200)
+        expect(data.issuer).toBe('https://oauth.posthog.com')
+        expect(data.userinfo_endpoint).toBe('https://oauth.posthog.com/oauth/userinfo/')
+        expect(data.jwks_uri).toBe('https://oauth.posthog.com/.well-known/jwks.json')
+        expect(data.claims_supported).toEqual(AUTHORITATIVE_OPENID_CONFIGURATION.claims_supported)
+    })
+
+    it('is readable cross-origin', async () => {
+        const { handleOpenIdConfiguration } = await import('@/handlers/metadata')
+        const request = new Request('https://oauth.posthog.com/.well-known/openid-configuration')
+
+        const response = await handleOpenIdConfiguration(request)
+
+        expect(response.headers.get('access-control-allow-origin')).toBe('*')
+    })
+})
+
+describe('handleClientManifest', () => {
+    beforeEach(() => {
+        vi.resetModules()
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue(
+                new Response('Authorize at https://us.posthog.com/oauth/authorize/ with scope `openid`.', {
+                    status: 200,
+                })
+            )
+        )
+    })
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
+    it('serves the manifest the metadata advertises, with its URLs on the proxy', async () => {
+        // `agent_auth.skill` points agents at this path on the proxy, which had no route for it.
+        const { handleClientManifest } = await import('@/handlers/metadata')
+        const request = new Request('https://oauth.posthog.com/auth.md')
+
+        const response = await handleClientManifest(request)
+
+        expect(response.status).toBe(200)
+        expect(response.headers.get('content-type')).toContain('text/markdown')
+        expect(await response.text()).toBe(
+            'Authorize at https://oauth.posthog.com/oauth/authorize/ with scope `openid`.'
+        )
     })
 })

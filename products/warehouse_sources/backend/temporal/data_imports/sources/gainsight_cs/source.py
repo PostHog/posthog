@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -50,6 +49,8 @@ CREDENTIAL_PROBE_OBJECT = "company"
 
 @SourceRegistry.register
 class GainsightCsSource(ResumableSource[GainsightCsSourceConfig, GainsightCsResumeConfig]):
+    codebase_detection = detect(env=("^(GAINSIGHT_CS|GAINSIGHTCS)_",))
+
     lists_tables_without_credentials = True  # static object catalog — safe for public docs
     api_docs_url = "https://support.gainsight.com/gainsight_nxt/API_and_Developer_Docs"
 
@@ -133,7 +134,7 @@ class GainsightCsSource(ResumableSource[GainsightCsSourceConfig, GainsightCsResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GAINSIGHT_CS,
+            name=ExternalDataSourceType.GAINSIGHTCS,
             category=DataWarehouseSourceCategory.CRM,
             label="Gainsight CS",
             keywords=["gainsight nxt", "customer success"],

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -50,6 +49,8 @@ UNREACHABLE_ERROR = "Couldn't reach your Dynamics 365 environment. Check the env
 
 @SourceRegistry.register
 class Dynamics365Source(ResumableSource[Dynamics365SourceConfig, Dynamics365ResumeConfig]):
+    codebase_detection = detect(env=("^DYNAMICS365_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = (DYNAMICS365_API_VERSION,)
     default_version = DYNAMICS365_API_VERSION
@@ -157,7 +158,7 @@ class Dynamics365Source(ResumableSource[Dynamics365SourceConfig, Dynamics365Resu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DYNAMICS365,
+            name=ExternalDataSourceType.DYNAMICS365,
             category=DataWarehouseSourceCategory.CRM,
             keywords=["microsoft dynamics", "dynamics", "dataverse"],
             label="Microsoft Dynamics 365",

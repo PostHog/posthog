@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -44,6 +43,24 @@ DODOPAYMENTS_API_KEYS_URL = "https://app.dodopayments.com/developer/api-keys"
 
 @SourceRegistry.register
 class DodoPaymentsSource(ResumableSource[DodoPaymentsSourceConfig, DodoPaymentsResumeConfig]):
+    codebase_detection = detect(
+        env=("^DODO_PAYMENTS_",),
+        npm=("dodopayments", "dodopayments-checkout", "@dodopayments/nextjs"),
+        pypi=("dodopayments",),
+        composer=("dodopayments/client",),
+        go=("github.com/dodopayments/dodopayments-go",),
+        maven=(
+            "com.dodopayments.api:dodo-payments-java",
+            "com.dodopayments.api:dodo-payments-kotlin",
+            "com.dodopayments.api:dodo-payments-java-client-okhttp",
+            "com.dodopayments.api:dodo-payments-java-core",
+            "com.dodopayments.api:dodo-payments-kotlin-client-okhttp",
+            "com.dodopayments.api:dodo-payments-kotlin-core",
+        ),
+        rubygems=("dodopayments",),
+        swiftpm=("github.com/dodopayments/dodopayments-mobile-sdk-ios",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Dodo Payments serves unversioned paths (`/payments`, `/subscriptions`) with no version
     # header, query param or dated release channel, so there is nothing to pin.
@@ -140,7 +157,7 @@ class DodoPaymentsSource(ResumableSource[DodoPaymentsSourceConfig, DodoPaymentsR
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DODO_PAYMENTS,
+            name=ExternalDataSourceType.DODOPAYMENTS,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Dodo Payments",
             caption=(

@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -41,6 +40,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FormbricksSource(ResumableSource[FormbricksSourceConfig, FormbricksResumeConfig]):
+    codebase_detection = detect(
+        env=("^FORMBRICKS_",),
+        npm=("@formbricks/js", "@formbricks/react-native", "@formbricks/api"),
+        cocoapods=("FormbricksSDK",),
+        maven=("com.formbricks:android",),
+        pub=("formbricks",),
+        swiftpm=("github.com/formbricks/ios",),
+    )
+
     supported_versions = FORMBRICKS_SUPPORTED_VERSIONS
     default_version = FORMBRICKS_DEFAULT_VERSION
     api_docs_url = "https://formbricks.com/docs/api-reference/rest-api"
@@ -60,7 +68,7 @@ class FormbricksSource(ResumableSource[FormbricksSourceConfig, FormbricksResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FORMBRICKS,
+            name=ExternalDataSourceType.FORMBRICKS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Formbricks",
             releaseStatus=ReleaseStatus.ALPHA,

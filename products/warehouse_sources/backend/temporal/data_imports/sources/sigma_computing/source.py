@@ -1,8 +1,8 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -56,6 +55,11 @@ REGION_OPTIONS = [
 
 @SourceRegistry.register
 class SigmaComputingSource(ResumableSource[SigmaComputingSourceConfig, SigmaComputingResumeConfig]):
+    codebase_detection = detect(
+        env=("^(SIGMA_COMPUTING|SIGMACOMPUTING)_",),
+        npm=("@sigmacomputing/embed-sdk", "@sigmacomputing/react-embed-sdk"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -132,7 +136,7 @@ class SigmaComputingSource(ResumableSource[SigmaComputingSourceConfig, SigmaComp
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SIGMA_COMPUTING,
+            name=ExternalDataSourceType.SIGMACOMPUTING,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Sigma Computing",
             caption="""Connect Sigma Computing to pull your workbook, data model, connection, and membership metadata into the PostHog Data warehouse.

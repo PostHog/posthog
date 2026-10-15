@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.bland_ai import (
     BASE_URL,
     BlandAIResumeConfig,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BlandAISource(ResumableSource[BlandAISourceConfig, BlandAIResumeConfig]):
+    codebase_detection = detect(env=("^(BLAND_AI|BLANDAI)_", "^BLAND_API_KEY$"), npm=("bland-ai",), pypi=("bland",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.bland.ai"
 
@@ -49,7 +50,7 @@ class BlandAISource(ResumableSource[BlandAISourceConfig, BlandAIResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BLAND_AI,
+            name=ExternalDataSourceType.BLANDAI,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Bland AI",
             releaseStatus=ReleaseStatus.ALPHA,

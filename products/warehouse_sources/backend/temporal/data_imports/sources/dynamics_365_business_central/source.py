@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -39,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class Dynamics365BusinessCentralSource(
     ResumableSource[Dynamics365BusinessCentralSourceConfig, Dynamics365BusinessCentralResumeConfig]
 ):
+    codebase_detection = detect(env=("^(DYNAMICS365_BUSINESS_CENTRAL|DYNAMICS365BUSINESSCENTRAL)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Business Central versions its API in the request path (`/api/v2.0/`); v2.0 is the standard API
     # this source calls.
@@ -57,7 +58,7 @@ class Dynamics365BusinessCentralSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DYNAMICS365_BUSINESS_CENTRAL,
+            name=ExternalDataSourceType.DYNAMICS365BUSINESSCENTRAL,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Microsoft Dynamics 365 Business Central",
             caption="""Sync your Business Central customers, vendors, items, documents and general ledger entries into the PostHog Data warehouse.

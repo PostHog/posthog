@@ -187,17 +187,20 @@ export class HogFunctionHandler implements ActionHandler {
 
         // Add billable_invocation metric only if the function actually executed (not skipped)
         if (!functionResult.skipped) {
-            trackHogFlowBillableInvocation(result, {
-                invocation: functionResult.invocation,
-                billingMetricType: this.hogFlowActionBillingType,
-            })
+            // A step that does not send leaves this undefined and bills as before.
+            if (functionResult.deliveredToRecipient !== false) {
+                trackHogFlowBillableInvocation(result, {
+                    invocation: functionResult.invocation,
+                    billingMetricType: this.hogFlowActionBillingType,
+                })
 
-            // actionStepCount holds across a retry of this step but changes on a loop revisit.
-            this.usageReporter?.reportBillableInvocation({
-                teamId: invocation.teamId,
-                usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
-                recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
-            })
+                // actionStepCount holds across a retry of this step but changes on a loop revisit.
+                this.usageReporter?.reportBillableInvocation({
+                    teamId: invocation.teamId,
+                    usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
+                    recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
+                })
+            }
 
             // Re-pin the attribution version to the one that actually sent. Live edits reach runs
             // already in flight, so a run that entered on v2 can send its email after v3 is
@@ -343,7 +346,7 @@ export class HogFunctionHandler implements ActionHandler {
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> & { skipped?: boolean }> {
         const hogFunction = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
-            () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config)
+            () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)
         )
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },
@@ -374,7 +377,7 @@ export class HogFunctionHandler implements ActionHandler {
                     ? [
                           {
                               team_id: hogFunctionInvocation.teamId,
-                              app_source_id: hogFunctionInvocation.functionId,
+                              app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
                               instance_id: action.id,
                               metric_kind: 'email' as const,
                               metric_name: 'email_suppressed' as const,
@@ -411,10 +414,44 @@ export class HogFunctionHandler implements ActionHandler {
                 metrics: [
                     {
                         team_id: hogFunctionInvocation.teamId,
-                        app_source_id: hogFunctionInvocation.functionId,
+                        app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
                         instance_id: action.id,
                         metric_kind: 'email',
                         metric_name: 'email_bounce_prevented',
+                        count: 1,
+                    },
+                ],
+                capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
+                messageAssets: [],
+                conversionWatchers: [],
+            }
+        }
+
+        // This check runs last because it also records the send against the cap. If it ran before the
+        // opt-out, suppression or bounce checks, a send that one of them skips would still use a slot.
+        if (
+            !hogExecutorOptions?.isTest &&
+            (await this.recipientPreferencesService.isFrequencyCapped(hogFunctionInvocation, action))
+        ) {
+            return {
+                finished: true,
+                skipped: true,
+                invocation: hogFunctionInvocation,
+                logs: [
+                    {
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: 'Skipping send: recipient reached the frequency cap.',
+                    },
+                ],
+                metrics: [
+                    {
+                        team_id: hogFunctionInvocation.teamId,
+                        app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
+                        instance_id: action.id,
+                        metric_kind: 'other',
+                        metric_name: 'message_frequency_capped',
                         count: 1,
                     },
                 ],

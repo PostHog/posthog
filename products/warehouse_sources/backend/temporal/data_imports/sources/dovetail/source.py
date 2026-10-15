@@ -1,14 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -37,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DovetailSource(ResumableSource[DovetailSourceConfig, DovetailResumeConfig]):
+    codebase_detection = detect(env=("^DOVETAIL_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Dovetail's API has no versioned path/header (a bare `/v1/` that's never changed and isn't a
     # documented version choice) - only the docs URL is worth pinning.
@@ -104,7 +105,7 @@ class DovetailSource(ResumableSource[DovetailSourceConfig, DovetailResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DOVETAIL,
+            name=ExternalDataSourceType.DOVETAIL,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Dovetail",
             docsUrl="https://posthog.com/docs/cdp/sources/dovetail",
