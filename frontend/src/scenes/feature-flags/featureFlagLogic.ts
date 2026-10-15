@@ -56,7 +56,6 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -3546,7 +3545,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         const response = await api.get<PaginatedResponse<InsightModel>>(
                             `api/projects/${values.currentProjectId}/insights/?feature_flag=${values.featureFlag.key}&order=-last_modified_at&limit=5`
                         )
-                        return response.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
+                        return response.results
                     }
                     return []
                 },

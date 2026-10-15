@@ -280,3 +280,10 @@ The banner only appears when a project has a Bing Ads integration marked with `o
 It asks users to reconnect before November 30, 2026.
 The flag controls the warning only; changing it does not disable fallback credentials or migrate existing grants.
 Use project targeting to release the warning gradually.
+
+## Required table status
+
+The source status banner names each required table that needs attention and links native connections directly to their Schemas tab.
+Disabled imports, missing tables, running syncs, failures, pauses, cancellations, and tables awaiting a completed sync have separate messages.
+Multiple table problems remain visible together, even when the connection has one overall status.
+Google Ads connections using the legacy `campaign_stats` schema retain support and display that actual schema name.

@@ -10,6 +10,7 @@ from posthog.temporal.delete_teams.activities import (
     delete_batch_exports_activity,
     delete_cohort_members_activity,
     delete_data_modeling_schedules_activity,
+    delete_event_properties_activity,
     delete_groups_activity,
     delete_loop_trigger_schedules_activity,
     delete_misc_small_tables_activity,
@@ -107,6 +108,17 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
         for activity in BULKY_POSTGRES_ACTIVITIES:
             await temporalio.workflow.execute_activity(
                 activity,
+                team_inputs,
+                start_to_close_timeout=HEAVY_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=HEAVY_HEARTBEAT_TIMEOUT,
+                retry_policy=DELETE_RETRY_POLICY,
+            )
+
+        # Gated with `patched` so in-flight deletions from before this deploy don't fail replay on a new
+        # command. The purge leaves the Team cascade no event properties to delete in one statement.
+        if temporalio.workflow.patched("delete-event-properties"):
+            await temporalio.workflow.execute_activity(
+                delete_event_properties_activity,
                 team_inputs,
                 start_to_close_timeout=HEAVY_ACTIVITY_TIMEOUT,
                 heartbeat_timeout=HEAVY_HEARTBEAT_TIMEOUT,
