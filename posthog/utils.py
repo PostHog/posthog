@@ -739,6 +739,13 @@ def _build_template_context(
                     "name": user.organization.name,
                     "created_at": user.organization.created_at.isoformat(),
                 }
+            if user.team:
+                groups["project"] = str(user.team.uuid)
+                group_properties["project"] = {
+                    "id": user.team.id,
+                    "uuid": str(user.team.uuid),
+                    "name": user.team.name,
+                }
 
         with tracer.start_as_current_span("template.feature_flag_bootstrap"):
             feature_flags = posthoganalytics.get_all_flags(
