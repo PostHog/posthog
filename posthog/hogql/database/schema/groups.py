@@ -248,8 +248,9 @@ def _outer_prefilter(
        set is bounded by a date range." Without that guard, a query whose WHERE is only
        `team_id = X` (or empty) would push a key subquery that scans every row for the
        team, which is strictly worse than no filter at all.
-    3. The group join hangs off the outer FROM table, not a table the query joins explicitly. The outer
-       WHERE bounds only the outer table's rows, so it says nothing about the group keys of a joined table.
+    3. The outer query has no explicit JOIN. The WHERE may reference the joined table (`e.event`), which the
+       subquery's FROM does not contain, and it bounds only the outer table's rows, so it says nothing about
+       the group keys of a joined table.
     4. The WHERE does not reference any lazy-join alias on the source table — including the
        per-project group-type-name aliases (e.g. `organization`) that resolve to `group_N`.
        Cloning a `group_N.X` / `organization.X` / `person.X` reference into the inner
@@ -273,6 +274,8 @@ def _outer_prefilter(
     if source_chain not in _PREFILTER_SOURCE_CHAINS:
         return None
     if select_from.alias is not None and select_from.alias != source_chain[-1]:
+        return None
+    if select_from.next_join is not None:
         return None
     if get_table_alias_for_lazy_join(join_to_add.lazy_join_type) != source_chain[-1]:
         return None
