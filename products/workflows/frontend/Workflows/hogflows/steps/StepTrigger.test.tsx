@@ -96,21 +96,69 @@ describe('StepTriggerConfiguration', () => {
         })
     })
 
-    it('disables the Inbox report ready tile for someone without access to Tasks', async () => {
+    function enableInboxReportTrigger(): void {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOW_INBOX_REPORT_TRIGGER], {
             [FEATURE_FLAGS.WORKFLOW_INBOX_REPORT_TRIGGER]: true,
         })
+    }
+
+    function inboxReportTile(): HTMLElement | null {
+        return screen.getByText('Inbox report ready').closest('button')
+    }
+
+    it.each([
+        [
+            'without access to Tasks',
+            { can_use_inbox_reports: false },
+            'You need viewer access to Tasks to use Inbox reports in workflows.',
+        ],
+        [
+            'whose access to Tasks could not be checked',
+            () => [500, { detail: 'Server error' }],
+            "Couldn't check your access to Tasks. Reopen the trigger to try again.",
+        ],
+    ])('disables the Inbox report ready tile for someone %s', async (_name, accessResponse, disabledReason) => {
+        useMocks({ get: { '/api/projects/:team/hog_flows/inbox_report_access/': accessResponse } })
+        enableInboxReportTrigger()
         renderTrigger([])
 
         fireEvent.click(screen.getByText('Event'))
         await waitFor(() => {
-            expect(screen.getByText('Inbox report ready').closest('button')).toHaveAttribute('aria-disabled', 'true')
+            expect(inboxReportTile()).toHaveAttribute('aria-disabled', 'true')
         })
         fireEvent.click(screen.getByText('Inbox report ready'))
 
-        expect(
-            await screen.findByText('You need viewer access to Tasks to use Inbox reports in workflows.')
-        ).toBeInTheDocument()
+        expect(await screen.findByText(disabledReason)).toBeInTheDocument()
+    })
+
+    it('checks access to Tasks once when the trigger opens and keeps the tile disabled until it knows', async () => {
+        let accessRequests = 0
+        let grantAccess = (): void => {}
+        useMocks({
+            get: {
+                '/api/projects/:team/hog_flows/inbox_report_access/': () => {
+                    accessRequests += 1
+                    return new Promise((resolve) => {
+                        grantAccess = () => resolve({ can_use_inbox_reports: true })
+                    })
+                },
+            },
+        })
+        enableInboxReportTrigger()
+        renderTrigger([])
+        await waitFor(() => expect(accessRequests).toEqual(1))
+
+        fireEvent.click(screen.getByText('Event'))
+        expect(inboxReportTile()).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(screen.getByText('Inbox report ready'))
+        expect(await screen.findByText('Checking your access to Tasks...')).toBeInTheDocument()
+
+        grantAccess()
+
+        await waitFor(() => {
+            expect(inboxReportTile()).not.toHaveAttribute('aria-disabled', 'true')
+        })
+        expect(accessRequests).toEqual(1)
     })
 })

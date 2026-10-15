@@ -1,5 +1,5 @@
 import { Node } from '@xyflow/react'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import {
@@ -55,6 +55,7 @@ import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters, HogFlowPropertyFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
+import { inboxReportAccessLogic } from '../registry/triggers/inboxReportAccessLogic'
 import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
 import { createAccountAssignmentFilterUpdate, parseAccountAssignmentFilter } from './accountAssignmentFilter'
@@ -234,6 +235,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
     const { setWorkflowActionConfig, setWorkflowValue } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    useMountedLogic(inboxReportAccessLogic)
 
     const type = node.data.config.type
     const displayType = getTriggerDisplayType(type, node.data.config)
