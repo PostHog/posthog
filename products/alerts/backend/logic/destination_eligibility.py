@@ -90,17 +90,21 @@ _RECEIVES_ALERT_EVENTS: Final = {"type": "internal_destination", "filters__sourc
 
 
 def classify_alert_destinations(
-    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], lock: bool = False
 ) -> tuple[DestinationEligibility, ...]:
-    """Every destination function of one alert, with what native delivery cannot carry for each."""
-    functions = list(
+    """Every destination function of one alert, with what native delivery cannot carry for each.
+
+    `lock` holds the function rows until the caller's transaction ends, so no edit lands between
+    this read and what the caller does with it.
+    """
+    functions = (
         owned_alert_destinations_qs(
             team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
         )
         .filter(**_RECEIVES_ALERT_EVENTS)
         .order_by("created_at", "id")
     )
-    return _classify(team_id, functions, allowed_event_ids)
+    return _classify(team_id, list(functions.select_for_update() if lock else functions), allowed_event_ids)
 
 
 def classify_destinations_by_alert(
@@ -169,19 +173,22 @@ def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
     return min(buckets, key=_BUCKET_ORDER.index, default=DestinationBucket.STOCK)
 
 
-def unbound_alert_destinations(*, team_id: int, allowed_event_ids: Collection[str]) -> tuple[UUID, ...]:
-    """Enabled functions that take a source's alert events without being bound to one alert.
+def unbound_alert_destinations(
+    *, team_id: int, allowed_event_ids: Collection[str], include_disabled: bool = False
+) -> tuple[UUID, ...]:
+    """Functions that take a source's alert events without being bound to one alert, enabled ones only by default.
 
     Such a function fires for many alerts of the team. Native delivery reads destinations per
     alert, so it would stop sending at cutover. A function bound to a deleted alert receives
     nothing, so it is not unbound.
     """
+    enabled = {} if include_disabled else {"enabled": True}
     candidates = (
         HogFunction.objects.filter(
             _allowed_event_filter(allowed_event_ids),
             team_id=team_id,
             deleted=False,
-            enabled=True,
+            **enabled,
             **_RECEIVES_ALERT_EVENTS,
         )
         .order_by("created_at", "id")
@@ -232,6 +239,9 @@ def _hold_backs(
     # A secret input is not in `inputs` or in a snapshot, so it is read where it is stored.
     if template_id == WebhookDestination.template_id and input_value(function.encrypted_inputs or {}, "signing_secret"):
         found.append(DestinationHoldBack.WEBHOOK_SIGNING)
+    # Native delivery reads ordinary headers only, so a secret header such as a token never reaches the receiver.
+    if template_id == WebhookDestination.template_id and input_value(function.encrypted_inputs or {}, "secret_headers"):
+        found.append(DestinationHoldBack.WEBHOOK_HEADERS)
     # A secret address, such as a PagerDuty routing key, is stored in `encrypted_inputs`.
     stored_inputs = {**(function.inputs or {}), **(function.encrypted_inputs or {})}
     if any(_has_template(input_value(stored_inputs, key)) for key in spec.address_input_keys):
