@@ -1097,8 +1097,15 @@ fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, Mem
     let is_mirror_deploy = false; // TODO: remove after migration to 100% capture-rs backend
     let verbose_sample_percent = 0.0_f32;
 
+    let routes = match mode {
+        CaptureMode::Events | CaptureMode::Import => capture::router::analytics_routes(),
+        CaptureMode::Ai => capture::router::ai_routes(26_214_400),
+        CaptureMode::Recordings => capture::router::recordings_routes(),
+    };
+
     (
         router(
+            routes,
             timesource,
             readiness,
             liveness,

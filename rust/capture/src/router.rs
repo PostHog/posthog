@@ -162,8 +162,144 @@ async fn index() -> &'static str {
     "capture"
 }
 
+/// The paths one deployment serves. Each deployment registers its own ingress
+/// and nothing else. The AI paths (`/i/v0/ai*`) belong to capture-ai and the
+/// analytics paths to capture-analytics; the ingress has always routed them
+/// that way, so a deployment serving the other set is surface no traffic
+/// reaches and no restriction slice covers. `Pipeline::for_capture_mode` loads
+/// exactly the pipelines each set can produce to, so the two must stay in step.
+///
+/// `$ai_*` events still reach capture-analytics — on `/batch`, from SDKs that
+/// send everything to one endpoint. Those divert to the AI lane by event
+/// name; that is unrelated to which paths are registered here.
+pub struct Routes {
+    /// Wrapped by the legacy CORS layer and concurrency limit.
+    legacy: Router<State>,
+    /// Wrapped by `crate::v1::router`'s own middleware stack.
+    v1: Option<Router<State>>,
+}
+
+fn analytics_route() -> axum::routing::MethodRouter<State> {
+    post(v0_endpoint::event)
+        .get(v0_endpoint::event)
+        .options(v0_endpoint::options)
+}
+
+/// capture-analytics and capture-import: the analytics paths.
+pub fn analytics_routes() -> Routes {
+    let black_hole = || {
+        post(test_endpoint::test_black_hole)
+            .get(test_endpoint::test_black_hole)
+            .options(v0_endpoint::options)
+    };
+    let test_router = Router::new()
+        .route("/test/black_hole", black_hole())
+        .route("/test/black_hole/", black_hole())
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
+
+    let batch_router = Router::new()
+        .route("/batch", analytics_route())
+        .route("/batch/", analytics_route())
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
+
+    let event_router = Router::new()
+        .route("/i/v0/e", analytics_route())
+        .route("/i/v0/e/", analytics_route())
+        .route("/e", analytics_route())
+        .route("/e/", analytics_route())
+        .route("/track", analytics_route())
+        .route("/track/", analytics_route())
+        .route("/engage", analytics_route())
+        .route("/engage/", analytics_route())
+        .route("/capture", analytics_route())
+        .route("/capture/", analytics_route())
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
+
+    Routes {
+        legacy: Router::new()
+            .merge(batch_router)
+            .merge(event_router)
+            .merge(test_router),
+        // `/i/v1/analytics/events` is an analytics endpoint: it accepts any
+        // event name and its traffic is governed by analytics restrictions,
+        // which capture-ai does not load.
+        v1: Some(crate::v1::analytics::router::routes()),
+    }
+}
+
+/// capture-ai: the AI paths.
+pub fn ai_routes(ai_max_sum_of_parts_bytes: usize) -> Routes {
+    // AI endpoint body limit is 110% of max sum of parts to account for multipart overhead
+    let ai_body_limit = (ai_max_sum_of_parts_bytes as f64 * 1.1) as usize;
+
+    // AI events: the same batch handler as `/batch`, on a dedicated path so the
+    // ingress can route them to the capture-ai deployment and keep AI and
+    // analytics workloads isolated. It keeps the batch body limit instead of
+    // the larger multipart one.
+    let ai_batch_router = Router::new()
+        .route("/i/v0/ai/batch", analytics_route())
+        .route("/i/v0/ai/batch/", analytics_route())
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
+
+    let ai_router = Router::new()
+        .route(
+            "/i/v0/ai",
+            post(ai_endpoint::ai_handler).options(ai_endpoint::options),
+        )
+        .route(
+            "/i/v0/ai/",
+            post(ai_endpoint::ai_handler).options(ai_endpoint::options),
+        )
+        .layer(DefaultBodyLimit::max(ai_body_limit));
+
+    let otel_router = Router::new()
+        .route(
+            "/i/v0/ai/otel",
+            post(otel::otel_handler).options(otel::options),
+        )
+        .route(
+            "/i/v0/ai/otel/",
+            post(otel::otel_handler).options(otel::options),
+        )
+        .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
+
+    Routes {
+        legacy: Router::new()
+            .merge(ai_batch_router)
+            .merge(ai_router)
+            .merge(otel_router),
+        // `/i/v1/ai/events` belongs to capture-ai the way the v0 AI paths do:
+        // that deployment produces straight to the AI topic and sizes its
+        // ceilings for AI events. See `v1::analytics::router::ai_routes` for
+        // why the shared handler needs no AI-specific branch.
+        v1: Some(crate::v1::analytics::router::ai_routes()),
+    }
+}
+
+/// capture-replay: the recordings path.
+pub fn recordings_routes() -> Routes {
+    let recording_route = || {
+        post(v0_endpoint::recording)
+            .get(v0_endpoint::recording)
+            .options(v0_endpoint::options)
+    };
+    Routes {
+        legacy: Router::new()
+            .route("/s", recording_route())
+            .route("/s/", recording_route())
+            .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE))
+            .layer(Extension(WireBodyLimit(RECORDING_BODY_SIZE))),
+        v1: None,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 'static>(
+    routes: Routes,
     timesource: TZ,
     readiness: ReadinessHandler,
     liveness: LivenessHandler,
@@ -236,124 +372,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         .allow_credentials(true)
         .allow_origin(AllowOrigin::mirror_request());
 
-    let test_router = Router::new()
-        .route(
-            "/test/black_hole",
-            post(test_endpoint::test_black_hole)
-                .get(test_endpoint::test_black_hole)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/test/black_hole/",
-            post(test_endpoint::test_black_hole)
-                .get(test_endpoint::test_black_hole)
-                .options(v0_endpoint::options),
-        )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
-        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
-
-    let batch_router = Router::new()
-        .route(
-            "/batch",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/batch/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
-        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
-
-    // AI events: the same batch handler as `/batch`, on a dedicated path so the
-    // ingress can route them to the capture-ai deployment and keep AI and
-    // analytics workloads isolated. Its own router rather than a member of
-    // `batch_router` so capture-ai can serve this path without also serving the
-    // analytics batch and event routes, and rather than a member of `ai_router`
-    // so it keeps the batch body limit instead of the larger multipart one.
-    let ai_batch_router = Router::new()
-        .route(
-            "/i/v0/ai/batch",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/i/v0/ai/batch/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
-        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
-
-    let event_router = Router::new()
-        .route(
-            "/i/v0/e",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/i/v0/e/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/e",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/e/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/track",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/track/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/engage",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/engage/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/capture",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/capture/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
-        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
-
     let status_router = Router::new()
         .route("/", get(index))
         .route(
@@ -371,79 +389,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
             }),
         );
 
-    let recordings_router = Router::new()
-        .route(
-            "/s",
-            post(v0_endpoint::recording)
-                .get(v0_endpoint::recording)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/s/",
-            post(v0_endpoint::recording)
-                .get(v0_endpoint::recording)
-                .options(v0_endpoint::options),
-        )
-        .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE))
-        .layer(Extension(WireBodyLimit(RECORDING_BODY_SIZE)));
-
-    // AI endpoint body limit is 110% of max sum of parts to account for multipart overhead
-    let ai_body_limit = (state.ai_max_sum_of_parts_bytes as f64 * 1.1) as usize;
-
-    let ai_router = Router::new()
-        .route(
-            "/i/v0/ai",
-            post(ai_endpoint::ai_handler).options(ai_endpoint::options),
-        )
-        .route(
-            "/i/v0/ai/",
-            post(ai_endpoint::ai_handler).options(ai_endpoint::options),
-        )
-        .layer(DefaultBodyLimit::max(ai_body_limit));
-
-    let otel_router = Router::new()
-        .route(
-            "/i/v0/ai/otel",
-            post(otel::otel_handler).options(otel::options),
-        )
-        .route(
-            "/i/v0/ai/otel/",
-            post(otel::otel_handler).options(otel::options),
-        )
-        .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
-
-    // Each deployment registers its own ingress and nothing else. The AI paths
-    // (`/i/v0/ai*`) belong to capture-ai and the analytics paths to
-    // capture-analytics; the ingress has always routed them that way, so a
-    // deployment serving the other set is surface no traffic reaches and no
-    // restriction slice covers. `Pipeline::for_capture_mode` loads exactly the
-    // pipelines each set can produce to, so the two must stay in step.
-    //
-    // `$ai_*` events still reach capture-analytics — on `/batch`, from SDKs that
-    // send everything to one endpoint. Those divert to the AI lane by event
-    // name; that is unrelated to which paths are registered here.
-    let mut router = match capture_mode {
-        CaptureMode::Events => Router::new()
-            .merge(batch_router)
-            .merge(event_router)
-            .merge(test_router),
-        CaptureMode::Ai => Router::new()
-            .merge(ai_batch_router)
-            .merge(ai_router)
-            .merge(otel_router),
-        // Import is an analytics deployment restricted to backfills, so it
-        // serves the analytics paths. It must never register ai_router or
-        // otel_router for a second reason on top of the split above: those
-        // handlers build their own ProcessingContext with
-        // `historical_migration: false`, so they sidestep both Import gates
-        // (historical-only drop and GRL bypass) and would return a false 200
-        // for events this deployment silently discards.
-        CaptureMode::Import => Router::new()
-            .merge(batch_router)
-            .merge(event_router)
-            .merge(test_router),
-        CaptureMode::Recordings => Router::new().merge(recordings_router),
-    };
+    let mut router = routes.legacy;
 
     if let Some(limit) = concurrency_limit {
         router = router.layer(ConcurrencyLimitLayer::new(limit));
@@ -459,32 +405,14 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // Merged after every legacy layer above: the v1 router owns its full
     // middleware stack (CORS, limits) and applies the same per-route
     // concurrency cap to its own routes.
-    //
-    // Matched exhaustively, like the legacy route gating above: a new capture
-    // mode must declare whether it serves each v1 endpoint instead of silently
-    // defaulting to "no v1 routes" and 404ing its traffic.
-    let serves_v1_analytics = match capture_mode {
-        CaptureMode::Events | CaptureMode::Import => true,
-        // `/i/v1/analytics/events` is an analytics endpoint: it accepts any
-        // event name and its traffic is governed by analytics restrictions,
-        // which capture-ai no longer loads.
-        CaptureMode::Ai | CaptureMode::Recordings => false,
-    };
-    let serves_v1_ai_events = match capture_mode {
-        // `/i/v1/ai/events` belongs to capture-ai the way the v0 AI paths do:
-        // that deployment produces straight to the AI topic and sizes its
-        // ceilings for AI events. See `v1::analytics::router::ai_routes` for
-        // why the shared handler needs no AI-specific branch.
-        CaptureMode::Ai => true,
-        CaptureMode::Events | CaptureMode::Import | CaptureMode::Recordings => false,
-    };
-    if serves_v1_analytics || serves_v1_ai_events {
-        router = router.merge(crate::v1::router::router(crate::v1::router::RouterConfig {
-            concurrency_limit,
-            max_compressed_body_bytes: state.capture_v1_max_compressed_body_bytes,
-            serves_analytics: serves_v1_analytics,
-            serves_ai_events: serves_v1_ai_events,
-        }));
+    if let Some(v1_routes) = routes.v1 {
+        router = router.merge(crate::v1::router::router(
+            crate::v1::router::RouterConfig {
+                concurrency_limit,
+                max_compressed_body_bytes: state.capture_v1_max_compressed_body_bytes,
+            },
+            v1_routes,
+        ));
     }
 
     let router = router

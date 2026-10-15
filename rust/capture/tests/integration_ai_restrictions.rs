@@ -158,6 +158,7 @@ async fn setup_ai_router_with_restriction(
     service.update(manager).await;
 
     let router = router(
+        capture::router::ai_routes(26_214_400),
         timesource,
         readiness,
         liveness,
@@ -479,6 +480,7 @@ async fn setup_ai_router_with_redirect_to_topic(
     service.update(manager).await;
 
     let router = router(
+        capture::router::ai_routes(26_214_400),
         timesource,
         readiness,
         liveness,
@@ -558,6 +560,7 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
     service.update(manager).await;
 
     let router = router(
+        capture::router::ai_routes(26_214_400),
         timesource,
         readiness,
         liveness,

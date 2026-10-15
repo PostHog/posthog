@@ -24,30 +24,18 @@ pub struct RouterConfig {
     /// Backstop only: `v1::util` enforces the real compressed-size limit and
     /// returns the 413 envelope before this extractor-level limit can trip.
     pub max_compressed_body_bytes: usize,
-    /// Mount `/i/v1/analytics/events`.
-    pub serves_analytics: bool,
-    /// Mount `/i/v1/ai/events`.
-    pub serves_ai_events: bool,
 }
 
-/// Builds the v1 router for the endpoints this deployment mounts. The choice
-/// is made per capture mode in `crate::router`, which owns the
-/// route-to-deployment split for every path capture serves.
-pub fn router(cfg: RouterConfig) -> Router<State> {
+/// Wraps the v1 endpoint `routes` this deployment mounts. The choice is made
+/// per deployment in `crate::router`, which owns the route-to-deployment split
+/// for every path capture serves.
+pub fn router(cfg: RouterConfig, routes: Router<State>) -> Router<State> {
     // v1 endpoints are POST-only; preflight is answered by the CORS layer.
     let cors = CorsLayer::new()
         .allow_methods([Method::POST, Method::OPTIONS])
         .allow_headers(AllowHeaders::mirror_request())
         .allow_credentials(true)
         .allow_origin(AllowOrigin::mirror_request());
-
-    let mut routes = Router::new();
-    if cfg.serves_analytics {
-        routes = routes.merge(crate::v1::analytics::router::routes());
-    }
-    if cfg.serves_ai_events {
-        routes = routes.merge(crate::v1::analytics::router::ai_routes());
-    }
 
     let mut router = routes.layer(DefaultBodyLimit::max(cfg.max_compressed_body_bytes));
 
@@ -78,15 +66,13 @@ mod tests {
 
     fn app(cfg: RouterConfig) -> Router {
         let ts = TestStateBuilder::new().build();
-        router(cfg).with_state(ts.state)
+        router(cfg, crate::v1::analytics::router::routes()).with_state(ts.state)
     }
 
     fn default_cfg() -> RouterConfig {
         RouterConfig {
             concurrency_limit: Some(8),
             max_compressed_body_bytes: 1024 * 1024,
-            serves_analytics: true,
-            serves_ai_events: false,
         }
     }
 

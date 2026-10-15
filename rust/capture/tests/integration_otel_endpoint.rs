@@ -177,6 +177,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
     });
 
     let app = router(
+        capture::router::ai_routes(26_214_400),
         timesource,
         readiness,
         liveness,

@@ -347,7 +347,20 @@ pub async fn build_components(
     let ingestion_warning_emitter =
         create_ingestion_warning_emitter(&config, ingestion_warnings_handle).await;
 
+    // Each deployment serves its own paths. Import is an analytics deployment
+    // restricted to backfills, so it serves the analytics paths. It must never
+    // serve the AI or OTEL paths: those handlers build their own
+    // ProcessingContext with `historical_migration: false`, so they would
+    // sidestep both Import gates (historical-only drop and GRL bypass) and
+    // return a false 200 for events this deployment silently discards.
+    let routes = match config.capture_mode {
+        CaptureMode::Events | CaptureMode::Import => router::analytics_routes(),
+        CaptureMode::Ai => router::ai_routes(config.ai_max_sum_of_parts_bytes),
+        CaptureMode::Recordings => router::recordings_routes(),
+    };
+
     let app = router::router(
+        routes,
         crate::time::SystemTime {},
         readiness,
         liveness,

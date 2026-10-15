@@ -165,6 +165,7 @@ fn setup_ai_test_router() -> Router {
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
     router(
+        capture::router::ai_routes(26_214_400),
         timesource,
         readiness,
         liveness,
@@ -221,6 +222,7 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
     let warning_emitter: Option<Arc<dyn WarningEmitter>> = Some(emitter.clone());
 
     let app = router(
+        capture::router::ai_routes(26_214_400),
         timesource,
         readiness,
         liveness,
@@ -1270,6 +1272,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
     let router = router(
+        capture::router::ai_routes(26_214_400),
         timesource,
         readiness,
         liveness,
@@ -1939,6 +1942,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
     let router = router(
+        capture::router::ai_routes(26_214_400),
         timesource,
         readiness,
         liveness,
@@ -2005,6 +2009,7 @@ fn setup_ai_test_router_with_byte_limiter() -> (Router, CapturingSink) {
     );
 
     let router = router(
+        capture::router::ai_routes(26_214_400),
         timesource,
         readiness,
         liveness,
@@ -2267,6 +2272,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
 
     let router = router(
+        capture::router::ai_routes(26_214_400),
         timesource,
         readiness,
         liveness,
@@ -2425,6 +2431,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
     let router = router(
+        capture::router::ai_routes(26_214_400),
         timesource,
         readiness,
         liveness,
@@ -2566,6 +2573,7 @@ fn ai_router(
             .with_timezone(&Utc),
     };
     let router = router(
+        capture::router::ai_routes(26_214_400),
         timesource,
         readiness,
         liveness,

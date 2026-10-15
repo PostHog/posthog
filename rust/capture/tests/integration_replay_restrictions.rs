@@ -105,6 +105,7 @@ async fn setup_recordings_router_with_restriction(
     service.update(manager).await;
 
     let router = router(
+        capture::router::recordings_routes(),
         timesource,
         readiness,
         liveness,
@@ -477,6 +478,7 @@ async fn setup_recordings_router_with_redirect_to_topic(
     service.update(manager).await;
 
     let router = router(
+        capture::router::recordings_routes(),
         timesource,
         readiness,
         liveness,
