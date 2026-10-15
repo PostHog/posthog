@@ -26,6 +26,7 @@ const EXTRACT_TIMEOUT_MS = 10_000
 const MAX_FIELDS = 20
 const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/
 const MAX_INSTRUCTION_LENGTH = 500
+const RUN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 type FieldType = 'string' | 'number' | 'boolean'
 const FIELD_TYPE_LABELS: Record<FieldType, string> = { string: 'text', number: 'number', boolean: 'true or false' }
@@ -46,7 +47,7 @@ const parseExtractPayload = (args: any[]): ExtractPayload => {
     for (const [name, instruction] of Object.entries(fields)) {
         if (!FIELD_NAME.test(name)) {
             throw new Error(
-                `Use only letters, digits and underscores in the field name "${name}", and don't start it with a digit`
+                `Use only letters, digits and underscores in the field name "${name}", start it with a letter or underscore, and keep it to 64 characters`
             )
         }
         if (typeof instruction !== 'string' || !instruction.trim()) {
@@ -57,11 +58,16 @@ const parseExtractPayload = (args: any[]): ExtractPayload => {
         }
     }
     const taskRunId = typeof payload.task_run_id === 'string' && payload.task_run_id ? payload.task_run_id : null
+    if (taskRunId !== null && !RUN_ID.test(taskRunId)) {
+        throw new Error(
+            `Enter the run ID of an AI task step in AI task run, such as {variables.task.run_id}, not "${taskRunId}"`
+        )
+    }
     const context = payload.context ?? null
     if (context === null && taskRunId === null) {
         throw new Error('Enter the text to read, or an AI task run to read')
     }
-    assertWorkflowContextFits(context)
+    assertWorkflowContextFits(context, 'the text to read')
     return { context, taskRunId, fields: fields as Record<string, string> }
 }
 
@@ -107,6 +113,13 @@ registerAsyncFunction('postHogExtract', {
 
         const action = hogFlow.actions?.find((candidate) => candidate.id === context.invocation.state.actionId)
         const types = fieldTypesFromOutputVariables(action, hogFlow.variables)
+        result.logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: payload.taskRunId
+                ? `Extract with AI reads the full report of AI task run ${payload.taskRunId}.`
+                : 'Extract with AI reads Text to read.',
+        })
         await callInternalApi(context, result, {
             jwt,
             path: `/api/projects/${context.invocation.teamId}/workflow_extractions/`,

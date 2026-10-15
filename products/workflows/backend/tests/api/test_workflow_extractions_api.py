@@ -155,19 +155,42 @@ class TestWorkflowExtractionsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_tool_call", SimpleNamespace(content=[SimpleNamespace(type="text", text="pr_url is ...")])),
-            ("missing_field", _tool_reply({"pr_url": "https://example.com", "files_changed": 3})),
-            ("text_for_a_number", _tool_reply({"pr_url": None, "files_changed": "three", "needs_review": True})),
-            ("number_for_a_boolean", _tool_reply({"pr_url": None, "files_changed": 3, "needs_review": 1})),
-            ("boolean_for_a_number", _tool_reply({"pr_url": None, "files_changed": True, "needs_review": True})),
-            ("text_over_the_cap", _tool_reply({"pr_url": "x" * 1001, "files_changed": 3, "needs_review": True})),
+            (
+                "no_tool_call",
+                SimpleNamespace(content=[SimpleNamespace(type="text", text="pr_url is ...")]),
+                "did not return the fields",
+            ),
+            ("missing_field", _tool_reply({"pr_url": "https://example.com", "files_changed": 3}), "needs_review"),
+            (
+                "text_for_a_number",
+                _tool_reply({"pr_url": None, "files_changed": "three", "needs_review": True}),
+                "files_changed",
+            ),
+            (
+                "number_for_a_boolean",
+                _tool_reply({"pr_url": None, "files_changed": 3, "needs_review": 1}),
+                "needs_review",
+            ),
+            (
+                "boolean_for_a_number",
+                _tool_reply({"pr_url": None, "files_changed": True, "needs_review": True}),
+                "files_changed",
+            ),
+            (
+                "text_over_the_cap",
+                _tool_reply({"pr_url": "x" * 1001, "files_changed": 3, "needs_review": True}),
+                "more than 1000 characters for pr_url",
+            ),
         ]
     )
-    def test_fails_the_step_rather_than_store_a_value_it_cannot_trust(self, _name: str, reply: Any) -> None:
+    def test_fails_the_step_rather_than_store_a_value_it_cannot_trust(
+        self, _name: str, reply: Any, reason: str
+    ) -> None:
         with patch(_BUILD_CLIENT, return_value=_fake_client(reply)):
             response = self._post()
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert reason in response.json()["detail"]
 
     def test_reads_the_full_report_of_an_ai_task_run_in_place_of_the_text(self) -> None:
         hog_flow_id, run_id = str(uuid4()), str(uuid4())

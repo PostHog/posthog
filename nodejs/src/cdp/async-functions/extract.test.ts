@@ -11,6 +11,7 @@ import { createInvocationResult } from '../utils/invocation-utils'
 import './extract'
 
 describe('postHogExtract', () => {
+    const TASK_RUN_ID = '0198c9f1-0000-0000-0000-000000000002'
     const payload = {
         context: { message: 'Opened https://github.com/example/repo/pull/7 touching 3 files.' },
         fields: {
@@ -37,9 +38,10 @@ describe('postHogExtract', () => {
         ],
     }
 
-    const invokeLive = async (args: Record<string, unknown>, flow = hogFlow): Promise<void> => {
+    const invokeLive = async (args: Record<string, unknown>, flow = hogFlow): Promise<MinimalLogEntry[]> => {
         const example = createExampleInvocation()
         const invocation = { ...example, hogFlow: flow, state: { ...example.state, actionId: 'extract_1' } }
+        const result = createInvocationResult<typeof invocation>(invocation)
         await getAsyncFunctionHandler('postHogExtract')!.execute(
             [args],
             {
@@ -47,8 +49,9 @@ describe('postHogExtract', () => {
                 internalApiBaseUrl: defaultConfig.INTERNAL_API_BASE_URL,
                 consumeInlineAsyncBudget: () => {},
             } as unknown as AsyncFunctionContext,
-            createInvocationResult<typeof invocation>(invocation)
+            result
         )
+        return result.logs
     }
 
     let fetchSpy: jest.SpyInstance
@@ -87,9 +90,9 @@ describe('postHogExtract', () => {
     })
 
     it('sends the AI task run so Django reads its full report in place of the text', async () => {
-        await invokeLive({ ...payload, context: null, task_run_id: 'run-1' })
+        await invokeLive({ ...payload, context: null, task_run_id: TASK_RUN_ID })
 
-        expect(parseJSON(fetchSpy.mock.calls[0][1].body)).toMatchObject({ context: null, task_run_id: 'run-1' })
+        expect(parseJSON(fetchSpy.mock.calls[0][1].body)).toMatchObject({ context: null, task_run_id: TASK_RUN_ID })
     })
 
     it('fails rather than store one field into variables of different types', async () => {
@@ -108,6 +111,15 @@ describe('postHogExtract', () => {
 
         await expect(invokeLive(payload, mixedTypes)).rejects.toThrow(/files_changed.*variables of one type/)
         expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['the full report of the AI task run', { task_run_id: TASK_RUN_ID }, /full report of AI task run 0198c9f1/],
+        ['the text to read', {}, /Text to read/],
+    ])('logs that the model reads %s', async (_name, source, expected) => {
+        const logs = await invokeLive({ ...payload, ...source })
+
+        expect(logs.map((log) => log.message)).toEqual([expect.stringMatching(expected)])
     })
 
     it('returns no value for any field when mocked', () => {
@@ -140,7 +152,17 @@ describe('postHogExtract', () => {
             { ...payload, fields: { pr_url: 'x'.repeat(501) } },
             /instructions to 500 characters or fewer/,
         ],
-        ['an oversized context', { ...payload, context: { message: 'x'.repeat(65_536) } }, /65536 characters of JSON/],
+        [
+            'an oversized text to read',
+            { ...payload, context: { message: 'x'.repeat(65_536) } },
+            /Keep the text to read to 65536 characters of JSON/,
+        ],
+        [
+            'a field name over 64 characters',
+            { ...payload, fields: { ['a'.repeat(65)]: 'x' } },
+            /keep it to 64 characters/,
+        ],
+        ['an AI task run that is not a run ID', { ...payload, task_run_id: 'latest' }, /AI task run/],
         ['no text and no AI task run', { ...payload, context: null }, /Enter the text to read, or an AI task run/],
     ])('rejects %s in both mocked and live calls', async (_name, args, expected) => {
         expect(() => getAsyncFunctionHandler('postHogExtract')!.mock([args], [] as MinimalLogEntry[])).toThrow(expected)

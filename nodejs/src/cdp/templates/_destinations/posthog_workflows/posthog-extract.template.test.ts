@@ -40,7 +40,11 @@ describe('posthog extract template', () => {
     })
 
     it.each([
-        ['the run of the default AI task step', { run_id: 'run-1', final_message: 'Opened a pull request' }, 'run-1'],
+        [
+            'the run of the default AI task step',
+            { run_id: '0198c9f1-0000-0000-0000-000000000002', final_message: 'Opened a pull request' },
+            '0198c9f1-0000-0000-0000-000000000002',
+        ],
         ['no AI task step', undefined, null],
     ])('asks Django to read the full report of %s', async (_name, task, expectedRunId) => {
         fetchSpy.mockResolvedValue(internalResponse(200, { values: { pr_url: null, summary: null } }))

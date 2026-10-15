@@ -55,7 +55,7 @@ class ExtractionModelRefusedError(Exception):
 
 
 class ExtractionUnusableError(Exception):
-    """The model answered, but not with a value of the declared type for every field."""
+    """The model answered, but not with a value of the declared type for every field. The message says which."""
 
 
 _SYSTEM_PROMPT = "\n".join(
@@ -82,24 +82,25 @@ def extract_fields(
     except ValueError as error:
         raise ExtractionUnavailableError() from error
 
-    try:
-        response = client.with_options(timeout=EXTRACTION_TIMEOUT_SECONDS, max_retries=0).messages.create(
-            model=EXTRACTION_MODEL,
-            max_tokens=EXTRACTION_MAX_TOKENS,
-            system=_SYSTEM_PROMPT,
-            tools=[_record_fields_tool(fields)],
-            tool_choice={"type": "tool", "name": _TOOL_NAME},
-            messages=[{"role": "user", "content": _user_prompt(context)}],
-            metadata={"user_id": team_distinct_id(team_id)},
-            # The step output carries person and event data, which must stay out of the internal AI observability project.
-            extra_headers={"X-PostHog-Privacy-Mode": "true"},
-        )
-    except anthropic.APIStatusError as error:
-        if error.status_code == 429 or error.status_code >= 500:
+    with client:
+        try:
+            response = client.with_options(timeout=EXTRACTION_TIMEOUT_SECONDS, max_retries=0).messages.create(
+                model=EXTRACTION_MODEL,
+                max_tokens=EXTRACTION_MAX_TOKENS,
+                system=_SYSTEM_PROMPT,
+                tools=[_record_fields_tool(fields)],
+                tool_choice={"type": "tool", "name": _TOOL_NAME},
+                messages=[{"role": "user", "content": _user_prompt(context)}],
+                metadata={"user_id": team_distinct_id(team_id)},
+                # The step output carries person and event data, which must stay out of the internal AI observability project.
+                extra_headers={"X-PostHog-Privacy-Mode": "true"},
+            )
+        except anthropic.APIStatusError as error:
+            if error.status_code == 429 or error.status_code >= 500:
+                raise ExtractionModelBusyError() from error
+            raise ExtractionModelRefusedError(error.status_code) from error
+        except anthropic.APIConnectionError as error:
             raise ExtractionModelBusyError() from error
-        raise ExtractionModelRefusedError(error.status_code) from error
-    except anthropic.APIConnectionError as error:
-        raise ExtractionModelBusyError() from error
 
     return _read_values(response, fields)
 
@@ -132,6 +133,13 @@ def _user_prompt(context: Any) -> str:
     )
 
 
+_TYPE_PHRASES = {
+    ExtractionFieldType.STRING: "text",
+    ExtractionFieldType.NUMBER: "a number",
+    ExtractionFieldType.BOOLEAN: "true or false",
+}
+
+
 def _read_values(response: Any, fields: list[ExtractionField]) -> dict[str, ExtractedValue]:
     answer = next(
         (
@@ -142,12 +150,22 @@ def _read_values(response: Any, fields: list[ExtractionField]) -> dict[str, Extr
         None,
     )
     if not isinstance(answer, dict):
-        raise ExtractionUnusableError()
+        raise ExtractionUnusableError("The model did not return the fields.")
     values: dict[str, ExtractedValue] = {}
     for field in fields:
-        if field.name not in answer or not _matches_type(answer[field.name], field.type):
-            raise ExtractionUnusableError()
-        values[field.name] = answer[field.name]
+        if field.name not in answer:
+            raise ExtractionUnusableError(f"The model left out {field.name}.")
+        value = answer[field.name]
+        if isinstance(value, str) and len(value) > MAX_TEXT_VALUE_CHARS:
+            raise ExtractionUnusableError(
+                f"The model returned more than {MAX_TEXT_VALUE_CHARS} characters for {field.name}. "
+                "Ask for a shorter value in its instruction."
+            )
+        if not _matches_type(value, field.type):
+            raise ExtractionUnusableError(
+                f"The model returned a value for {field.name} that is not {_TYPE_PHRASES[field.type]}."
+            )
+        values[field.name] = value
     return values
 
 
@@ -155,7 +173,7 @@ def _matches_type(value: Any, field_type: ExtractionFieldType) -> bool:
     if value is None:
         return True
     if field_type == ExtractionFieldType.STRING:
-        return isinstance(value, str) and len(value) <= MAX_TEXT_VALUE_CHARS
+        return isinstance(value, str)
     if field_type == ExtractionFieldType.NUMBER:
         # bool is an int subclass, and a stored True would not compare as a number in a later branch.
         return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)

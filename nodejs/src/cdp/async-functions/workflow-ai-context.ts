@@ -20,11 +20,11 @@ const nestingExceeds = (value: unknown, limit: number): boolean => {
     return false
 }
 
-export const assertWorkflowContextFits = (context: unknown): void => {
+export const assertWorkflowContextFits = (context: unknown, inputName = 'the context'): void => {
     if (nestingExceeds(context, MAX_CONTEXT_DEPTH)) {
-        throw new Error(`Keep the context to ${MAX_CONTEXT_DEPTH} levels of nesting or fewer`)
+        throw new Error(`Keep ${inputName} to ${MAX_CONTEXT_DEPTH} levels of nesting or fewer`)
     }
     if ([...(JSON.stringify(context) ?? '')].length > MAX_CONTEXT_CHARS) {
-        throw new Error(`Keep the context to ${MAX_CONTEXT_CHARS} characters of JSON or fewer`)
+        throw new Error(`Keep ${inputName} to ${MAX_CONTEXT_CHARS} characters of JSON or fewer`)
     }
 }

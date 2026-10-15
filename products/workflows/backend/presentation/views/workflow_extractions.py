@@ -86,7 +86,7 @@ class WorkflowExtractionRequestSerializer(serializers.Serializer):
     )
 
     def validate_context(self, value: Any) -> Any:
-        return validate_workflow_context(value)
+        return validate_workflow_context(value, input_name="the text to read")
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if not self.partial and attrs.get("context") is None and attrs.get("task_run_id") is None:
@@ -193,12 +193,9 @@ class WorkflowExtractionViewSet(viewsets.GenericViewSet):
                 f"The model refused the request (gateway status {error.status_code}).",
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
-        except ExtractionUnusableError:
+        except ExtractionUnusableError as error:
             logger.warning("workflow_extraction_unusable_answer", team_id=team.id)
-            return _error(
-                "The model returned a value that does not match its field's type.",
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
+            return _error(str(error), status.HTTP_422_UNPROCESSABLE_ENTITY)
         return Response(WorkflowExtractionResponseSerializer({"values": values}).data)
 
 

@@ -76,12 +76,12 @@ def _nesting_exceeds(value: Any, limit: int) -> bool:
     return False
 
 
-def validate_workflow_context(value: Any) -> Any:
+def validate_workflow_context(value: Any, input_name: str = "the context") -> Any:
     """The size limits every AI step puts on the workflow data it sends to a model."""
     if _nesting_exceeds(value, MAX_CONTEXT_DEPTH):
-        raise serializers.ValidationError(f"Keep the context to {MAX_CONTEXT_DEPTH} levels of nesting or fewer.")
+        raise serializers.ValidationError(f"Keep {input_name} to {MAX_CONTEXT_DEPTH} levels of nesting or fewer.")
     if len(json.dumps(value, ensure_ascii=False, separators=(",", ":"))) > MAX_CONTEXT_CHARS:
-        raise serializers.ValidationError(f"Keep the context to {MAX_CONTEXT_CHARS} characters of JSON or fewer.")
+        raise serializers.ValidationError(f"Keep {input_name} to {MAX_CONTEXT_CHARS} characters of JSON or fewer.")
     return value
 
 
