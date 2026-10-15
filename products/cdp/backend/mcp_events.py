@@ -110,7 +110,9 @@ class MCPEventSubscriptions:
             result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
             assert isinstance(result, (HogQLQueryResponse, CachedHogQLQueryResponse))
         restrictions = get_restricted_properties_with_group_type_index_for_team(user=self.user, team_id=self.team.pk)
-        restricted_event_properties = split_restricted_property_names(restrictions).event
+        restricted_event_properties = MCPEventPropertyAccess.with_group_aliases(
+            set(split_restricted_property_names(restrictions).event), team=self.team
+        )
         examples: list[JsonValue] = []
         for row in result.results or []:
             properties = json.loads(row[4]) if isinstance(row[4], str) else row[4]
@@ -124,7 +126,7 @@ class MCPEventSubscriptions:
                     "data": {
                         "event": str(row[1]),
                         "distinct_id": str(row[2]),
-                        "properties": MCPEventPropertyAccess.redact(properties, set(restricted_event_properties)),
+                        "properties": MCPEventPropertyAccess.redact(properties, restricted_event_properties),
                     },
                     "cursor": None,
                 }
@@ -313,12 +315,12 @@ class MCPEventSubscriptions:
             raise ValidationError("The event exceeds the 256 KiB delivery limit.")
         event = MCPEventEnvelopeSerializer.parse(body)
         restrictions = get_restricted_properties_with_group_type_index_for_team(user=self.user, team_id=self.team.pk)
-        restricted_names = split_restricted_property_names(restrictions).event
+        restricted_names = MCPEventPropertyAccess.with_group_aliases(
+            set(split_restricted_property_names(restrictions).event), team=self.team
+        )
         event = replace(
             event,
-            data=replace(
-                event.data, properties=MCPEventPropertyAccess.redact(event.data.properties, set(restricted_names))
-            ),
+            data=replace(event.data, properties=MCPEventPropertyAccess.redact(event.data.properties, restricted_names)),
         )
         serialized = MCPEventEnvelopeSerializer.render(event)
         if len(serialized.encode()) > MCP_EVENT_MAX_BYTES:
