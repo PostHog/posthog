@@ -113,7 +113,19 @@ export function useSqlChartModel<
                 ? {
                       valueDomain,
                       ...(visualizationType === ChartDisplayType.ActionsBarValue
-                          ? { bars: { ...config.bars, valueDomain } }
+                          ? {
+                                bars: {
+                                    ...config.bars,
+                                    valueDomain: {
+                                        ...config.bars?.valueDomain,
+                                        ...valueDomain,
+                                        include: [
+                                            ...(config.bars?.valueDomain?.include ?? []),
+                                            ...(valueDomain.include ?? []),
+                                        ],
+                                    },
+                                },
+                            }
                           : {}),
                       yAxis: Array.isArray(config.yAxis)
                           ? config.yAxis.map((axis, index) =>
