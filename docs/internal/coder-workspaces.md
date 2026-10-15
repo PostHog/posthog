@@ -23,6 +23,24 @@ hogli devbox:exec -- bash -lc 'gh auth status'   # run one command on the box an
 
 ## Common scenarios
 
+**Preparing an evaluation environment with saved data** —
+From your laptop's PostHog checkout, create or start a devbox from a shared private S3 archive with one command:
+
+```bash
+hogli devbox:prepare-eval-env -n eval1 \
+  --bundle s3://example-eval-datasets/environments/example/v1/environment.tar.gz \
+  --sha256 REPLACE_WITH_PUBLISHED_SHA256 \
+  --aws-profile eval-data
+```
+
+Use your dataset's S3 URI, published checksum, and normal AWS profile. The command downloads with your laptop's AWS login, verifies the archive, then transfers it over SSH. It imports events into ClickHouse and saved metric definitions into PostgreSQL, starts the normal app, and prints the ready project URL. The laptop removes the temporary download afterward; the devbox needs no AWS permissions or credentials.
+
+The first import shifts dates to the current time; rerunning the same command reuses the imported project without adding events or moving dates again. A local archive path also works with `--bundle`. No model keys are needed.
+
+Run the normal `hogli devbox:setup` once beforehand. The devbox also needs the importer code; use `--ref YOUR_PUBLISHED_BRANCH` to select an exact commit from your local checkout before it is available on master. This refuses to replace a dirty checkout or change code under a running app. Bundles and restore state stay private and outside tracked files. See [reusable evaluation environments](../../products/posthog_ai/eval_harness/environment/README.md) for preparing bundles, selecting users, and retrying failed imports. The command prepares data only; it does not run agents or evaluations.
+
+Leave the devbox's Docker proxy running during setup. Its listener on port 8010 does not mean the application has started; setup checks the application processes and ports separately.
+
 **Connecting your IDE** —
 Open the workspace in VS Code (`hogli devbox:open --vscode`), Cursor (`--cursor`), or a browser-based editor (`--web`).
 

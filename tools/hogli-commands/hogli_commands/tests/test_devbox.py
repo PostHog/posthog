@@ -28,6 +28,13 @@ runner = CliRunner()
 
 
 @pytest.fixture
+def stub_mutagen_setup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(devbox_mutagen, "ensure_mutagen_installed", lambda **kwargs: None)
+    monkeypatch.setattr(devbox_mutagen, "ensure_daemon_with_shim", lambda: None)
+    monkeypatch.setattr(devbox_mutagen, "ensure_user_mutagen_config", lambda: tmp_path / "mutagen.yml")
+
+
+@pytest.fixture
 def devbox_config_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     config_path = tmp_path / "hogli_devbox.json"
     monkeypatch.setattr(devbox_config, "get_config_path", lambda: config_path)
@@ -1438,6 +1445,7 @@ class TestResolveWorkspaceName:
             devbox_cli.resolve_workspace_name(None)
 
 
+@pytest.mark.usefixtures("stub_mutagen_setup")
 class TestDevboxCommands:
     """Test the Click command contract for devbox commands."""
 
@@ -2356,6 +2364,7 @@ class TestDevboxConfigCommands:
         assert "Restart any running devbox" in result.output
 
 
+@pytest.mark.usefixtures("stub_mutagen_setup")
 class TestDevboxSetupGate:
     """Cover the Y/n gate at the top of ``hogli devbox:setup``."""
 
