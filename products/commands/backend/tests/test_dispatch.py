@@ -17,6 +17,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
+from posthog.schema import ErrorTrackingIssueStatus
+
 from posthog.constants import AvailableFeature
 from posthog.ingress.dispatch.loading import reset_consumer_registry
 from posthog.models.integration import Integration
@@ -627,12 +629,21 @@ class TestDispatchCommentCommand(BaseTest):
 
     @parameterized.expand(
         [
-            ("resolve", "resolve", False, "Resolved [the issue]", "resolved", None),
-            ("assign", "assign", False, "Assigned [the issue]", "active", "user"),
+            ("resolve", "resolve", False, "active", "Resolved [the issue]", "resolved", None),
+            ("assign", "assign", False, "active", "Assigned [the issue]", "active", "user"),
             # Error tracking's Slack alerts link the issue by its fingerprint.
-            ("resolve_by_fingerprint", "resolve", True, "Resolved [the issue]", "resolved", None),
+            ("resolve_by_fingerprint", "resolve", True, "active", "Resolved [the issue]", "resolved", None),
+            ("resolve_again", "resolve", False, "resolved", "[The issue](", "resolved", None),
             # A pull request command answers instead of acting on an issue.
-            ("pull_request_command", "review", False, "`review` doesn't run on error tracking issues.", "active", None),
+            (
+                "pull_request_command",
+                "review",
+                False,
+                "active",
+                "`review` doesn't run on error tracking issues.",
+                "active",
+                None,
+            ),
         ]
     )
     def test_a_slack_command_acts_on_an_error_tracking_issue_url(
@@ -640,11 +651,14 @@ class TestDispatchCommentCommand(BaseTest):
         _name: str,
         verb: str,
         by_fingerprint: bool,
+        initial_status: str,
         expected_answer: str,
         expected_status: str,
         expected_assignee: str | None,
     ) -> None:
-        issue_id = create_issue(team_id=self.team.id, name="TypeError: boom")
+        issue_id = create_issue(
+            team_id=self.team.id, name="TypeError: boom", status=ErrorTrackingIssueStatus(initial_status)
+        )
         create_issue_fingerprint(team_id=self.team.id, issue_id=issue_id, fingerprint="fp-1")
         slack = Integration.objects.create(
             team=self.team, kind="slack", integration_id="T1", config={}, sensitive_config={"access_token": "xoxb-x"}

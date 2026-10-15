@@ -210,13 +210,14 @@ def build_qa_instructions(context: CommandContext, focus: str) -> str:
 def handle_resolve(context: CommandContext, args: ResolveArgs) -> CommandOutcome:
     """Resolve the error tracking issue as the requester, through the same write the issue API makes."""
     issue = context.issue
-    if issue.status == "resolved":
-        return CommandOutcome(accepted=True, message=f"[The issue]({issue.url}) is already resolved.")
     member = context.members[0]
     user = User.objects.get(id=member.user_id)
-    error_tracking_issues.update_issue(
+    # The write reads the status under a lock, so it, not the earlier read, says whether anything changed.
+    update = error_tracking_issues.update_issue(
         issue.team_id, UUID(issue.issue_id), fields={"status": "resolved"}, user=user, was_impersonated=False
     )
+    if "status" not in update.changed_fields:
+        return CommandOutcome(accepted=True, message=f"[The issue]({issue.url}) is already resolved.")
     return CommandOutcome(accepted=True, message=f"Resolved [the issue]({issue.url}).")
 
 
