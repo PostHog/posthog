@@ -405,7 +405,8 @@ export class TemplateTester {
         const globalsWithInputs = await this.hogExecutor.hogExecutor.buildInputsWithGlobals(
             hogFunction,
             this.createGlobals(_globals),
-            compiledMappingInputs.inputs
+            compiledMappingInputs.inputs,
+            compiledMappingInputs.inputs_schema
         )
 
         const invocation = createInvocation(globalsWithInputs, hogFunction)

@@ -9,7 +9,7 @@ import { Hub, Team } from '~/types'
 
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { HogFunctionInputSchemaType, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { classifyHogError } from '../utils/hog-error-classification'
 import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
@@ -246,25 +246,39 @@ describe('Hog Inputs', () => {
         })
 
         it.each([
-            ['the function schema', false],
-            ['a mapping schema', true],
-        ])('keeps a liquid input literal when %s turns templating off', async (_name, fromMapping) => {
-            const untemplated = { key: 'liquid_templated', type: 'string', required: true, templating: false }
-            const { liquid_templated, ...otherInputs } = hogFunction.inputs!
-            if (fromMapping) {
-                hogFunction.inputs = otherInputs
-                hogFunction.mappings = [{ inputs_schema: [untemplated], inputs: { liquid_templated } }]
+            ['the function schema', 'function', 'event: "{{ event.event }}"'],
+            ['the matching mapping schema', 'matching mapping', 'event: "{{ event.event }}"'],
+            ['only a sibling mapping schema', 'sibling mapping', 'event: "test"'],
+        ])('renders a liquid input by %s', async (_name, literalIn, expected) => {
+            const schema = (templating: boolean): HogFunctionInputSchemaType => ({
+                key: 'liquid_templated',
+                type: 'string',
+                required: true,
+                templating,
+            })
+            const { liquid_templated: liquidTemplated, ...otherInputs } = hogFunction.inputs!
+            const liquid_templated = liquidTemplated!
+            let mappingSchema: HogFunctionInputSchemaType[] | undefined
+            if (literalIn === 'function') {
+                hogFunction.inputs_schema = [schema(false)]
             } else {
-                hogFunction.inputs_schema = [untemplated]
+                const activeIsLiteral = literalIn === 'matching mapping'
+                mappingSchema = [schema(!activeIsLiteral)]
+                hogFunction.inputs = otherInputs
+                hogFunction.mappings = [
+                    { inputs_schema: mappingSchema, inputs: { liquid_templated } },
+                    { inputs_schema: [schema(activeIsLiteral)], inputs: { liquid_templated } },
+                ]
             }
 
             const inputs = await hogInputsService.buildInputs(
                 hogFunction,
                 globals,
-                fromMapping ? { liquid_templated } : undefined
+                mappingSchema ? { liquid_templated } : undefined,
+                mappingSchema
             )
 
-            expect(inputs.liquid_templated).toEqual('event: "{{ event.event }}"')
+            expect(inputs.liquid_templated).toEqual(expected)
         })
 
         it('rejects liquid inputs whose leaves together exceed the invocation budget', async () => {

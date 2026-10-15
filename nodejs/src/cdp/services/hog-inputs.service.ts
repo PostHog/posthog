@@ -4,7 +4,12 @@ import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { logger } from '~/common/utils/logger'
 
-import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
+import {
+    HogFunctionInputSchemaType,
+    HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionType,
+} from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { HogConfigurationError, isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
@@ -17,6 +22,20 @@ export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 const EMAIL_INPUT_TYPES = ['native_email', 'email']
 
+const untemplatedKeysOf = (schema: HogFunctionInputSchemaType[] | undefined): string[] =>
+    (schema ?? []).filter((input) => input.templating === false).map((input) => input.key)
+
+// A mapping's inputs override the function's inputs of the same key, so its schema decides for those keys.
+const literalInputKeys = (
+    functionSchema: HogFunctionInputSchemaType[] | undefined,
+    mappingInputs: Record<string, any> | undefined,
+    mappingSchema: HogFunctionInputSchemaType[] | undefined
+): Set<string> =>
+    new Set([
+        ...untemplatedKeysOf(functionSchema).filter((key) => !(mappingInputs && key in mappingInputs)),
+        ...untemplatedKeysOf(mappingSchema),
+    ])
+
 export class HogInputsService {
     constructor(
         private integrationManager: IntegrationManagerService,
@@ -27,7 +46,8 @@ export class HogInputsService {
     public async buildInputs(
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
-        additionalInputs?: Record<string, any>
+        additionalInputs?: Record<string, any>,
+        additionalInputsSchema?: HogFunctionInputSchemaType[]
     ): Promise<Record<string, any>> {
         // TODO: Load the values from the integrationManager
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
@@ -55,14 +75,7 @@ export class HogInputsService {
         for (const schema of hogFunction.inputs_schema ?? []) {
             schemaTypes[schema.key] = schema.type
         }
-        const untemplatedKeys = new Set(
-            [
-                ...(hogFunction.inputs_schema ?? []),
-                ...(hogFunction.mappings?.flatMap((m) => m.inputs_schema ?? []) ?? []),
-            ]
-                .filter((schema) => schema.templating === false)
-                .map((schema) => schema.key)
-        )
+        const untemplatedKeys = literalInputKeys(hogFunction.inputs_schema, additionalInputs, additionalInputsSchema)
 
         const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
             // The schema wins over the stored input, so a caller cannot turn templating on for an input
@@ -142,11 +155,12 @@ export class HogInputsService {
     public async buildInputsWithGlobals(
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
-        additionalInputs?: Record<string, any>
+        additionalInputs?: Record<string, any>,
+        additionalInputsSchema?: HogFunctionInputSchemaType[]
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
         return {
             ...globals,
-            inputs: await this.buildInputs(hogFunction, globals, additionalInputs),
+            inputs: await this.buildInputs(hogFunction, globals, additionalInputs, additionalInputsSchema),
         }
     }
 
