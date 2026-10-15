@@ -135,6 +135,22 @@ fn walk_nodes(bytes: &[u8], span: Span, walk: &mut Walk) {
     }
 }
 
+/// Walks the DOM in a full snapshot's data, decoding it first when the event is compressed.
+fn walk_snapshot(inner: &[u8], data: Span, compressed: bool) -> Option<Walk> {
+    let decoded;
+    let (bytes, root) = if compressed && scan::is_string(inner, data) {
+        decoded = cv::decode(inner, data).ok()?;
+        let root = scan::locate_value(&decoded, 0).ok()?;
+        (&decoded[..], root)
+    } else {
+        (inner, data)
+    };
+    let node = field(bytes, root, b"node")?;
+    let mut walk = Walk::default();
+    walk_nodes(bytes, node, &mut walk);
+    Some(walk)
+}
+
 fn attribute_contains(bytes: &[u8], value: Span, word: &str) -> bool {
     scan::is_string(bytes, value)
         && scan::unescape(bytes, value).is_ok_and(|v| v.to_ascii_lowercase().contains(word))
@@ -184,50 +200,46 @@ impl WindowDom {
 }
 
 impl DomInspector {
-    /// Updates the window's DOM with one event and adds what it found to the block.
-    pub fn observe(&mut self, inner: &[u8], event: &Event, window: &str, stats: &mut BlockStats) {
+    /// Updates the window's DOM with one event and adds what it found to the block. Returns how many nodes a
+    /// mutation added or removed.
+    pub fn observe(
+        &mut self,
+        inner: &[u8],
+        event: &Event,
+        window: &str,
+        stats: &mut BlockStats,
+    ) -> u32 {
         let dom = self.windows.entry(window.to_owned()).or_default();
+        let mut changed = 0;
         match (event.kind, event.source) {
             (Some(FULL_SNAPSHOT), _) => {
-                let Some(data) = event.data else { return };
-                let decoded;
-                let (bytes, root) = if event.compressed && scan::is_string(inner, data) {
-                    let Ok(json) = cv::decode(inner, data) else {
-                        return;
+                if let Some(walk) = event
+                    .data
+                    .and_then(|data| walk_snapshot(inner, data, event.compressed))
+                {
+                    // A full snapshot replaces the window's DOM.
+                    *dom = WindowDom {
+                        has_snapshot: true,
+                        ..WindowDom::default()
                     };
-                    decoded = json;
-                    let Ok(root) = scan::locate_value(&decoded, 0) else {
-                        return;
-                    };
-                    (&decoded[..], root)
-                } else {
-                    (inner, data)
-                };
-                let Some(node) = field(bytes, root, b"node") else {
-                    return;
-                };
-                let mut walk = Walk::default();
-                walk_nodes(bytes, node, &mut walk);
-                // A full snapshot replaces the window's DOM.
-                *dom = WindowDom {
-                    has_snapshot: true,
-                    ..WindowDom::default()
-                };
-                dom.insert(&walk.ids);
-                stats.dom_nodes = stats.dom_nodes.max(walk.nodes);
-                stats.dom_text_chars = stats.dom_text_chars.max(walk.text_chars);
-                stats.remote_stylesheets += walk.remote_stylesheets;
-                stats.inline_stylesheets += walk.inline_stylesheets;
-                stats.iframes += walk.iframes;
-                stats.canvases += walk.canvases;
-                stats.videos += walk.videos;
-                stats.shadow_roots += walk.shadow_roots;
+                    dom.insert(&walk.ids);
+                    stats.dom_nodes = stats.dom_nodes.max(walk.nodes);
+                    stats.dom_text_chars = stats.dom_text_chars.max(walk.text_chars);
+                    stats.remote_stylesheets += walk.remote_stylesheets;
+                    stats.inline_stylesheets += walk.inline_stylesheets;
+                    stats.iframes += walk.iframes;
+                    stats.canvases += walk.canvases;
+                    stats.videos += walk.videos;
+                    stats.shadow_roots += walk.shadow_roots;
+                }
             }
             (Some(INCREMENTAL_SNAPSHOT), Some(MUTATION))
                 if dom.has_snapshot && !dom.cap_reached =>
             {
                 if let Some(data) = event.data {
-                    stats.orphan_mutations += observe_mutation(inner, data, event.compressed, dom);
+                    let (orphans, size) = observe_mutation(inner, data, event.compressed, dom);
+                    stats.orphan_mutations += orphans;
+                    changed = size;
                 }
             }
             _ => {}
@@ -236,6 +248,7 @@ impl DomInspector {
             stats.events_before_first_full_snapshot += 1;
         }
         stats.node_cap_reached |= dom.cap_reached;
+        changed
     }
 
     /// Whether any window of the session has a full snapshot in this process.
@@ -264,8 +277,9 @@ fn mutation_lists(inner: &[u8], data: Span, compressed: bool) -> Vec<(&'static [
     lists
 }
 
-/// Applies a mutation to the window's node set and returns how many of its changes name a node that is not there.
-fn observe_mutation(inner: &[u8], data: Span, compressed: bool, dom: &mut WindowDom) -> u32 {
+/// Applies a mutation to the window's node set. Returns how many of its changes name a node that is not there, and how
+/// many nodes it added or removed.
+fn observe_mutation(inner: &[u8], data: Span, compressed: bool, dom: &mut WindowDom) -> (u32, u32) {
     let lists = mutation_lists(inner, data, compressed);
     // rrweb does not order adds parent first, so a parent added anywhere in the same mutation counts as present.
     let mut added = HashSet::new();
@@ -294,17 +308,20 @@ fn observe_mutation(inner: &[u8], data: Span, compressed: bool, dom: &mut Window
                 .count() as u32;
         }
     }
+    let mut removed = 0;
     for (name, bytes) in &lists {
         if *name == b"removes" {
             for item in items(bytes) {
                 if let Some(id) = number(bytes, field(bytes, item, b"id")) {
                     dom.nodes.remove(&(id as i64));
+                    removed += 1;
                 }
             }
         }
     }
+    let size = added.len() as u32 + removed;
     dom.insert(&added.into_iter().collect::<Vec<_>>());
-    orphans
+    (orphans, size)
 }
 
 fn items(bytes: &[u8]) -> impl Iterator<Item = Span> + '_ {
