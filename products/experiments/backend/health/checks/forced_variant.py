@@ -8,6 +8,10 @@ See `get_match` in rust/feature-flags/src/flags/flag_matching.rs and `pinned_var
 """
 
 from collections.abc import Sequence
+from datetime import datetime, timedelta
+from enum import StrEnum
+
+from posthog.dataclasses import frozen
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
@@ -16,7 +20,8 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped, shipped_variant_key
-from products.experiments.backend.health.context import HealthContext
+from products.experiments.backend.health.context import ConditionSetTraffic, HealthContext, ReachableCondition
+from products.experiments.backend.health.split_changes import format_change_time
 
 # pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
 # Every condition that includes users pins a variant, so no user is randomly assigned. One variant gets
@@ -26,36 +31,66 @@ ALL_CONDITIONS_PINNED = "all_conditions_pinned"
 # assignment, so they bias the comparison unless the analysis excludes them, for example as test users.
 SOME_CONDITIONS_PINNED = "some_conditions_pinned"
 
+# The severity of SOME_CONDITIONS_PINNED follows the share of the experiment's users that the pinned conditions
+# served in this window, or since launch or the flag's last save if later. Below the first share they can't move a
+# variant's results much, so there is no finding. Above the second they are a warning.
+TRAFFIC_WINDOW = timedelta(days=7)
+_NO_FINDING_BELOW_SHARE = 0.01
+_WARNING_ABOVE_SHARE = 0.05
+# With fewer people, the share of a few pinned people is mostly chance.
+MIN_MATCHED_PEOPLE = 100
+# Only calls that the flag service evaluated name a condition set. When fewer calls than this share did, the
+# pinned users can be among the calls that name none, so a share under the first threshold does not clear the
+# finding. A share above it still counts, because the pinned users it found are real.
+_MIN_REMOTELY_EVALUATED_SHARE_TO_CLEAR = 0.5
+
+
+class PinnedShareUnknownReason(StrEnum):
+    # pinned: the finding's `evidence.reason`, which the health finding events track.
+    NOT_MEASURED = "not_measured"
+    TOO_FEW_PEOPLE = "too_few_people"
+    # Most calls carry no version: local evaluation in a server SDK, a bootstrap, or the customer's own assignment.
+    EVALUATED_OUTSIDE_FLAG_SERVICE = "evaluated_outside_flag_service"
+
+
+@frozen
+class _Pins:
+    pinned: tuple[ReachableCondition, ...]
+    all_pinned: bool
+    weighted: tuple[ReachableCondition, ...]
+    # The pinned conditions whose variant has 0% in the split. The hash assigns nobody to such a variant, so it
+    # holds its users apart, such as internal users or a holdout, and they are not part of the comparison.
+    unweighted: tuple[ReachableCondition, ...]
+
+
+@frozen
+class _Measurement:
+    pinned_people: int
+    # The people that a condition set served, without those pinned to a variant with 0% in the split.
+    matched_people: int
+    remotely_evaluated_share: float | None
+    since: datetime
+    team_timezone: str
+
+
+def needs_condition_set_traffic(ctx: HealthContext) -> bool:
+    """Whether the check grades SOME_CONDITIONS_PINNED by the users the pinned conditions served."""
+    pins = _pins(ctx)
+    return ctx.is_launched and pins is not None and not pins.all_pinned and bool(pins.weighted)
+
 
 def forced_variant_release_condition(ctx: HealthContext) -> ExperimentHealthFinding | None:
     flag = ctx.flag
-    # After the end the flag often holds the shipped decision, not the setup of the run.
-    if flag is None or flag.deleted or ctx.has_ended or ctx.archived:
+    pins = _pins(ctx)
+    if flag is None or pins is None:
         return None
-
-    live_conditions = flag.reachable_conditions
-    pinned = [
-        (condition.number, condition.pinned_variant)
-        for condition in live_conditions
-        if condition.pinned_variant is not None
-    ]
-    if not pinned:
-        return None
-    pinned_numbers = [number for number, _ in pinned]
-    pinned_keys = list(dict.fromkeys(key for _, key in pinned))
     is_draft = not ctx.is_launched
 
-    if len(pinned) < len(live_conditions):
-        return _finding(
-            subcode=SOME_CONDITIONS_PINNED,
-            severity=ExperimentHealthFindingSeverity.INFO,
-            title="Some users are not randomly assigned to a variant",
-            detail=_some_pinned_detail(pinned_numbers, pinned_keys, is_draft),
-            pinned_numbers=pinned_numbers,
-            pinned_keys=pinned_keys,
-            diagnostic_ref="A7",
-        )
+    if not pins.all_pinned:
+        return _some_conditions_pinned(pins, ctx.condition_set_traffic, is_draft)
 
+    pinned_numbers = [condition.number for condition in pins.pinned]
+    pinned_keys = _variant_keys(pins.pinned)
     # The shipped finding already says that everyone gets this variant.
     if ctx.is_running and is_single_variant_shipped(flag) and pinned_keys == [shipped_variant_key(flag)]:
         return None
@@ -68,6 +103,96 @@ def forced_variant_release_condition(ctx: HealthContext) -> ExperimentHealthFind
         pinned_keys=pinned_keys,
         diagnostic_ref="A7b",
     )
+
+
+def _pins(ctx: HealthContext) -> _Pins | None:
+    flag = ctx.flag
+    # After the end the flag often holds the shipped decision, not the setup of the run.
+    if flag is None or flag.deleted or ctx.has_ended or ctx.archived:
+        return None
+    pinned = tuple(condition for condition in flag.reachable_conditions if condition.pinned_variant is not None)
+    if not pinned:
+        return None
+    unweighted_keys = {variant.key for variant in flag.variants if variant.rollout_percentage == 0}
+    return _Pins(
+        pinned=pinned,
+        all_pinned=len(pinned) == len(flag.reachable_conditions),
+        weighted=tuple(condition for condition in pinned if condition.pinned_variant not in unweighted_keys),
+        unweighted=tuple(condition for condition in pinned if condition.pinned_variant in unweighted_keys),
+    )
+
+
+def _some_conditions_pinned(
+    pins: _Pins, traffic: ConditionSetTraffic | None, is_draft: bool
+) -> ExperimentHealthFinding | None:
+    if not pins.weighted:
+        return None
+    measurement = None if is_draft or traffic is None else _measure(pins, traffic)
+    share = _graded_share(measurement)
+    if share is not None and share < _NO_FINDING_BELOW_SHARE:
+        return None
+    unknown_reason = None if is_draft or share is not None else _unknown_reason(measurement)
+    pinned_numbers = [condition.number for condition in pins.weighted]
+    pinned_keys = _variant_keys(pins.weighted)
+    return _finding(
+        subcode=SOME_CONDITIONS_PINNED,
+        severity=ExperimentHealthFindingSeverity.WARNING
+        if share is not None and share > _WARNING_ABOVE_SHARE
+        else ExperimentHealthFindingSeverity.INFO,
+        title="Some users are not randomly assigned to a variant",
+        detail=_some_pinned_detail(
+            pinned_numbers,
+            pinned_keys,
+            is_draft,
+            graded=measurement if share is not None else None,
+            unknown_reason=unknown_reason,
+        ),
+        pinned_numbers=pinned_numbers,
+        pinned_keys=pinned_keys,
+        diagnostic_ref="A7",
+        measurement=measurement,
+        share=share,
+        unknown_reason=unknown_reason,
+    )
+
+
+def _measure(pins: _Pins, traffic: ConditionSetTraffic) -> _Measurement:
+    pinned_numbers = {condition.number for condition in pins.weighted}
+    excluded_numbers = {condition.number for condition in pins.unweighted}
+    return _Measurement(
+        pinned_people=sum(people for number, people in traffic.people_by_set.items() if number in pinned_numbers),
+        matched_people=sum(
+            people for number, people in traffic.people_by_set.items() if number not in excluded_numbers
+        ),
+        remotely_evaluated_share=traffic.remotely_evaluated_calls / traffic.calls if traffic.calls else None,
+        since=traffic.since,
+        team_timezone=traffic.team_timezone,
+    )
+
+
+def _graded_share(measurement: _Measurement | None) -> float | None:
+    """The share that sets the severity. None when unknown: not measured, too few people, or a small share from
+    too few calls that name a set."""
+    if measurement is None or measurement.matched_people < MIN_MATCHED_PEOPLE:
+        return None
+    share = measurement.pinned_people / measurement.matched_people
+    remotely_evaluated_share = measurement.remotely_evaluated_share or 0.0
+    if share < _NO_FINDING_BELOW_SHARE and remotely_evaluated_share < _MIN_REMOTELY_EVALUATED_SHARE_TO_CLEAR:
+        return None
+    return share
+
+
+def _unknown_reason(measurement: _Measurement | None) -> PinnedShareUnknownReason:
+    if measurement is None:
+        return PinnedShareUnknownReason.NOT_MEASURED
+    remotely_evaluated_share = measurement.remotely_evaluated_share
+    if remotely_evaluated_share is not None and remotely_evaluated_share < _MIN_REMOTELY_EVALUATED_SHARE_TO_CLEAR:
+        return PinnedShareUnknownReason.EVALUATED_OUTSIDE_FLAG_SERVICE
+    return PinnedShareUnknownReason.TOO_FEW_PEOPLE
+
+
+def _variant_keys(conditions: Sequence[ReachableCondition]) -> list[str]:
+    return list(dict.fromkeys(condition.pinned_variant for condition in conditions if condition.pinned_variant))
 
 
 def _quoted(keys: Sequence[str]) -> str:
@@ -112,7 +237,14 @@ def _all_pinned_detail(numbers: Sequence[int], pinned_keys: Sequence[str], is_dr
     return f"{fact} {why} {fix}"
 
 
-def _some_pinned_detail(numbers: Sequence[int], pinned_keys: Sequence[str], is_draft: bool) -> str:
+def _some_pinned_detail(
+    numbers: Sequence[int],
+    pinned_keys: Sequence[str],
+    is_draft: bool,
+    *,
+    graded: _Measurement | None,
+    unknown_reason: PinnedShareUnknownReason | None,
+) -> str:
     if len(numbers) == 1:
         key = pinned_keys[0]
         overrides, them = "the override", "it"
@@ -140,7 +272,22 @@ def _some_pinned_detail(numbers: Sequence[int], pinned_keys: Sequence[str], is_d
             "If these are internal or test users, check that the filter for internal and test users excludes "
             f"them from the results. Otherwise remove {overrides}."
         )
+    if graded is not None:
+        fact += (
+            f" Since {format_change_time(graded.since, graded.team_timezone)}, "
+            f"{_percent(graded.pinned_people / graded.matched_people)} of the users in the experiment matched "
+            f"{them} ({graded.pinned_people:,} of {graded.matched_people:,})."
+        )
+    elif unknown_reason == PinnedShareUnknownReason.EVALUATED_OUTSIDE_FLAG_SERVICE:
+        fact += (
+            " Most of this flag's calls are evaluated locally in a server SDK, bootstrapped, or assigned in your "
+            f"own code, so PostHog can't measure how many users match {them}."
+        )
     return f"{fact} {why} {fix}"
+
+
+def _percent(share: float) -> str:
+    return f"{share * 100:.1f}".removesuffix(".0") + "%"
 
 
 def _finding(
@@ -152,7 +299,23 @@ def _finding(
     pinned_numbers: Sequence[int],
     pinned_keys: Sequence[str],
     diagnostic_ref: str,
+    measurement: _Measurement | None = None,
+    share: float | None = None,
+    unknown_reason: PinnedShareUnknownReason | None = None,
 ) -> ExperimentHealthFinding:
+    measured: dict[str, str | int | float | None] = {}
+    if measurement is not None:
+        measured = {
+            "pinned_people": measurement.pinned_people,
+            "matched_people": measurement.matched_people,
+            "remotely_evaluated_share": None
+            if measurement.remotely_evaluated_share is None
+            else round(measurement.remotely_evaluated_share, 4),
+        }
+    if share is not None:
+        measured["pinned_share"] = round(share, 4)
+    if unknown_reason is not None:
+        measured["reason"] = unknown_reason.value
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.FORCED_VARIANT_RELEASE_CONDITION,
         subcode=subcode,
@@ -162,6 +325,7 @@ def _finding(
         evidence={
             "pinned_condition_sets": ", ".join(str(number) for number in pinned_numbers),
             "pinned_variant_keys": ", ".join(pinned_keys),
+            **measured,
         },
         actions=(ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,),
         diagnostic_ref=diagnostic_ref,

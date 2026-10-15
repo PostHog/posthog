@@ -63,6 +63,7 @@ def _context(
         secondary_metric_count=0,
         exposures=None,
         split_history=None,
+        condition_set_traffic=None,
     )
 
 

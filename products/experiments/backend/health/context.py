@@ -87,6 +87,22 @@ class FlagState:
 
 
 @frozen
+class ConditionSetTraffic:
+    """The flag's `$feature_flag_called` events of the last days, by the release condition that served each person."""
+
+    # The latest of launch, the flag's last save and the start of the window.
+    since: datetime
+    team_timezone: str
+    # People by the number of the condition set that served their latest call of the flag's current version.
+    # Only calls that carry a "Matched condition set N" reason count.
+    people_by_set: Mapping[int, int]
+    # The calls of any version, and those that the flag service evaluated. Only those carry the flag's version
+    # and name a set. Local evaluation in a server SDK and a bootstrapped value name none.
+    calls: int
+    remotely_evaluated_calls: int
+
+
+@frozen
 class ExposureTotals:
     total_exposures: Mapping[str, int]
     multiple_variant_handling: MultipleVariantHandling
@@ -112,6 +128,8 @@ class HealthContext:
     exposures: ExposureTotals | None
     # None when not loaded. Only the health endpoint loads it, because it can query the exposures.
     split_history: SplitHistory | SplitHistoryNotChecked | None
+    # None when not loaded or unknown. Only the health endpoint loads it, because it queries the events.
+    condition_set_traffic: ConditionSetTraffic | None
 
 
 def parse_flag_state(
@@ -212,4 +230,5 @@ def load_health_context(
         secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),
         exposures=exposures,
         split_history=split_history,
+        condition_set_traffic=None,
     )

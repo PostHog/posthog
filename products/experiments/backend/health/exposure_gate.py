@@ -79,7 +79,7 @@ _SETTLED_AFTER = timedelta(hours=1)
 # A recent "nobody" is kept briefly, so page loads in that hour do not each run the scan again.
 _RECENT_NOBODY_CACHE_SECONDS = int(timedelta(minutes=5).total_seconds())
 # The scan is too large for a request. These are expected, so they are not reported.
-_TOO_EXPENSIVE_ERRORS = (
+TOO_EXPENSIVE_ERRORS = (
     ClickHouseQueryTimeOut,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -201,7 +201,7 @@ class _ExposureGate:
             # The page calls the endpoint on every load, so a scan that fails must not run again on every load.
             # Cluster memory pressure subclasses the per-query memory error, but it says nothing about this scan.
             transient = isinstance(error, CH_TRANSIENT_ERRORS)
-            too_expensive = not transient and isinstance(error, _TOO_EXPENSIVE_ERRORS)
+            too_expensive = not transient and isinstance(error, TOO_EXPENSIVE_ERRORS)
             if not transient and not too_expensive:
                 capture_exception(error)
             cache.set(cache_key, _UNKNOWN, _TOO_EXPENSIVE_CACHE_SECONDS if too_expensive else _FAILED_CACHE_SECONDS)
