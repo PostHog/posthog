@@ -5,10 +5,9 @@ import { Meta, StoryObj } from '@storybook/react'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
-
-import __dataTableHogQL from '../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
-import __dataVisualizationHogQL from '../../../mocks/fixtures/api/projects/team_id/insights/dataVisualizationHogQL.json'
-import __trendsLine from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
+import __dataTableHogQL from '~/mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
+import __dataVisualizationHogQL from '~/mocks/fixtures/api/projects/team_id/insights/dataVisualizationHogQL.json'
+import __trendsLine from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 
 type Story = StoryObj<{}>
 const meta: Meta = {
