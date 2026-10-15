@@ -135,12 +135,15 @@ With durable restore on, the processor also:
 
 - deletes the slices of partitions it no longer owns, once its assignment settles,
 - re-produces every transfer still waiting in the merge outbox,
-- rebuilds each partition's in-memory eviction queue from its behavioral rows when that partition's worker spawns,
+- seeks every owned events partition back to the first event it polled during boot and did not dispatch,
+- spawns a worker for every owned partition when boot ends, and each worker rebuilds its in-memory eviction queue from its behavioral rows,
 - wipes the old slice of a partition that moves in after boot, before its worker spawns.
 
+Nothing is dispatched to a worker, from the events consumer or a follower, until these boot steps end.
+[Processor runtime](processor-runtime.md#startup) lists them in order.
+
 After a checkpoint restore it also rewinds the consumers to the offsets recorded in the checkpoint.
-The events consumer retries its seek until it succeeds.
-It seeks only once its assignment settles, so a poll that arrives earlier is still dispatched, the same startup gap as the boot redrive.
+The events consumer folds this rewind into its boot seek, which it retries until it succeeds, and dispatches nothing before.
 The merge, transfer, cascade and seed followers get one attempt each.
 A failed attempt only logs a warning, and a checkpoint with no offsets for the topic skips the rewind silently.
 Either way the follower resumes at its broker-stored offsets.

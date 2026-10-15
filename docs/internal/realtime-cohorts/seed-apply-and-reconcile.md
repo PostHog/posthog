@@ -161,7 +161,10 @@ A timer sends a drain message down every worker's live lane every couple of seco
 
 1. **Guard**, checked on every drain.
    The job is discarded without a marker if the team or cohort left the catalog, if the cohort no longer emits membership, or if its current shape hash for the run's kind is missing or differs from the pinned one.
-   Before the first catalog load, the job waits.
+   It is discarded only after a catalog refresh that began after the request arrived, because each of these misses can mean the catalog has not yet read the cohort's latest write.
+   Until such a refresh, and before the first catalog load, the job waits, and so do the jobs queued behind it on that partition.
+   The wait counts once per job in `cohort_reconcile_jobs_deferred_total`.
+   The refresh reads the Postgres reader, so this holds while reader lag stays shorter than the delay from the write to the request's arrival.
    The guard checks only that one hash.
    The walk composes the cohort's tree from the processor's current catalog, so an edit that changes only the composition, or only the other kind's leaves, does not stop it.
 2. **Scanning.**

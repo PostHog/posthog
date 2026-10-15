@@ -25,6 +25,7 @@ use uuid::Uuid;
 
 use crate::cascade::{first_cascade, CascadeMessage};
 use crate::consumers::events::CohortStreamEvent;
+use crate::consumers::readiness::RebuildGuard;
 use crate::consumers::seeds::{ConsumedSeed, SeedWork};
 use crate::filters::manager::CatalogHandle;
 use crate::filters::reverse_index::TeamFilters;
@@ -74,6 +75,14 @@ pub struct Stage1Worker {
     handle: JoinHandle<()>,
 }
 
+/// Whether a spawning worker rebuilds its `EvictionQueue` from `cf_behavioral`, so a dormant
+/// person's `Left` still fires after a restart. A rebuild needs a [`RebuildGuard`], so the readiness
+/// gate counts every rebuild that runs.
+pub enum EvictionRestore {
+    Skip,
+    Rebuild(RebuildGuard),
+}
+
 impl Stage1Worker {
     /// Spawn with event-name gating disabled. The gating-aware variant is [`Self::spawn_with_gating`].
     #[allow(clippy::too_many_arguments)]
@@ -85,7 +94,7 @@ impl Stage1Worker {
         sink: Arc<dyn MembershipSink>,
         tracker: Arc<OffsetTracker>,
         merge: Arc<MergeWorkerDeps>,
-        durable_restore: bool,
+        restore: EvictionRestore,
     ) -> Self {
         Self::spawn_with_gating(
             partition_id,
@@ -95,13 +104,11 @@ impl Stage1Worker {
             sink,
             tracker,
             merge,
-            durable_restore,
+            restore,
             EventNameGating::Disabled,
         )
     }
 
-    /// When `durable_restore` is on, re-seeds the `EvictionQueue` from `cf_behavioral` on spawn so a
-    /// dormant person's `Left` still fires after a crash-restart.
     #[allow(clippy::too_many_arguments)]
     pub fn spawn_with_gating(
         partition_id: u16,
@@ -111,7 +118,7 @@ impl Stage1Worker {
         sink: Arc<dyn MembershipSink>,
         tracker: Arc<OffsetTracker>,
         merge: Arc<MergeWorkerDeps>,
-        durable_restore: bool,
+        restore: EvictionRestore,
         event_name_gating: EventNameGating,
     ) -> Self {
         let handle = tokio::spawn(run_worker(
@@ -122,7 +129,7 @@ impl Stage1Worker {
             sink,
             tracker,
             merge,
-            durable_restore,
+            restore,
             event_name_gating,
         ));
         Self {
@@ -169,7 +176,7 @@ async fn run_worker(
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
     merge: Arc<MergeWorkerDeps>,
-    durable_restore: bool,
+    restore: EvictionRestore,
     event_name_gating: EventNameGating,
 ) {
     info!(partition_id, "stage 1 worker started");
@@ -180,10 +187,16 @@ async fn run_worker(
         partition_id,
         merge.reconcile.backlog.clone(),
         handle.clone(),
+        catalog.clone(),
     );
-    // No-op for a cold partition (bloom-filtered scan finds nothing to schedule).
-    if durable_restore {
-        rebuild_eviction_queue(partition_id, &handle, &mut queue).await;
+    // No-op for a cold partition (bloom-filtered scan finds nothing to schedule). A failed scan logs
+    // and stops early, so the guard drops and the readiness gate cannot stick on a store error.
+    match restore {
+        EvictionRestore::Skip => {}
+        EvictionRestore::Rebuild(rebuilding) => {
+            rebuild_eviction_queue(partition_id, &handle, &mut queue).await;
+            drop(rebuilding);
+        }
     }
     // In-memory resume cursors; loss on rebalance is benign (GC re-scans from the start).
     let mut gc_cursor = MergeGcCursor::default();
@@ -490,7 +503,6 @@ async fn run_worker(
                     handle_reconcile_drain(
                         partition_id,
                         &handle,
-                        &catalog,
                         &sink,
                         &merge,
                         &mut reconcile_queue,
@@ -1326,7 +1338,7 @@ mod tombstone_redirect_tests {
             Arc::new(membership.clone()),
             events_tracker.clone(),
             merge,
-            false,
+            EvictionRestore::Skip,
         );
         seed_tx.send(consumed_reconcile(tile, 5)).await.unwrap();
         drop(seed_tx);
@@ -1502,7 +1514,7 @@ mod tombstone_redirect_tests {
             Arc::new(membership.clone()),
             tracker.clone(),
             merge,
-            false,
+            EvictionRestore::Skip,
         );
         tracker.mark_dispatched(partition_id as i32, dispatched);
         for seed in seeds {

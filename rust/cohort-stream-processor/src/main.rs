@@ -17,8 +17,8 @@ use tracing_subscriber::{fmt, EnvFilter, Layer};
 
 use cohort_stream_processor::config::Config;
 use cohort_stream_processor::consumers::{
-    CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, FollowerRoute,
-    MergeRoute, SeedFollowerConsumer, TransferRoute,
+    BootReadiness, CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer,
+    FollowerRoute, MergeRoute, SeedFollowerConsumer, TransferRoute,
 };
 use cohort_stream_processor::filters::{run_refresh_loop, CatalogHandle};
 use cohort_stream_processor::merge::gc::MergeGcSweeper;
@@ -92,26 +92,29 @@ async fn async_main(config: Config) -> Result<()> {
             .with_liveness_deadline(Duration::from_secs(60))
             .with_stall_threshold(3),
     );
+    // Followers make their final commit after the consumer's worker drain. So each 45 s window
+    // outlasts the consumer's 30 s one, and the 10 s past `FOLLOWER_DRAIN_WAIT` (35 s) is for the
+    // commit itself.
     let merge_follower_handle = manager.register(
         "merge-follower",
-        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(45)),
     );
     let transfer_follower_handle = manager.register(
         "transfer-follower",
-        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(45)),
     );
     // Registered only when the gate is on — a dormant deploy must not wait on a component that never
     // starts.
     let cascade_follower_handle = config.cohort_cascade_enabled.then(|| {
         manager.register(
             "cascade-follower",
-            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(45)),
         )
     });
     let seed_follower_handle = config.cohort_seed_consumer_enabled.then(|| {
         manager.register(
             "seed-follower",
-            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(45)),
         )
     });
     // Short graceful window: it holds no state and its next tick is disposable.
@@ -297,6 +300,7 @@ async fn async_main(config: Config) -> Result<()> {
     }
     // Event-name fan-out gating, likewise set before any worker spawns.
     dispatcher.set_event_name_gating(config.event_name_gating());
+    let boot_readiness = dispatcher.readiness().clone();
 
     let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
     let stream_consumer: StreamConsumer<CohortConsumerContext> = config
@@ -625,7 +629,11 @@ async fn async_main(config: Config) -> Result<()> {
         config.recv_batch_timeout(),
         config.offset_commit_interval(),
     );
-    spawn_follower_after_catalog_load(catalog.clone(), merge_follower, merge_follower_handle);
+    spawn_follower_after_boot(
+        boot_readiness.clone(),
+        merge_follower,
+        merge_follower_handle,
+    );
 
     let transfer_follower = FollowerConsumer::<TransferRoute>::new(
         transfers_follower_consumer,
@@ -636,7 +644,11 @@ async fn async_main(config: Config) -> Result<()> {
         config.recv_batch_timeout(),
         config.offset_commit_interval(),
     );
-    spawn_follower_after_catalog_load(catalog.clone(), transfer_follower, transfer_follower_handle);
+    spawn_follower_after_boot(
+        boot_readiness.clone(),
+        transfer_follower,
+        transfer_follower_handle,
+    );
 
     if let (Some(cascade_consumer), Some(cascade_handle)) =
         (cascade_follower_consumer, cascade_follower_handle)
@@ -650,7 +662,7 @@ async fn async_main(config: Config) -> Result<()> {
             config.recv_batch_timeout(),
             config.offset_commit_interval(),
         );
-        spawn_follower_after_catalog_load(catalog.clone(), cascade_follower, cascade_handle);
+        spawn_follower_after_boot(boot_readiness.clone(), cascade_follower, cascade_handle);
     }
 
     if let (Some(seed_consumer), Some(seed_handle)) = (seed_follower_consumer, seed_follower_handle)
@@ -676,12 +688,12 @@ async fn async_main(config: Config) -> Result<()> {
             config.seed_pacing_config()?,
             disk_state.clone(),
         );
-        let seed_catalog = catalog.clone();
+        let seed_readiness = boot_readiness.clone();
         tokio::spawn(async move {
             tokio::select! {
                 biased;
                 _ = seed_handle.shutdown_recv() => {}
-                _ = seed_catalog.wait_until_loaded() => seed_follower.process().await,
+                _ = seed_readiness.wait_until_dispatchable() => seed_follower.process().await,
             }
         });
     }
@@ -696,13 +708,19 @@ async fn async_main(config: Config) -> Result<()> {
         config.offset_commit_interval(),
         events_partitions,
         consumer_command_rx,
-        // Events-topic seek positions for the restore-and-seek step; `None` on the no-seek paths
-        // (reopen-live / cold-start).
+        // Events-topic positions a checkpoint restore rewinds to; `None` on the paths with no
+        // checkpoint (reopen-live / cold-start), where boot rewinds only what it polled.
         restore.manifest,
     );
     tokio::spawn(events_consumer.process());
 
-    let app = observability::health::router(SERVICE_NAME, readiness, liveness, recorder_handle);
+    let app = observability::health::router(
+        SERVICE_NAME,
+        readiness,
+        boot_readiness,
+        liveness,
+        recorder_handle,
+    );
     let bind = config.bind_address();
     info!(address = %bind, "observability server starting");
 
@@ -795,8 +813,8 @@ fn manifest_commit_tpl(topic: &str, manifest: &OffsetManifest) -> Option<TopicPa
     (tpl.count() > 0).then_some(tpl)
 }
 
-fn spawn_follower_after_catalog_load<R: FollowerRoute>(
-    catalog: Arc<CatalogHandle>,
+fn spawn_follower_after_boot<R: FollowerRoute>(
+    readiness: Arc<BootReadiness>,
     follower: FollowerConsumer<R>,
     handle: Handle,
 ) {
@@ -804,7 +822,7 @@ fn spawn_follower_after_catalog_load<R: FollowerRoute>(
         tokio::select! {
             biased;
             _ = handle.shutdown_recv() => {}
-            _ = catalog.wait_until_loaded() => follower.process().await,
+            _ = readiness.wait_until_dispatchable() => follower.process().await,
         }
     });
 }

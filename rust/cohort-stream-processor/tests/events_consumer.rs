@@ -10,14 +10,15 @@
 //!
 //! The S3/PVC disaster-recovery e2e
 //! ([`s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant_left`]) additionally
-//! needs an S3-compatible store (MinIO / SeaweedFS). Point it at one with:
+//! needs an S3-compatible store. The compose stack's SeaweedFS (`objectstorage`) serves one:
 //!
 //! ```sh
 //! export KAFKA_HOSTS=localhost:9092
-//! export CHECKPOINT_S3_ENDPOINT=http://localhost:19000   # MinIO; or :8333 for SeaweedFS
-//! export CHECKPOINT_S3_BUCKET=cohort-checkpoints          # must already exist
-//! export CHECKPOINT_S3_ACCESS_KEY_ID=...                  # MinIO/SeaweedFS creds
-//! export CHECKPOINT_S3_SECRET_ACCESS_KEY=...
+//! export CHECKPOINT_S3_ENDPOINT=http://localhost:19000
+//! export CHECKPOINT_S3_REGION=us-east-1
+//! export CHECKPOINT_S3_BUCKET=posthog
+//! export CHECKPOINT_S3_ACCESS_KEY_ID=object_storage_root_user
+//! export CHECKPOINT_S3_SECRET_ACCESS_KEY=object_storage_root_password
 //! cargo test -p cohort-stream-processor --test events_consumer -- --ignored s3_restore
 //! ```
 //!
@@ -35,7 +36,9 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use chrono_tz::UTC;
 use cohort_stream_processor::config::Config;
-use cohort_stream_processor::consumers::{CohortStreamEventsConsumer, EventDispatcher};
+use cohort_stream_processor::consumers::{
+    BootReadiness, CohortStreamEventsConsumer, EventDispatcher,
+};
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
 };
@@ -48,8 +51,8 @@ use cohort_stream_processor::producer::{
 };
 use cohort_stream_processor::stage1::{Stage1State, StatefulRecord};
 use cohort_stream_processor::store::durability::{
-    run_boot_restore, upload_cadence, CheckpointExporter, CheckpointSweeper, OffsetManifest,
-    RestoreSource, S3Uploader,
+    run_boot_restore, store_hash_prefix, upload_cadence, CheckpointExporter, CheckpointSweeper,
+    OffsetManifest, RestoreSource, S3Uploader,
 };
 use cohort_stream_processor::store::{
     BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, StoreConfig, StoreHandle,
@@ -66,7 +69,7 @@ fn test_handle(store: &CohortStore) -> StoreHandle {
         },
     )
 }
-use cohort_stream_processor::workers::{MergeWorkerDeps, Stage1Worker};
+use cohort_stream_processor::workers::{EvictionRestore, MergeWorkerDeps, Stage1Worker};
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::KafkaProduceError;
 use envconfig::Envconfig;
@@ -208,6 +211,33 @@ async fn produce_events(topic: &str) -> usize {
     total
 }
 
+/// Persons that first appear after a restart, in the durable-restart test.
+const NEW_PERSONS: u128 = 50;
+
+/// One matching `$pageview` each for `count` persons after the [`PERSONS`] that [`produce_events`]
+/// writes, at source offsets past its own. Returns the total produced.
+async fn produce_new_persons(topic: &str, count: u128) -> usize {
+    let producer: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", bootstrap_servers())
+        .set("message.timeout.ms", "10000")
+        .create()
+        .expect("create producer");
+    let first_offset = (PERSONS as usize * EVENTS_PER_PERSON) as i64;
+    for n in 1..=count {
+        let p = person(PERSONS + n);
+        let key = format!("{TEAM}:{p}");
+        let payload = envelope(p, 0, first_offset + n as i64);
+        producer
+            .send(
+                FutureRecord::to(topic).key(&key).payload(&payload),
+                Timeout::After(Duration::from_secs(10)),
+            )
+            .await
+            .expect("produce event");
+    }
+    count as usize
+}
+
 struct NoopMirror;
 
 impl PartitionMirror for NoopMirror {
@@ -224,7 +254,7 @@ fn build_consumer(
     sink: Arc<dyn MembershipSink>,
     offset_commit_interval: Duration,
 ) -> CohortStreamEventsConsumer {
-    build_consumer_with_restore(
+    let (consumer, _dispatcher) = build_consumer_with_restore(
         topic,
         group,
         store,
@@ -233,7 +263,9 @@ fn build_consumer(
         sink,
         offset_commit_interval,
         false,
-    )
+        100,
+    );
+    consumer
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -246,7 +278,8 @@ fn build_consumer_with_restore(
     sink: Arc<dyn MembershipSink>,
     offset_commit_interval: Duration,
     durable_restore: bool,
-) -> CohortStreamEventsConsumer {
+    recv_batch_size: usize,
+) -> (CohortStreamEventsConsumer, Arc<EventDispatcher>) {
     let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
         Arc::new(OffsetTracker::new()),
@@ -281,18 +314,19 @@ fn build_consumer_with_restore(
         handle.shutdown_token(),
     ));
 
-    CohortStreamEventsConsumer::new(
+    let events_consumer = CohortStreamEventsConsumer::new(
         Arc::new(consumer),
         topic.to_string(),
-        dispatcher,
+        dispatcher.clone(),
         handle,
-        100,
+        recv_batch_size,
         Duration::from_millis(200),
         offset_commit_interval,
         NUM_PARTITIONS as usize,
         consumer_command_rx,
         None,
-    )
+    );
+    (events_consumer, dispatcher)
 }
 
 /// The `murmur2_random` partitioner must match production for keyed co-partitioning.
@@ -925,7 +959,7 @@ async fn cooperative_sticky_migration_preserves_offsets_and_partition_colocation
 
     // Batch 1: only A is up.
     let batch1 = produce_events(&topic).await;
-    let consumer_a = build_consumer(
+    let (consumer_a, dispatcher_a) = build_consumer_with_restore(
         &topic,
         &group,
         store_a.clone(),
@@ -933,12 +967,14 @@ async fn cooperative_sticky_migration_preserves_offsets_and_partition_colocation
         handle_a,
         sink_a.clone(),
         Duration::from_millis(250),
+        false,
+        100,
     );
     let task_a = tokio::spawn(consumer_a.process());
     wait_for_committed(&verifier, &topic, batch1 as i64, Duration::from_secs(60)).await;
 
     // B joins → cooperative-sticky moves ~half the partitions off A.
-    let consumer_b = build_consumer(
+    let (consumer_b, dispatcher_b) = build_consumer_with_restore(
         &topic,
         &group,
         store_b.clone(),
@@ -946,8 +982,32 @@ async fn cooperative_sticky_migration_preserves_offsets_and_partition_colocation
         handle_b,
         sink_b.clone(),
         Duration::from_millis(250),
+        false,
+        100,
     );
     let task_b = tokio::spawn(consumer_b.process());
+
+    // A revoke deletes the slice and hands nothing over. If A folds and commits a batch-2 event
+    // before its partition moves to B, neither pod holds that person afterwards. So batch 2 waits
+    // for a stable, disjoint, full split, and each event lands on its final owner.
+    let start = Instant::now();
+    loop {
+        let a = dispatcher_a.owned_set();
+        let b = dispatcher_b.owned_set();
+        if !b.is_empty() && a.is_disjoint(&b) && a.len() + b.len() == NUM_PARTITIONS as usize {
+            tokio::time::sleep(Duration::from_millis(750)).await;
+            if dispatcher_a.owned_set() == a && dispatcher_b.owned_set() == b {
+                break;
+            }
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "timed out waiting for the cooperative split to settle (a={}, b={})",
+            a.len(),
+            b.len(),
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
 
     // Batch 2: split across both pods.
     let batch2 = produce_events(&topic).await;
@@ -1013,7 +1073,9 @@ async fn reopen_store_live(path: std::path::PathBuf) -> CohortStore {
 /// End-to-end through a real broker: a durable-restore consumer folds every person in and
 /// fsync-commits; the store is reopened live (no wipe) and must (i) lose no Kafka offsets, (ii)
 /// preserve every member's state — a wipe+replay would be empty, since the committed offset already
-/// covers every event — and (iii) fire each now-dormant member's `Left` from the rebuilt queue.
+/// covers every event — (iii) fold every event that arrived while it was down, including the ones
+/// polled during boot recovery, and (iv) fire each now-dormant member's `Left` from the rebuilt
+/// queue.
 ///
 /// This is the graceful-restart shape. The hard-crash hazard (a committed offset ahead of un-fsync'd
 /// state) needs a separately killed process to observe `committed > durable`; a graceful in-process
@@ -1056,7 +1118,7 @@ async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
         );
         let shutdown_handle = handle.clone();
         let _monitor = manager.monitor_background();
-        let consumer = build_consumer_with_restore(
+        let (consumer, _dispatcher) = build_consumer_with_restore(
             &topic,
             &group,
             store.clone(),
@@ -1065,6 +1127,7 @@ async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
             Arc::new(CaptureSink::new()),
             Duration::from_millis(250),
             true,
+            100,
         );
         let task = tokio::spawn(consumer.process());
 
@@ -1098,9 +1161,47 @@ async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
         "no Kafka loss: committed offsets are unchanged across the restart",
     );
 
+    // --- Tenure 2: events that arrived while the pod was down. A 10-event batch makes boot
+    // recovery span several polls, so the polls it holds back carry events that must fold later. ---
+    let total = total + produce_new_persons(&topic, NEW_PERSONS).await;
+    {
+        let mut manager = Manager::builder("durable-itest-2")
+            .with_trap_signals(false)
+            .build();
+        let handle = manager.register(
+            "consumer",
+            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+        );
+        let shutdown_handle = handle.clone();
+        let _monitor = manager.monitor_background();
+        let (consumer, _dispatcher) = build_consumer_with_restore(
+            &topic,
+            &group,
+            store2.clone(),
+            behavioral_catalog(),
+            handle,
+            Arc::new(CaptureSink::new()),
+            Duration::from_millis(250),
+            true,
+            10,
+        );
+        let task = tokio::spawn(consumer.process());
+        wait_for_committed(&verifier, &topic, total as i64, Duration::from_secs(60)).await;
+        shutdown_handle.request_shutdown();
+        task.await.expect("tenure-2 consumer panicked");
+    }
+    let persons = (PERSONS + NEW_PERSONS) as usize;
+    assert_eq!(
+        entered_persons_range(&store2, lsk, persons),
+        persons,
+        "tenure 2 folded every event that arrived during the downtime",
+    );
+    assert_eq!(committed_sum(&verifier, &topic), total as i64);
+
     // --- Dormant Left: durable workers re-seed queues from cf_behavioral; a sweep past the window
     // evicts each member with no new events. ---
     let catalog = Arc::new(behavioral_catalog());
+    let readiness = BootReadiness::new(catalog.clone());
     let sink = Arc::new(CaptureSink::new());
     let far_future = 4_000_000_000_000i64; // ~year 2096, well past every BASE_TS + 7d deadline
     for partition in 0..NUM_PARTITIONS {
@@ -1114,7 +1215,7 @@ async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
             sink.clone(),
             Arc::new(OffsetTracker::new()),
             MergeWorkerDeps::capture(),
-            true,
+            EvictionRestore::Rebuild(readiness.rebuild_started()),
         );
         tx.send(vec![ShuffleMessage::Sweep {
             due_before_ms: far_future,
@@ -1130,7 +1231,7 @@ async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
         .filter(|change| change.status == MembershipStatus::Left)
         .count();
     assert_eq!(
-        lefts, PERSONS as usize,
+        lefts, persons,
         "every restored-then-dormant member emits a Left from the rebuilt eviction queue",
     );
 
@@ -1294,11 +1395,15 @@ async fn delete_s3_prefix(config: &Config) {
         Ok(store) => store,
         Err(_) => return,
     };
-    let prefix = ObjPath::from(d.s3_key_prefix.as_str());
-    let mut stream = store.list(Some(&prefix));
-    while let Some(entry) = stream.next().await {
-        if let Ok(meta) = entry {
-            let _result = store.delete(&meta.location).await;
+    // Checkpoint SSTs are keyed under `<hash>/<s3_key_prefix>/…`; metadata.json at the bare prefix.
+    let hashed = format!("{}/{}", store_hash_prefix(), d.s3_key_prefix);
+    for raw_prefix in [d.s3_key_prefix.as_str(), hashed.as_str()] {
+        let prefix = ObjPath::from(raw_prefix);
+        let mut stream = store.list(Some(&prefix));
+        while let Some(entry) = stream.next().await {
+            if let Ok(meta) = entry {
+                let _result = store.delete(&meta.location).await;
+            }
         }
     }
 }
@@ -1347,7 +1452,7 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
         );
         let shutdown_handle = handle.clone();
         let _monitor = manager.monitor_background();
-        let consumer = build_consumer_with_restore(
+        let (consumer, _dispatcher) = build_consumer_with_restore(
             &topic,
             &group,
             store.clone(),
@@ -1356,6 +1461,7 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
             Arc::new(CaptureSink::new()),
             Duration::from_millis(250),
             true,
+            100,
         );
         let task = tokio::spawn(consumer.process());
 
@@ -1483,6 +1589,7 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
     // (c) Dormant Left: workers re-seed the eviction queue from the restored cf_behavioral, then a sweep
     // past the window evicts every now-dormant member.
     let catalog = Arc::new(behavioral_catalog());
+    let readiness = BootReadiness::new(catalog.clone());
     let left_sink = Arc::new(CaptureSink::new());
     let far_future = 4_000_000_000_000i64; // ~year 2096, past every BASE_TS + 7d deadline
     for partition in 0..NUM_PARTITIONS {
@@ -1496,7 +1603,7 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
             left_sink.clone(),
             Arc::new(OffsetTracker::new()),
             MergeWorkerDeps::capture(),
-            true,
+            EvictionRestore::Rebuild(readiness.rebuild_started()),
         );
         tx.send(vec![ShuffleMessage::Sweep {
             due_before_ms: far_future,
