@@ -27,8 +27,6 @@ from posthog.schema import (
     WebVitalsQuery,
 )
 
-from posthog.hogql.errors import ExposedHogQLError
-
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
@@ -77,23 +75,25 @@ def _vitals_query(**overrides: Any) -> WebVitalsQuery:
 
 
 class TestVitalsTimeseriesGate(APIBaseTest):
+    @parameterized.expand([(False,), (None,)])
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-    def test_raw_native_source_cannot_be_enqueued_with_an_override(self) -> None:
+    def test_async_native_source_preserves_constructor_override(self, override: bool | None) -> None:
         query = _vitals_query(
             modifiers=HogQLQueryModifiers(useNewEventsCluster=False),
             source_overrides={"modifiers": HogQLQueryModifiers(useNewEventsCluster=True)},
         )
+        original_payload = query.model_dump()
         runner = WebVitalsQueryRunner(
-            query=query, team=self.team, modifiers=HogQLQueryModifiers(useNewEventsCluster=False)
+            query=query, team=self.team, modifiers=HogQLQueryModifiers(useNewEventsCluster=override)
         )
         original = runner.query
-        with (
-            patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
-            self.assertRaisesRegex(ExposedHogQLError, "synchronous execution"),
-        ):
+        with patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue:
             runner.enqueue_async_calculation(cache_manager=MagicMock(), user=self.user)
-        enqueue.assert_not_called()
         self.assertIs(runner.query, original)
+        worker = WebVitalsQueryRunner(query=enqueue.call_args.kwargs["query_json"], team=self.team)
+        self.assertIs(worker.modifiers.useNewEventsCluster, override)
+        self.assertIs(worker.modifiers.useNewEventsSchema, False)
+        self.assertEqual(query.model_dump(), original_payload)
 
     def test_canonical_tab_shape_is_servable(self) -> None:
         assert vitals_timeseries_percentile(_vitals_query()) == "p90"

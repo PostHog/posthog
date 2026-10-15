@@ -134,6 +134,41 @@ def test_native_events_workload_without_host_fails_closed(settings):
         get_pool(Workload.NEW_EVENTS_CLUSTER)
 
 
+@pytest.mark.parametrize(
+    "host,workload,explicit_identity",
+    [
+        (None, Workload.NEW_EVENTS_CLUSTER, False),
+        ("native-replica.example.com", Workload.NEW_EVENTS_CLUSTER, False),
+        ("migration.example.com", None, True),
+        ("migration.example.com", Workload.NEW_EVENTS_CLUSTER, True),
+    ],
+)
+def test_bounded_client_preserves_identity_and_reads_rotated_token(
+    settings, monkeypatch, tmp_path, host, workload, explicit_identity
+):
+    settings.CLICKHOUSE_NATIVE_EVENTS_HOST = "native.example.com"
+    settings.CLICKHOUSE_VERIFY = False
+    token = tmp_path / "token"
+    creds = ClickHouseCredentials(user="ops-example", password="fallback", password_file=str(token))
+    monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.OPS: creds})
+    with patch.object(connection, "ClickHouseClient") as client:
+        for value in ("tok-0", "tok-1"):
+            token.write_text(value)
+            connection.default_client(
+                host=host,
+                workload=workload,
+                ch_user=ClickHouseUser.OPS,
+                send_receive_timeout=15,
+                user="migration-example" if explicit_identity else None,
+                password="caller-resolved-token" if explicit_identity else None,
+            )
+            assert client.call_args.kwargs["host"] == (host or "native.example.com")
+            assert client.call_args.kwargs["user"] == ("migration-example" if explicit_identity else "ops-example")
+            assert client.call_args.kwargs["password"] == ("caller-resolved-token" if explicit_identity else value)
+            assert client.call_args.kwargs["verify"] is False
+            assert client.call_args.kwargs["send_receive_timeout"] == 15
+
+
 def test_read_password_reads_file_fresh_and_stripped(tmp_path):
     token = tmp_path / "token"
     token.write_text("tok-0\n")

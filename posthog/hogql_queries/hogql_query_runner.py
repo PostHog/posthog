@@ -135,6 +135,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         return payload
 
+    def _should_pin_events_schema_for_async(self) -> bool:
+        self._validate_direct_connection()
+        return self._direct_engine != "trino"
+
     def query_status_labels(self) -> list[str] | None:
         self._validate_direct_connection()
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:

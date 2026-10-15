@@ -1907,6 +1907,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 assert isinstance(query, self.query_type)
 
         _modifiers = modifiers or extract_modifiers(query)
+        self._explicit_events_schema = (_modifiers is not None and _modifiers.useNewEventsSchema is not None) or (
+            isinstance(team.modifiers, dict) and team.modifiers.get("useNewEventsSchema") is not None
+        )
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         if self.modifiers.useNewEventsSchema is None:
             self.modifiers.useNewEventsSchema = use_new_events_schema(team.pk, self.modifiers)
@@ -1927,6 +1930,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user. Subclasses that override this to rebuild their own user-dependent state (e.g.
         a cached HogQLContext / Database) must call super()._on_user_changed()."""
         self._shared_database = None
+
+    def _should_pin_events_schema_for_async(self) -> bool:
+        return True
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
@@ -2049,14 +2055,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
-        # WebVitals workers initialize from the source, regardless of wrapper modifiers.
-        query = self.query.source if isinstance(self.query, WebVitalsQuery) else self.query
-        query_modifiers = query_node_modifiers(query)
-        if self.modifiers.useNewEventsCluster or (query_modifiers and query_modifiers.useNewEventsCluster):
-            raise ExposedHogQLError(
-                "Native events cluster queries require synchronous execution; use refresh=force_blocking"
-            )
-
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(self.team.uuid),
             event="query async recalculation initiated",
@@ -2077,6 +2075,53 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # `user` is typed Optional[User] but shared renders pass a SharedLinkUser at runtime.
         principal = cast("Optional[User | SyntheticUser | SharedLinkUser]", user)
         sharing_configuration_id = principal.sharing_configuration.pk if isinstance(principal, SharedLinkUser) else None
+        query_json = self.query.model_dump()
+        modifier_sources = [query_json]
+        while isinstance(source := modifier_sources[-1].get("source"), dict):
+            modifier_sources.append(source)
+        modifier_source = modifier_sources[-1]
+        explicit_schema_choice = (
+            self._explicit_events_schema
+            or self.modifiers.useNewEventsCluster is not None
+            or any(
+                isinstance(source.get("modifiers"), dict)
+                and any(
+                    source["modifiers"].get(key) is not None for key in ("useNewEventsSchema", "useNewEventsCluster")
+                )
+                for source in modifier_sources
+            )
+        )
+        pin_schema = bool(self.modifiers.useNewEventsSchema or explicit_schema_choice)
+        if not pin_schema:
+            try:
+                pin_schema = bool(get_new_events_cluster_host())
+            except Exception:
+                logger.exception("Failed to resolve native events host while enqueueing legacy query")
+        if (
+            "modifiers" in modifier_source
+            and self.modifiers.useNewEventsSchema is not None
+            and pin_schema
+            and self._should_pin_events_schema_for_async()
+        ):
+            for source in modifier_sources:
+                if isinstance(source.get("modifiers"), dict):
+                    source["modifiers"].pop("useNewEventsSchema", None)
+                    source["modifiers"].pop("useNewEventsCluster", None)
+            modifier_source["modifiers"] = {
+                **(modifier_source["modifiers"] or {}),
+                "useNewEventsSchema": self.modifiers.useNewEventsSchema,
+                **(
+                    {"useNewEventsCluster": self.modifiers.useNewEventsCluster}
+                    if self.modifiers.useNewEventsCluster is not None
+                    else {}
+                ),
+            }
+
+        if self._modifiers_override_provided:
+            # Normalize every source so old workers cannot inherit a modifier cleared by the constructor.
+            for source in modifier_sources:
+                if "modifiers" in source:
+                    source["modifiers"] = self.modifiers.model_dump()
 
         return enqueue_process_query_task(
             team=self.team,
@@ -2084,7 +2129,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             sharing_configuration_id=sharing_configuration_id,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
-            query_json=self.query.model_dump(),
+            query_json=query_json,
+            runner_state={"query": self.query.model_dump(), "modifiers": self.modifiers.model_dump()}
+            if self._modifiers_override_provided
+            else None,
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             cache_key=cache_manager.cache_key,
             labels=self.query_status_labels(),
@@ -2391,8 +2439,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 ),
             ):
                 raise ExposedHogQLError("Native cluster comparisons do not support this query type. Use HogQLQuery.")
-            if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
-                raise ExposedHogQLError("Native cluster comparisons require refresh=force_blocking and async=false.")
 
         # Set user for access control during query execution. Some subclasses
         # (e.g. QueryRunnerWithHogQLContext) construct user-dependent state in

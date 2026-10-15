@@ -18,10 +18,9 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLQueryModifiers,
     PrecomputationMode,
+    QueryStatus,
     TrendsQuery,
 )
-
-from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, get_query_runner
@@ -233,10 +232,15 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
                 replacement_key = runner.get_cache_key()
             self.assertEqual(runner.get_cache_key() != replacement_key, native)
             if native:
-                with patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue:
-                    with self.assertRaisesRegex(ExposedHogQLError, "force_blocking"):
-                        runner.run(ExecutionMode.CALCULATE_ASYNC_ALWAYS)
-                    enqueue.assert_not_called()
+                with patch(
+                    "posthog.hogql_queries.query_runner.enqueue_process_query_task",
+                    return_value=QueryStatus(id="native-experiment", team_id=self.team.pk, complete=False),
+                ) as enqueue:
+                    runner.run(ExecutionMode.CALCULATE_ASYNC_ALWAYS)
+                    enqueue.assert_called_once()
+                worker = get_query_runner(enqueue.call_args.kwargs["query_json"], self.team)
+                self.assertIs(worker.modifiers.useNewEventsCluster, True)
+                self.assertEqual(runner.get_cache_key(), worker.get_cache_key())
             for child in children:
                 assert child.modifiers.optimizeJoinedFilters is True
                 assert bool(child.modifiers.useNewEventsCluster) is native
