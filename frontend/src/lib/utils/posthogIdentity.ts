@@ -64,34 +64,27 @@ const sentIdentities = new Map<'user' | 'instance', string>()
 
 /**
  * Sends an identity only when it differs from the last one this page sent. posthog-js stores the person
- * and group properties from these calls as the inputs of the next /flags request. The calls also reload
- * flags as a side effect, so reloads stay paused while they run, and the caller loads flags once when
- * this returns true.
+ * and group properties from these calls as the inputs of the next /flags request. The calls schedule
+ * flag reloads, and posthog-js debounces all reloads made in one task into one /flags request, so the
+ * caller can reload flags after this returns true without a second request.
  */
-function sendIdentityIfChanged(
-    posthog: PostHog,
+function sendIdentityIfChanged<T extends UserIdentity | PostHogGroup>(
     kind: 'user' | 'instance',
-    identity: UserIdentity | PostHogGroup,
-    send: () => void
+    identity: T,
+    send: (identity: T) => void
 ): boolean {
     const fingerprint = JSON.stringify(identity)
     if (sentIdentities.get(kind) === fingerprint) {
         return false
     }
+    send(identity)
     sentIdentities.set(kind, fingerprint)
-    posthog.featureFlags.setReloadingPaused(true)
-    try {
-        send()
-    } finally {
-        posthog.featureFlags.setReloadingPaused(false)
-    }
     return true
 }
 
 /** Returns true when the user's identity changed, which means the flags need a reload. */
 export function identifyUserInPostHog(posthog: PostHog, user: UserType): boolean {
-    const identity = userIdentity(user)
-    return sendIdentityIfChanged(posthog, 'user', identity, () => {
+    return sendIdentityIfChanged('user', userIdentity(user), (identity) => {
         posthog.identify(identity.distinctId)
         posthog.setPersonProperties(identity.personProperties)
         posthog.register(identity.superProperties)
@@ -104,7 +97,7 @@ export function identifyUserInPostHog(posthog: PostHog, user: UserType): boolean
 /** Returns true when the instance changed, which means the flags need a reload. */
 export function identifyInstanceInPostHog(posthog: PostHog, siteUrl: string): boolean {
     const instance: PostHogGroup = { type: 'instance', key: siteUrl, properties: { site_url: siteUrl } }
-    return sendIdentityIfChanged(posthog, 'instance', instance, () => {
-        posthog.group(instance.type, instance.key, instance.properties)
+    return sendIdentityIfChanged('instance', instance, (group) => {
+        posthog.group(group.type, group.key, group.properties)
     })
 }
