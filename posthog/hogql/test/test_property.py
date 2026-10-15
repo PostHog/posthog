@@ -2231,7 +2231,9 @@ class TestProperty(BaseTest):
     def test_every_negative_operator_is_known(self):
         # A negative operator missing from operator_is_negative silently negates per element on
         # array properties and loses its lowercase index hint, so the name pattern pins the set.
-        by_name = {op for op in PropertyOperator if op.value.startswith(("not_", "is_not"))}
+        by_name = {
+            op for op in PropertyOperator if op.value.startswith(("not_", "is_not")) or op.value.endswith("_neq")
+        }
         assert {op for op in PropertyOperator if operator_is_negative(op)} == by_name
 
     def test_flag_evaluates_to_produces_neutral_expr(self):
