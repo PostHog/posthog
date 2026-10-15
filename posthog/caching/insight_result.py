@@ -25,6 +25,7 @@ class InsightResult:
     # A QueryScanSummary dict. The insight serializer puts the stored analysis on it.
     query_scan: Optional[dict] = None
     warnings: Optional[list] = None
+    error_http_status: int | None = None
 
 
 @dataclass(frozen=True)
