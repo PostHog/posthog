@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
@@ -27,21 +27,3 @@ def inaccessible_repositories_via_integration(
         return names
     accessible = {str(repo.get("full_name", "")).lower() for repo in repositories if isinstance(repo, dict)}
     return [full_name for full_name in names if full_name.strip().lower() not in accessible]
-
-
-def first_integration_reaching_repositories(
-    integrations: Sequence[Integration], repositories: Iterable[str]
-) -> Integration | None:
-    """The first integration whose stored repository list holds every repository.
-
-    Reads only the stored list, never GitHub, because task creation can run inside a transaction
-    that holds a row lock.
-    """
-    wanted = {repository.lower() for repository in repositories}
-    for integration in integrations:
-        stored = GitHubIntegration(
-            integration, source="tasks", priority=Priority.CRITICAL
-        ).list_all_cached_repositories(allow_refresh=False)
-        if wanted <= {str(repository["full_name"]).lower() for repository in stored}:
-            return integration
-    return None

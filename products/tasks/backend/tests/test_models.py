@@ -634,43 +634,6 @@ class TestTask(TestCase):
         self.assertEqual(task.github_integration, integration)
         mock_execute_workflow.assert_called_once()
 
-    @parameterized.expand(
-        [
-            ("picks_the_installation_that_reaches_the_repository", ["acme/other"], ["PostHog/PostHog"], 1),
-            ("falls_back_to_the_oldest_when_none_reaches_it", ["acme/other"], ["acme/another"], 0),
-        ]
-    )
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_with_two_github_integrations(
-        self, _name, first_repositories, second_repositories, expected_index, mock_execute_workflow
-    ):
-        user = User.objects.create(email="test@test.com")
-        integrations = [
-            Integration.objects.create(
-                team=self.team,
-                kind="github",
-                config={},
-                repository_cache=[
-                    {"id": index, "name": full_name.split("/")[1], "full_name": full_name}
-                    for index, full_name in enumerate(repositories)
-                ],
-                repository_cache_updated_at=django_timezone.now(),
-            )
-            for repositories in (first_repositories, second_repositories)
-        ]
-
-        with self.captureOnCommitCallbacks(execute=True):
-            task = Task.create_and_run(
-                team=self.team,
-                title="Test Task",
-                description="Test Description",
-                origin_product=Task.OriginProduct.USER_CREATED,
-                user_id=user.id,
-                repository="posthog/posthog",
-            )
-
-        self.assertEqual(task.github_integration, integrations[expected_index])
-
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_signal_report_falls_back_to_user_integration(self, mock_execute_workflow):
         # Signal reports are BOT-authored. A broken team installation must not override the
