@@ -30,7 +30,7 @@ use crate::lifecycle::merge::{
 };
 use crate::lifecycle::validation::{
     is_distinct_id_illegal, is_distinct_id_oversized, is_distinct_id_unmergeable, is_team_id_valid,
-    validate_merge_persons,
+    validate_merge_persons, MAX_MERGE_BATCH_SIZE,
 };
 use crate::storage::{AttachOutcome, IdentityStorage, Person, PersonStub, StubOutcome};
 use crate::warnings::{MergePair, MergeWarnings, MERGE_ENTRANCE};
@@ -206,7 +206,10 @@ impl MergeEntrance {
     }
 
     fn emit_unmergeable_id_warnings(&self, request: &MergePersonsRequest) {
-        if !is_team_id_valid(request.team_id) {
+        if !self.warnings.is_enabled()
+            || !is_team_id_valid(request.team_id)
+            || request.sources.len() > MAX_MERGE_BATCH_SIZE
+        {
             return;
         }
         let target_unmergeable = is_distinct_id_unmergeable(&request.target_distinct_id);
@@ -449,7 +452,11 @@ impl MergeEntrance {
         for (outcome, count) in inline_counts {
             record_outcome_count(PATH_INLINE, outcome, count);
         }
-        for source in &request.sources {
+        for source in request
+            .sources
+            .iter()
+            .filter(|_| self.warnings.is_enabled())
+        {
             let Some(outcome) = inline_results.get(&source.source_distinct_id) else {
                 continue;
             };

@@ -48,6 +48,16 @@ const KAFKA_MESSAGE_TIMEOUT_MS: u32 = 5_000;
 const TYPE_BUDGET_PERIOD: Duration = Duration::from_secs(1);
 const TYPE_BUDGET_BURST: NonZeroU32 = NonZeroU32::new(60).unwrap();
 const THROTTLE_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
+/// The distinct id column's own limit: a legal id is never cut, and an
+/// oversized one is cut before it is copied into details.
+const MAX_DETAIL_ID_CHARS: usize = 400;
+
+fn bounded(id: &str) -> &str {
+    match id.char_indices().nth(MAX_DETAIL_ID_CHARS) {
+        Some((end, _)) => &id[..end],
+        None => id,
+    }
+}
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 const SHUTDOWN_FLUSH: Duration = Duration::from_secs(2);
 
@@ -63,10 +73,10 @@ pub struct MergePair<'a> {
 impl MergePair<'_> {
     fn base(&self, warning: WarningType) -> Warning {
         Warning::new(warning)
-            .with_detail("sourcePersonDistinctId", self.source_distinct_id)
-            .with_detail("targetPersonDistinctId", self.target_distinct_id)
-            .with_detail("distinctId", self.target_distinct_id)
-            .with_detail("eventUuid", self.event_uuid)
+            .with_detail("sourcePersonDistinctId", bounded(self.source_distinct_id))
+            .with_detail("targetPersonDistinctId", bounded(self.target_distinct_id))
+            .with_detail("distinctId", bounded(self.target_distinct_id))
+            .with_detail("eventUuid", bounded(self.event_uuid))
     }
 
     fn with_person_ids(&self, mut warning: Warning) -> Warning {
@@ -81,10 +91,10 @@ impl MergePair<'_> {
 
     fn illegal(&self, illegal_distinct_id: &str, other_distinct_id: &str) -> Warning {
         Warning::new(WarningType::CannotMergeWithIllegalDistinctId)
-            .with_detail("illegalDistinctId", illegal_distinct_id)
-            .with_detail("otherDistinctId", other_distinct_id)
-            .with_detail("distinctId", self.target_distinct_id)
-            .with_detail("eventUuid", self.event_uuid)
+            .with_detail("illegalDistinctId", bounded(illegal_distinct_id))
+            .with_detail("otherDistinctId", bounded(other_distinct_id))
+            .with_detail("distinctId", bounded(self.target_distinct_id))
+            .with_detail("eventUuid", bounded(self.event_uuid))
     }
 }
 
@@ -122,15 +132,27 @@ pub fn illegal_target_warning(pair: &MergePair<'_>) -> Warning {
 #[derive(Clone)]
 pub struct MergeWarnings {
     emitter: Arc<dyn RowWarningEmitter>,
+    enabled: bool,
 }
 
 impl MergeWarnings {
     pub fn new(emitter: Arc<dyn RowWarningEmitter>) -> Self {
-        Self { emitter }
+        Self {
+            emitter,
+            enabled: true,
+        }
     }
 
     pub fn disabled() -> Self {
-        Self::new(Arc::new(NoopRowWarningEmitter))
+        Self {
+            emitter: Arc::new(NoopRowWarningEmitter),
+            enabled: false,
+        }
+    }
+
+    /// Lets a caller skip building warnings at all when nothing would send them.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
     }
 
     pub fn emit_verdict(
@@ -392,6 +414,48 @@ mod tests {
         assert_eq!(details["distinctId"], "user-1");
         assert_eq!(details["eventUuid"], "evt-1");
         assert!(details.get("sourcePersonDistinctId").is_none());
+    }
+
+    #[test]
+    fn oversized_ids_are_cut_to_the_column_limit_in_details() {
+        let huge = "\u{4e16}".repeat(10_000);
+        let oversized = MergePair {
+            source_distinct_id: &huge,
+            target_distinct_id: &huge,
+            event_uuid: &huge,
+            ..pair()
+        };
+        let (_, illegal) =
+            details(verdict_warning(OUTCOME_SKIPPED_ILLEGAL, true, &oversized).unwrap());
+        for key in [
+            "illegalDistinctId",
+            "otherDistinctId",
+            "distinctId",
+            "eventUuid",
+        ] {
+            assert_eq!(
+                illegal[key].as_str().unwrap().chars().count(),
+                MAX_DETAIL_ID_CHARS,
+                "{key}"
+            );
+        }
+        let (_, failure) = details(verdict_warning(OUTCOME_ERROR, true, &oversized).unwrap());
+        assert_eq!(
+            failure["sourcePersonDistinctId"]
+                .as_str()
+                .unwrap()
+                .chars()
+                .count(),
+            MAX_DETAIL_ID_CHARS
+        );
+        let (_, legal) = details(verdict_warning(OUTCOME_ERROR, true, &pair()).unwrap());
+        assert_eq!(legal["sourcePersonDistinctId"], "anon-1");
+    }
+
+    #[test]
+    fn the_disabled_surface_reports_itself_so_callers_can_skip_the_work() {
+        assert!(!MergeWarnings::disabled().is_enabled());
+        assert!(MergeWarnings::new(Arc::new(CollectingRowEmitter::new())).is_enabled());
     }
 
     #[test]

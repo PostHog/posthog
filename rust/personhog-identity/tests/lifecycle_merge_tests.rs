@@ -35,6 +35,7 @@ use personhog_identity::lifecycle::merge::{
     OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_ALREADY_IDENTIFIED, OUTCOME_SKIPPED_CONFLICT,
     OUTCOME_SKIPPED_MOVE_LIMIT,
 };
+use personhog_identity::lifecycle::validation::MAX_MERGE_BATCH_SIZE;
 use personhog_identity::warnings::{MergeWarnings, MERGE_ENTRANCE, MERGE_SAGA};
 use personhog_proto::personhog::types::v1::LifecycleOpType;
 
@@ -1157,7 +1158,9 @@ async fn a_stale_drivers_fold_refusal_defers_instead_of_unfencing_the_new_owners
 }
 
 /// An abandoned merge op is driven through `sweep()`/`resume()` to a
-/// merged outcome, while a parked op sitting next to it is skipped.
+/// merged outcome, a second one whose source the leader holds identified
+/// is driven to an abort that still warns, while a parked op sitting next
+/// to them is skipped.
 ///
 /// Isolation: this is the suite's single sweep call (see the engine
 /// tests' header). Its one-hour lease keeps concurrent tests' fresh
@@ -1173,11 +1176,25 @@ async fn the_sweeper_drives_an_abandoned_merge_to_completion() {
     let op_id = Uuid::now_v7();
     let request = merge_request("sweep-target", &["sweep-source"]);
     h.create(op_id, &request).await;
-    sqlx::query("UPDATE lifecycle_op SET created_at = now() - interval '2 hours' WHERE op_id = $1")
-        .bind(op_id)
-        .execute(&h.ctx.pool)
-        .await
-        .expect("backdate the abandoned op");
+    let warn_source = h
+        .ctx
+        .insert_person_with_distinct_id("sweep-warn-source")
+        .await;
+    h.ctx
+        .insert_person_with_distinct_id("sweep-warn-target")
+        .await;
+    h.leader.set_sealed_identified(warn_source, true);
+    let warn_op_id = Uuid::now_v7();
+    let warn_request = merge_request("sweep-warn-target", &["sweep-warn-source"]);
+    h.create(warn_op_id, &warn_request).await;
+    sqlx::query(
+        "UPDATE lifecycle_op SET created_at = now() - interval '2 hours' WHERE op_id = ANY($1)",
+    )
+    .bind(vec![op_id, warn_op_id])
+    .execute(&h.ctx.pool)
+    .await
+    .expect("backdate the abandoned ops");
+    assert!(h.warned().is_empty(), "creation alone warns nothing");
 
     // A parked op that would otherwise be prime sweeper bait (expired
     // lease): a definitive leader refusal means automatic retry cannot
@@ -1208,7 +1225,7 @@ async fn the_sweeper_drives_an_abandoned_merge_to_completion() {
         h.ctx.tables.clone(),
     );
     let resumed = sweep_engine.sweep(&[&h.driver]).await.expect("sweep runs");
-    assert!(resumed >= 1, "the abandoned merge was resumed");
+    assert!(resumed >= 2, "both abandoned merges were resumed");
 
     let (step, completed) = op_row_state(&h.ctx.pool, op_id).await;
     assert_eq!(step, STEP_COMPLETED);
@@ -1248,48 +1265,7 @@ async fn the_sweeper_drives_an_abandoned_merge_to_completion() {
     assert!(!completed);
     assert!(parked_state(&h.ctx.pool, parked_op_id).await.0);
 
-    h.ctx.cleanup().await.expect("cleanup");
-}
-
-/// An op the RPC abandoned still owes its warnings: they belong to the
-/// terminal record, so whoever commits it emits them.
-#[tokio::test]
-async fn the_sweeper_warns_for_the_verdicts_it_settles() {
-    let h = MergeHarness::new().await;
-    let source = h
-        .ctx
-        .insert_person_with_distinct_id("sweep-warn-source")
-        .await;
-    h.ctx
-        .insert_person_with_distinct_id("sweep-warn-target")
-        .await;
-    h.leader.set_sealed_identified(source, true);
-
-    let op_id = Uuid::now_v7();
-    let request = merge_request("sweep-warn-target", &["sweep-warn-source"]);
-    h.create(op_id, &request).await;
-    sqlx::query("UPDATE lifecycle_op SET created_at = now() - interval '2 hours' WHERE op_id = $1")
-        .bind(op_id)
-        .execute(&h.ctx.pool)
-        .await
-        .expect("backdate the abandoned op");
-    assert!(h.warned().is_empty(), "creation alone warns nothing");
-
-    let sweep_engine = Engine::new(
-        h.ctx.pools.clone(),
-        personhog_identity::lifecycle::engine::EngineConfig {
-            lease: std::time::Duration::from_secs(3600),
-            execute_timeout: std::time::Duration::from_secs(10),
-            poll_interval: std::time::Duration::from_millis(25),
-            attempt_alert_threshold: 5,
-            gc_batch_limit: 10_000,
-        },
-        h.ctx.tables.clone(),
-    );
-    let resumed = sweep_engine.sweep(&[&h.driver]).await.expect("sweep runs");
-    assert!(resumed >= 1);
-
-    let (step, _) = op_row_state(&h.ctx.pool, op_id).await;
+    let (step, _) = op_row_state(&h.ctx.pool, warn_op_id).await;
     assert_eq!(step, STEP_ABORTED);
     let rows = h.warning_rows();
     assert_eq!(
@@ -1302,7 +1278,7 @@ async fn the_sweeper_warns_for_the_verdicts_it_settles() {
     assert_eq!(rows[0].source, MERGE_SAGA);
     assert_eq!(
         rows[0].details()["eventUuid"],
-        request.sources[0].event_uuid
+        warn_request.sources[0].event_uuid
     );
 
     h.ctx.cleanup().await.expect("cleanup");
@@ -2708,6 +2684,16 @@ async fn invalid_merge_requests_are_rejected_before_any_work() {
             rpc_request(team_id, "t", &["nul\u{0000}source"], op),
             Code::InvalidArgument,
         ),
+        (
+            "illegal target with an over-cap batch",
+            rpc_request(
+                team_id,
+                "anonymous",
+                &vec!["s"; MAX_MERGE_BATCH_SIZE + 1],
+                op,
+            ),
+            Code::InvalidArgument,
+        ),
     ];
     for (label, request, expected) in cases {
         let status = service
@@ -2735,7 +2721,7 @@ async fn invalid_merge_requests_are_rejected_before_any_work() {
         illegal_pairs,
         vec![
             ("anonymous".to_string(), "s".to_string()),
-            ("x".repeat(401), "s".to_string()),
+            ("x".repeat(400), "s".to_string()),
             ("nul\u{0000}target".to_string(), "s".to_string()),
             ("nul\u{0000}source".to_string(), "t".to_string()),
         ]
@@ -3952,6 +3938,9 @@ async fn an_oversized_source_settles_per_source_instead_of_failing_the_request()
         h.warned(),
         vec![(WarningType::CannotMergeWithIllegalDistinctId, oversized)]
     );
+    let details = h.warning_rows()[0].details();
+    assert_eq!(details["illegalDistinctId"].as_str().unwrap().len(), 400);
+    assert_eq!(details["otherDistinctId"], "oversize-target");
 
     h.ctx.cleanup().await.expect("cleanup");
 }
