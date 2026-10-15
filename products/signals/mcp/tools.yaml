@@ -69,7 +69,8 @@ tools:
             `signal_finding` entries (the evidence behind the report), status judgments (safety / actionability /
             priority, repo_selection, suggested_reviewers — the newest row of each status type is the canonical status),
             and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or
-            adding to the log.
+            adding to the log. `ranking_score` entries are compact: each model keeps its scores, lifts, and head
+            readability, but not its training metadata. Use inbox-report-artefacts-retrieve to read one in full.
         agent_note: >
             Find the newest applicable `## Verification plan`. Treat it as guidance, not evidence. Confirm the current
             state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not
@@ -88,7 +89,8 @@ tools:
         title: Get a single artefact
         description: >
             Get one artefact by id. Content is parsed (and suggested_reviewers enriched with PostHog user info) the same
-            way as inbox-report-artefacts-list.
+            way as inbox-report-artefacts-list. A `ranking_score` keeps its full model metadata, including training and
+            evaluation data.
     inbox-report-artefacts-update:
         operation: signals_report_artefacts_partial_update
         enabled: true

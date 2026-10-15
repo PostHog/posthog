@@ -659,7 +659,7 @@ def get_cluster(
         if not caller_owns_credential:
             overrides.update(user=creds.user, password=creds.password)
     else:
-        bootstrap_client = default_client(host=host)
+        bootstrap_client = default_client(host=host, user=creds.user, password=creds.password)
 
     return ClickhouseCluster(
         bootstrap_client,

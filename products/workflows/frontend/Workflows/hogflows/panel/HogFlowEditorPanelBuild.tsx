@@ -398,15 +398,13 @@ export function HogFlowEditorPanelBuild({
                 {/* Scouts belong to the project's main environment, and the server refuses the step elsewhere.
                 Require currentTeam explicitly: while it's still loading, both sides of the id comparison are
                 undefined, which would otherwise pass. */}
-                {featureFlags[FEATURE_FLAGS.WORKFLOW_RUN_SCOUT_ACTION] &&
-                    !!currentTeam &&
-                    currentTeam.id === currentTeam.project_id && (
-                        <HogFlowEditorToolbarNode
-                            key="run-scout"
-                            action={RUN_SCOUT_ACTION_NODE}
-                            onActionSelect={onActionSelect}
-                        />
-                    )}
+                {!!currentTeam && currentTeam.id === currentTeam.project_id && (
+                    <HogFlowEditorToolbarNode
+                        key="run-scout"
+                        action={RUN_SCOUT_ACTION_NODE}
+                        onActionSelect={onActionSelect}
+                    />
+                )}
                 {featureFlags[FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION] && (
                     <HogFlowEditorToolbarNode
                         key="classify"

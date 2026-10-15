@@ -1,6 +1,7 @@
 import re
 import json
 import logging
+import contextlib
 from collections.abc import Iterable
 from typing import Any, Optional
 
@@ -19,6 +20,7 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.filters import (
@@ -1096,6 +1098,57 @@ def _contains_behavioral_property(filters: dict) -> bool:
         for property_list in property_lists
         for prop in property_list
     )
+
+
+def _action_ids_in_filters(filters: dict[str, Any]) -> set[int]:
+    # Mirrors compile_filters_expr, which compiles every entry typed "actions" in either list.
+    action_ids: set[int] = set()
+    for key in ("events", "actions"):
+        entries = filters.get(key)
+        for entry in entries if isinstance(entries, list) else []:
+            if isinstance(entry, dict) and entry.get("type") == "actions":
+                with contextlib.suppress(KeyError, TypeError, ValueError, OverflowError):
+                    action_id = int(entry["id"])
+                    # Postgres rejects an id outside the bigint range in a query, and no row can match one.
+                    if 0 < action_id < 2**63:
+                        action_ids.add(action_id)
+    return action_ids
+
+
+def _filter_action_ids(value: Any) -> set[int]:
+    if isinstance(value, list):
+        return set().union(*(_filter_action_ids(item) for item in value))
+    if not isinstance(value, dict):
+        return set()
+    action_ids: set[int] = set()
+    for key, item in value.items():
+        if key == "filters" and isinstance(item, dict):
+            action_ids |= _action_ids_in_filters(item)
+        elif key != "inputs":
+            action_ids |= _filter_action_ids(item)
+    return action_ids
+
+
+def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: Any, stored: Any) -> None:
+    user = getattr(context.get("request"), "user", None)
+    user_access_control = getattr(context.get("view"), "user_access_control", None)
+    # Synthetic principals (project secret API keys) bypass access control, and callers without a view
+    # (template installs, plugin migrations) write no references a user picked.
+    if not isinstance(user, User) or user_access_control is None:
+        return
+    added_ids = _filter_action_ids(submitted) - _filter_action_ids(stored)
+    if not added_ids:
+        return
+
+    actions = Action.objects.filter(team__project_id=context["get_team"]().project_id, id__in=added_ids)
+    denied_ids = user_access_control.denied_object_ids(
+        "action", [(str(action.id), action.team_id, action.created_by_id) for action in actions], "viewer"
+    )
+    if denied_ids:
+        raise serializers.ValidationError(
+            f"You don't have viewer access to action(s) {', '.join(denied_ids)}. "
+            "Remove them from the filters, or ask for access."
+        )
 
 
 class HogFunctionFiltersSerializer(serializers.Serializer):

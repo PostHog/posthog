@@ -95,7 +95,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/external_data_sources/direct_connection_options/': [],
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
                     const { query } = (await request.json()) as {
                         query: { kind: string; query?: string; limit?: number }
                     }
@@ -113,7 +113,24 @@ const meta: Meta = {
                             200,
                             {
                                 tables: {
+                                    example_legacy_orders: {
+                                        id: 'example_legacy_orders',
+                                        name: 'example_legacy_orders',
+                                        type: 'data_warehouse',
+                                        fields: {},
+                                        certification: {
+                                            status: 'deprecated',
+                                            notes: 'Use example_orders for new worksheets.',
+                                        },
+                                    },
+                                    example_raw_orders: {
+                                        id: 'example_raw_orders',
+                                        name: 'example_raw_orders',
+                                        type: 'data_warehouse',
+                                        fields: {},
+                                    },
                                     example_orders: {
+                                        certification: { status: 'certified', notes: 'Reviewed example order totals.' },
                                         id: 'example_orders',
                                         name: 'example_orders',
                                         type: 'data_warehouse',

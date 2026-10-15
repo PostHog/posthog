@@ -49,6 +49,7 @@ from posthog.utils import str_to_bool
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
+from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.health.context import load_health_context
@@ -341,6 +342,15 @@ def _apply_holdout(filters: dict, holdout: ExperimentHoldout | None) -> dict:
         filters,
         holdout_id=holdout.id if holdout else None,
         exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+    )
+
+
+def _tracked_health_finding(finding: ExperimentHealthFinding) -> str:
+    # pinned: `code:subcode:severity:reason`, as on the page's `experiment health checked`. Insights split each
+    # string on `:`, so every field is present, empty when the finding has none.
+    reason = finding.evidence.get("reason")
+    return ":".join(
+        [finding.code.value, finding.subcode or "", finding.severity.value, reason if isinstance(reason, str) else ""]
     )
 
 
@@ -1147,8 +1157,11 @@ class ExperimentService:
         running_time_calculation = running_time_calculation or {}
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
-        validate_metric_action_ids(metrics, self.team.id)
-        validate_metric_action_ids(metrics_secondary, self.team.id)
+        validate_metric_action_ids(metrics, self.team, user=self.user)
+        validate_metric_action_ids(metrics_secondary, self.team, user=self.user)
+        validate_metric_action_ids(
+            self._collect_saved_metric_queries(saved_metrics_ids), self.team, user=self.user, require_existing=False
+        )
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
@@ -1403,6 +1416,7 @@ class ExperimentService:
                     "health_finding_subcodes": [
                         f"{finding.code.value}:{finding.subcode}" for finding in findings if finding.subcode
                     ],
+                    "health_findings": [_tracked_health_finding(finding) for finding in findings],
                     "health_finding_count": len(findings),
                 },
             )
@@ -3388,7 +3402,9 @@ class ExperimentService:
         if "metrics" in update_data:
             update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"], seen=seen_metric_uuids)
             self.validate_experiment_metrics(update_data["metrics"])
-            validate_metric_action_ids(update_data["metrics"], self.team.id, known_action_ids=persisted_action_ids)
+            validate_metric_action_ids(
+                update_data["metrics"], self.team, user=self.user, known_action_ids=persisted_action_ids
+            )
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics"], known_event_names=persisted_event_names)
         if "metrics_secondary" in update_data:
@@ -3397,12 +3413,28 @@ class ExperimentService:
             )
             self.validate_experiment_metrics(update_data["metrics_secondary"])
             validate_metric_action_ids(
-                update_data["metrics_secondary"], self.team.id, known_action_ids=persisted_action_ids
+                update_data["metrics_secondary"], self.team, user=self.user, known_action_ids=persisted_action_ids
             )
             if not allow_unknown_events:
                 self.validate_metric_event_names(
                     update_data["metrics_secondary"], known_event_names=persisted_event_names
                 )
+
+        if "saved_metrics_ids" in update_data:
+            _, linked_action_ids = extract_entity_nodes(
+                [
+                    link.saved_metric.query
+                    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric")
+                    if link.saved_metric.query
+                ]
+            )
+            validate_metric_action_ids(
+                self._collect_saved_metric_queries(update_data["saved_metrics_ids"]),
+                self.team,
+                user=self.user,
+                known_action_ids=persisted_action_ids | linked_action_ids,
+                require_existing=False,
+            )
 
         enforce_warehouse_metric_access(
             [
