@@ -128,17 +128,17 @@ describe('biSceneLogic', () => {
         await expectLogic(logic, () =>
             router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
         ).toFinishAllListeners()
-        logic.actions.restoreWorksheet(worksheet({ ...config, limit: 25 }))
+        logic.actions.restoreWorksheet(worksheet({ ...config, limit: 10000 }))
         stored = { ...stored, name: 'Assistant name' }
 
         await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
 
         expect(logic.values.name).toBe('Assistant name')
-        expect(logic.values.worksheet.config.limit).toBe(25)
+        expect(logic.values.worksheet.config.limit).toBe(10000)
         expect(logic.values.agentUpdateState).toBeNull()
         await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
         expect(stored.name).toBe('Assistant name')
-        expect(stored.query.config.limit).toBe(25)
+        expect(stored.query.config.limit).toBe(10000)
     })
 
     it('applies assistant query edits while preserving a local rename and ignores other worksheets', async () => {
@@ -146,7 +146,7 @@ describe('biSceneLogic', () => {
             router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
         ).toFinishAllListeners()
         logic.actions.setName('Local name')
-        stored = { ...stored, query: worksheet({ ...config, limit: 30 }) }
+        stored = { ...stored, query: worksheet({ ...config, limit: 50000 }) }
         await expectLogic(logic, () =>
             logic.actions.refreshInsightFromAgent('another-worksheet')
         ).toFinishAllListeners()
@@ -155,7 +155,7 @@ describe('biSceneLogic', () => {
         await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.short_id)).toFinishAllListeners()
 
         expect(logic.values.name).toBe('Local name')
-        expect(logic.values.worksheet.config.limit).toBe(30)
+        expect(logic.values.worksheet.config.limit).toBe(50000)
         expect(logic.values.agentUpdateState).toBeNull()
     })
 
@@ -163,12 +163,12 @@ describe('biSceneLogic', () => {
         await expectLogic(logic, () =>
             router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
         ).toFinishAllListeners()
-        logic.actions.restoreWorksheet(worksheet({ ...config, limit: 25 }))
-        stored = { ...stored, query: worksheet({ ...config, limit: 30 }) }
+        logic.actions.restoreWorksheet(worksheet({ ...config, limit: 10000 }))
+        stored = { ...stored, query: worksheet({ ...config, limit: 50000 }) }
 
         await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
         expect(logic.values.agentUpdateState).toBe('conflict')
-        expect(logic.values.worksheet.config.limit).toBe(25)
+        expect(logic.values.worksheet.config.limit).toBe(10000)
         await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
         expect(save).not.toHaveBeenCalled()
         // A later assistant completion must not silently clear an unresolved conflict.
@@ -176,7 +176,7 @@ describe('biSceneLogic', () => {
         expect(logic.values.agentUpdateState).toBe('conflict')
 
         logic.actions.discardChanges()
-        expect(logic.values.worksheet.config.limit).toBe(30)
+        expect(logic.values.worksheet.config.limit).toBe(50000)
         expect(logic.values.agentUpdateState).toBeNull()
     })
 
