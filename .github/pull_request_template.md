@@ -3,7 +3,7 @@
 ## Problem
 
 <!-- Who are we building for, what are their needs, why is this important? -->
-<!-- First line: what is different for a person, and who they are. A fix says what breaks; a feature says what someone can now do; a chore says who is blocked. It stays true whichever solution you pick. The code path goes underneath. -->
+<!-- First line: what is different for a person, and who they are. A fix says what breaks; a feature says what someone can now do; a chore says who is blocked. The problem stays true whichever solution you pick. The code path goes underneath. -->
 
 <!-- Does this fix an issue? Uncomment the line below with the issue ID to automatically close it when merged -->
 <!-- Closes #ISSUE_ID -->

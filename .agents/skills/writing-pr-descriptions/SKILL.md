@@ -47,8 +47,8 @@ You just spent an hour inside the mechanism, so the mechanism comes out first. P
   - A feature: what someone could not do, and now can. "The SQL editor lets users join tables, but there is no way to attach a computed field to a table."
   - A refactor, a chore or an enabling change: who is blocked, what it costs them, or what class of failure it removes. Nobody sees it, but somebody is waiting.
   - A follow-up or a layer in a stack: what the earlier PR left undone, and what this one adds. Link that PR and assume nobody read it.
-- Problem must stay true if you had picked a different solution. Name the task the person cannot do, not the part of your solution that is missing.
-- State a cost only when a source names it: an issue, a thread, a measurement. A guessed cost is a claim nobody can check.
+- Problem must stay true if you pick a different solution. Name the task the person cannot do, not the missing part of your solution. "Users cannot share a dashboard with someone who has no PostHog login" passes. "Dashboards have no PDF export" fails.
+- Name a cost only when an issue, a thread or a measurement states it. A guessed cost is a claim nobody can check.
 - If line 1 opens with a symbol, a file path, a class, or a setting, you led with the mechanism. Rewrite it.
 - Size the problem in one clause where you know it: how many teams, how often, since when.
 - The mechanism follows, in the order a reviewer has to check it.
@@ -60,12 +60,6 @@ You just spent an hour inside the mechanism, so the mechanism comes out first. P
 Most of the time you already wrote the effect and put it third. Move it up rather than writing a new sentence.
 
 Line 1 can be a bullet or a standalone sentence, whichever reads faster, but one sentence and never a paragraph.
-
-❌ Dashboards have no PDF export.
-
-✅ Users cannot share a dashboard with someone who has no PostHog login.
-
-The second line stays true whether the fix is a PDF, a public link or a scheduled email.
 
 ### Worked example
 
