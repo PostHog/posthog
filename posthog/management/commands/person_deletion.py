@@ -10,7 +10,8 @@ Usage:
 
 `stuck` only reads the broker. `requeue` queues through the same path as the persons API, and skips persons
 that no longer resolve. Its input is `stuck` output, or JSONL rows of {team_id, person_uuids,
-delete_profile, delete_recordings}, for example built from the task's give-up log lines.
+delete_profile, delete_recordings}, for example the fields of the task's "delete_persons_async gave up" log
+lines, which name every person a given-up deletion left behind.
 """
 
 import json
