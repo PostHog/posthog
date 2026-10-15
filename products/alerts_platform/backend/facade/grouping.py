@@ -38,16 +38,33 @@ MAX_GROUPING_KEY_LENGTH: Final = 255
 _HASHED_PREFIX: Final = "sha256:"
 
 
-def bounded_grouping_key(key: str) -> str:
-    """A key that fits the column. Stable across checks, so a group keeps its row."""
-    if len(key) <= MAX_GROUPING_KEY_LENGTH:
-        return key
-    return f"{_HASHED_PREFIX}{hashlib.sha256(key.encode()).hexdigest()}"
-
-
 def is_hashed_grouping_key(key: str) -> bool:
     """Whether `bounded_grouping_key` hashed this key, so the value it came from is gone."""
     return key.startswith(_HASHED_PREFIX)
+
+
+def _storable(key: str) -> bool:
+    # A PostgreSQL text column rejects NUL, and UTF-8 cannot encode a lone surrogate. Either one
+    # aborts the transaction that records the whole batch.
+    if "\x00" in key:
+        return False
+    try:
+        key.encode()
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def bounded_grouping_key(key: str) -> str:
+    """A key the column can store. Stable across checks, so a group keeps its row.
+
+    A key stays as it is only when it fits, PostgreSQL can store it, and it cannot read as a hash.
+    Every other key is hashed. A literal key in the hash namespace is hashed too, because otherwise
+    it would share a row with the long key whose digest it spells.
+    """
+    if len(key) <= MAX_GROUPING_KEY_LENGTH and not is_hashed_grouping_key(key) and _storable(key):
+        return key
+    return f"{_HASHED_PREFIX}{hashlib.sha256(key.encode('utf-8', 'surrogatepass')).hexdigest()}"
 
 
 @frozen
