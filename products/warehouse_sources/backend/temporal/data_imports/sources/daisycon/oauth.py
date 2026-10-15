@@ -32,12 +32,16 @@ def resolve_daisycon_oauth_token(integration_id: int, team_id: int) -> str:
         oauth = OauthIntegration(integration)
         if oauth.access_token_expired():
             oauth.refresh_access_token()
-            # A failed refresh records the failure and returns, leaving the old token on the row.
-            if oauth.access_token_expired():
-                if integration.config.get("refresh_terminal"):
-                    raise ValueError(f"{DAISYCON_GRANT_REVOKED_ERROR}. Reconnect your Daisycon account.")
-                raise DaisyconTokenRefreshError("Daisycon did not refresh the access token")
+        # A failed refresh records the failure and returns, leaving the old token on the row. The error is
+        # raised after the block, so the failure count that leads to the terminal state is committed.
+        refresh_failed = oauth.access_token_expired()
+        grant_revoked = bool(integration.config.get("refresh_terminal"))
         token = integration.access_token
+
+    if refresh_failed:
+        if grant_revoked:
+            raise ValueError(f"{DAISYCON_GRANT_REVOKED_ERROR}. Reconnect your Daisycon account.")
+        raise DaisyconTokenRefreshError("Daisycon did not refresh the access token")
 
     if not token:
         raise ValueError("Daisycon access token not found")

@@ -76,3 +76,7 @@ class TestResolveDaisyconOauthToken(BaseTest):
 
         with pytest.raises(expected, match=message):
             resolve_daisycon_oauth_token(integration.id, self.team.id)
+
+        # The failure bookkeeping survives the raise, so repeated invalid_grant reaches the terminal state.
+        integration.refresh_from_db()
+        assert integration.config["refresh_failure_count"] == 1
