@@ -7,7 +7,7 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import { manageDisabledReason } from './broadcastLifecycle'
+import { PENDING_DISABLED_REASON, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 import { BroadcastWizardStepper } from './BroadcastWizardStepper'
@@ -22,7 +22,7 @@ export function BroadcastWizard(): JSX.Element {
     const { currentStep, stepValidationErrors, currentStepHasErrors, saving, launching, scheduleMode } =
         useValues(broadcastWizardLogic)
     const { setStep, prevStep, continueStep, launchBroadcast, archiveBroadcast } = useActions(broadcastWizardLogic)
-    const { broadcastId, broadcast } = useValues(broadcastWizardLogic)
+    const { broadcastId, broadcast, managingBroadcast } = useValues(broadcastWizardLogic)
     useBroadcastAgentPanel()
 
     return (
@@ -40,7 +40,8 @@ export function BroadcastWizard(): JSX.Element {
                                     onClick: archiveBroadcast,
                                     disabledReason:
                                         manageDisabledReason(broadcast?.user_access_level) ??
-                                        (saving || launching ? 'Wait for the broadcast to finish saving' : undefined),
+                                        (saving || launching ? 'Wait for the broadcast to finish saving' : undefined) ??
+                                        (managingBroadcast ? PENDING_DISABLED_REASON : undefined),
                                     'data-attr': 'broadcast-archive',
                                 },
                             ]}
@@ -49,6 +50,7 @@ export function BroadcastWizard(): JSX.Element {
                                 type="secondary"
                                 size="small"
                                 sideIcon={<IconChevronDown />}
+                                loading={managingBroadcast}
                                 data-attr="broadcast-actions"
                             >
                                 Actions
