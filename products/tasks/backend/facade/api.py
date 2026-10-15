@@ -6983,8 +6983,8 @@ def _task_source(origin_product: str, client_provenance: str | None) -> str:
 def list_task_sources(team_id: int, user_id: int, *, exclude_task_ids: Iterable[UUID] = ()) -> list[str]:
     """Distinct task list sources of the user's own visible, non-archived, non-internal tasks."""
     pairs = (
-        Task.objects.filter(team_id=team_id, deleted=False, internal=False, archived=False, created_by_id=user_id)
-        .filter(task_visibility_q(user_id))
+        _visible_task_qs(team_id, user_id)
+        .filter(internal=False, archived=False, created_by_id=user_id)
         .exclude(id__in=exclude_task_ids)
         .order_by()
         .values_list("origin_product", "client_provenance")
