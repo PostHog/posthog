@@ -199,6 +199,14 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> DayRange:
     return DayRange(start=period_start, end=period_end)
 
 
+class DateOutOfRangeError(serializers.ValidationError, ValueError, OverflowError):
+    """A relative date offset moves past the year range Python dates support.
+
+    It is a ValidationError so API views return a 400, and it keeps the
+    ValueError and OverflowError bases so existing callers still catch it.
+    """
+
+
 def relative_date_parse_with_delta_mapping(
     input: str,
     timezone_info: ZoneInfo,
@@ -255,10 +263,13 @@ def relative_date_parse_with_delta_mapping(
             days_to_add = 6 - weekday_index
             parsed_dt += datetime.timedelta(days=days_to_add)
 
-    if increase:
-        parsed_dt += relativedelta(**delta_mapping)  # type: ignore
-    else:
-        parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+    try:
+        if increase:
+            parsed_dt += relativedelta(**delta_mapping)  # type: ignore
+        else:
+            parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+    except (OverflowError, ValueError):
+        raise DateOutOfRangeError(f"The date {input!r} is too far from today. Use a smaller offset.") from None
 
     if match_group_dict["kind"] == "q":
         # Quarter boundaries depend on the resulting month, so they can't be expressed
