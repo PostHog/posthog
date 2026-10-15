@@ -1014,6 +1014,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
 
                 const displayNameOverrides: Record<string, string> = {
                     session_replay: 'Web session replay',
+                    realtime_destinations: 'Realtime destinations',
                     data_warehouse: 'Synced rows',
                     data_warehouse_historical: 'Free historical synced rows',
                     logs: 'Logs ingestion (14-day retention)',
