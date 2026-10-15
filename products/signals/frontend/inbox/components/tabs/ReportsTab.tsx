@@ -13,9 +13,9 @@ import { isRankingSortField } from '../../filterOptions'
 import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { inboxActivationVisibilityLogic } from '../../logics/inboxActivationVisibilityLogic'
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
-import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import {
     INBOX_SCOPE_ENTIRE_PROJECT,
@@ -233,8 +233,7 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
  * selection are shared across all of them.
  */
 export function ReportsTab(): JSX.Element {
-    const { isQuickSetup, completed } = useValues(inboxSetupLogic)
-    const showActivation = isQuickSetup && completed
+    const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
     const { isStaff } = useValues(inboxSceneLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
