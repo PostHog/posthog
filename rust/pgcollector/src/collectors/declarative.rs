@@ -24,7 +24,7 @@ pub struct Spec {
     pub prefers_reader: bool,
     /// Override the default (cluster scope → every instance, database scope → writer only).
     pub per_instance: Option<bool>,
-    /// Server-side prerequisites (`aurora: true`, `extension: pg_proctab`).
+    /// Server-side prerequisites (`aurora: true` / `aurora: false`, `extension: pg_proctab`).
     #[serde(default)]
     pub requires: Requirements,
     /// Ship disabled (opt in via overrides). For collectors whose cost scales
