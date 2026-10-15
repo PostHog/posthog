@@ -48,6 +48,7 @@ You just spent an hour inside the mechanism, so the mechanism comes out first. P
   - A refactor, a chore or an enabling change: who is blocked, what it costs them, or what class of failure it removes. Nobody sees it, but somebody is waiting.
   - A follow-up or a layer in a stack: which need the earlier PR left unmet. Link that PR and assume nobody read it.
 - Problem must stay true if you pick a different solution. A line that negates the first Changes bullet only restates the solution, so a reviewer cannot judge whether the solution fits.
+- Phrases such as "there is no way", "cannot use X through Y" and "lacks a Y" usually mean the line restates the solution. Apply the test above, rather than rewording the phrase.
 - Take the why from whoever asked for the change: the issue, the thread, the task. When none of them states it, ask. If you cannot ask, name the person and the goal you know, and say that the reason is unstated. A guessed goal or cost is a claim nobody can check.
 - If line 1 opens with a symbol, a file path, a class, or a setting, you led with the mechanism. Rewrite it.
 - Size the problem in one clause where you know it: how many teams, how often, since when.
