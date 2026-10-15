@@ -1,6 +1,7 @@
 import hmac
 import json
 import hashlib
+import dataclasses
 from datetime import timedelta
 from itertools import count
 from typing import Any
@@ -35,7 +36,9 @@ from products.commands.backend.logic.commands import CommandContext, CommandRequ
 from products.commands.backend.logic.github import InstallationGitHub, Reaction, UnsupportedPullRequest
 from products.commands.backend.logic.handlers import handle_loop, handle_qa
 from products.commands.backend.logic.schema import LoopArgs, QaArgs
-from products.commands.backend.tasks.tasks import run_slack_command
+from products.commands.backend.receivers import on_review_finished
+from products.commands.backend.tasks.tasks import deliver_follow_up, run_slack_command
+from products.review_hog.backend.facade.finished_review_hooks import FinishedReview
 from products.review_hog.backend.facade.reviews import (
     RUN_MODE_FLASH,
     RUN_MODE_REVIEW,
@@ -59,6 +62,7 @@ CLAIM_CACHE = "products.commands.backend.logic.admission.cache"
 CONSUME_BUDGET = "products.commands.backend.logic.admission.consume"
 RUN_COMMENT_COMMAND = "products.commands.backend.tasks.tasks.run_comment_command.delay"
 RUN_SLACK_COMMAND = "products.commands.backend.tasks.tasks.run_slack_command.delay"
+DELIVER_FOLLOW_UP = "products.commands.backend.tasks.tasks.deliver_follow_up.delay"
 SLACK_INSTALLATION_GITHUB = "products.commands.backend.logic.subjects.InstallationGitHub.for_installation"
 SLACK_POST = "products.commands.backend.channels.slack.mentions.post_message"
 
@@ -243,7 +247,9 @@ class TestDispatchCommentCommand(BaseTest):
                 Integration.objects.create(team=owner_team, kind="github", integration_id=INSTALLATION_ID, config={})
         self._link_github_account(self.user, days_ago=10)
         self._link_github_account(second_user, days_ago=1 if second_linked_last else 30)
-        started = PRReviewRequestOutcome(status=PRReviewRequestStatus.STARTED, workflow_id="wf-1")
+        started = PRReviewRequestOutcome(
+            status=PRReviewRequestStatus.STARTED, workflow_id="wf-1", head_sha="abc123", review_mode="flash"
+        )
 
         with (
             patch(
@@ -413,7 +419,9 @@ class TestDispatchCommentCommand(BaseTest):
             None: None,
         }
         github = FakeGitHub()
-        started = PRReviewRequestOutcome(status=PRReviewRequestStatus.STARTED, workflow_id="wf-1")
+        started = PRReviewRequestOutcome(
+            status=PRReviewRequestStatus.STARTED, workflow_id="wf-1", head_sha="abc123", review_mode="flash"
+        )
 
         with (
             patch(OWNING_TEAM_ID, return_value=owner_team_ids[owner]),
@@ -547,7 +555,9 @@ class TestDispatchCommentCommand(BaseTest):
             team=self.team, kind="slack", integration_id="T1", config={}, sensitive_config={"access_token": "xoxb-x"}
         )
         mention = self._slack_mention("review", (str(self.organization.id),), integration_id=slack.id)
-        started = PRReviewRequestOutcome(status=PRReviewRequestStatus.STARTED, workflow_id="wf-1")
+        started = PRReviewRequestOutcome(
+            status=PRReviewRequestStatus.STARTED, workflow_id="wf-1", head_sha="abc123", review_mode="flash"
+        )
         budget = BucketDecision(allowed=within_budget, remaining=0, limit=5, retry_after=60, reset=600)
 
         with (
@@ -569,6 +579,33 @@ class TestDispatchCommentCommand(BaseTest):
             assert request_pr_review.call_args.kwargs["requester_id"] == self.user.id
         else:
             request_pr_review.assert_not_called()
+
+        finished = FinishedReview(
+            team_id=self.team.id,
+            report_id="r1",
+            repository=REPOSITORY,
+            pr_number=7,
+            head_sha="abc123",
+            review_mode="flash",
+            failed=False,
+            findings_count=2,
+            published=True,
+            review_url="https://example.com/review",
+        )
+        with (
+            patch(DELIVER_FOLLOW_UP, side_effect=lambda **kwargs: deliver_follow_up(**kwargs)),
+            patch(SLACK_POST) as follow_up_post,
+        ):
+            # A Deep turn that was already running on the head is not the review this thread asked for.
+            on_review_finished(dataclasses.replace(finished, review_mode="full"))
+            on_review_finished(finished)
+            on_review_finished(finished)
+        if within_budget and github_reachable:
+            follow_up_post.assert_called_once()
+            assert follow_up_post.call_args.kwargs["thread_ts"] == "100.1"
+            assert "found 2 issues" in follow_up_post.call_args.args[3]
+        else:
+            follow_up_post.assert_not_called()
 
     @patch("posthog.ingress.github.provider.get_instance_setting", return_value="test-webhook-secret")
     def test_a_signed_comment_with_a_command_is_queued(self, _secret: MagicMock) -> None:

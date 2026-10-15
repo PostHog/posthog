@@ -51,6 +51,7 @@ The same commands run from a Slack message that mentions the PostHog app and nam
 - Only a message that opens with the app's mention and reads exactly as a command runs one. Free text, such as "can you review this deeply", and a mistyped option go to the agent as before.
 - The `slack-commands` flag decides the rollout per organization, once, inside the Slack webhook. Outside it, the message also goes to the agent.
 - Every command that ran gets an answer in the thread, refusals included, because the message no longer reaches the agent.
+- When the work a command started ends, its result follows in the same thread: the review's findings count, Stamphog's outcome, or the end of the QA run. A pull request comment needs no follow-up, because the work posts its result on the pull request.
 - The Slack app asks `may_hold_command` first, a check with no queries, so most mentions never reach this product. It hands the rest to `accept_slack_mention` inside its webhook, as plain text. This product reads it (`channels/slack/`), runs it in its own task like a pull request comment, and answers in the thread through the Slack integration the mention came in on.
 - A Slack command has no GitHub permission check. It runs as a PostHog account that is a member of the project, like the review trigger in the PostHog API and MCP.
 - It may run as the accounts the Slack app resolves for the person, the ones its agent acts as: first their linked PostHog account, else the member of a connected organization with their Slack email, then every other account linked to their Slack user. The command picks the project first, and the first of these accounts that is a member of it acts there.
@@ -75,6 +76,14 @@ To add a kind of subject:
 2. Add a class that follows `Subject`, and a case in each function, in `logic/subjects.py`.
 3. Teach the channels that can name it to read it, for example a URL pattern in `channels/slack/parsing.py`.
 4. Add the kind to `subject_kinds` of the commands that accept it.
+
+## Results that come later
+
+The first answer says that the work started.
+A channel that wants the result later gives an address (`follow_up` on the channel), and the handler saves it with `logic/follow_ups.py` before the work ends.
+The products report the end without importing this product: Stamphog and PostHog Review call the callbacks registered in their `facade/finished_review_hooks.py`, and a QA run's terminal save fires the task run signal.
+`receivers.py` registers all three at app start, builds the message in `logic/results.py`, and queues it.
+A follow-up record lives in the cache for a day, so a lost record loses only the follow-up message.
 
 ## Adding a command
 

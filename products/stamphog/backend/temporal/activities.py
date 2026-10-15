@@ -63,6 +63,7 @@ from products.stamphog.backend.facade.enums import (
     ReviewTrigger,
     ReviewVerdict,
 )
+from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun, get_finished_review_hooks
 from products.stamphog.backend.facade.review_evidence import (
     ReviewEvidenceProvider,
     ReviewEvidenceState,
@@ -1842,6 +1843,10 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         activity.logger.info(f"Run {run.id} superseded during verdict posting; verdict not saved")
         return {"verdict": "skipped_superseded"}
 
+    # Right after the save wins: the GitHub steps below can still fail the activity, and the
+    # outcome must not wait on them.
+    _notify_finished_review(run, input.team_id)
+
     # Hand a refused/escalated PR to ReviewHog only AFTER the refusal verdict wins the terminal save
     # above — running it before would trigger ReviewHog for a stale refusal that a superseding delivery
     # then overrode (a newer run might approve the same head). Adding the ReviewHog trigger label starts
@@ -1890,6 +1895,25 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     _capture_review_timings(run, str(parsed.verdict), int((time.monotonic() - post_started) * 1000))
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
     return {"verdict": str(parsed.verdict), "waited_on_external_review": _waited_on_external_review(run)}
+
+
+def _notify_finished_review(run: ReviewRun, team_id: int) -> None:
+    """Tell the registered callbacks the outcome the run just saved. Called after the terminal save."""
+    pull_request = run.pull_request
+    finished = FinishedReviewRun(
+        run_id=run.id,
+        team_id=team_id,
+        repository=pull_request.repo_config.repository,
+        pr_number=pull_request.pr_number,
+        status=ReviewRunStatus(run.status),
+        verdict=ReviewVerdict(run.verdict),
+    )
+    for hook in get_finished_review_hooks():
+        # A callback belongs to another product, and the outcome is already saved and posted.
+        try:
+            hook(finished)
+        except Exception:
+            activity.logger.exception(f"stamphog: finished-review callback failed for run {run.id}")
 
 
 @activity.defn
@@ -1963,9 +1987,11 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
             },
         )
 
-    # Last, because this step raises. A retry returns through the terminal guard, which posts the
-    # notice and nothing else, so the event above must reach PostHog on this attempt.
     if marked_failed:
+        run.status = ReviewRunStatus.FAILED
+        _notify_finished_review(run, input.team_id)
+        # Last, because this step raises. A retry returns through the terminal guard, which posts the
+        # notice and nothing else, so the event above must reach PostHog on this attempt.
         _post_failure_notice(client, run, input.team_id)
 
 
