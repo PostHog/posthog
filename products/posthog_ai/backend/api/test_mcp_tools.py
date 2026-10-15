@@ -60,7 +60,8 @@ class TestMCPToolsAPI(APIBaseTest):
         return_value="https://storage.example.com/result.json",
     )
     @patch("products.posthog_ai.backend.mcp_result_files.object_storage.write")
-    def test_store_result_file(self, authentication: str, write: Mock, presign: Mock) -> None:
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_store_result_file(self, authentication: str, _feature_flag: Mock, write: Mock, presign: Mock) -> None:
         headers: dict[str, str] = {}
         if authentication == "read_scope":
             token = self.create_personal_api_key_with_scopes(["project:read"])
@@ -83,10 +84,27 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(write.call_args.kwargs["extras"]["Tagging"], f"ttl_days=21&team_id={self.team.id}")
         presign.assert_called_once_with(key, expiration=3600)
 
+    @parameterized.expand([("disabled", False), ("missing", None)])
+    @patch("products.posthog_ai.backend.mcp_result_files.object_storage.write")
+    @patch("posthog.permissions.posthoganalytics.feature_enabled")
+    def test_store_result_requires_feature_flag(
+        self, _name: str, enabled: bool | None, feature_flag: Mock, write: Mock
+    ) -> None:
+        feature_flag.return_value = enabled
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/mcp_tools/results/store/", {"content": "{}"}, format="json"
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "feature_flag_required")
+        write.assert_not_called()
+
     @parameterized.expand([("invalid_json", "not JSON"), ("utf8_size", json.dumps("猫猫猫", ensure_ascii=False))])
     @patch("products.posthog_ai.backend.api.mcp_tools.MCP_RESULT_FILE_MAX_BYTES", 8)
     @patch("products.posthog_ai.backend.mcp_result_files.object_storage.write")
-    def test_store_result_rejects_invalid_content(self, _name: str, content: str, write: Mock) -> None:
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_store_result_rejects_invalid_content(
+        self, _name: str, content: str, _feature_flag: Mock, write: Mock
+    ) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/mcp_tools/results/store/", {"content": content}, format="json"
         )
@@ -96,7 +114,10 @@ class TestMCPToolsAPI(APIBaseTest):
     @parameterized.expand([("disabled", False), ("signing_unavailable", True)])
     @patch("products.posthog_ai.backend.mcp_result_files.object_storage.get_presigned_url", return_value=None)
     @patch("products.posthog_ai.backend.mcp_result_files.object_storage.write")
-    def test_store_result_storage_unavailable(self, _name: str, enabled: bool, write: Mock, presign: Mock) -> None:
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_store_result_storage_unavailable(
+        self, _name: str, enabled: bool, _feature_flag: Mock, write: Mock, presign: Mock
+    ) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=enabled):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/mcp_tools/results/store/", {"content": "{}"}, format="json"
@@ -109,7 +130,10 @@ class TestMCPToolsAPI(APIBaseTest):
 
     @parameterized.expand([("unauthenticated", 401), ("other_team", 403), ("missing_scope", 403)])
     @patch("products.posthog_ai.backend.mcp_result_files.object_storage.write")
-    def test_store_result_requires_project_access(self, access: str, expected_status: int, write: Mock) -> None:
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
+    def test_store_result_requires_project_access(
+        self, access: str, expected_status: int, _feature_flag: Mock, write: Mock
+    ) -> None:
         team_id = self.team.id
         headers: dict[str, str] = {}
         if access == "unauthenticated":
