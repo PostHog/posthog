@@ -39297,6 +39297,10 @@
                     "description": "Optional display name for this event.",
                     "type": "string"
                 },
+                "negation": {
+                    "description": "Set to true to match sessions that did NOT contain this event. Only set it when the tool description says excluding sessions by event is supported.",
+                    "type": "boolean"
+                },
                 "properties": {
                     "description": "Optional property filters for this event only.",
                     "items": {
