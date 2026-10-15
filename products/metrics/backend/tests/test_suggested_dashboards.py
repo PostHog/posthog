@@ -55,9 +55,11 @@ class TestSuggestedDashboards(SimpleTestCase):
         template = next(item for item in curated_templates() if item.key == key)
         boxes: set[tuple[int, int]] = set()
         for panel in template.definition.panels:
-            assert panel.query is not None
-            schema = MetricsHistogramQuery if panel.query["kind"] == "MetricsHistogramQuery" else MetricsQuery
-            schema.model_validate(panel.query)
+            if panel.query is None:
+                assert panel.text, f"{panel.key} has neither a query nor text"
+            else:
+                schema = MetricsHistogramQuery if panel.query["kind"] == "MetricsHistogramQuery" else MetricsQuery
+                schema.model_validate(panel.query)
             layout = panel.layout
             assert 0 <= layout.x and layout.x + layout.w <= 12
             cells = {(layout.x + dx, layout.y + dy) for dx in range(layout.w) for dy in range(layout.h)}
