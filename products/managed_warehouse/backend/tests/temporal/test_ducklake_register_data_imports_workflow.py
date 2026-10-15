@@ -332,7 +332,6 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
         if query.startswith(("CREATE TABLE", "ALTER TABLE", 'SELECT count(*) FROM "', "DROP TABLE"))
     ]
     assert any("SET PARTITIONED BY" in query for query in shadow_table_queries)
-    assert shadow_table_queries
     assert all('"ducklake"."posthog_data_imports_team_1".' in query for query in shadow_table_queries)
     workload_metrics.files_getter.assert_called_once_with(team_id=1, schema_id="schema")
     workload_metrics.rows_getter.assert_called_once_with(team_id=1, schema_id="schema")
