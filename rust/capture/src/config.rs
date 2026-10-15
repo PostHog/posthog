@@ -11,13 +11,11 @@ pub enum CaptureMode {
     Events,
     Recordings,
     Ai,
-    /// Analytics ingestion dedicated to historical backfills (the
-    /// batch-import-worker). Like `Events` for the batch/event paths, but with
-    /// three differences: it never applies the global rate limiter, it drops any
-    /// batch not flagged `historical_migration: true`, and it does not register
-    /// the AI or OTEL routes (those handlers hardcode `historical_migration:
-    /// false` and would bypass both gates). See `applies_global_rate_limit`,
-    /// `requires_historical_migration`, and the router's per-mode arm.
+    /// Analytics ingestion for historical backfills (the batch-import-worker).
+    /// Unlike `Events`, it skips the global rate limiter, drops batches not
+    /// flagged `historical_migration: true`, serves no AI or OTEL routes (their
+    /// handlers hardcode `historical_migration: false`), and has no AI overflow
+    /// lane.
     Import,
 }
 

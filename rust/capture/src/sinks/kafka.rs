@@ -3,14 +3,10 @@
 //! This sink is pure mechanism: it produces to Kafka with `rdkafka`.
 //! `KafkaSinkBase::prepare_record` serializes a `ProcessedEvent` and maps the
 //! metadata the pipeline stamped to a [`Destination`] and partition key; v1's
-//! prepared events arrive serialized and carry their own address. All routing
-//! *policy* (overflow, DLQ and custom-topic redirects, person-processing
-//! headers) is decided *upstream*. Enqueue resolves the destination to a topic
-//! and producer.
-//!
-//! Keeping routing policy out of the sink keeps the clone-per-spawned-task
-//! cost in the scatter-gather batch path at one `Arc::clone` call (the output
-//! table) rather than deep copies of limiter state.
+//! prepared events arrive serialized and carry their own address. Routing
+//! policy lives in `pipeline::resolve`, which reads the stamped metadata and
+//! the output table's `has_ai_overflow_lane`. Enqueue resolves the destination
+//! to a topic and producer.
 use crate::api::CaptureError;
 use crate::config::EnvelopeCompression;
 use crate::ordering::OrderingGuarantee;
