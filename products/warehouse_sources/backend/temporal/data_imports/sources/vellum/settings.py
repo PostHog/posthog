@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 VELLUM_BASE_URL = "https://api.vellum.ai/v1"
 
 
-@dataclass
+@dataclass(frozen=True)
 class VellumEndpointConfig:
     name: str
     # Path relative to VELLUM_BASE_URL. Fan-out endpoints carry a `{deployment_id}` placeholder.
