@@ -1,25 +1,17 @@
 import { IconChevronRight } from '@posthog/icons'
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { humanFriendlyDuration } from 'lib/utils/durations'
 import { isExternalLink } from 'lib/utils/url'
 
-import { TimelineRow, TimelineStatus } from '../lib/ciTimeline'
+import { TimelineRow, timelineDuration } from '../lib/ciTimeline'
 import { TimeAxis } from '../lib/pullRequestTimeline'
+import { CITimelineBar, CI_TIMELINE_STATUS_FILL } from './CITimelineBar'
 
 /** The label column and the time track, shared by the header, the gridlines and every row so they line up. */
 export const CI_TIMELINE_COLUMNS = 'grid-cols-[minmax(16rem,38%)_1fr]'
 /** Insets of the time scale inside the track; the right one leaves room for the last bar's duration label. */
 export const CI_TIMELINE_SCALE = 'absolute inset-y-0 left-2 right-14'
-
-const STATUS_FILL: Record<TimelineStatus, string> = {
-    success: 'bg-success',
-    failure: 'bg-danger',
-    running: 'bg-warning',
-    neutral: 'bg-muted',
-    skipped: 'bg-muted',
-}
 
 const GUIDE_LINE = 'before:absolute before:left-[7px] before:top-0 before:border-l before:border-primary'
 const GUIDE_BRANCH = 'after:absolute after:left-[7px] after:right-0 after:top-1/2 after:border-t after:border-primary'
@@ -38,8 +30,6 @@ export function CITimelineRow({
     const { node } = row
     // Top-level rows have no parent row, so they get no guide column.
     const levels = row.lastAtLevel.slice(1)
-    const seconds = node.startMs != null && node.endMs != null ? (node.endMs - node.startMs) / 1000 : null
-    const duration = seconds != null ? humanFriendlyDuration(seconds) : null
     const isParent = node.children.length > 0
     const nameClass = cn(
         'truncate',
@@ -87,7 +77,7 @@ export function CITimelineRow({
                 <span
                     className={cn(
                         'mr-1.5 ml-0.5 size-2 shrink-0 rounded-sm',
-                        STATUS_FILL[node.status],
+                        CI_TIMELINE_STATUS_FILL[node.status],
                         node.status === 'skipped' && 'opacity-50'
                     )}
                 />
@@ -105,47 +95,13 @@ export function CITimelineRow({
                 ) : (
                     <span className={nameClass}>{node.name}</span>
                 )}
-                <span className="ml-auto shrink-0 pl-2 text-xs tabular-nums text-secondary">{duration}</span>
+                <span className="ml-auto shrink-0 pl-2 text-xs tabular-nums text-secondary">
+                    {timelineDuration(node)}
+                </span>
             </div>
             <div className="relative">
                 <div className={CI_TIMELINE_SCALE}>
-                    {node.startMs == null ? (
-                        <span className="absolute top-1/2 left-0 -translate-y-1/2 text-xs text-tertiary">
-                            {node.status === 'skipped' ? 'Skipped' : 'Not started'}
-                        </span>
-                    ) : node.endMs == null ? (
-                        <span
-                            className="absolute top-1/2 -translate-y-1/2 text-xs whitespace-nowrap text-tertiary"
-                            style={{ left: axis.position(node.startMs) }}
-                        >
-                            No update for over a day
-                        </span>
-                    ) : (
-                        <>
-                            <Tooltip
-                                title={`${node.name}: ${node.status === 'running' ? 'running for' : 'ran'} ${duration}, starting ${humanFriendlyDuration((node.startMs - axis.fromMs) / 1000)} in${node.runner ? ` on ${node.runner}` : ''}`}
-                            >
-                                <span
-                                    className={cn(
-                                        'absolute top-1/2 min-w-0.5 -translate-y-1/2 rounded-sm',
-                                        node.kind === 'step' ? 'h-1.5' : 'h-2.5',
-                                        node.kind === 'step' && node.status !== 'failure' && 'opacity-60',
-                                        STATUS_FILL[node.status]
-                                    )}
-                                    style={{
-                                        left: axis.position(node.startMs),
-                                        width: axis.width(node.startMs, node.endMs),
-                                    }}
-                                />
-                            </Tooltip>
-                            <span
-                                className="absolute top-1/2 -translate-y-1/2 pl-1.5 text-[11px] tabular-nums whitespace-nowrap text-tertiary"
-                                style={{ left: axis.position(node.endMs) }}
-                            >
-                                {duration}
-                            </span>
-                        </>
-                    )}
+                    <CITimelineBar node={node} axis={axis} />
                 </div>
             </div>
         </div>

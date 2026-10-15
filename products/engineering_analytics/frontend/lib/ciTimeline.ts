@@ -1,3 +1,5 @@
+import { humanFriendlyDuration } from 'lib/utils/durations'
+
 import type { WorkflowJobApi } from '../generated/api.schemas'
 import { statusOf } from './ciExplorerGraph'
 import { githubJobUrl } from './github'
@@ -199,6 +201,10 @@ export function visibleTimelineRows(nodes: TimelineNode[], isExpanded: (node: Ti
     }
     walk(nodes, [])
     return rows
+}
+
+export function timelineDuration(node: TimelineNode): string | null {
+    return node.startMs != null && node.endMs != null ? humanFriendlyDuration((node.endMs - node.startMs) / 1000) : null
 }
 
 export function parentNodes(nodes: TimelineNode[]): TimelineNode[] {
