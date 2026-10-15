@@ -1514,8 +1514,23 @@ class WidgetTeamWriteThrottle(_WidgetTeamTokenThrottle):
     scope = "widget_team_write"
 
 
+class WidgetTypingUserThrottle(WidgetUserBurstThrottle):
+    """Own bucket, so typing pings cannot use up the budget for messages and polls."""
+
+    scope = "widget_typing_user"
+    rate = "20/minute"
+
+
+class WidgetTeamTypingThrottle(_WidgetTeamTokenThrottle):
+    """Own bucket, so typing pings from many visitors cannot block ticket creates."""
+
+    scope = "widget_team_typing"
+    rate = "14400/hour"
+
+
 WIDGET_POLL_THROTTLES = (WidgetUserBurstThrottle, WidgetTeamPollThrottle)
 WIDGET_WRITE_THROTTLES = (WidgetUserBurstThrottle, WidgetTeamWriteThrottle)
+WIDGET_TYPING_THROTTLES = (WidgetTypingUserThrottle, WidgetTeamTypingThrottle)
 
 
 class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):

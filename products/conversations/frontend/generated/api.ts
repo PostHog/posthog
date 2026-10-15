@@ -33,6 +33,7 @@ import type {
     TicketMessageApi,
     TicketNoteCreateRequestApi,
     TicketReplyRequestApi,
+    TicketTypingResponseApi,
     TicketUnreadCountResponseApi,
     TicketUpdateRequestApi,
     TicketViewApi,
@@ -396,6 +397,42 @@ export const conversationsTicketsReplyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(ticketReplyRequestApi),
+    })
+}
+
+export const getConversationsTicketsTypingRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/typing/`
+}
+
+/**
+ * Return whether the customer is typing in the widget right now.
+ */
+export const conversationsTicketsTypingRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TicketTypingResponseApi> => {
+    return apiMutator<TicketTypingResponseApi>(getConversationsTicketsTypingRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsTicketsTypingCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/typing/`
+}
+
+/**
+ * Signal that a team member is typing a reply, so the widget can show it to the customer.
+ */
+export const conversationsTicketsTypingCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TicketTypingResponseApi> => {
+    return apiMutator<TicketTypingResponseApi>(getConversationsTicketsTypingCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
