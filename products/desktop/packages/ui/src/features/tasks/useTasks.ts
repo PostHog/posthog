@@ -31,7 +31,6 @@ export function useTasks(
   options?: {
     enabled?: boolean;
     subscribed?: boolean;
-    // Show the previous page while a new key loads, for a list whose key changes as the user works.
     keepPreviousPage?: boolean;
   },
 ) {
@@ -72,7 +71,6 @@ export function useTasks(
   );
 }
 
-/** The most rows the server returns in one task list page. */
 export const TASK_LIST_MAX_PAGE_SIZE = 100;
 
 /**
