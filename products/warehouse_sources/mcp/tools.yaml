@@ -140,8 +140,8 @@ tools:
             idempotent: true
         title: Delete synced table data
         description: >
-            Delete the synced table data from PostHog but keep the schema entry. This also sets should_sync to false
-            and pauses the schedule, so the next scheduled run does not rebuild the table. To sync the table again, set
+            Delete the synced table data from PostHog but keep the schema entry. This also sets should_sync to false and
+            pauses the schedule, so the next scheduled run does not rebuild the table. To sync the table again, set
             should_sync to true with 'external-data-schemas-partial-update', then call 'external-data-schemas-reload'.
             To clear stale or corrupt data and keep syncing on, use 'external-data-schemas-resync' instead.
     external-data-schemas-destinations-retrieve:
