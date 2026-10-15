@@ -31,26 +31,29 @@ are in [examples](references/examples.md).
 
 ### Design for responses
 
-These choices change how many people answer an in-app survey. Apply them by
-default, and name the tradeoff when the user asks for something else. The
-evidence and its limits are in [response rates](references/response-rates.md).
+These choices go with higher response rates in in-app surveys. Apply the
+question advice by default. Recommend the trigger and audience advice, and ask
+before adding a trigger or audience the user did not request, since both change
+who receives the survey. The evidence and its limits are in
+[response rates](references/response-rates.md).
 
-- **Trigger on the moment you are asking about.** Show the survey after the
-  event that marks it, such as a completed checkout or a used feature, through
-  `conditions.events`. Event-triggered surveys get about twice the responses of
-  page-based ones. A URL condition alone performs about the same as showing the
-  survey on every page. Confirm the event exists in the project before using it.
+- **Trigger on the moment you are asking about.** Recommend showing the survey
+  after the event that marks it, such as a completed checkout or a used feature,
+  through `conditions.events`. Event-triggered surveys get about twice the
+  responses of page-based ones. A URL condition alone does about as well as
+  showing the survey on every page. Confirm the event exists in the project
+  before using it.
 - **Make the first question one click.** Start with a single choice or a short
-  rating. An open-text first question gets about a fifth of the responses.
-  Ask "why" in an optional open question after it.
-- **Keep it to one to three questions.** Each question after the first loses
-  about half of the people who started.
+  rating. Surveys that open with an open-text question get about a fifth of the
+  responses. Ask "why" in an optional open question after it.
+- **Keep it short.** About 4 in 10 people who start a two- or three-question
+  survey stop before the end. Prefer one to three questions unless the user
+  requests more.
 - **Leave partial responses on** so the first answer is kept when someone stops.
-- **Target the people who did the thing.** A survey with a person or cohort
-  audience gets more responses than one shown to everyone.
-- **Keep any popup delay under 15 seconds.** Longer delays lose responses.
-- **Use a short scale for satisfaction.** A 3- or 5-point scale is enough. Use
-  the 0–10 scale when the user asks for NPS by name.
+- **Recommend a targeted audience.** Surveys shown to a person or cohort
+  audience get more responses than surveys shown to everyone.
+- **Keep any popup delay under 15 seconds.** Longer delays go with fewer
+  responses.
 
 Survey names, questions, and appearance text are public content. Do not copy
 private customer details into them without making that visibility clear first.
