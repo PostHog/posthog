@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 # posthog/hogql/test/test_no_django_imports.py imports this package with no django.setup(), so the
 # name is spelled out here rather than imported.
 FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
+FLAG_EVALUATIONS_HOGQL_TABLE = "posthog.flag_evaluations"
 
 
 # The expression the events table uses under the persons-on-events modes that apply overrides. This table
