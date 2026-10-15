@@ -1,3 +1,7 @@
+import { urls } from 'scenes/urls'
+
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
+
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -20,5 +24,19 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {},
     treeItemsNew: [],
-    treeItemsProducts: [],
+    treeItemsProducts: [
+        {
+            path: 'Alerts',
+            intents: [ProductKey.ALERTS],
+            category: ProductItemCategory.MONITORING,
+            iconType: 'inbox' as FileSystemIconType,
+            href: urls.alerts(),
+            searchKeywords: ['notifications', 'thresholds', 'monitors', 'insight alerts', 'log alerts'],
+            searchTabs: [
+                { name: 'Insight alerts', href: `${urls.alerts()}?alert_type=insights` },
+                { name: 'Log alerts', href: `${urls.alerts()}?alert_type=logs` },
+            ],
+            sceneKey: 'Alerts',
+        },
+    ],
 }

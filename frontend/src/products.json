@@ -49,6 +49,7 @@
             "type": "llm_prompts",
             "intents": ["llm_prompts"]
         },
+        { "path": "Alerts", "category": "Monitoring", "iconType": null, "type": null, "intents": ["alerts"] },
         {
             "path": "Autoresearch",
             "category": "Tools",
