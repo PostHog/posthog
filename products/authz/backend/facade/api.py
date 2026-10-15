@@ -10,12 +10,15 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from contextlib import AbstractContextManager
-from typing import overload
+from typing import TYPE_CHECKING, overload
 from uuid import UUID
 
 from ..logic import authorization, openfga_status, request_context, rollout, synchronization
 from . import contracts
 from .enums import Action, Level, SubjectType
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 def authorization_session() -> AbstractContextManager[None]:
@@ -91,13 +94,17 @@ def list_objects(
     subject: contracts.Subject | None = None,
     context: contracts.Context | None = None,
     limit: int | None = None,
+    creator_exempt: bool = False,
+    user_access_control: UserAccessControl | None = None,
 ) -> contracts.ObjectIds:
-    """Return the object IDs of `resource.type` in its project or organization that the subject may take the action on.
+    """Return project-scoped IDs for the requested action.
 
-    Apply the ids to your own query, for example `qs.filter(pk__in=result.ids)`. When `complete` is False the set
-    was capped, so fail closed and return nothing.
+    QUERY returns an inclusion or exclusion filter for HogQL rows. A complete result with
+    `excluded=True` allows every ID except those returned. Other actions retain inclusion-only IDs.
+    An incomplete result allows nothing. `creator_exempt` requests a creator predicate only when
+    the selected engine permits it. `user_access_control` reuses the caller's legacy rule preload.
     """
-    return rollout.list_objects(resource, action, subject, context, limit)
+    return rollout.list_objects(resource, action, subject, context, limit, creator_exempt, user_access_control)
 
 
 def list_subjects(

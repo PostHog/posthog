@@ -18,7 +18,7 @@ class TestAuthorizationRollout(SimpleTestCase):
         self.subject = Subject(user_id=1)
         organization = patch(
             "products.authz.backend.logic.authorization.organization_id",
-            side_effect=lambda resource: resource.organization_id,
+            side_effect=lambda resource, **kwargs: resource.organization_id,
         )
         organization.start()
         self.addCleanup(organization.stop)
@@ -151,8 +151,8 @@ class TestAuthorizationRollout(SimpleTestCase):
         v2 = ObjectIds(ids=frozenset(), complete=False)
         with (
             patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value=variant),
-            patch("products.authz.backend.logic.legacy_authorization.list_objects", return_value=v1),
-            patch("products.authz.backend.logic.authorization.list_objects", return_value=v2) as openfga,
+            patch("products.authz.backend.logic.legacy_authorization.list_objects", autospec=True, return_value=v1),
+            patch("products.authz.backend.logic.authorization.list_objects", autospec=True, return_value=v2) as openfga,
             capture_logs() as logs,
         ):
             assert api.list_objects(resource=self.resource, action=Action.VIEW, subject=self.subject) == (

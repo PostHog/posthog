@@ -94,6 +94,7 @@ depends_on = [
     "products.aeo",
     "products.analytics_platform",
     "products.approvals",
+    "products.authz",
     "products.batch_exports",
     "products.billing_alerts",
     "products.business_knowledge",
@@ -1691,7 +1692,7 @@ from = [
 
 [[modules]]
 path = "products.authz"
-depends_on = ["posthog", "products.access_control", "products.dashboards"]
+depends_on = ["posthog", "products.access_control", "products.dashboards", "products.product_analytics"]
 layer = "modules"
 
 [[interfaces]]

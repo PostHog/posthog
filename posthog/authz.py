@@ -8,7 +8,7 @@ from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.access_control.backend.facade.user_access_control import model_to_resource
+from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
 from products.authz.backend.facade import api
 from products.authz.backend.facade.contracts import Resource, Subject
 from products.authz.backend.facade.enums import Action, ResourceType
@@ -20,6 +20,31 @@ if TYPE_CHECKING:
 
 M = TypeVar("M", bound=Model)
 RESOURCE_ACTIONS = {"viewer": Action.VIEW, "editor": Action.EDIT, "manager": Action.MANAGE_ACCESS}
+
+
+def resource_list_cache_key(access: UserAccessControl, scopes: set[str] | None) -> dict[str, object]:
+    assert access.team is not None
+    resources = [resource_type for resource_type in ResourceType if scopes is None or resource_type.value in scopes]
+    filters: dict[str, object] = {}
+    for resource_type in resources:
+        if resource_type in (ResourceType.ORGANIZATION, ResourceType.PROJECT, ResourceType.ROLE):
+            continue
+        result = api.list_objects(
+            resource=Resource(type=resource_type, project_id=access.team.id),
+            action=Action.QUERY,
+            subject=Subject(user_id=access.user.pk),
+            creator_exempt=True,
+            user_access_control=access,
+        )
+        if result.complete and not result.restricts:
+            continue
+        filters[resource_type.value] = {
+            "ids": sorted(result.ids),
+            "excluded": result.excluded,
+            "complete": result.complete,
+            "creator": access.user.pk if result.creator_exempt and result.restricts else None,
+        }
+    return filters
 
 
 def resource_for_object(obj: Model | ObjectAccessRef) -> Resource:
