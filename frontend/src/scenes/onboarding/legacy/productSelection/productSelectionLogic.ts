@@ -39,6 +39,7 @@ function reportOnboardingProductSelectionPath(
         use_case: properties?.useCase,
         recommended_products: properties?.recommendedProducts,
         has_browsing_history: properties?.hasBrowsingHistory,
+        entry_point: router.values.searchParams.entry_point,
     })
 }
 
