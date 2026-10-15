@@ -1,92 +1,37 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
 import time_machine
-from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newsdata import (
+    NewsDataSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.newsdata import (
-    NEWSDATA_BASE_URL,
     NewsDataResumeConfig,
     _to_from_date,
-    newsdata_source,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the newsdata module.
-NEWSDATA_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.newsdata.make_tracked_session"
-)
-# Backoff sleeps happen inside tenacity; patch its clock so retry tests don't actually wait.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
+from products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.source import NewsDataSource
 
 
-def _response(body: Any, *, status: int = 200, reason: str = "OK", compact: bool = False) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.reason = reason
-    resp.url = f"{NEWSDATA_BASE_URL}/latest"
-    resp.headers["Content-Type"] = "application/json"
-    # NewsData serializes error envelopes compactly (no whitespace); mirror that so the
-    # response_actions content match reflects the real API body.
-    separators = (",", ":") if compact else None
-    resp._content = b"" if body is None else json.dumps(body, separators=separators).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(NewsDataSource(), NewsDataSourceConfig(api_key="pub_test"))
 
 
-def _page(results: list[dict[str, Any]], next_page: str | None) -> dict[str, Any]:
-    return {"status": "success", "results": results, "nextPage": next_page}
-
-
-def _make_manager(resume_state: NewsDataResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[Any]]:
-    """Wire a mock session, snapshotting each request's params and auth AT PREPARE TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so a copy is taken per page.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-    auth_snapshots: list[Any] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        auth_snapshots.append(request.auth)
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots, auth_snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock | None = None, **kwargs: Any) -> Any:
-    return newsdata_source(
-        api_key="pub_test",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager if manager is not None else _make_manager(),
-        **kwargs,
-    )
+def _page(results: list[dict[str, Any]], next_page: str | None) -> ScriptedResponse:
+    return ScriptedResponse(json={"status": "success", "results": results, "nextPage": next_page})
 
 
 class TestToFromDate:
@@ -104,49 +49,42 @@ class TestToFromDate:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_next_page_until_absent(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params, auths = _wire(
-            session,
-            [_response(_page([{"article_id": "a1"}], "p2")), _response(_page([{"article_id": "a2"}], None))],
+    def test_follows_next_page_until_absent(self) -> None:
+        result = _driver().run(
+            "latest",
+            [_page([{"article_id": "a1"}], "p2"), _page([{"article_id": "a2"}], None)],
         )
 
-        rows = _rows(_source("latest"))
-
-        assert [r["article_id"] for r in rows] == ["a1", "a2"]
-        assert session.send.call_count == 2
+        assert result.raised is None
+        assert [row["article_id"] for row in result.rows] == ["a1", "a2"]
+        assert len(result.requests) == 2
         # The opaque `nextPage` cursor is echoed back as the `page` query param on the next request.
-        assert "page" not in params[0]
-        assert params[1]["page"] == "p2"
+        assert result.params("page") == [None, "p2"]
         # The key rides on framework api_key auth (X-ACCESS-KEY header), never a query param.
-        assert auths[0].name == "X-ACCESS-KEY"
-        assert auths[0].location == "header"
-        assert "apikey" not in params[0]
+        assert result.requests[0].headers["x-access-key"] == "pub_test"
+        assert result.params("apikey") == [None, None]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sources_endpoint_never_paginates(self, MockSession: mock.MagicMock) -> None:
+    def test_sources_endpoint_never_paginates(self) -> None:
         # /sources rejects the `page` param, so even a stray nextPage in the body must not trigger a
         # second request.
-        session = MockSession.return_value
-        _wire(session, [_response({"status": "success", "results": [{"id": "bbc"}], "nextPage": "ignored"})])
+        result = _driver().run("sources", [_page([{"id": "bbc"}], "ignored")])
 
-        rows = _rows(_source("sources"))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["bbc"]
+        assert result.paths == ["/api/1/sources"]
+        assert result.params("page") == [None]
 
-        assert [r["id"] for r in rows] == ["bbc"]
-        assert session.send.call_count == 1
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "latest",
+            [_page([{"article_id": "a3"}], None)],
+            resume_state=NewsDataResumeConfig(next_page="saved_cursor"),
+        )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params, _auths = _wire(session, [_response(_page([{"article_id": "a3"}], None))])
-
-        manager = _make_manager(NewsDataResumeConfig(next_page="saved_cursor"))
-        rows = _rows(_source("latest", manager))
-
-        assert [r["article_id"] for r in rows] == ["a3"]
+        assert result.raised is None
+        assert [row["article_id"] for row in result.rows] == ["a3"]
         # The saved cursor seeds the very first request.
-        assert params[0]["page"] == "saved_cursor"
+        assert result.params("page") == ["saved_cursor"]
 
 
 class TestIncrementalFromDate:
@@ -160,96 +98,80 @@ class TestIncrementalFromDate:
             ("archive_full_refresh", "archive", False, datetime(2024, 1, 15, tzinfo=UTC)),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_from_date(
-        self, _name: str, endpoint: str, incremental: bool, watermark: Any, MockSession: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        params, _auths = _wire(session, [_response(_page([{"article_id": "x"}], None))])
-
-        _rows(_source(endpoint, should_use_incremental_field=incremental, db_incremental_field_last_value=watermark))
-
-        assert "from_date" not in params[0]
-
-    @parameterized.expand([("archive",), ("crypto",)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_uses_watermark_date(self, endpoint: str, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params, _auths = _wire(session, [_response(_page([{"article_id": "x"}], None))])
-
-        _rows(
-            _source(
-                endpoint,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 3, 4, 2, 58, 14, tzinfo=UTC),
-            )
+    def test_no_from_date(self, _name: str, endpoint: str, incremental: bool, watermark: Any) -> None:
+        result = _driver().run(
+            endpoint,
+            [_page([{"article_id": "x"}], None)],
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=watermark,
         )
 
-        assert params[0]["from_date"] == "2024-03-04"
+        assert result.raised is None
+        assert result.params("from_date") == [None]
+
+    @parameterized.expand([("archive",), ("crypto",)])
+    def test_incremental_uses_watermark_date(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [_page([{"article_id": "x"}], None)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 3, 4, 2, 58, 14, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.params("from_date") == ["2024-03-04"]
 
     @parameterized.expand([("archive",), ("crypto",)])
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_sync_applies_lookback_floor(self, endpoint: str, MockSession: mock.MagicMock) -> None:
+    def test_first_sync_applies_lookback_floor(self, endpoint: str) -> None:
         # Without a watermark the first sync must floor at the trailing lookback window instead of
         # crawling the entire (up to 7-year) archive.
-        session = MockSession.return_value
-        params, _auths = _wire(session, [_response(_page([{"article_id": "x"}], None))])
+        result = _driver().run(
+            endpoint,
+            [_page([{"article_id": "x"}], None)],
+            should_use_incremental_field=True,
+        )
 
-        _rows(_source(endpoint, should_use_incremental_field=True, db_incremental_field_last_value=None))
-
-        assert params[0]["from_date"] == "2026-05-16"
+        assert result.raised is None
+        assert result.params("from_date") == ["2026-05-16"]
 
 
 class TestErrorBody:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_status_error_body_raises(self, MockSession: mock.MagicMock) -> None:
+    def test_status_error_body_raises(self) -> None:
         # NewsData reports hard failures (unsupported param, quota exhausted) in a 200-body envelope;
         # fail loud instead of silently syncing 0 rows.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "latest",
             [
-                _response(
-                    {"status": "error", "results": {"message": "quota exceeded", "code": "TooManyRequests"}},
-                    compact=True,
+                ScriptedResponse(
+                    body=b'{"status":"error","results":{"message":"quota exceeded","code":"TooManyRequests"}}'
                 )
             ],
         )
 
-        with pytest.raises(ValueError):
-            _rows(_source("latest"))
+        assert isinstance(result.raised, ValueError)
 
 
 class TestRetries:
     @parameterized.expand([("rate_limited", 429, "Too Many Requests"), ("server_error", 503, "Service Unavailable")])
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_retries_then_raises(
-        self, _name: str, status: int, reason: str, MockSession: mock.MagicMock, _sleep: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({}, status=status, reason=reason)] * 5)
+    def test_retryable_status_retries_then_raises(self, _name: str, status: int, reason: str) -> None:
+        result = _driver().run("latest", always(ScriptedResponse(status=status, json={})))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_source("latest"))
-        assert session.send.call_count == 5
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert f"HTTP {status}" in str(result.raised)
+        assert len(result.requests) == 5
 
     @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_raises_http_error_without_retry(
-        self, _name: str, status: int, reason: str, MockSession: mock.MagicMock
-    ) -> None:
+    def test_client_error_raises_http_error_without_retry(self, _name: str, status: int, reason: str) -> None:
         # 401/403 are credential/permission failures — never retried, surfaced as an HTTPError whose
         # message carries the stable status text that get_non_retryable_errors matches on.
-        session = MockSession.return_value
-        _wire(session, [_response({"status": "error"}, status=status, reason=reason, compact=True)])
+        result = _driver().run("latest", [ScriptedResponse(status=status, json={"status": "error"})])
 
-        with pytest.raises(requests.HTTPError) as exc_info:
-            _rows(_source("latest"))
-        assert f"{status} Client Error" in str(exc_info.value)
-        assert "https://newsdata.io" in str(exc_info.value)
-        assert session.send.call_count == 1
+        assert isinstance(result.raised, requests.HTTPError)
+        assert f"{status} Client Error" in str(result.raised)
+        assert reason in str(result.raised)
+        assert "https://newsdata.io" in str(result.raised)
+        assert len(result.requests) == 1
 
 
 class TestSourceResponseMetadata:
@@ -263,18 +185,22 @@ class TestSourceResponseMetadata:
     def test_partitioned_endpoints(
         self, endpoint: str, primary_keys: list[str], partition_key: str, sort_mode: str
     ) -> None:
-        response = _source(endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == primary_keys
-        assert response.sort_mode == sort_mode
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [partition_key]
+        result = _driver().run(endpoint, [_page([], None)])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == primary_keys
+        assert result.response.sort_mode == sort_mode
+        assert result.response.partition_mode == "datetime"
+        assert result.response.partition_keys == [partition_key]
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
     def test_status_maps_to_bool(self, _name: str, status_code: int, expected: bool) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=status_code)
-        with mock.patch(NEWSDATA_SESSION_PATCH, return_value=session):
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("pub_test") is expected
+
+        assert [request.path for request in network.requests_log] == ["/api/1/sources"]
+        assert network.requests_log[0].headers["x-access-key"] == "pub_test"

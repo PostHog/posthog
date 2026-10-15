@@ -1,9 +1,10 @@
-from typing import Any
-
-from unittest.mock import MagicMock, patch
-
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newsapi import (
     NewsApiSourceConfig,
 )
@@ -41,57 +42,35 @@ class TestNewsApiSource:
         assert [s.name for s in schemas] == ["sources"]
 
     def test_validate_credentials_success(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.news_api.source.validate_news_api_credentials",
-            return_value=True,
-        ):
+        with scripted_network([ScriptedResponse(json={"sources": []})]) as network:
             assert self.source.validate_credentials(_config(), self.team_id) == (True, None)
+        assert [request.path for request in network.requests_log] == ["/v2/top-headlines/sources"]
 
     def test_validate_credentials_failure_message(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.news_api.source.validate_news_api_credentials",
-            return_value=False,
-        ):
+        with scripted_network([ScriptedResponse(status=401, json={"status": "error"})]) as network:
             valid, message = self.source.validate_credentials(_config(), self.team_id)
         assert valid is False
         assert message == "Invalid NewsAPI key"
+        assert [request.path for request in network.requests_log] == ["/v2/top-headlines/sources"]
 
     def test_source_for_pipeline_plumbs_query_and_language(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "everything"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-03-04T00:00:00"
+        result = SourceDriver(self.source, _config(language="en")).run(
+            "everything",
+            [ScriptedResponse(json={"totalResults": 1, "articles": [{"url": "a"}]})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-03-04T00:00:00",
+        )
 
-        captured: dict[str, Any] = {}
-        sentinel = MagicMock()
-
-        def fake_source(**kwargs: Any) -> Any:
-            captured.update(kwargs)
-            return sentinel
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.news_api.source.news_api_source",
-            side_effect=fake_source,
-        ):
-            result = self.source.source_for_pipeline(_config(language="en"), MagicMock(), inputs)
-
-        assert result is sentinel
-        assert captured["endpoint"] == "everything"
-        assert captured["query"] == "bitcoin"
-        assert captured["language"] == "en"
-        assert captured["db_incremental_field_last_value"] == "2026-03-04T00:00:00"
+        assert result.raised is None
+        assert result.paths == ["/v2/everything"]
+        assert result.requests[0].param("q") == "bitcoin"
+        assert result.requests[0].param("language") == "en"
+        assert result.requests[0].param("from") == "2026-03-04T00:00:00"
 
     def test_empty_language_becomes_none(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "everything"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = None
+        result = SourceDriver(self.source, _config(language="")).run(
+            "everything", [ScriptedResponse(json={"totalResults": 1, "articles": [{"url": "a"}]})]
+        )
 
-        captured: dict[str, Any] = {}
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.news_api.source.news_api_source",
-            side_effect=lambda **kwargs: captured.update(kwargs),
-        ):
-            self.source.source_for_pipeline(_config(language=""), MagicMock(), inputs)
-
-        assert captured["language"] is None
+        assert result.raised is None
+        assert result.requests[0].param("language") is None

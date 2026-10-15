@@ -46,6 +46,11 @@ REMOTE_CONFIG_CDN_PURGE_COUNTER = Counter(
 
 logger = structlog.get_logger(__name__)
 
+
+class RemoteConfigTokenChangeSyncError(Exception):
+    pass
+
+
 # Sorted set tracking each team's array/config.json cache-entry expiry, so the hourly
 # refresh task can re-stamp entries before the TTL lapses and reads fall through to S3.
 REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET = "remote_config_cache_expiry"
@@ -357,10 +362,10 @@ class RemoteConfig(UUIDTModel):
     def _build_site_apps_js(self):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
-        from posthog.cdp.site_functions import exposed_secret_input_keys, get_transpiled_function
         from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
 
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.site_functions import exposed_secret_input_keys, get_transpiled_function
 
         # Add in the site apps as an array of objects
         site_apps_js = []
@@ -408,9 +413,13 @@ class RemoteConfig(UUIDTModel):
 
         return site_apps_js + site_functions_js
 
-    def sync(self, force: bool = False, bypass_recordings_quota_cache: bool = False):
+    def sync(self, force: bool = False, bypass_recordings_quota_cache: bool = False) -> bool:
         """
         When called we sync to any configured CDNs as well as redis for the /decide endpoint.
+
+        Returns False when the cache write failed. The failure is logged and captured, not raised.
+        Without force, an unchanged config writes Redis only, so True does not mean object storage
+        holds a copy.
         """
 
         logger.info(f"Syncing RemoteConfig for team {self.team_id}")
@@ -426,10 +435,11 @@ class RemoteConfig(UUIDTModel):
                 except Exception as e:
                     logger.exception(f"Failed to refresh hypercache TTL for team {self.team_id}")
                     capture_exception(e)
+                    return False
 
                 CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="no_changes").inc()
                 logger.info(f"RemoteConfig for team {self.team_id} is unchanged")
-                return
+                return True
 
             self.config = config
             self.synced_at = timezone.now()
@@ -438,22 +448,58 @@ class RemoteConfig(UUIDTModel):
             try:
                 # Pass the already-built config via data= so update_cache() reuses it
                 # instead of rebuilding via load_fn.
-                RemoteConfig.get_hypercache().update_cache(self.team, data=config)
+                cache_written = RemoteConfig.get_hypercache().update_cache(self.team, data=config)
             except Exception as e:
                 logger.exception(f"Failed to update hypercache for team {self.team_id}")
                 capture_exception(e)
+                cache_written = False
 
             # Invalidate Cloudflare CDN cache
             self._purge_cdn()
 
             CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="success").inc()
+            return cache_written
         except Exception as e:
             capture_exception(e)
             logger.exception(f"Failed to sync RemoteConfig for team {self.team_id}", exception=str(e))
             CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="failure").inc()
             raise
 
-    def _purge_cdn(self):
+    def sync_after_token_change(self, old_token: str) -> None:
+        """
+        Re-sync every tier after the team's project API token changed.
+
+        The cache entry is keyed by the token, but the payload holds no token, so a
+        token change leaves the rebuilt config identical and sync() takes the
+        unchanged fast path, which writes Redis only. The new token would then have
+        no object-storage copy to fall back on, and the old token would keep serving
+        until its own entries expire.
+
+        Raises RemoteConfigTokenChangeSyncError when the old token's entry was not evicted or
+        the new token's entry was not written, so that the task retries.
+        """
+        evicted = True
+        try:
+            # hypercache-server reads the secondary Redis, so a failed delete there must fail the sync.
+            RemoteConfig.get_hypercache().delete_cache_entry(old_token, strict_mirror=True)
+        except Exception as e:
+            # A failed eviction leaves the revoked token serving. The new token still needs
+            # its object-storage copy, so the forced sync runs before the failure is raised.
+            logger.exception(f"Failed to evict old token cache entry for team {self.team_id}")
+            capture_exception(e)
+            evicted = False
+
+        self._purge_cdn(token=old_token)
+        try:
+            written = self.sync(force=True)
+        except Exception as e:
+            raise RemoteConfigTokenChangeSyncError(f"Token change sync for team {self.team_id} failed") from e
+        if not evicted or not written:
+            raise RemoteConfigTokenChangeSyncError(
+                f"Token change sync for team {self.team_id} is incomplete: evicted={evicted}, written={written}"
+            )
+
+    def _purge_cdn(self, token: str | None = None):
         if (
             not settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT
             or not settings.REMOTE_CONFIG_CDN_PURGE_TOKEN
@@ -461,13 +507,14 @@ class RemoteConfig(UUIDTModel):
         ):
             return
 
+        token = token or self.team.api_token
         data: dict[str, Any] = {"files": []}
 
         for domain in settings.REMOTE_CONFIG_CDN_PURGE_DOMAINS:
             # Check if the domain starts with https:// and if not add it
             full_domain = domain if domain.startswith("https://") else f"https://{domain}"
-            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config"})
-            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config.js"})
+            data["files"].append({"url": f"{full_domain}/array/{token}/config"})
+            data["files"].append({"url": f"{full_domain}/array/{token}/config.js"})
 
         logger.info(f"Purging CDN for team {self.team_id}", {"data": data})
 

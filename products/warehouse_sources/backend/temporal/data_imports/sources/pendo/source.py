@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +35,38 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PendoSource(ResumableSource[PendoSourceConfig, PendoResumeConfig]):
+    codebase_detection = detect(
+        env=("^PENDO_", "^REACT_APP_PENDO_KEY$"),
+        script_hosts=(
+            "cdn.pendo.io",
+            "cdn.eu.pendo.io",
+            "us1.cdn.pendo.io",
+            "cdn.jpn.pendo.io",
+            "cdn.au.pendo.io",
+            "pendo-io-static.storage.googleapis.com",
+            "pendo-us1-static.storage.googleapis.com",
+            "pendo-eu-static.storage.googleapis.com",
+            "pendo-jp-prod-static.storage.googleapis.com",
+        ),
+        npm=(
+            "@pendo/agent",
+            "rn-pendo-sdk",
+            "@pendo/web-sdk",
+            "@pendo/openfeature-web-provider",
+            "@pendo/openfeature-server-provider",
+            "pendo-server-sdk",
+            "@pendo/novus-cli",
+            "@types/pendo-io-browser",
+            "ngx-pendo",
+        ),
+        pypi=("pendo-server-sdk",),
+        cocoapods=("Pendo", "PendoLegacy", "PendoSwiftUI", "PendoSDKLib", "Insert"),
+        maven=("sdk.pendo.io:pendoIO", "com.pendo:pendo-cmp"),
+        pub=("pendo_sdk",),
+        swiftpm=("github.com/pendo-io/pendo-mobile-sdk",),
+        alternative_to=(ProductKey.PRODUCT_ANALYTICS, ProductKey.PRODUCT_TOURS, ProductKey.SURVEYS),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://engageapi.pendo.io"

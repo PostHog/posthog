@@ -1,5 +1,5 @@
 """
-Opt-in serving of the frontend build with stable chunk names.
+Flag-gated serving of the frontend build with stable chunk names.
 
 The build writes a second copy of the app's JS in which chunks import each other through identity
 specifiers, plus `stable-chunks-manifest.json` with the import map that resolves them (see
@@ -20,6 +20,8 @@ from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 
 import structlog
+import posthoganalytics
+from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -30,6 +32,15 @@ STABLE_CHUNKS_PARAM = "stable_chunks"
 STABLE_CHUNKS_COOKIE = "ph_stable_chunks"
 STABLE_CHUNKS_FLAG = "stable-chunk-names"
 _COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
+# A logged-out request has no person, so every logged-out request evaluates the flag with this one
+# ID. A partial rollout therefore switches all logged-out pages on or off together.
+LOGGED_OUT_FLAG_DISTINCT_ID = "stable-chunks-logged-out"
+
+STABLE_CHUNKS_FALLBACK_COUNTER = Counter(
+    "posthog_stable_chunks_fallback",
+    "App shell requests that reload on the hashed build because the stable entry failed to load.",
+    labelnames=["authenticated"],
+)
 
 
 @frozen
@@ -102,21 +113,45 @@ def _resolve_stable_chunks() -> Optional[StableChunks]:
 
 def stable_chunks_choice(request: HttpRequest, feature_flags: Optional[Mapping[str, Any]]) -> bool:
     """
-    The query param wins, then the cookie, then the flag for a logged-in user. `feature_flags` are
+    The query param wins, then the cookie, then the flag. For a logged-in user, `feature_flags` are
     the ones bootstrapped into posthog-js, so events carry the flag value that picked the build.
+    A logged-out request has no bootstrapped flags, so it evaluates the flag locally.
     """
     param = request.GET.get(STABLE_CHUNKS_PARAM)
     if param is not None:
+        if param == "fallback":
+            STABLE_CHUNKS_FALLBACK_COUNTER.labels(authenticated=str(request.user.is_authenticated).lower()).inc()
         return param == "1"
 
     cookie = request.COOKIES.get(STABLE_CHUNKS_COOKIE)
     if cookie in ("0", "1"):
         return cookie == "1"
 
-    if not request.user.is_authenticated or not feature_flags:
+    if not request.user.is_authenticated:
+        return _flag_enabled_for_logged_out_requests()
+
+    if not feature_flags:
         return False
 
     return feature_flags.get(STABLE_CHUNKS_FLAG) is True
+
+
+def _flag_enabled_for_logged_out_requests() -> bool:
+    # Every logged-out app page runs this check, so a failure serves the hashed build instead of an error.
+    try:
+        return (
+            posthoganalytics.feature_enabled(
+                STABLE_CHUNKS_FLAG,
+                LOGGED_OUT_FLAG_DISTINCT_ID,
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+            is True
+        )
+    except Exception as e:
+        logger.warning("stable_chunks_logged_out_flag_check_failed", error=str(e))
+        capture_exception(e)
+        return False
 
 
 def stable_chunks_for_request(

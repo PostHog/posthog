@@ -631,7 +631,12 @@ class AssistantQueryExecutor:
                 else:
                     formatter_name = "TrendsResultsFormatter"
                     result = TrendsResultsFormatter(
-                        query, response["results"], self._team, self._utc_now_datetime
+                        query,
+                        response["results"],
+                        self._team,
+                        self._utc_now_datetime,
+                        resolved_date_range=response.get("resolved_date_range"),
+                        resolved_compare_date_range=response.get("resolved_compare_date_range"),
                     ).format()
             elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
                 formatter_name = "FunnelResultsFormatter"

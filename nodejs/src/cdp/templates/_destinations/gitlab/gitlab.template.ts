@@ -1,7 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
-    status: 'alpha',
+    status: 'stable',
     free: false,
     type: 'destination',
     id: 'template-gitlab',
@@ -12,7 +12,7 @@ export const template: HogFunctionTemplate = {
     code_language: 'hog',
     code: `let posthog_issue_url := inputs.posthog_issue_url
 if (empty(posthog_issue_url)) {
-    posthog_issue_url := f'{project.url}/error_tracking/{inputs.posthog_issue_id}'
+    posthog_issue_url := f'{project.url}/error-tracking/{inputs.posthog_issue_id}'
 }
 let payload := {
     'method': 'POST',

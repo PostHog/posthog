@@ -24,8 +24,11 @@ from products.signals.backend.temporal.grouping import (
     WEIGHT_THRESHOLD,
     AssignAndEmitSignalInput,
     MatchSignalToReportInput,
+    SpecificityResult,
+    VerifyMatchSpecificityInput,
     assign_and_emit_signal_activity,
     match_signal_to_report_activity,
+    verify_match_specificity_activity,
 )
 from products.signals.backend.temporal.types import (
     ExistingReportMatch,
@@ -385,13 +388,21 @@ async def test_ready_repromotes_to_candidate_on_a_bucket_regardless_of_weight(at
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(ateam):
-    """A signal that would group into a RESOLVED report must not reopen it. Instead a fresh
-    POTENTIAL report is created and symmetrically linked to the resolved one via related_to
-    artefacts, and the resolved report keeps its status and signal count."""
+@pytest.mark.parametrize(
+    "report_status,flag_result,recurs",
+    [
+        (SignalReport.Status.RESOLVED, False, True),
+        (SignalReport.Status.MONITORING, False, True),
+        (SignalReport.Status.MONITORING, RuntimeError("flag service unavailable"), True),
+        (SignalReport.Status.MONITORING, True, False),
+    ],
+)
+async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(
+    ateam: Team, report_status: str, flag_result: bool | Exception, recurs: bool
+) -> None:
     resolved = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=SignalReport.Status.RESOLVED,
+        status=report_status,
         total_weight=1.5,
         signal_count=2,
         title="original title",
@@ -399,7 +410,21 @@ async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(at
     )
     input_ = _build_input(ateam.id, _existing_match(str(resolved.id)), weight=WEIGHT_THRESHOLD)
 
-    result = await assign_and_emit_signal_activity(input_)
+    with patch(
+        "products.signals.backend.report_content_gates.feature_enabled_or_false",
+        return_value=flag_result if isinstance(flag_result, bool) else False,
+        side_effect=flag_result if isinstance(flag_result, Exception) else None,
+    ):
+        result = await assign_and_emit_signal_activity(input_)
+
+    if not recurs:
+        assert result.report_id == str(resolved.id)
+        refreshed = await database_sync_to_async(SignalReport.objects.get)(id=resolved.id)
+        assert refreshed.status == SignalReport.Status.MONITORING
+        assert refreshed.signal_count == 3
+        assert refreshed.title == "original title"
+        assert refreshed.summary == "original summary"
+        return
 
     # A brand-new report was created, not the resolved one.
     assert result.report_id != str(resolved.id)
@@ -419,7 +444,7 @@ async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(at
 
     # The resolved report is untouched — not reopened, no new signal counted.
     refreshed_resolved = await database_sync_to_async(SignalReport.objects.get)(id=resolved.id)
-    assert refreshed_resolved.status == SignalReport.Status.RESOLVED
+    assert refreshed_resolved.status == report_status
     assert refreshed_resolved.signal_count == 2
 
 
@@ -1019,6 +1044,97 @@ async def test_non_promoting_states_increment_counters_but_do_not_promote(ateam,
     assert refreshed.status == starting_status
     assert refreshed.total_weight == pytest.approx(1.5)
     assert refreshed.signal_count == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("status", "signals_at_run", "signals_researched", "unsafe", "expected_title"),
+    [
+        (SignalReport.Status.POTENTIAL, 0, None, False, "specificity title"),
+        # A first run stamps signals_at_run when it starts, before its research completes.
+        (SignalReport.Status.IN_PROGRESS, 7, None, False, "specificity title"),
+        (SignalReport.Status.READY, 7, 4, False, "researched title"),
+        (SignalReport.Status.READY, 7, 4, True, "researched title"),
+    ],
+)
+async def test_specificity_title_only_renames_unresearched_reports(
+    ateam, status, signals_at_run, signals_researched, unsafe, expected_title
+):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=status,
+        total_weight=0.5,
+        signal_count=4,
+        signals_at_run=signals_at_run,
+        signals_researched=signals_researched,
+        title="researched title",
+        summary="researched summary",
+    )
+    if unsafe:
+        await database_sync_to_async(SignalReportArtefact.objects.create)(
+            team=ateam,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content='{"choice": false}',
+        )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)))
+    input_.updated_title = "specificity title"
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.title == expected_title
+    assert result.report_title == ("" if unsafe else expected_title)
+    assert refreshed.signal_count == 5
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("status", "signals_at_run", "signals_researched", "expect_summary_in_prompt"),
+    [
+        (SignalReport.Status.POTENTIAL, 0, None, False),
+        # A first run stamps signals_at_run when it starts, before its research completes.
+        (SignalReport.Status.IN_PROGRESS, 7, None, False),
+        (SignalReport.Status.READY, 7, 4, True),
+        # Researched before signals_researched existed: only the READY run stamp proves the pass.
+        (SignalReport.Status.READY, 7, None, True),
+    ],
+)
+async def test_specificity_gate_judges_against_the_researched_cause(
+    ateam, status, signals_at_run, signals_researched, expect_summary_in_prompt
+):
+    report_title = "Handle failed source config loads"
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=status,
+        total_weight=0.5,
+        signal_count=4,
+        signals_at_run=signals_at_run,
+        signals_researched=signals_researched,
+        title=report_title,
+        summary="The settings page crashes when the source config request fails.",
+    )
+    call_llm = AsyncMock(return_value=SpecificityResult(pr_title="t", specific_enough=False, reason="r"))
+
+    with patch(f"{GROUPING_MODULE_PATH}.call_llm", call_llm):
+        await verify_match_specificity_activity(
+            VerifyMatchSpecificityInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                report_title=report_title,
+                new_signal_description="Saving an autonomy setting returns a 500",
+                new_signal_source_product="session_replay",
+                new_signal_source_type="observation",
+                group_signals=[],
+            )
+        )
+
+    user_prompt = call_llm.call_args.kwargs["user_prompt"]
+    assert ("The settings page crashes when the source config request fails." in user_prompt) is (
+        expect_summary_in_prompt
+    )
 
 
 # ---------------------------------------------------------------------------

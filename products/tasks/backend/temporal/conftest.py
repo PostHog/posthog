@@ -1,13 +1,16 @@
 import os
 import time
 import random
+from collections.abc import Iterator
 
 import pytest
+from unittest.mock import patch
 
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Integration, OAuthApplication, Organization, OrganizationMembership, Team, User
 from posthog.temporal.common.logger import configure_logger
+from posthog.temporal.tests.utils.logger import restored_structlog_config
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
@@ -130,7 +133,11 @@ def github_integration(team):
         sensitive_config={"access_token": "fake_token"},
     )
 
-    yield integration
+    # The fake installation must not call GitHub when minting scoped tokens either.
+    with patch(
+        "posthog.models.integration.GitHubIntegration.mint_scoped_installation_token", return_value="fake_token"
+    ):
+        yield integration
 
     integration.delete()
 
@@ -195,9 +202,11 @@ def snapshot_context(github_integration, team) -> SnapshotContext:
 
 
 @pytest.fixture(autouse=True)
-def configure_logger_auto() -> None:
+def configure_logger_auto() -> Iterator[None]:
     """Configure logger when running in a Temporal activity environment."""
-    configure_logger(cache_logger_on_first_use=False)
+    with restored_structlog_config():
+        configure_logger(cache_logger_on_first_use=False)
+        yield
 
 
 def get_or_create_test_snapshots(github_integration):

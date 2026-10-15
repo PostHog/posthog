@@ -30,7 +30,7 @@ from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError, query_ai_events
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.models.team import Team
-from posthog.permissions import AccessControlPermission, posthog_feature_flag_enabled
+from posthog.permissions import AccessControlPermission
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
@@ -81,34 +81,13 @@ from ..models.evaluation_reports import EvaluationReport
 from ..models.evaluations import Evaluation, EvaluationTarget
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
+from .condition_sets import ConditionSetSerializer
 from .metrics import llma_track_latency
 
 if TYPE_CHECKING:
     from posthog.models import User
 
 logger = structlog.get_logger(__name__)
-
-NUMERIC_EVALUATIONS_FEATURE_FLAG = "llm-analytics-numeric-evaluations"
-CATEGORICAL_EVALUATIONS_FEATURE_FLAG = "llm-analytics-categorical-evaluations"
-
-
-def _evaluation_output_enabled(serializer: serializers.BaseSerializer, flag_key: str) -> bool:
-    request = serializer.context.get("request")
-    get_team = serializer.context.get("get_team")
-    user = getattr(request, "user", None)
-    if user is None or not getattr(user, "is_authenticated", False) or not callable(get_team):
-        return False
-
-    team = get_team()
-    try:
-        return posthog_feature_flag_enabled(
-            flag_key,
-            str(user.distinct_id),
-            organization_id=team.organization_id,
-            team_id=team.id,
-        )
-    except Exception:
-        return False
 
 
 @extend_schema_field(
@@ -389,7 +368,7 @@ class ModelConfigurationSerializer(serializers.Serializer):
         }
 
 
-class EvaluationConditionSerializer(serializers.Serializer):
+class EvaluationConditionSerializer(ConditionSetSerializer):
     """A trigger condition set controlling which generations an evaluation runs on."""
 
     id = serializers.CharField(max_length=100, help_text="Stable identifier for this condition set.")
@@ -567,18 +546,6 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     def validate(self, data):
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         output_type = data.get("output_type") or getattr(self.instance, "output_type", None)
-        flag_key = {
-            "numeric": NUMERIC_EVALUATIONS_FEATURE_FLAG,
-            "categorical": CATEGORICAL_EVALUATIONS_FEATURE_FLAG,
-        }.get(str(output_type))
-        if (
-            flag_key
-            and (self.instance is None or self.instance.output_type != output_type)
-            and not _evaluation_output_enabled(self, flag_key)
-        ):
-            raise serializers.ValidationError(
-                {"output_type": f"{str(output_type).capitalize()} evaluations are not enabled for this project."}
-            )
         if (
             self.instance
             and output_type != self.instance.output_type

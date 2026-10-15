@@ -205,6 +205,33 @@ def _get_offset_rows(
         resumable_source_manager.save_state(MonteCarloResumeConfig(offset=offset))
 
 
+def _get_event_rows(
+    session: requests.Session,
+    config: MonteCarloEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MonteCarloResumeConfig],
+    resume: MonteCarloResumeConfig | None,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    start = _parse_incremental_value(db_incremental_field_last_value)
+    start_time = _format_datetime(start) if start is not None else None
+    cursor: str | None = None
+    if resume is not None and resume.cursor:
+        # Replay the cursor against the filter it was issued for.
+        cursor = resume.cursor
+        start_time = resume.window_after
+        logger.debug(f"Monte Carlo: resuming {config.name} from cursor {cursor}")
+
+    variables: dict[str, Any] = {"descOrder": False}
+    if start_time is not None:
+        variables["startTime"] = start_time
+
+    for rows, next_cursor in _relay_pages(session, config, logger, variables, cursor):
+        if next_cursor:
+            resumable_source_manager.save_state(MonteCarloResumeConfig(cursor=next_cursor, window_after=start_time))
+        yield rows
+
+
 def _alert_windows(start: datetime, end: datetime) -> Iterator[tuple[datetime, datetime]]:
     window_start = start
     while window_start < end:
@@ -305,6 +332,15 @@ def get_rows(
             incremental_field if should_use_incremental_field else None,
             db_incremental_field_last_value if should_use_incremental_field else None,
         )
+    elif endpoint == "events":
+        yield from _get_event_rows(
+            session,
+            config,
+            logger,
+            resumable_source_manager,
+            resume,
+            db_incremental_field_last_value if should_use_incremental_field else None,
+        )
     elif config.pagination == "relay":
         yield from _get_relay_rows(session, config, logger, resumable_source_manager, resume)
     elif config.pagination == "offset":
@@ -341,10 +377,10 @@ def monte_carlo_source(
             incremental_field=incremental_field,
         ),
         primary_keys=endpoint_config.primary_keys,
-        # getAlerts documents no within-page ordering guarantee we could verify, so the
-        # incremental watermark is only persisted at successful job end (desc mode) rather
+        # getAlerts and getEvents document no within-page ordering guarantee we could verify, so
+        # the incremental watermark is only persisted at successful job end (desc mode) rather
         # than checkpointed per batch against an assumed ascending order.
-        sort_mode="desc" if endpoint == "alerts" else "asc",
+        sort_mode="desc" if endpoint in ("alerts", "events") else "asc",
         partition_count=1 if endpoint_config.partition_key else None,
         partition_size=1 if endpoint_config.partition_key else None,
         partition_mode="datetime" if endpoint_config.partition_key else None,

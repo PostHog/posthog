@@ -30,6 +30,7 @@ from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
+from rest_framework.utils.urls import replace_query_param
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import AccessControlFilterWarning, DataWarehouseSyncWarning, ProductKey, QueryStatus
@@ -1519,7 +1520,8 @@ class MCPInsightSerializer(InsightSerializer):
 
     Accepts raw product analytics queries and normalizes them into the correct saved-insight
     wrapper before persisting: HogQLQuery → DataVisualizationNode, insight queries
-    (TrendsQuery, FunnelsQuery, PathsQuery) → InsightVizNode.
+    (TrendsQuery, FunnelsQuery, PathsQuery) → InsightVizNode. MetricsQuery and
+    MetricsHistogramQuery stay bare.
     """
 
     query = QueryFieldSerializer(required=False, allow_null=True)
@@ -1550,7 +1552,20 @@ class MCPInsightSerializer(InsightSerializer):
                         for field in ("xAxisColumn", "seriesColumn"):
                             if field in box_plot.model_fields_set and getattr(box_plot, field) is None:
                                 normalized_box_plot[field] = None
+                if isinstance(wrapped_node, schema.BIVisualizationNode):
+                    for entry in normalized_query["config"].get("memberAliases", []):
+                        for alias in entry["aliases"]:
+                            alias.setdefault("value", None)
+                    if "colorBy" in wrapped_node.config.model_fields_set and wrapped_node.config.colorBy is None:
+                        normalized_query["config"]["colorBy"] = None
                 return normalized_query
+            except PydanticValidationError:
+                pass
+
+        # A metrics insight saves its query bare, as the metrics editor and the metrics dashboard builders do
+        for metrics_cls in (schema.MetricsQuery, schema.MetricsHistogramQuery):
+            try:
+                return metrics_cls.model_validate(value).model_dump(exclude_none=True, mode="json")
             except PydanticValidationError:
                 pass
 
@@ -2020,8 +2035,11 @@ class InsightViewSet(
         try:
             days = int(request.GET.get("days", "7"))
             limit = min(int(request.GET.get("limit", "10")), 100)
+            offset = int(request.GET.get("offset", "0"))
         except (ValueError, TypeError):
-            raise ValidationError("days and limit must be valid integers")
+            raise ValidationError("days, limit and offset must be valid integers")
+        if limit <= 0 or offset < 0:
+            raise ValidationError("limit must be positive and offset must not be negative")
 
         cutoff_date = now() - timedelta(days=days)
 
@@ -2035,13 +2053,16 @@ class InsightViewSet(
                 )
             )
             .filter(view_count__gt=0)
-            .order_by("-view_count", "-last_modified_at")
+            .order_by("-view_count", "-last_modified_at", "-id")
         )
 
         queryset = self._filter_queryset_by_access_level(queryset)
-        queryset = queryset[:limit]
+        # Fetch one extra row to know if a next page exists without a separate count query.
+        queryset = queryset[offset : offset + limit + 1]
         queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
         insights = list(queryset)
+        has_next = len(insights) > limit
+        insights = insights[:limit]
 
         # Batch fetch viewers once to avoid N+1 queries
         viewers_by_insight = recent_viewers_by_insight(
@@ -2058,8 +2079,19 @@ class InsightViewSet(
         # Wrap in the standard paginated envelope so the response shape matches the auto-generated
         # OpenAPI schema (drf-spectacular wraps `many=True` responses as `Paginated*List` when the
         # viewset has a paginator). This keeps the MCP-generated client and any other typed consumer
-        # happy. There's no real pagination — `limit` already caps the result set.
-        return Response({"count": len(data), "next": None, "previous": None, "results": data})
+        # happy. `count` is the size of this page, not the total.
+        page_url = request.build_absolute_uri()
+        next_url = (
+            replace_query_param(replace_query_param(page_url, "offset", offset + limit), "limit", limit)
+            if has_next
+            else None
+        )
+        previous_url = (
+            replace_query_param(replace_query_param(page_url, "offset", max(offset - limit, 0)), "limit", limit)
+            if offset > 0
+            else None
+        )
+        return Response({"count": len(data), "next": next_url, "previous": previous_url, "results": data})
 
     @staticmethod
     @tracer.start_as_current_span("InsightViewSet._apply_search")

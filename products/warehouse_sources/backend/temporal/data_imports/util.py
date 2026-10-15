@@ -166,6 +166,12 @@ _TRANSIENT_INTERNAL_DB_MARKERS = (
     # Nothing accepts a connection on the port, because the pooler or the database is restarting
     # or its endpoint is being re-pointed.
     "connection refused",
+    # psycopg raises this only while establishing a connection, never mid-query. Every caller here
+    # reconnects to a database it was already talking to moments earlier, so a connect-time timeout
+    # is our own database being momentarily slow to accept, not a config problem. Mirrors
+    # `_is_connect_timeout_error` in products/warehouse_sources_queue/backend/core/batch_consumer.py,
+    # which treats a connect timeout on the queue DB connection the same way.
+    "connection timeout expired",
 )
 
 # The tightest start_to_close timeout among the activities that use this is one minute, so the
@@ -741,7 +747,12 @@ async def prepare_s3_files_for_querying(
                                 continue
 
                             await _log(f"Error while deleting old query folder {file}: {e}", level="error")
-                            if not (_is_transient_s3_connection_error(e) or is_transient_object_store_error(e)):
+                            # Throttling that outlasted the retry budget is no longer a blip that
+                            # clears on its own, so it is reported even though the classifier
+                            # treats a single throttled response as transient.
+                            if _is_s3_throttling_error(e) or not (
+                                _is_transient_s3_connection_error(e) or is_transient_object_store_error(e)
+                            ):
                                 capture_exception(S3OperationError("delete an old query folder for this table", e))
                             # Cleanup stays best effort: the folder is timestamped, so the age-based
                             # GC above picks it up on a later sync. Failing the sync over it would

@@ -620,6 +620,17 @@ export const ReviewTriggerReviewModeEnumApi = {
 } as const
 
 /**
+ * * `pipeline` - Pipeline
+ * * `single_agent` - Single agent
+ */
+export type ReviewTurnDesignEnumApi = (typeof ReviewTurnDesignEnumApi)[keyof typeof ReviewTurnDesignEnumApi]
+
+export const ReviewTurnDesignEnumApi = {
+    Pipeline: 'pipeline',
+    SingleAgent: 'single_agent',
+} as const
+
+/**
  * * `fetching` - fetching
  * * `chunking` - chunking
  * * `selecting` - selecting
@@ -792,6 +803,11 @@ export interface ReviewRecentReviewApi {
      * * `full` - Deep
      * * `flash` - Standard */
     review_mode: ReviewTriggerReviewModeEnumApi | null
+    /** How the returned turn found its issues. 'pipeline': chunks, perspectives, a blind-spot sweep and a separate validation step. 'single_agent': one main review plus focused lenses, with no separate validation step. Null when the turn recorded no design (turns from before it was recorded ran the pipeline).
+     *
+     * * `pipeline` - Pipeline
+     * * `single_agent` - Single agent */
+    review_design: ReviewTurnDesignEnumApi | null
     /**
      * Link to the review's status comment on the pull request; null when there is no status comment or no pull request URL.
      * @nullable
@@ -968,6 +984,91 @@ export interface ReviewFindingApi {
     validator_note: string
 }
 
+/**
+ * * `must_fix` - Must fix
+ * * `should_fix` - Should fix
+ * * `consider` - Consider
+ */
+export type ReviewDroppedFindingPriorityEnumApi =
+    (typeof ReviewDroppedFindingPriorityEnumApi)[keyof typeof ReviewDroppedFindingPriorityEnumApi]
+
+export const ReviewDroppedFindingPriorityEnumApi = {
+    MustFix: 'must_fix',
+    ShouldFix: 'should_fix',
+    Consider: 'consider',
+} as const
+
+/**
+ * * `old_code` - On unchanged code
+ * * `dedup_prior` - Repeat of an earlier review
+ * * `dedup_comment` - Already in a PR comment
+ * * `dedup_anchor` - Same spot as another finding
+ * * `dedup_sibling` - Repeat of a finding
+ * * `cap` - Over the limit
+ * * `budget` - Over the pull request limit
+ */
+export type ReviewDropDispositionEnumApi =
+    (typeof ReviewDropDispositionEnumApi)[keyof typeof ReviewDropDispositionEnumApi]
+
+export const ReviewDropDispositionEnumApi = {
+    OldCode: 'old_code',
+    DedupPrior: 'dedup_prior',
+    DedupComment: 'dedup_comment',
+    DedupAnchor: 'dedup_anchor',
+    DedupSibling: 'dedup_sibling',
+    Cap: 'cap',
+    Budget: 'budget',
+} as const
+
+export interface ReviewDroppedFindingApi {
+    /** One-line summary of the finding. */
+    title: string
+    /** Repository-relative path of the affected file. */
+    file: string
+    /** Affected line ranges within the file. */
+    lines: ReviewFindingLineRangeApi[]
+    /** Description of the problem. */
+    body: string
+    /** The specific fix the reviewer proposes. Usually empty: a single-agent finding ends its body with the fix direction instead. */
+    suggestion: string
+    /** The reviewer's priority for the finding.
+     *
+     * * `must_fix` - Must fix
+     * * `should_fix` - Should fix
+     * * `consider` - Consider */
+    priority: ReviewDroppedFindingPriorityEnumApi
+    /**
+     * The session that raised the finding: the main review or a lens.
+     * @nullable
+     */
+    source_perspective: string | null
+    /** Why the turn did not post the finding. `old_code`: a follow-up turn's P3 finding on code that did not change since the last reviewed head (turns before reviewhog-flash-2-3 dropped P2 findings this way too). `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
+     *
+     * * `old_code` - On unchanged code
+     * * `dedup_prior` - Repeat of an earlier review
+     * * `dedup_comment` - Already in a PR comment
+     * * `dedup_anchor` - Same spot as another finding
+     * * `dedup_sibling` - Repeat of a finding
+     * * `cap` - Over the limit
+     * * `budget` - Over the pull request limit */
+    disposition: ReviewDropDispositionEnumApi
+    /**
+     * For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment. Null for other dispositions.
+     * @nullable
+     */
+    duplicate_of: string | null
+    /**
+     * Link to the PR comment the finding repeats, when `duplicate_of` names one and the PR URL is known. Null otherwise.
+     * @nullable
+     */
+    comment_url: string | null
+    /**
+     * For a `cap` drop, the finding's 1-based position in the turn's ranked findings. Null otherwise.
+     * @nullable
+     */
+    rank: number | null
+}
+
 export interface ReviewDetailApi {
     /** The review report's id, for fetching the review's detail. */
     id: string
@@ -1023,6 +1124,11 @@ export interface ReviewDetailApi {
      * * `full` - Deep
      * * `flash` - Standard */
     review_mode: ReviewTriggerReviewModeEnumApi | null
+    /** How the returned turn found its issues. 'pipeline': chunks, perspectives, a blind-spot sweep and a separate validation step. 'single_agent': one main review plus focused lenses, with no separate validation step. Null when the turn recorded no design (turns from before it was recorded ran the pipeline).
+     *
+     * * `pipeline` - Pipeline
+     * * `single_agent` - Single agent */
+    review_design: ReviewTurnDesignEnumApi | null
     /**
      * Link to the review's status comment on the pull request; null when there is no status comment or no pull request URL.
      * @nullable
@@ -1097,6 +1203,8 @@ export interface ReviewDetailApi {
     findings: ReviewFindingApi[]
     /** The returned turn's findings the validator dismissed, with its reasoning. */
     dismissed_findings: ReviewFindingApi[]
+    /** The returned turn's findings a single-agent (Standard) review raised but did not post, each with the reason. Empty for pipeline turns and for turns that predate the record. */
+    dropped_findings: ReviewDroppedFindingApi[]
 }
 
 export interface ReviewPerspectiveStatItemApi {
@@ -1242,6 +1350,15 @@ export interface ReviewPRStatusApi {
     request_outcome: ReviewPRStatusRequestOutcomeApi | null
 }
 
+export interface ReviewReviewsTablePageApi {
+    /** How many reviews match the scope and every filter, across all pages. */
+    count: number
+    /** How many reviews have a run in flight under the scope and filters, ignoring `status`. Labels the running quick filter without a second request. */
+    running_count: number
+    /** One page of reviews, most recent activity first. */
+    results: ReviewRecentReviewApi[]
+}
+
 /**
  * * `review` - Review
  * * `review_only` - Review only
@@ -1373,6 +1490,12 @@ export interface ReviewPreferenceSourcesApi {
      * * `project` - Project default
      * * `default` - Built-in default */
     default_review_mode: PreferenceSourceEnumApi
+    /** Where the effective review_drafts comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
+     *
+     * * `user` - Set by the user
+     * * `project` - Project default
+     * * `default` - Built-in default */
+    review_drafts: PreferenceSourceEnumApi
     /** Where the effective resolve_comments comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
      *
      * * `user` - Set by the user
@@ -1423,6 +1546,8 @@ export interface ReviewUserSettingsApi {
      * * `flash` - On everywhere
      * * `off` - Off everywhere */
     default_review_mode?: DefaultReviewModeEnumApi
+    /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
+    review_drafts?: boolean
     /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
     resolve_comments?: boolean
     /** Minimum priority a validated Deep review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
@@ -1433,7 +1558,7 @@ export interface ReviewUserSettingsApi {
     urgency_threshold?: UrgencyThresholdEnumApi
     /** Show a fun image in the review comment when a Deep review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
     celebrate_clean_reviews?: boolean
-    /** Review the pull requests the agent opens for Inbox reports assigned to the user: ReviewHog reviews each one and posts its findings to the pull request. Off by default. */
+    /** Review the pull requests the agent opens for Inbox reports assigned to the user: PostHog Review reviews each one and posts its findings to the pull request. Off by default. */
     review_inbox_prs?: boolean
     /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
     stamphog_review_inbox_prs?: boolean
@@ -1452,6 +1577,8 @@ export interface PatchedReviewUserSettingsApi {
      * * `flash` - On everywhere
      * * `off` - Off everywhere */
     default_review_mode?: DefaultReviewModeEnumApi
+    /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
+    review_drafts?: boolean
     /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
     resolve_comments?: boolean
     /** Minimum priority a validated Deep review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
@@ -1462,7 +1589,7 @@ export interface PatchedReviewUserSettingsApi {
     urgency_threshold?: UrgencyThresholdEnumApi
     /** Show a fun image in the review comment when a Deep review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
     celebrate_clean_reviews?: boolean
-    /** Review the pull requests the agent opens for Inbox reports assigned to the user: ReviewHog reviews each one and posts its findings to the pull request. Off by default. */
+    /** Review the pull requests the agent opens for Inbox reports assigned to the user: PostHog Review reviews each one and posts its findings to the pull request. Off by default. */
     review_inbox_prs?: boolean
     /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
     stamphog_review_inbox_prs?: boolean
@@ -1621,4 +1748,77 @@ export const ReviewHogReviewsPrStatusRetrieveRunMode = {
     ReviewOnly: 'review_only',
     ResolveOnly: 'resolve_only',
     Flash: 'flash',
+} as const
+
+export type ReviewHogReviewsTableRetrieveParams = {
+    /**
+     * Rows per page. Defaults to 25, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * How many rows to skip, for paging through the table.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    offset?: number
+    /**
+     * Only reviews whose latest completed turn was (true) or was not (false) published to GitHub.
+     * @nullable
+     */
+    published?: boolean | null
+    /**
+     * Only reviews of this repository, as `owner/repo`. Matched case-insensitively.
+     * @minLength 1
+     */
+    repository?: string
+    /**
+     * Only reviews whose latest completed turn ran this mode: 'full' (Deep) or 'flash' (Standard). Turns that did not record their mode match neither value.
+     *
+     * * `full` - Deep
+     * * `flash` - Standard
+     * @minLength 1
+     */
+    review_mode?: ReviewHogReviewsTableRetrieveReviewMode
+    /**
+     * Whose reviews to list: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
+     *
+     * * `mine` - Mine
+     * * `everyone` - Everyone
+     * @minLength 1
+     */
+    scope?: ReviewHogReviewsTableRetrieveScope
+    /**
+     * Only reviews in this state: 'running' for reviews with a run in flight (activity within the last 30 minutes), 'completed' for reviews with a completed turn and nothing running now.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * @minLength 1
+     */
+    status?: ReviewHogReviewsTableRetrieveStatus
+}
+
+export type ReviewHogReviewsTableRetrieveReviewMode =
+    (typeof ReviewHogReviewsTableRetrieveReviewMode)[keyof typeof ReviewHogReviewsTableRetrieveReviewMode]
+
+export const ReviewHogReviewsTableRetrieveReviewMode = {
+    Full: 'full',
+    Flash: 'flash',
+} as const
+
+export type ReviewHogReviewsTableRetrieveScope =
+    (typeof ReviewHogReviewsTableRetrieveScope)[keyof typeof ReviewHogReviewsTableRetrieveScope]
+
+export const ReviewHogReviewsTableRetrieveScope = {
+    Mine: 'mine',
+    Everyone: 'everyone',
+} as const
+
+export type ReviewHogReviewsTableRetrieveStatus =
+    (typeof ReviewHogReviewsTableRetrieveStatus)[keyof typeof ReviewHogReviewsTableRetrieveStatus]
+
+export const ReviewHogReviewsTableRetrieveStatus = {
+    Running: 'running',
+    Completed: 'completed',
 } as const

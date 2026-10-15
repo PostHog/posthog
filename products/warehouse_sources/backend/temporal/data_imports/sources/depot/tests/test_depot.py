@@ -10,6 +10,11 @@ from unittest import mock
 from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot import (
     DEPOT_CI_SERVICE_URL,
@@ -232,12 +237,8 @@ class TestValidateCredentials:
     def test_maps_probe_status_to_result(
         self, status: int, expected_valid: bool, expected_message_fragment: str | None
     ) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = _response(
-            status, {"runs": []} if status == 200 else {"code": "permission_denied", "message": "denied"}, "ListRuns"
-        )
-
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        body: dict[str, Any] = {"runs": []} if status == 200 else {"code": "permission_denied", "message": "denied"}
+        with scripted_network(always(ScriptedResponse(status=status, json=body))) as network:
             valid, message = validate_credentials(API_TOKEN, REPOSITORY)
 
         assert valid is expected_valid
@@ -245,4 +246,4 @@ class TestValidateCredentials:
             assert message is None
         else:
             assert message is not None and expected_message_fragment in message
-        assert session.post.call_args.kwargs["json"] == {"repo": REPOSITORY, "pageSize": 1}
+        assert network.requests_log[0].json() == {"repo": REPOSITORY, "pageSize": 1}

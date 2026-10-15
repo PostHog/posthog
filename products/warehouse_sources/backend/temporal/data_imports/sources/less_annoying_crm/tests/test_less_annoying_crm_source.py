@@ -1,13 +1,13 @@
-from unittest import mock
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lessannoyingcrm import (
     LessAnnoyingCRMSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.less_annoying_crm.source import (
     LessAnnoyingCRMSource,
 )
-
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.less_annoying_crm.source"
 
 
 class TestLessAnnoyingCRMSource:
@@ -21,11 +21,14 @@ class TestLessAnnoyingCRMSource:
         assert {s.name for s in schemas} == {"contacts", "tasks"}
 
     def test_validate_credentials_success(self) -> None:
-        with mock.patch(f"{MODULE}.validate_less_annoying_crm_credentials", return_value=True):
+        with scripted_network([ScriptedResponse(json={"UserId": "1"})]) as network:
             assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
 
+        assert network.requests_log[0].json() == {"Function": "GetUser", "Parameters": {}}
+
     def test_validate_credentials_failure(self) -> None:
-        with mock.patch(f"{MODULE}.validate_less_annoying_crm_credentials", return_value=False):
+        with scripted_network([ScriptedResponse(status=400, json={"ErrorCode": "x"})]):
             ok, error = self.source.validate_credentials(self.config, self.team_id)
+
         assert ok is False
         assert error is not None

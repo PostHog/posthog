@@ -1,23 +1,31 @@
 import threading
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 import pytest
-from unittest import mock
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamcity import (
+    TeamcitySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity import teamcity
+from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.source import TeamcitySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamcity.teamcity import (
     TeamCityResumeConfig,
     _format_teamcity_datetime,
     _parse_teamcity_datetime,
     _resolve_next_href,
-    get_rows,
     normalize_host,
-    teamcity_source,
     validate_credentials,
 )
 
@@ -106,113 +114,80 @@ class TestTimestampHandling:
         assert _parse_teamcity_datetime(value) == expected
 
 
-class _FakeResumableManager:
-    def __init__(self, state: TeamCityResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[TeamCityResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> TeamCityResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: TeamCityResumeConfig) -> None:
-        self.saved.append(data)
+def _driver(host: str = "https://teamcity.example.com") -> SourceDriver:
+    return SourceDriver(TeamcitySource(), TeamcitySourceConfig(host=host, access_token="token"))
 
 
-def _patch_fetch(monkeypatch: Any, responses: list[dict[str, Any]]) -> list[str]:
-    """Return page payloads in call order, recording each requested URL."""
-    fetched: list[str] = []
-
-    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict[str, Any]:
-        fetched.append(url)
-        return responses[len(fetched) - 1]
-
-    monkeypatch.setattr(teamcity, "_fetch_page", fake_fetch)
-    return fetched
+def _pages(*bodies: dict[str, Any]) -> list[ScriptedResponse]:
+    return [ScriptedResponse(json=body) for body in bodies]
 
 
-def _locator_of(url: str) -> str:
-    return parse_qs(urlparse(url).query)["locator"][0]
-
-
-def _collect(manager: _FakeResumableManager, **kwargs: Any) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for batch in get_rows(
-        host="https://teamcity.example.com",
-        access_token="token",
-        team_id=TEAM_ID,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-        **kwargs,
-    ):
-        rows.extend(batch)
-    return rows
+def _locator_of(request: RecordedRequest) -> str:
+    locator = request.param("locator")
+    assert locator is not None
+    return locator
 
 
 class TestGetRowsTopLevel:
-    def test_paginates_following_next_href_and_parses_timestamps(self, monkeypatch: Any) -> None:
-        fetched = _patch_fetch(
-            monkeypatch,
-            [
+    def test_paginates_following_next_href_and_parses_timestamps(self) -> None:
+        result = _driver().run(
+            "builds",
+            _pages(
                 {
                     "build": [{"id": 2, "finishDate": "20260715T160948+0000"}],
                     "nextHref": "/app/rest/builds?locator=count:100,start:100",
                 },
                 {"build": [{"id": 1, "finishDate": "20260715T150000+0000"}]},
-            ],
+            ),
         )
-        rows = _collect(_FakeResumableManager(), endpoint="builds")
 
+        rows = result.rows
         assert [r["id"] for r in rows] == [2, 1]
         assert rows[0]["finishDate"] == datetime(2026, 7, 15, 16, 9, 48, tzinfo=UTC)
-        first = urlparse(fetched[0])
-        assert first.path == "/app/rest/builds"
-        assert _locator_of(fetched[0]) == "branch:(default:any),state:finished,count:100"
+        assert result.requests[0].path == "/app/rest/builds"
+        assert _locator_of(result.requests[0]) == "branch:(default:any),state:finished,count:100"
         # The second request follows nextHref verbatim against the server root.
-        assert fetched[1] == "https://teamcity.example.com/app/rest/builds?locator=count:100,start:100"
+        assert result.urls[1] == "https://teamcity.example.com/app/rest/builds?locator=count:100,start:100"
 
-    def test_resumes_from_saved_next_href(self, monkeypatch: Any) -> None:
-        fetched = _patch_fetch(monkeypatch, [{"project": [{"id": "b"}]}])
-        rows = _collect(
-            _FakeResumableManager(TeamCityResumeConfig(next_href="/app/rest/projects?locator=count:100,start:100")),
-            endpoint="projects",
+    def test_resumes_from_saved_next_href(self) -> None:
+        result = _driver().run(
+            "projects",
+            _pages({"project": [{"id": "b"}]}),
+            resume_state=TeamCityResumeConfig(next_href="/app/rest/projects?locator=count:100,start:100"),
         )
 
-        assert [r["id"] for r in rows] == ["b"]
-        assert fetched == ["https://teamcity.example.com/app/rest/projects?locator=count:100,start:100"]
+        assert [r["id"] for r in result.rows] == ["b"]
+        assert result.urls == ["https://teamcity.example.com/app/rest/projects?locator=count:100,start:100"]
 
-    def test_tampered_resume_cursor_off_host_raises(self, monkeypatch: Any) -> None:
-        fetched = _patch_fetch(monkeypatch, [{"project": [{"id": "b"}]}])
-        with pytest.raises(ValueError):
-            _collect(
-                _FakeResumableManager(TeamCityResumeConfig(next_href="http://169.254.169.254/latest/meta-data/")),
-                endpoint="projects",
-            )
-        assert fetched == []
+    def test_tampered_resume_cursor_off_host_raises(self) -> None:
+        result = _driver().run(
+            "projects",
+            _pages({"project": [{"id": "b"}]}),
+            resume_state=TeamCityResumeConfig(next_href="http://169.254.169.254/latest/meta-data/"),
+        )
 
-    def test_incremental_changes_cursor_uses_since_change(self, monkeypatch: Any) -> None:
-        fetched = _patch_fetch(monkeypatch, [{"change": []}])
-        _collect(
-            _FakeResumableManager(),
-            endpoint="changes",
+        assert isinstance(result.raised, ValueError)
+        assert result.requests == []
+
+    def test_incremental_changes_cursor_uses_since_change(self) -> None:
+        result = _driver().run(
+            "changes",
+            _pages({"change": []}),
             should_use_incremental_field=True,
             db_incremental_field_last_value=42,
         )
-        assert "sinceChange:(id:42)" in _locator_of(fetched[0])
+        assert "sinceChange:(id:42)" in _locator_of(result.requests[0])
 
-    def test_full_refresh_never_leaks_cursor(self, monkeypatch: Any) -> None:
+    def test_full_refresh_never_leaks_cursor(self) -> None:
         # projects has no server-side filter; a stale cursor must not reach the locator.
-        fetched = _patch_fetch(monkeypatch, [{"project": []}])
-        _collect(
-            _FakeResumableManager(),
-            endpoint="projects",
+        result = _driver().run(
+            "projects",
+            _pages({"project": []}),
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
-        assert "finishDate" not in _locator_of(fetched[0])
-        assert "sinceChange" not in _locator_of(fetched[0])
+        assert "finishDate" not in _locator_of(result.requests[0])
+        assert "sinceChange" not in _locator_of(result.requests[0])
 
 
 class _FakeRaw:
@@ -293,47 +268,46 @@ class TestFetchPage:
 
 
 class TestPaginationBounds:
-    def test_repeated_cursor_aborts_walk(self, monkeypatch: Any) -> None:
+    def test_repeated_cursor_aborts_walk(self) -> None:
         # A server that returns the same non-empty nextHref forever must not loop indefinitely.
-        fetched: list[str] = []
-
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict[str, Any]:
-            fetched.append(url)
-            return {"project": [{"id": "a"}], "nextHref": "/app/rest/projects?locator=count:100,start:100"}
-
-        monkeypatch.setattr(teamcity, "_fetch_page", fake_fetch)
-        rows = _collect(_FakeResumableManager(), endpoint="projects")
+        result = _driver().run(
+            "projects",
+            always(
+                ScriptedResponse(
+                    json={"project": [{"id": "a"}], "nextHref": "/app/rest/projects?locator=count:100,start:100"}
+                )
+            ),
+        )
 
         # First page + one repeat of the fixed cursor, then repetition is detected and the walk stops.
-        assert fetched == [
-            mock.ANY,
-            "https://teamcity.example.com/app/rest/projects?locator=count:100,start:100",
-        ]
-        assert len(rows) == 2
+        assert len(result.requests) == 2
+        assert result.urls[1] == "https://teamcity.example.com/app/rest/projects?locator=count:100,start:100"
+        assert len(result.rows) == 2
 
     def test_page_cap_truncates_endless_changing_cursor(self, monkeypatch: Any) -> None:
         # Cursors that keep changing (so repetition never trips) are bounded by the hard page cap.
         monkeypatch.setattr(teamcity, "MAX_PAGES_PER_WALK", 3)
-        fetched: list[str] = []
+        served: list[str] = []
 
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict[str, Any]:
-            n = len(fetched)
-            fetched.append(url)
-            return {"project": [{"id": n}], "nextHref": f"/app/rest/projects?locator=count:100,start:{(n + 1) * 100}"}
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            n = len(served)
+            served.append(request.url)
+            return ScriptedResponse(
+                json={"project": [{"id": n}], "nextHref": f"/app/rest/projects?locator=count:100,start:{(n + 1) * 100}"}
+            )
 
-        monkeypatch.setattr(teamcity, "_fetch_page", fake_fetch)
-        rows = _collect(_FakeResumableManager(), endpoint="projects")
+        result = _driver().run("projects", script)
 
         # Stops after MAX_PAGES_PER_WALK pages instead of paginating forever.
-        assert len(fetched) == 3
-        assert [r["id"] for r in rows] == [0, 1, 2]
+        assert len(result.requests) == 3
+        assert [r["id"] for r in result.rows] == [0, 1, 2]
 
 
 class TestGetRowsFanOut:
-    def test_fans_out_per_build_and_injects_parent_fields(self, monkeypatch: Any) -> None:
-        fetched = _patch_fetch(
-            monkeypatch,
-            [
+    def test_fans_out_per_build_and_injects_parent_fields(self) -> None:
+        result = _driver().run(
+            "test_occurrences",
+            _pages(
                 {
                     "build": [
                         {"id": 10, "finishDate": "20260715T160948+0000"},
@@ -342,57 +316,53 @@ class TestGetRowsFanOut:
                 },
                 {"testOccurrence": [{"id": "build:(id:10),id:1", "status": "SUCCESS"}]},
                 {"testOccurrence": [{"id": "build:(id:11),id:1", "status": "FAILURE"}]},
-            ],
+            ),
         )
-        rows = _collect(_FakeResumableManager(), endpoint="test_occurrences")
 
-        parent = urlparse(fetched[0])
-        assert parent.path == "/app/rest/builds"
-        assert _locator_of(fetched[1]) == "build:(id:10),count:1000"
-        assert _locator_of(fetched[2]) == "build:(id:11),count:1000"
-        assert [r["build_id"] for r in rows] == [10, 11]
-        assert rows[0]["build_finish_date"] == datetime(2026, 7, 15, 16, 9, 48, tzinfo=UTC)
+        assert result.requests[0].path == "/app/rest/builds"
+        assert _locator_of(result.requests[1]) == "build:(id:10),count:1000"
+        assert _locator_of(result.requests[2]) == "build:(id:11),count:1000"
+        assert [r["build_id"] for r in result.rows] == [10, 11]
+        assert result.rows[0]["build_finish_date"] == datetime(2026, 7, 15, 16, 9, 48, tzinfo=UTC)
 
-    def test_incremental_cursor_windows_the_parent_builds_walk(self, monkeypatch: Any) -> None:
-        fetched = _patch_fetch(monkeypatch, [{"build": []}])
-        _collect(
-            _FakeResumableManager(),
-            endpoint="problem_occurrences",
+    def test_incremental_cursor_windows_the_parent_builds_walk(self) -> None:
+        result = _driver().run(
+            "problem_occurrences",
+            _pages({"build": []}),
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
         )
-        assert "finishDate:(date:20260304T025814+0000,condition:after)" in _locator_of(fetched[0])
+        assert "finishDate:(date:20260304T025814+0000,condition:after)" in _locator_of(result.requests[0])
 
-    def test_saves_parent_page_state_after_its_children(self, monkeypatch: Any) -> None:
-        _patch_fetch(
-            monkeypatch,
-            [
+    def test_saves_parent_page_state_after_its_children(self) -> None:
+        result = _driver().run(
+            "test_occurrences",
+            _pages(
                 {
                     "build": [{"id": 10, "finishDate": "20260715T160948+0000"}],
                     "nextHref": "/app/rest/builds?locator=count:100,start:100",
                 },
                 {"testOccurrence": [{"id": "build:(id:10),id:1"}]},
                 {"build": []},
-            ],
+            ),
         )
-        manager = _FakeResumableManager()
-        _collect(manager, endpoint="test_occurrences")
 
-        assert manager.saved == [TeamCityResumeConfig(next_href="/app/rest/builds?locator=count:100,start:100")]
+        assert result.saved_states == [TeamCityResumeConfig(next_href="/app/rest/builds?locator=count:100,start:100")]
 
-    def test_resumes_from_saved_parent_page(self, monkeypatch: Any) -> None:
-        fetched = _patch_fetch(monkeypatch, [{"build": []}])
-        _collect(
-            _FakeResumableManager(TeamCityResumeConfig(next_href="/app/rest/builds?locator=count:100,start:100")),
-            endpoint="test_occurrences",
+    def test_resumes_from_saved_parent_page(self) -> None:
+        result = _driver().run(
+            "test_occurrences",
+            _pages({"build": []}),
+            resume_state=TeamCityResumeConfig(next_href="/app/rest/builds?locator=count:100,start:100"),
         )
-        assert fetched == ["https://teamcity.example.com/app/rest/builds?locator=count:100,start:100"]
+        assert result.urls == ["https://teamcity.example.com/app/rest/builds?locator=count:100,start:100"]
 
     def test_page_cap_truncates_runaway_child_pagination_with_warning(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(teamcity, "MAX_PAGES_PER_BUILD", 2)
-        _patch_fetch(
-            monkeypatch,
-            [
+        logger = MagicMock()
+        result = _driver().run(
+            "test_occurrences",
+            _pages(
                 {"build": [{"id": 10, "finishDate": "20260715T160948+0000"}]},
                 {
                     "testOccurrence": [{"id": "build:(id:10),id:1"}],
@@ -404,21 +374,12 @@ class TestGetRowsFanOut:
                 },
                 # A third child page exists but must never be fetched.
                 {"testOccurrence": [{"id": "build:(id:10),id:3"}]},
-            ],
-        )
-        logger = MagicMock()
-        rows: list[dict[str, Any]] = []
-        for batch in get_rows(
-            host="https://teamcity.example.com",
-            access_token="token",
-            endpoint="test_occurrences",
-            team_id=TEAM_ID,
+            ),
             logger=logger,
-            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
+        )
 
-        assert [r["id"] for r in rows] == ["build:(id:10),id:1", "build:(id:10),id:2"]
+        assert [r["id"] for r in result.rows] == ["build:(id:10),id:1", "build:(id:10),id:2"]
+        assert len(result.requests) == 3
         logger.warning.assert_called_once()
 
 
@@ -434,14 +395,9 @@ class TestTeamcitySourceResponse:
     def test_source_response_merge_and_partition_settings(
         self, endpoint: str, primary_keys: list[str], sort_mode: str, partition_keys: list[str] | None
     ) -> None:
-        response = teamcity_source(
-            host="https://teamcity.example.com",
-            access_token="token",
-            endpoint=endpoint,
-            team_id=TEAM_ID,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        empty: dict[str, list[Any]] = {"build": [], "project": [], "change": []}
+        response = _driver().run(endpoint, always(ScriptedResponse(json=empty))).response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
@@ -457,11 +413,9 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected: tuple[bool, int]) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=status_code)
-        with mock.patch.object(teamcity, "make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             assert validate_credentials("https://teamcity.example.com", "token", TEAM_ID) == expected
-        assert session.get.call_args.args[0] == "https://teamcity.example.com/app/rest/server"
+        assert network.requests_log[0].url == "https://teamcity.example.com/app/rest/server"
 
     def test_transport_error_maps_to_none_status(self, monkeypatch: Any) -> None:
         session = MagicMock()
@@ -471,32 +425,25 @@ class TestValidateCredentials:
         assert validate_credentials("https://teamcity.example.com", "token", TEAM_ID) == (False, None)
         session.close.assert_called_once()
 
-    def test_malformed_host_raises_before_any_request(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(teamcity, "make_tracked_session", MagicMock())
-        with pytest.raises(ValueError):
-            validate_credentials("https://user:pass@evil.example.com", "token", TEAM_ID)
+    def test_malformed_host_raises_before_any_request(self) -> None:
+        with scripted_network([]) as network:
+            with pytest.raises(ValueError):
+                validate_credentials("https://user:pass@evil.example.com", "token", TEAM_ID)
+        assert network.requests_log == []
 
     def test_http_host_rejected_on_cloud_before_any_request(self, monkeypatch: Any) -> None:
         # On Cloud the Bearer token would cross the public internet in plaintext over http.
         monkeypatch.setattr(teamcity, "is_cloud", lambda: True)
-        monkeypatch.setattr(teamcity, "make_tracked_session", MagicMock())
-        with pytest.raises(ValueError, match="https"):
-            validate_credentials("http://teamcity.internal:8111", "token", TEAM_ID)
+        with scripted_network([]) as network:
+            with pytest.raises(ValueError, match="https"):
+                validate_credentials("http://teamcity.internal:8111", "token", TEAM_ID)
+        assert network.requests_log == []
 
     def test_http_host_rejected_on_cloud_at_sync_time(self, monkeypatch: Any) -> None:
         # The same guard must hold at sync time, so an edited stored config can't leak the token.
         monkeypatch.setattr(teamcity, "is_cloud", lambda: True)
-        monkeypatch.setattr(teamcity, "make_tracked_session", MagicMock())
-        with pytest.raises(ValueError, match="https"):
-            next(
-                iter(
-                    get_rows(
-                        host="http://teamcity.internal:8111",
-                        access_token="token",
-                        endpoint="projects",
-                        team_id=TEAM_ID,
-                        logger=MagicMock(),
-                        resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                    )
-                )
-            )
+        result = _driver("http://teamcity.internal:8111").run("projects", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "https" in str(result.raised)
+        assert result.requests == []

@@ -3,6 +3,8 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { DataColorTheme } from 'lib/colors'
 import { dataThemeLogic, getColorFromToken } from 'scenes/dataThemeLogic'
 
+import { getBISeriesSettings } from 'products/business_intelligence/frontend/biQueryResults'
+
 import type { AnyResponseType, ChartSettings, VisualizationNode } from '../../../schema/schema-general'
 import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { Column } from '../dataVisualizationLogic'
@@ -128,7 +130,8 @@ export interface seriesBreakdownLogicMeta {
             response: AnyResponseType | null,
             columns: Column[],
             chartSettings: ChartSettings,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // dataThemeLogic
+            query: VisualizationNode
         ) => BreakdownSeriesData<number | null>
     }
 }
@@ -215,6 +218,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 s.columns,
                 s.chartSettings,
                 s.getTheme,
+                s.query,
             ],
             (
                 selectedBreakdownColumn: string | null | undefined,
@@ -238,7 +242,8 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                     | import('../../../schema').TraceSpansQueryResponse,
                 columns: import('../dataVisualizationLogic').Column[],
                 chartSettings: import('../../../schema').ChartSettings,
-                getTheme: (themeId: string | number | null | undefined) => DataColorTheme | null
+                getTheme: (themeId: string | number | null | undefined) => DataColorTheme | null,
+                query: VisualizationNode
             ): BreakdownSeriesData<number | null> => {
                 if (
                     !response ||
@@ -332,7 +337,10 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                                 name: seriesName,
                                 breakdownValue,
                                 data: [],
-                                settings: customColor ? { display: { color: customColor } } : undefined,
+                                settings: getBISeriesSettings(
+                                    query,
+                                    customColor ? { display: { color: customColor } } : undefined
+                                ),
                             }
                         }
 
@@ -367,17 +375,16 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                             data: dataset,
                             // we copy supported settings over from the selected
                             // y-axis since we don't support setting these on the
-                            // breakdown series at the moment. The per-breakdown
-                            // color customization (if any) wins over the inherited
-                            // y-axis color.
-                            settings: {
+                            // breakdown series at the moment. The y-axis color is not
+                            // copied, so each breakdown value gets its own palette color.
+                            settings: getBISeriesSettings(query, {
                                 formatting: selectedYAxis.settings.formatting,
                                 display: {
                                     yAxisPosition: selectedYAxis.settings?.display?.yAxisPosition,
                                     displayType: selectedYAxis.settings?.display?.displayType,
                                     color: customColor,
                                 },
-                            },
+                            }),
                         }
                     })
                 })

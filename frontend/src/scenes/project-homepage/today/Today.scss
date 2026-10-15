@@ -239,54 +239,10 @@
 }
 
 .TodayChipStack {
-    position: relative;
-    display: inline-block;
-    width: 130px;
-    height: 26px;
+    --quill-icon-stack-ring: var(--today-paper);
+
     margin-left: 10px;
     vertical-align: -8px;
-    isolation: isolate;
-}
-
-.TodayChipStack__chip {
-    --index: 0;
-    --report-color: #5c5c57;
-
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: calc(6 - var(--index));
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    color: #fff;
-    background: var(--report-color);
-    border: 3px solid var(--today-paper);
-    border-radius: 8px;
-    box-shadow: 0 1px 2px #00000024;
-    transition: transform 0.18s;
-    transform: translateX(calc(var(--index) * 16px)) rotate(var(--tilt));
-
-    svg {
-        width: 13px;
-        height: 13px;
-    }
-
-    .TodayChipStack:hover & {
-        transform: translateX(calc(var(--index) * 23px)) rotate(0);
-    }
-
-    .TodayChipStack:hover &:hover {
-        z-index: 20;
-        transform: translateX(calc(var(--index) * 23px)) translateY(-4px) rotate(-6deg) scale(1.08);
-    }
-
-    &[data-active='true'] {
-        z-index: 20;
-        transform: translateX(calc(var(--index) * 16px)) translateY(-4px) rotate(-8deg) scale(1.08);
-    }
 }
 
 // A link inside running text. A container sets `--today-link` to change its resting colour.

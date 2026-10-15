@@ -35,6 +35,22 @@ class TestMCPInsightSerializer(SimpleTestCase):
         assert box_plot["xAxisColumn"] is None
         assert box_plot["seriesColumn"] is None
 
+    @parameterized.expand(
+        [
+            (
+                "metrics_query",
+                {
+                    "kind": "MetricsQuery",
+                    "clauses": [{"name": "a", "metricName": "http_requests_total", "aggregation": "rate"}],
+                    "display": {"type": "line", "unit": "{req}/s"},
+                },
+            ),
+            ("metrics_histogram_query", {"kind": "MetricsHistogramQuery", "metricName": "http_request_duration"}),
+        ]
+    )
+    def test_keeps_metrics_queries_bare(self, _name: str, query: dict[str, Any]) -> None:
+        assert MCPInsightSerializer().validate_query(query)["kind"] == query["kind"]
+
     def test_assistant_schema_accepts_sql_box_plots(self) -> None:
         query = schema.AssistantDataVisualizationNode.model_validate(
             {
@@ -445,6 +461,51 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert response.json()["query"]["kind"] == expected_kind
         if expected_source_kind is not None:
             assert response.json()["query"]["source"]["kind"] == expected_source_kind
+
+    def test_mcp_bi_member_alias_null_round_trip(self) -> None:
+        aliases = [
+            {
+                "field": {
+                    "id": "event",
+                    "name": "event",
+                    "expression": "event",
+                    "type": "string",
+                    "source": {"table": "events"},
+                },
+                "aliases": [{"value": None, "label": "Missing"}, {"value": "", "label": "Empty"}],
+            }
+        ]
+        query = {
+            "kind": "BIVisualizationNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+            "config": {
+                "source": {"table": "events"},
+                "rows": [],
+                "columns": [],
+                "values": [],
+                "filters": [],
+                "chartType": "ActionsTable",
+                "limit": 1000,
+                "memberAliases": aliases,
+                "colorBy": None,
+            },
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/?basic=true",
+            {"name": "Alias worksheet", "query": query},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        insight_id = response.json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}/?basic=true",
+            {"query": response.json()["query"]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        saved = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?basic=true").json()["query"]
+        assert saved["config"]["memberAliases"] == aliases
+        assert saved["config"]["colorBy"] is None
 
     def test_mcp_create_rejects_disallowed_query_kind(self) -> None:
         response = self.client.post(
