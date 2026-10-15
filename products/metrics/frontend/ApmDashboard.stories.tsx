@@ -12,6 +12,8 @@ import __results from './__mocks__/hostHealthResults.json'
 
 // Renders the otel-host bank template as a dashboard, filled with results captured from a project
 // seeded with three hosts: web-2 leaks memory to 93% and restarts, worker-1 saturates its CPU.
+// The swap, page fault, context switch, runnable process, uptime and version results are generated to match that
+// timeline, because the seed did not send those metrics. In them, web-2's leak is a canary version that rolls back.
 
 const DASHBOARD_ID = 1
 const REFRESHED_AT = '2026-10-15T00:47:12Z'
@@ -107,7 +109,7 @@ const queryHandler = async ({ request }: { request: Request }): Promise<unknown>
 
 const meta: Meta = {
     component: App,
-    title: 'Products/Metrics/Host health dashboard',
+    title: 'Products/Metrics/APM dashboard',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -140,4 +142,4 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const HostHealth: Story = {}
+export const APM: Story = {}
