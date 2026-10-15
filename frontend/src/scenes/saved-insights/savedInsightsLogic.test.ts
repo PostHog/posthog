@@ -272,6 +272,42 @@ describe('savedInsightsLogic', () => {
             .toMatchValues(router, { searchParams: { search: 'hoi' } })
     })
 
+    it.each([[[1]], [[1, 2]]])('preserves creator filters %j in the URL', async (createdBy) => {
+        logic.actions.setSavedInsightsFilters({ createdBy, search: 'hello' })
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsightsSuccess'])
+            .toMatchValues({ filters: partial({ createdBy, search: 'hello' }) })
+
+        const filteredUrl = router.values.location.pathname + router.values.location.search
+        expect(new URL(filteredUrl, 'http://localhost').searchParams.has('createdBy')).toBe(true)
+
+        router.actions.push(router.values.location.pathname)
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsightsSuccess'])
+            .toMatchValues({ filters: partial({ createdBy: 'All users' }) })
+
+        router.actions.push(filteredUrl)
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsightsSuccess'])
+            .toMatchValues({ filters: partial({ createdBy, search: 'hello' }) })
+
+        logic.actions.setSavedInsightsFilters({ createdBy: [] })
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsightsSuccess'])
+            .toMatchValues({ filters: partial({ createdBy: 'All users', search: 'hello' }) })
+        expect(router.values.searchParams).toEqual({ search: 'hello' })
+    })
+
+    it.each([
+        ['1', [1]],
+        ['1,2', [1, 2]],
+    ])('restores the creator filter from createdBy=%s', async (createdBy, expected) => {
+        router.actions.push(`${router.values.location.pathname}?createdBy=${encodeURIComponent(createdBy)}`)
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsightsSuccess'])
+            .toMatchValues({ filters: partial({ createdBy: expected }) })
+    })
+
     it('makes a direct ID query if searching for a number', async () => {
         logic.actions.setSavedInsightsFilters({ search: '123' })
         await expectLogic(logic)

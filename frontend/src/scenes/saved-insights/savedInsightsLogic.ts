@@ -14,7 +14,7 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectDiffShallow, objectsEqual } from 'lib/utils/objects'
-import { toParams } from 'lib/utils/url'
+import { parseNumericArrayFilter, toParams } from 'lib/utils/url'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { crushDraftQueryForLocalStorage, parseDraftQueryFromLocalStorage } from 'scenes/insights/utils'
@@ -82,7 +82,7 @@ export function cleanFilters(
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
         // Clearing a multi-select sends an empty array, which must read as "no filter" and not linger in the URL
-        createdBy: values.createdBy?.length ? values.createdBy : 'All users',
+        createdBy: parseNumericArrayFilter(values.createdBy) || 'All users',
         tags: values.tags?.length ? values.tags : undefined,
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
