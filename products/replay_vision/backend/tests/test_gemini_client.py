@@ -99,6 +99,12 @@ class TestReplayGatewayClient:
             assert asyncio.run(replay_gateway_client(42)) is None
         gateway_client.assert_not_called()
 
+    def test_gateway_mode_needs_the_direct_key_cleanup_deletes_with(self) -> None:
+        settings = {**_GATEWAY, "REPLAY_VISION_GEMINI_API_KEY": ""}
+        with override_settings(**settings), patch("posthog.llm.gateway_client.genai.Client") as gateway_client:
+            assert asyncio.run(replay_gateway_client(42)) is None
+        gateway_client.assert_not_called()
+
     def test_flag_is_evaluated_locally_per_org_without_events(self, flag_on: MagicMock, team_org: MagicMock) -> None:
         _gateway_client()
         team_org.objects.values_list.return_value.aget.assert_awaited_once_with(id=42)
@@ -131,10 +137,10 @@ class TestReplayGatewayClient:
         assert request.headers["x-posthog-trace-id"] == "trace-1"
         assert request.headers["x-posthog-distinct-id"] == "user-1"
         assert request.headers["x-posthog-privacy-mode"] == "true"
+        assert request.headers["x-posthog-span-name"] == "core"
         assert json.loads(request.headers["x-posthog-properties"]) == {
             "feature": "override",
             "team_id": "42",
-            "span_name": "core",
             "ai_product": "replay_vision",
         }
         body = json.loads(request.content)
@@ -197,8 +203,10 @@ def test_pii_rewrite_uses_the_gateway_when_configured() -> None:
 
     direct_client.assert_not_called()
     request_headers = sdk.aio.models.generate_content_stream.call_args.kwargs["config"].http_options.headers
-    labels = json.loads(request_headers["X-PostHog-Properties"])
-    assert (labels["feature"], labels["span_name"]) == ("pii_rewrite", "pii_rewrite")
+    assert json.loads(request_headers["X-PostHog-Properties"])["feature"] == "pii_rewrite"
+    assert request_headers["X-PostHog-Span-Name"] == "pii_rewrite"
+    sdk.close.assert_called_once()
+    sdk.aio.aclose.assert_awaited_once()
 
 
 def _chunk(*parts: types.Part, finish: types.FinishReason | None = None) -> types.GenerateContentResponse:

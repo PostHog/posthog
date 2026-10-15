@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 from google.genai import types
-from google.genai.errors import APIError
+from google.genai.errors import APIError, ClientError
 from pydantic import BaseModel
 
 from products.replay_vision.backend.gemini_client import GatewayGeminiClient
@@ -548,6 +548,28 @@ async def test_a_provider_error_on_a_non_required_step_leaves_the_scan_standing(
 
     assert "summary" in out
     assert "media" not in out
+
+
+@pytest.mark.asyncio
+async def test_a_gateway_refusal_on_a_non_required_step_fails_the_pass() -> None:
+    steps = [
+        MissionStep(name="summary", instruction="sum", response_model=_Core),
+        MissionStep(name="media", instruction="pick", response_model=_Side, required=False),
+    ]
+    refusal = ClientError(402, {"error": {"code": 402, "details": [{"domain": "posthog.com"}]}})
+
+    class _RefusingModels(_FakeModels):
+        async def generate_content(self, **kwargs: Any) -> _Resp:
+            if len(self.calls) >= 1:
+                raise refusal
+            return await super().generate_content(**kwargs)
+
+    client = _FakeClient([])
+    client.models = _RefusingModels([_Resp(text='{"verdict":"yes"}')])
+
+    with pytest.raises(ClientError) as raised:
+        await _run(client, steps)
+    assert raised.value is refusal
 
 
 @pytest.mark.asyncio

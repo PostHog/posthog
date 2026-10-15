@@ -40,7 +40,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
-from products.replay_vision.backend.gemini_client import replay_gateway_client
+from products.replay_vision.backend.gemini_client import AI_PRODUCT, replay_gateway_client
 from products.replay_vision.backend.learned_rules import ScanRules, load_scan_rules
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.tags import slugify_tag
@@ -592,7 +592,7 @@ async def _run_mission(
     """
     # Attribute every scanner generation to Replay Vision in LLM analytics so costs and traces roll up to the product.
     properties = {
-        "ai_product": "replay_vision",
+        "ai_product": AI_PRODUCT,
         "feature": "scanner",
         "scanner_type": snapshot.scanner_type.value,
         "team_id": team_id,
@@ -792,7 +792,8 @@ async def _run_steps(
             convo.append(types.Part(text=instruction))
             result = await run_step(step=step, convo=convo)
         except Exception as exc:
-            if step.required:
+            # A gateway refusal is our fault, so it goes to the activity retry instead of dropping the step.
+            if step.required or classify_gemini_error(exc) is FailureKind.INFRA_TRANSIENT:
                 raise
             # A provider error arrives here, not as an empty output, and must not sink a paid-for scan.
             logger.warning("replay_vision.call_scanner_provider.optional_step_failed", step=step.name, error=str(exc))

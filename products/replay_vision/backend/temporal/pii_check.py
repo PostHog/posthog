@@ -23,9 +23,9 @@ from products.ml_inference.backend.facade.contracts import DecisionQuestion, Dec
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.error_kinds import FailureKind
-from products.replay_vision.backend.gemini_client import replay_gateway_client
+from products.replay_vision.backend.gemini_client import AI_PRODUCT, replay_gateway_client
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
-from products.replay_vision.backend.temporal.gemini import gemini_api_key
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error, gemini_api_key
 
 logger = structlog.get_logger(__name__)
 
@@ -103,7 +103,7 @@ def _yes_probability(team_id: int, state: dict[str, Any], instructions: str, tra
                 state=state,
                 questions={"q": DecisionQuestion(type=DecisionQuestionType.NOUL, instructions=instructions)},
                 model=PII_CHECK_MODEL,
-                ai_product="replay_vision",
+                ai_product=AI_PRODUCT,
                 trace_id=trace_id,
                 # The state is recording-derived prose, which stays out of the internal AI observability project.
                 privacy_mode=True,
@@ -134,7 +134,7 @@ def contains_pii(*, team_id: int, text: dict[str, str], trace_id: str) -> bool |
 
 async def rewrite_without_pii(*, team_id: int, question: str, text: dict[str, str], trace_id: str) -> dict[str, str]:
     """Rewrite the answer's text fields without the personal data; fields the rewrite drops keep their old text."""
-    properties = {"ai_product": "replay_vision", "feature": "pii_rewrite", "team_id": team_id}
+    properties = {"ai_product": AI_PRODUCT, "feature": "pii_rewrite", "team_id": team_id}
     gateway = await replay_gateway_client(team_id, properties=properties)
     client: Any = (
         gateway.aio
@@ -186,7 +186,7 @@ async def keep_unrequested_pii_out(
 
     When the question asks who the session belongs to, the session's own identity values are allowed and only the
     rest of the answer is judged. Raises `ScannerFailureError(PII_DETECTED)` when the rewritten answer is still
-    flagged, or the rewrite fails.
+    flagged, or the rewrite fails other than by a gateway refusal.
     """
     text = answer_text(output)
     if not text:
@@ -206,6 +206,9 @@ async def keep_unrequested_pii_out(
         )
     except Exception as e:
         record_pii_check("failed", scanner_type)
+        # A gateway refusal is our fault: the activity boundary classifies it as retryable.
+        if classify_gemini_error(e) is FailureKind.INFRA_TRANSIENT:
+            raise
         raise ScannerFailureError(
             "The answer included personal data the scanner didn't ask for, and it could not be removed.",
             kind=FailureKind.PII_DETECTED,

@@ -82,7 +82,12 @@ class _AsyncGatewayModels:
             if posthog_properties
             else None
         )
-        headers = ai_gateway_headers(trace_id=posthog_trace_id, properties=labels, distinct_id=posthog_distinct_id)
+        headers = (
+            ai_gateway_headers(trace_id=posthog_trace_id, properties=labels, distinct_id=posthog_distinct_id) or {}
+        )
+        # The gateway sets `$ai_span_name` only from this header; it strips `$` keys from the properties.
+        if posthog_properties and (span_name := posthog_properties.get("$ai_span_name")):
+            headers["X-PostHog-Span-Name"] = str(span_name)
         return _with_headers(config, headers)
 
     async def generate_content(
@@ -194,12 +199,8 @@ def assemble_stream(chunks: list[types.GenerateContentResponse]) -> types.Genera
 
 
 def _gateway_labels(properties: Mapping[str, Any]) -> dict[str, str]:
-    # The gateway strips `$`-prefixed keys as reserved, so the scanner's span name travels unprefixed.
-    labels = {key: str(value) for key, value in properties.items() if not key.startswith("$") and value is not None}
-    span_name = properties.get("$ai_span_name")
-    if span_name:
-        labels["span_name"] = str(span_name)
-    return labels
+    # The gateway strips `$`-prefixed keys as reserved.
+    return {key: str(value) for key, value in properties.items() if not key.startswith("$") and value is not None}
 
 
 def _with_headers(
