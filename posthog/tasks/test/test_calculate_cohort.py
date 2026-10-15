@@ -1421,6 +1421,29 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertIsNone(cohort.last_error_at)
 
+    def test_calculate_cohort_ch_records_an_event_only_virtual_property_in_a_person_filter(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="test_cohort",
+            is_calculating=True,
+            pending_version=1,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"key": "$virt_is_bot", "value": "true", "type": "person", "operator": "exact"}],
+                }
+            },
+        )
+
+        self._run_calculate_cohort_ch(cohort.id)
+
+        history = CohortCalculationHistory.objects.get(cohort=cohort)
+        self.assertEqual(history.error_code, CohortErrorCode.INVALID_CRITERIA)
+        self.assertIn("Unable to resolve field: $virt_is_bot", history.error)
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 1)
+
     def test_calculate_cohort_ch_skips_an_obsolete_pending_version(self) -> None:
         # A newer save superseded this task's version. Without the guard both tasks would run a
         # full ClickHouse recalculation of the same cohort side by side.

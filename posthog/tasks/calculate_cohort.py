@@ -593,15 +593,22 @@ def calculate_cohort_ch(
                 )
             raise
 
-        cohort.calculate_people_ch(
-            pending_version,
-            initiating_user_id=initiating_user_id,
-            # calculate_people_ch charges errors_calculating in its own except block and cannot see
-            # the retry machinery above it. Without this it would charge one increment per attempt,
-            # so a single fully-failed run would push a cohort most of the way to the
-            # MAX_ERRORS_CALCULATING cutoff that permanently drops it from recalculation.
-            will_retry=lambda err: not _is_final_attempt(self, isinstance(err, COHORT_RECALCULATION_TRANSIENT_ERRORS)),
-        )
+        try:
+            cohort.calculate_people_ch(
+                pending_version,
+                initiating_user_id=initiating_user_id,
+                # calculate_people_ch charges errors_calculating in its own except block and cannot see
+                # the retry machinery above it. Without this it would charge one increment per attempt,
+                # so a single fully-failed run would push a cohort most of the way to the
+                # MAX_ERRORS_CALCULATING cutoff that permanently drops it from recalculation.
+                will_retry=lambda err: (
+                    not _is_final_attempt(self, isinstance(err, COHORT_RECALCULATION_TRANSIENT_ERRORS))
+                ),
+            )
+        except ExposedHogQLError as err:
+            # The cohort definition is invalid. The calculation history already records the error
+            # code that the user sees, so do not send it to error tracking.
+            logger.warning("cohort_calculation_invalid_criteria", cohort_id=cohort_id, error=str(err))
 
 
 def _is_transient_population_error(err: BaseException) -> bool:

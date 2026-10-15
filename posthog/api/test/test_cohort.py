@@ -4417,6 +4417,23 @@ email@example.org,
         self.assertEqual(response.json()["detail"], "Missing required keys for person filter: value")
 
     @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_property_validation_rejects_event_only_virtual_property(self, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort with event-only virtual property",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [{"key": "$virt_is_bot", "value": ["true"], "type": "person", "operator": "exact"}],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("'$virt_is_bot' is an event property", response.json()["detail"])
+
+    @patch("posthog.api.cohort.report_user_action")
     def test_cohort_property_validation_behavioral_filter(self, patch_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",

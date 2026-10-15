@@ -84,6 +84,7 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
 from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
+from posthog.taxonomy.taxonomy import virtual_property_names
 from posthog.utils import format_query_params_absolute_url, str_to_bool
 
 from products.cdp.backend.filters import build_behavioral_event_expr
@@ -330,6 +331,11 @@ SINGLE_VALUE_OPERATORS = (
     *DATE_OPERATORS,
 )
 
+# The persons table does not define these fields, so a person filter on one fails to compile.
+EVENT_ONLY_VIRTUAL_PROPERTY_NAMES = virtual_property_names("event_properties") - virtual_property_names(
+    "person_properties"
+)
+
 # Filter variants that inherit PersonValueValidationMixin, and so store an unwrapped value.
 SINGLE_VALUE_FILTER_TYPES = ("person", "person_metadata")
 
@@ -426,6 +432,14 @@ class PersonFilter(FilterBytecodeMixin, PersonValueValidationMixin, extra="forbi
     type: Literal["person"]
     key: str
     negation: bool = False
+
+    @model_validator(mode="after")
+    def _validate_key(self):
+        if self.key in EVENT_ONLY_VIRTUAL_PROPERTY_NAMES:
+            raise ValueError(
+                f"'{self.key}' is an event property. Use it in a behavioral filter, not a person property filter."
+            )
+        return self
 
 
 class PersonMetadataFilter(FilterBytecodeMixin, PersonValueValidationMixin, extra="forbid"):
