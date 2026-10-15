@@ -1,6 +1,6 @@
-// OAuth requests skip the server's DRF throttles on these endpoints, so the app holds itself to the published personal
-// API key budgets. The buckets hold 25% of each budget: they exist to stop a client bug, such as a refresh loop, and
-// normal use never empties them. They live in memory, so a cold start refills them.
+// The app holds itself to the published API rate limits for these endpoints. The buckets hold 25% of each budget: they
+// exist to stop a client bug, such as a refresh loop, and normal use never empties them. They live in memory, so a cold
+// start refills them.
 
 export type BudgetFamily = 'insights' | 'dashboards' | 'query'
 

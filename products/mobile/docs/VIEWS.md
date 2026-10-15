@@ -37,7 +37,7 @@ Insights viewed on the web do not appear: no per-user source is open to OAuth wi
 
 ## Refresh
 
-OAuth requests skip the server's DRF throttles, so the app holds itself to the published personal API key budgets.
+The app holds itself to the published API rate limits.
 
 - **Automatic reads never force.** On open, screen focus and app foreground, an item reads with `blocking`, which computes only past `cache_target_age`. An item is due when it has no good value, its `cache_target_age` has passed, or its last read is 5 minutes old, and never within a minute of its last read.
 - **Dashboards open like the web:** a `force_cache` dashboard read, then `blocking` for each visible tile with no result or a passed `cache_target_age`. A list reports what it shows only after its rows lay out, so until then the first six rows count as visible (`INITIAL_VISIBLE_ROWS`).
