@@ -3947,7 +3947,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             "lacking one, retire the skills whose canonical scout no longer ships, and return all "
             "scout configs. Normally the Temporal coordinator does this on its next tick; this "
             "action exists so the scout UIs and setup flows (e.g. the wizard's self-driving "
-            "program) can hand the user a tunable fleet immediately."
+            "program) can hand the user a tunable fleet immediately. With surface=onboarding, "
+            "new configs stay disabled until explicitly activated."
         ),
         operation_id="signals_scout_config_sync",
     )
@@ -3957,7 +3958,7 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         url_path="sync",
         # Custom actions need explicit scopes — see the `current` action's note on the
         # "no scopes declared" rejection branch in `posthog/permissions.py`. Write scope:
-        # the sync materializes configs, and fresh configs are enabled (they drive spend).
+        # the sync materializes configs and can enable fresh ones outside onboarding.
         required_scopes=["signal_scout:write"],
         pagination_class=None,
     )
