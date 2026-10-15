@@ -718,15 +718,12 @@ fn assign_destinations(
 ) -> Vec<WrappedEvent> {
     events
         .into_iter()
-        .map(|event| {
-            let destination = destination_for_event_name(&event.event.event);
-            let destination = match event.adjusted_timestamp {
-                Some(ts) if event.result == EventResult::Ok => {
-                    route_historical(historical_cfg, context, destination, ts)
-                }
-                _ => destination,
-            };
-            event.into_wrapped(destination)
+        .map(|validated| {
+            let mut destination = destination_for_event_name(&validated.event.event);
+            if let Some(ts) = validated.adjusted_timestamp {
+                destination = route_historical(historical_cfg, context, destination, ts);
+            }
+            validated.into_wrapped(destination)
         })
         .collect()
 }
