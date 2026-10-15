@@ -15,11 +15,12 @@ inbox_ranking/
 │   ├── heads.py      # the v0 outcome heads
 │   ├── train.py      # per-head XGBoost fit + holdout/null metrics
 │   └── promotion.py  # the champion promotion rule
-├── multihead/        # dev-only: offline multi-head network prototype, no dag
+├── multihead/        # the multi-head network, its ONNX export, and the offline prototype
+├── nn/               # the `nn` family: examples → candidate → champion assets, on the `signals_ml` location
 └── tests/
 ```
 
-Registered via `posthog/dags/locations/signals.py` (US only) and loaded locally through `.dagster_home/workspace.yaml`.
+Registered via `posthog/dags/locations/signals.py` (US only) and loaded locally through `.dagster_home/workspace.yaml`. The `nn` family is registered via `posthog/dags/locations/signals_ml.py` instead, because it needs torch (see [The nn family](#the-nn-family)).
 
 ## The dataset dag
 
@@ -73,6 +74,7 @@ Point-in-time contract:
 - A report born on day D uses the project vectors of dt=D−1. Their `as_of` is D 00:00 UTC, strictly before the birth, and that matches serving, where the sweep reads the newest snapshot.
 - A report enters a vector only when its vector landed and its engagement happened strictly before `as_of`. The snapshot holds only the latest vector per report, so a report re-embedded after `as_of` is left out rather than read with text it did not have yet.
 - The training side can rebuild any past day by calling the function on newer snapshots with an earlier `as_of`. No backfill is needed while the vectors are inside the embedding TTL.
+- Serving: when any manifest entry reads project vectors, `inbox_ranking_serving_manifest` copies the dt=D day into the deployment's object store before it writes the manifest. The sweep reads that day once per pass, only for the teams it scores. Its `as_of` is the end of dt=D, so it is never newer than a report scored after the publish. Until the next publish, a report scored on day D+2 still reads dt=D, which is one day older than training reads.
 
 ### Partition semantics
 
@@ -144,7 +146,7 @@ s3://<bucket>/<prefix>/
 └── inbox_ranking_served_scores/v1/dt=YYYY-MM-DD/       # the scoring sweep's scores of the reports born that day, per model key
 ```
 
-- **A model is a `(model_name, model_version, model_role)`.** `model_name` is the family: which features and which learner: `report_embeddings` and `title_embeddings`, both per-head XGBoost, are the two trained here. `model_version` is the partition day it was fit on, and `model_role` is the role it was scored or trained under (`candidate` on the training events; `served`, `daily_candidate` or `cross_family` on the online grade). Each family owns a prefix under the models path and its own `champion.json`, so two families trained on the same day cannot collide, and promotion stays inside a family. A second family is a second model graded on the same online rows, not a competitor for another family's pointer.
+- **A model is a `(model_name, model_version, model_role)`.** `model_name` is the family: which features and which learner: `report_embeddings` and `title_embeddings`, both per-head XGBoost, are the two trained here. `nn`, one ONNX network, is trained by the `signals_ml` location, and each `MODEL_FAMILIES` entry names its `learner` and the `location` that trains it. `model_version` is the partition day it was fit on, and `model_role` is the role it was scored or trained under (`candidate` on the training events; `served`, `daily_candidate` or `cross_family` on the online grade). Each family owns a prefix under the models path and its own `champion.json`, so two families trained on the same day cannot collide, and promotion stays inside a family. A second family is a second model graded on the same online rows, not a competitor for another family's pointer.
 - **A feature set is one feature universe.** `products/signals/backend/ranking/features.py` holds a `FeatureSet` per universe: its name, its schema version, its ordered feature names, the report-state columns it reads, `build_matrix`, and how many rows it wants per report and per head. `report_embeddings` and `title_embeddings` are the two today. A candidate records the set it was fit on in its `metadata.json`, so the grader checks a model against its own set rather than one global contract, the examples asset writes one Parquet per set, and the unseen scorer builds one matrix per set and shares it across the families that read it. Adding a set means an entry in `FEATURE_SETS`; a model naming a set this build cannot produce is logged and left unscored.
 - **Examples are one row per report at its birth, by default.** For partition `dt=D` the examples asset reads the report-state and labels snapshots `dt=D-lookback..D` and emits one row per report, on the snapshot of the day it was created, labeled from the snapshot `horizon_days` later (3 for open, 7 for action / pr_created / discuss / thumbs_up, 14 for pr_merged / refund / reviewer_fix, 21 for dismiss_wrong / fixed / dismiss_lowvalue). Features are built by the feature set from that snapshot's state columns plus `age_hours`, the report's age at the snapshot. Labels are aligned to the state spine, so a report with no label event is a negative (all-zero labels), not absent. Label-only rows (no Postgres state) are skipped, as are state rows read long after their snapshot day (backfills carry current Postgres state; see `features_observed_at`) and, for the heads that read the status stream (`dismiss_wrong`, `action`, `fixed` and `dismiss_lowvalue`), rows whose status telemetry fails the dataset's `label_provenance_ok` check. Birth is the moment serving scores a report, and the label that comes out is a per-report probability, which is what the inbox ordering needs. A report born before the window, or one whose birth-day snapshot is missing from it, is no example; `reports_missing_birth_snapshot` on the asset counts the second case, which is a gap in the partitions.
 - **An outcome already visible on the birth day is a future positive.** A report born on day D has no scoring moment before D, so an outcome visible at D belongs to the moment being built rather than to an earlier one; the labels of D therefore read as their defaults for a report born on D. Most outcomes land on the birth day, so this is where the positives are: censoring on them costs the `pr_created` head most of its training signal. `<set>_<head>_birth_day_positives` on the examples asset, and `birth_day_positives` on the `inbox_ranking_examples_built` event, say how many positives the rule keeps. These rows carry a hindsight the other rows do not: the state snapshot reads `signal_count`, `total_weight`, `run_count` and the text sizes live from Postgres a few hours after day D ends, so a birth-day outcome happened before its own feature read. Both the holdout AUC and the newborn unseen grade therefore read optimistically on these rows, until the scoring sweep's timestamped score log replaces the daily snapshot as this table's source.
@@ -165,9 +167,15 @@ s3://<bucket>/<prefix>/
 
 ```text
 s3://<object-storage bucket>/<prefix>/serving/
-├── models/<model_name>@<model_version>/metadata.json + <head>.ubj   # the refit boosters only
+├── models/<model_name>@<model_version>/metadata.json + <head>.ubj   # xgboost: the refit boosters only
+├── models/<model_name>@<model_version>/metadata.json + model.onnx   # onnx: one graph for every head
 └── manifest.json                                                    # the models one scoring pass runs
 ```
+
+Each entry names its `model_kind`, and the sweep loads it through that kind's handler in `products/signals/backend/ranking/model_store.py`:
+
+- `xgboost`, the default for a model without the field: one booster per head, `<head>.ubj`. The entry's `heads` list names the files.
+- `onnx`: one `model.onnx` for every head. The entry names it in `model_file`, and `heads` still lists the heads it scores. The graph takes one float32 input, `report`, of shape (batch, feature-set width), and gives one output, `probabilities`, of shape (batch, heads). The column order of that output is `output_heads` in the model's `metadata.json`, and each head entry in `heads` there names `model.onnx` as its `file`. At load, the handler checks the input names and widths against what the model's feature set builds, and a mismatch skips the model like an unloadable booster. The session runs on CPU with a bounded thread count, and `onnxruntime` is imported only when a model loads. The project-vector inputs are not served yet, so the sweep skips an `nn` model, whose graph also takes `project` and `has_history`, until it feeds them.
 
 The manifest holds one entry per model with its `roles`: `served` for the champion of `INBOX_RANKING_SERVED_FAMILY`, `daily_candidate` for that family's candidate on this partition when it is a different, readable model, `pinned` for each model the `pin` override keeps (see [Overrides](#overrides)), and `cross_family` for every other family's champion that has a readable head. A pass scores all of them, so an online paired read and a later interleaving need no rescoring; the entry count is capped at the `ranking_score` artefact's own limit, dropping `cross_family` entries first and `pinned` entries next. The schema, the role names and the object keys live in `products/signals/backend/ranking/serving_manifest.py`, and its validators run at write time, so the dag refuses a manifest the sweep could not act on. A model version is immutable, so a version already in the store is not copied again, and `manifest.json` is written last: a failed copy leaves the previous manifest and the previous models serving. No family has a champion until the first promotion, so until then the asset writes nothing and says why.
 
@@ -268,6 +276,17 @@ At the full horizon, the cohort, label and provenance rules are the trainer's ow
 
 The event names keep the `unseen` prefix so existing dashboard tiles keep reading. Three events carry the baked results, next to the daily `inbox_ranking_unseen_head_evaluated`: `inbox_ranking_unseen_head_graded` per (model, head) with `readable` (whether the head's holdout could be read on the model that wrote the scores), `model_role`, `rows`, `positives`, `birth_day_positives` (of the positives, how many landed on the report's birth day), `base_rate`, `mean_score`, `expected_calibration_error`, `auc` and `recency_auc`, `inbox_ranking_unseen_calibration` per (model, head, decile) with `bucket`, `rows`, `positives`, `mean_score` and `realized_rate` (one event per decile, because a table on the head event would be an array no insight can break down), and `inbox_ranking_unseen_report_graded` per (report, model, horizon) with `p_<head>`, `in_cohort_<head>` and `outcome_<head>` for a calibration read on the raw rows. Both graded events are stamped on the day the outcome was read and carry `scoring_partition`, the day the report was scored, so a chart can be built on either axis. Both also carry `pool`, read back from the scores object, so an AUC series never mixes two pool definitions: the grader reads scores from up to the longest head horizon (21 days) earlier, so the days after a pool change grade both populations. A scores object written before the column existed reads as `sampled`, the pool the old seeded sample defined.
 
+#### Pooled and within-team AUC
+
+The inbox sorts the reports of one team, so the order that matters is the order inside one team. Every grade reports two AUCs on the same rows, and each answers a different question:
+
+- **Pooled AUC** (`holdout_auc` on a candidate, `auc` and `recency_auc` on the online grade) compares every report with every other report, across teams. It asks: does the model separate the reports that get the outcome from the reports that do not, anywhere? A model that only learns which teams engage a lot gains pooled AUC. A score equal to each team's past label rate gets a pooled AUC well above 0.5.
+- **Within-team AUC** (`holdout_within_team_auc` on a candidate, `within_team_auc` and `recency_within_team_auc` on the online grade) compares only two reports of the same team. It asks: inside one inbox, does a report that gets the outcome rank above one that does not? The team-rate score gets exactly 0.5 here.
+
+`within_team_auc` weighs each team by its positive x negative pairs, so a large team counts more. `within_team_auc_macro` is the mean of the per-team AUCs, so each team counts the same. `within_team_teams` and `within_team_pairs` say how much the number rests on. A team with one outcome class has no pair and adds nothing, and a row without a team id is left out of these four fields only. Both AUCs are null when no team has both classes.
+
+Compare model families on the within-team AUC when they differ in team-level inputs, such as project vectors: a gain in pooled AUC alone can be team identity rather than a better order. The promotion gate still reads the pooled holdout AUC.
+
 #### Reading one rendering against another
 
 The `title_embeddings` and `report_embeddings` families are trained and graded to be compared, not promoted. The read:
@@ -318,19 +337,53 @@ Nothing here touches the prod bucket: the reader credential is read-only and the
 
 ### The multi-head prototype
 
-`multihead/` is an offline experiment and not a dag. It tests whether one shared network over the report vector, with or without the team's project vectors, beats the per-head XGBoost champion recipe of the `report_embeddings` family. It reads the disk cache the sync script fills, so sync with `INBOX_RANKING_SYNC_EMBEDDINGS=1` first. The dev stack does not need to be up:
+`multihead/` is an offline experiment and not a dag. It tests whether one shared network over the report vector, with or without the team's project vectors, beats the per-head XGBoost champion recipe of the `report_embeddings` family. It reads the disk cache the sync script fills, so sync with `INBOX_RANKING_SYNC_EMBEDDINGS=1` first. The dev stack does not need to be up.
+
+The network is PyTorch. torch is not a main dependency: it comes from the `inbox-ranking` dependency group, with the CPU-only wheels, together with `onnx` and `onnxruntime`. The group conflicts with the `sentiment` group, which takes the CUDA build of torch, so install one or the other. Only `Dockerfile.dagster-ml`, the image of the `signals_ml` code location, installs the group.
 
 ```bash
+uv sync --group inbox-ranking
 DEBUG=1 python -m products.signals.dags.inbox_ranking.multihead --output multihead.json
 ```
 
-The run takes the newest day that has the state, labels and report embeddings cached, unless you pass `--partition`. It builds the `open`, `action` and `fixed` examples with the training dag's own `example_moments`, `cap_examples` and `holdout_mask`. Then it prints AUC, average precision and ECE per head for three models on each head's own holdout rows:
+`multihead/network.py` is the only module that imports torch. `multihead/inputs.py` holds the inputs and the settings, so the prototype and its callers build them without torch. Never import `network.py` from a module on the Django, Temporal or Dagster import path: `test_multihead_network.py` fails if torch reaches one. Without the group, the torch tests skip. `ci-inbox-ranking.yml` installs the group and runs them.
+
+`export_onnx(network, path)` writes the network as one ONNX graph and returns its head order. The inputs are `report` (N x 1536) and, for the network with project vectors, `project` (N x 4 x 1536) and `has_history` (N x 4), all float32. The one output is `probabilities` (N x heads), after the sigmoid. N is a dynamic axis.
+
+The run takes the newest day that has the state, labels and report embeddings cached, unless you pass `--partition`. It builds the `open`, `action` and `fixed` examples with the training dag's own `example_moments`, `cap_examples` and `holdout_mask`. Then it prints pooled AUC, within-team AUC (`team_auc`), average precision and ECE per head for three models on each head's own holdout rows:
 
 - `champion_recipe` is the `XGB_PARAMS` booster, refit on the head's train rows.
 - `nn_report` is the network over the report vector only.
 - `nn_report_project` is the network over the report vector plus the `typical`, `open`, `action` and `dismiss` vectors from `project_vectors()`. A report born on day D reads them as of D 00:00 UTC.
 
 The network leaves out every report that is in any head's holdout, so the comparison is conservative for it. A run holds one embeddings snapshot: the title embeddings are never read, and the project vectors are computed from the same table as the report vectors. Results vary with `--seed`, so compare a few seeds before you read a small AUC gap as a result.
+
+### The nn family
+
+`nn` is one multi-head network (`multihead/network.py`) over the report vector and the team's `typical`, `open`, `action` and `dismiss` project vectors, with the heads `open`, `action` and `fixed`. It is a model family like the per-head ones: it has its own prefix and its own `champion.json`, the main job's serving manifest names its champion as an `onnx` entry, and the online grader grades it. The main location's candidate and champion assets never fit it.
+
+`inbox_ranking_nn_training_job` lives on its own code location, `posthog/dags/locations/signals_ml.py`, which runs on an image with the `inbox-ranking` group. torch is imported only inside the candidate asset's body, so the location module imports on the main image too, and `test_multihead_network.py` fails if torch reaches it. The job writes:
+
+```text
+s3://<bucket>/<prefix>/
+├── inbox_ranking_nn_examples/v1/dt=YYYY-MM-DD/   # rows, a label and a holdout flag per head; no vectors
+└── inbox_ranking_models/v1/nn/
+    ├── dt=YYYY-MM-DD/model.onnx + model.holdout.onnx + metadata.json
+    └── champion.json
+```
+
+- **Examples** are the prototype's: each head's `example_moments` over the `report_embeddings` set, capped by `cap_examples` and split by `holdout_mask`, so every head's rows and holdout are the ones its `report_embeddings` champion is graded on. The object holds no vector. The candidate and champion assets rebuild the report vectors and the project vectors from the dt=D embeddings and labels snapshots.
+- **Candidate**: the network trains on the rows in no head's holdout and is graded on each head's own holdout through the same `head_metrics` the boosters use, so `metadata.json` carries the same per-head fields (pooled and within-team AUC, average precision, ECE, readability, row counts, example window). Readability uses the boosters' permutation null: three networks fit on permuted labels. `model.onnx` is a refit on every labeled row, and `model.holdout.onnx` is the train-only fit. `metadata.json` has `model_kind: onnx`, `feature_set: report_embeddings`, and `output_heads`, the graph's column order.
+- **Champion**: the same rule, overrides and `INBOX_RANKING_AUTO_PROMOTE` gate as the other families (`decide_family_champion`). The incumbent is graded through its `model.holdout.onnx` on the candidate's holdout, with `onnxruntime`.
+- **A missing partition is a skip.** If the dt=D state, labels or embeddings snapshot is missing, each asset logs and writes nothing, so the partition keeps the objects it holds.
+- **Schedule**: 04:30 UTC, after the dataset job's 2h budget (02:30 UTC start) and before the 05:00 UTC training job when the run is short enough. A champion that lands after that day's manifest is published by the next day's manifest. The schedule is stopped by default in every environment.
+
+To run it locally, install the group (`uv sync --group inbox-ranking`), sync the snapshots with `INBOX_RANKING_SYNC_EMBEDDINGS=1` as in [Running the training job locally](#running-the-training-job-locally), and uncomment `posthog.dags.locations.signals_ml` in `.dagster_home/workspace.yaml`. The entry is commented out because most developers do not have torch installed. Then launch the job:
+
+```bash
+dagster job launch -w .dagster_home/workspace.yaml --location posthog.dags.locations.signals_ml \
+    -j inbox_ranking_nn_training_job --tags '{"dagster/partition": "2026-08-25"}'
+```
 
 ## Configuration
 

@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
+import { INTRO_SCREEN_DEFAULT_BUTTON_TEXT } from './constants'
 import {
     COMMON_LANGUAGES,
     classifyTranslationKeys,
@@ -118,6 +119,9 @@ export function useSurveyTranslationsForm({
                 thankYouMessageHeader: survey.appearance?.thankYouMessageHeader || '',
                 thankYouMessageDescription: survey.appearance?.thankYouMessageDescription || '',
                 thankYouMessageCloseButtonText: survey.appearance?.thankYouMessageCloseButtonText || '',
+                introScreenHeader: survey.appearance?.introScreenHeader || '',
+                introScreenDescription: survey.appearance?.introScreenDescription || '',
+                introScreenButtonText: survey.appearance?.introScreenButtonText || INTRO_SCREEN_DEFAULT_BUTTON_TEXT,
             },
         })
         setEditingLanguage(language)

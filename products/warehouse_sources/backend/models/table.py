@@ -975,7 +975,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             keep_tuple_element_names=self.format in STRUCTURE_KEEPS_TUPLE_ELEMENT_NAMES,
         )
 
-        if self.external_data_source and self.external_data_source.is_direct_postgres:
+        is_managed_trino_table = (
+            self.external_data_source is not None
+            and self.external_data_source.is_managed_warehouse
+            and self.url_pattern == "direct://trino"
+        )
+        if self.external_data_source and self.external_data_source.is_direct_postgres and not is_managed_trino_table:
             postgres_catalog = (
                 self.options.get(DIRECT_POSTGRES_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_POSTGRES_CATALOG_OPTION), str)
@@ -1116,7 +1121,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if (
             self.external_data_source
             and self.external_data_source.is_direct_query
-            and self.external_data_source.direct_engine == "trino"
+            and (self.external_data_source.direct_engine == "trino" or is_managed_trino_table)
         ):
             job_inputs = self.external_data_source.job_inputs or {}
             trino_catalog = (

@@ -14,6 +14,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -36,6 +37,7 @@ enum NotificationBlock {
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
     AiEvaluationDisabled = 'ai-evaluation-disabled',
+    WorkflowSuggestions = 'workflow-suggestions',
 }
 
 const NOTIFICATION_BLOCK_ORDER = Object.values(NotificationBlock)
@@ -56,6 +58,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
     ai_evaluation_disabled: true,
+    workflow_suggestions: true,
     materialized_view_sync_failed: false,
     materialized_view_sync_failed_daily: true,
     materialized_view_sync_failed_immediate: false,
@@ -371,6 +374,7 @@ export function UpdateEmailPreferences(): JSX.Element {
     } = useActions(userLogic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { searchParams } = useValues(router)
+    const workflowSuggestionsEnabled = useFeatureFlag('SELF_OPTIMISING_WORKFLOWS')
     const highlight = searchParams.highlight as NotificationBlock | undefined
     const dataLoaded = !userLoading && !currentOrganizationLoading && !!user && !!currentOrganization
 
@@ -621,6 +625,16 @@ export function UpdateEmailPreferences(): JSX.Element {
                 />
             </div>
         ),
+        [NotificationBlock.WorkflowSuggestions]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="workflow_suggestions"
+                    label="Workflow suggestions"
+                    description="Get an email when PostHog suggests a change to a workflow you set up"
+                    dataAttr="workflow_suggestions_enabled"
+                />
+            </div>
+        ),
         [NotificationBlock.MaterializedViewSync]: (
             <div className="border rounded p-4 space-y-3">
                 <SimpleSwitch
@@ -635,7 +649,9 @@ export function UpdateEmailPreferences(): JSX.Element {
     }
 
     const visibleBlocks = NOTIFICATION_BLOCK_ORDER.filter(
-        (block) => block !== NotificationBlock.Approvals || hasAvailableFeature(AvailableFeature.APPROVALS)
+        (block) =>
+            (block !== NotificationBlock.Approvals || hasAvailableFeature(AvailableFeature.APPROVALS)) &&
+            (block !== NotificationBlock.WorkflowSuggestions || workflowSuggestionsEnabled)
     )
     const highlightedBlock = highlight && visibleBlocks.includes(highlight) ? highlight : null
     const highlightRef = useRef<HTMLDivElement>(null)

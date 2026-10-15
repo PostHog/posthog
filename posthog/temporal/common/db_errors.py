@@ -100,7 +100,7 @@ def is_transient_db_error(error: BaseException) -> bool:
         # it ship in the same deploy, but a worker can roll out ahead of the migration completing.
         # Every activity here already retries via Temporal's retry policy, and the query succeeds
         # once the migration lands, so this is a self-healing race, not a bug. Mirrors the
-        # schema-lag handling in batch_consumer.py, loop_retention.py and task_auto_archive.py.
+        # schema-lag handling in batch_consumer.py and task_auto_archive.py.
         if isinstance(error, ProgrammingError) and isinstance(
             error.__cause__, psycopg.errors.UndefinedColumn | psycopg.errors.UndefinedTable
         ):

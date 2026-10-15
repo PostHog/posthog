@@ -1,4 +1,5 @@
 import { FEATURE_FLAGS } from 'lib/constants'
+import { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
 import {
     ConversionGoalFilter,
@@ -21,6 +22,7 @@ import {
 
 import { NativeSource } from './marketingAnalyticsLogic'
 import {
+    conversionGoalToSeries,
     createMarketingTile,
     findSchemaByFieldName,
     getEnabledNativeMarketingSources,
@@ -32,6 +34,7 @@ import {
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
     rowMatchesSearch,
     sanitizeIntegrationFilter,
+    seriesToConversionGoal,
     validColumnsForTiles,
 } from './utils'
 
@@ -574,11 +577,23 @@ describe('marketing analytics utils', () => {
                 const result = createMarketingTile(source, 'cost_per_reported_conversion', 'EUR')
                 expect(result?.math_hogql).toBe(
                     hasPurchases
-                        ? "SUM(toFloat(convertCurrency(coalesce(campaign_budget_currency_code, 'EUR'), 'EUR', toFloat(cost), coalesce(toDate(date), today())))) / nullIf(SUM(ifNull(toFloat(purchases14d), 0)), 0)"
+                        ? "SUM(toFloat(convertCurrency(coalesce(campaign_budget_currency_code, 'EUR'), 'EUR', ifNull(toFloat(cost), 0), coalesce(toDate(date), today())))) / nullIf(SUM(ifNull(toFloat(purchases14d), 0)), 0)"
                         : '0'
                 )
             }
         )
+
+        it.each([
+            ['TwitterAds', 'billed_charge_local_micro'],
+            ['GoogleAds', 'metrics_cost_micros'],
+            ['RedditAds', 'spend'],
+            ['SnapchatAds', 'spend'],
+        ] as const)('casts the %s cost column to a number before it divides by a million', (sourceType, costColumn) => {
+            const source = makeMockSource(sourceType, sourceFields[sourceType])
+            const mathHogql = createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'USD')?.math_hogql
+            expect(mathHogql).toContain(`ifNull(toFloat(${costColumn}), 0) / 1000000`)
+            expect(mathHogql).not.toContain(`${costColumn} / 1000000`)
+        })
 
         const testCases = VALID_NATIVE_MARKETING_SOURCES.flatMap((sourceType) =>
             ALL_TILE_COLUMNS.map(
@@ -753,6 +768,106 @@ describe('marketing analytics utils', () => {
             ['non-string entries', { integrationSourceIds: ['a', 3, null] }, ['a']],
         ])('%s', (_name, stored, expected) => {
             expect(sanitizeIntegrationFilter(stored)).toEqual({ integrationSourceIds: expected })
+        })
+    })
+
+    describe('conversion goal series', () => {
+        const goalFields = {
+            conversion_goal_id: 'goal-1',
+            conversion_goal_name: 'Purchases',
+            counts_as_customer: true,
+        }
+        const schemaMap = {
+            utm_campaign_name: 'utm_campaign',
+            utm_source_name: 'utm_source',
+            timestamp_field: 'timestamp',
+            distinct_id_field: 'distinct_id',
+        }
+        const warehouseGoal: ConversionGoalFilter = {
+            ...goalFields,
+            kind: NodeKind.DataWarehouseNode,
+            id: 'charges',
+            table_name: 'charges',
+            name: 'charges',
+            timestamp_field: 'created',
+            id_field: 'id',
+            distinct_id_field: 'email',
+            dw_source_type: 'Stripe',
+            math: BaseMathType.TotalCount,
+            schema_map: { ...schemaMap, timestamp_field: 'created', distinct_id_field: 'email' },
+        }
+
+        it.each([
+            {
+                name: 'moves the picked UTM columns from the table into the schema map',
+                goal: {
+                    ...goalFields,
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                    schema_map: schemaMap,
+                } as ConversionGoalFilter,
+                series: [
+                    {
+                        kind: NodeKind.DataWarehouseNode,
+                        id: 'invoices',
+                        table_name: 'invoices',
+                        name: 'invoices',
+                        timestamp_field: 'paid_at',
+                        distinct_id_field: 'customer',
+                        utm_campaign_name: 'campaign',
+                        utm_source_name: 'source',
+                    },
+                ],
+                expected: {
+                    ...goalFields,
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'invoices',
+                    table_name: 'invoices',
+                    name: 'invoices',
+                    timestamp_field: 'paid_at',
+                    id_field: 'customer',
+                    distinct_id_field: 'customer',
+                    math: BaseMathType.TotalCount,
+                    properties: [],
+                    schema_map: {
+                        utm_campaign_name: 'campaign',
+                        utm_source_name: 'source',
+                        timestamp_field: 'paid_at',
+                        distinct_id_field: 'customer',
+                    },
+                },
+            },
+            {
+                name: 'keeps no table column when a table goal becomes an event',
+                goal: warehouseGoal,
+                series: [{ kind: NodeKind.EventsNode, event: 'purchase', name: 'purchase' }],
+                expected: {
+                    ...goalFields,
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                    name: 'purchase',
+                    math: BaseMathType.TotalCount,
+                    properties: [],
+                    schema_map: warehouseGoal.schema_map,
+                },
+            },
+        ])('$name', ({ goal, series, expected }) => {
+            expect(seriesToConversionGoal(goal, series as SeriesNode[])).toStrictEqual(expected)
+        })
+
+        it('reads a goal stored with the legacy warehouse type as a table', () => {
+            const legacyGoal = {
+                ...goalFields,
+                kind: NodeKind.EventsNode,
+                type: 'data_warehouse',
+                table_name: 'charges',
+                timestamp_field: 'created',
+                schema_map: schemaMap,
+            } as unknown as ConversionGoalFilter
+
+            expect(conversionGoalToSeries(legacyGoal)).toStrictEqual([
+                { kind: NodeKind.DataWarehouseNode, id: 'charges', table_name: 'charges', timestamp_field: 'created' },
+            ])
         })
     })
 })

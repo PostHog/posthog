@@ -5,9 +5,11 @@ from products.review_hog.backend.reviewer.models.github_meta import PRComment, P
 from products.review_hog.backend.reviewer.models.issues_review import Issue
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
 from products.review_hog.backend.reviewer.tools.prompt_helpers import (
+    PROMPT_CACHE_MARKER,
     author_comments,
     build_chunk_prompt_context,
     load_template_and_schema,
+    without_cache_marker,
 )
 
 
@@ -84,11 +86,17 @@ def build_review_prompt(
     this chunk, so its `skill-get`-loaded sweep knows what ground is spoken for. `blind_spot_check` is
     an explicit flag (not inferred from `wave_perspectives`) because perspective selection can leave a
     chunk with NO lenses — the sweep must then be told it is the chunk's only reviewer.
+
+    The perspective prompts of one chunk match up to `PROMPT_CACHE_MARKER`, which comes right before the
+    perspective skill, so they share one prompt cache entry. Pull request text cannot add a second marker.
     """
     main_template, output_schema = load_template_and_schema("issues_review")
+    chunk_context = build_chunk_prompt_context(chunk, pr_metadata, author_comments(pr_comments, pr_metadata), pr_files)
+    covered = _covered_findings_for_chunk(prior_findings, same_turn_findings or [], chunk)
     return main_template.render(
-        **build_chunk_prompt_context(chunk, pr_metadata, author_comments(pr_comments, pr_metadata), pr_files),
-        COVERED_FINDINGS=_covered_findings_for_chunk(prior_findings, same_turn_findings or [], chunk),
+        **{key: without_cache_marker(value) for key, value in chunk_context.items()},
+        COVERED_FINDINGS=without_cache_marker(covered) if covered else None,
+        CACHE_MARKER=PROMPT_CACHE_MARKER,
         DIG_DEEPER=dig_deeper,
         IS_BLIND_SPOT=blind_spot_check,
         WAVE_PERSPECTIVES=_format_wave_perspectives(wave_perspectives) if wave_perspectives else None,

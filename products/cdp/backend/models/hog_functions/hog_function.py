@@ -422,11 +422,11 @@ def team_inject_web_apps_changd(sender, instance, created=None, **kwargs):
 
 @receiver(models.signals.post_save, sender=Team)
 def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: bool, **kwargs):
-    from posthog.cdp.templates.hog_function_template import sync_template_to_db
     from posthog.plugins.plugin_server_api import get_hog_function_templates
 
     from products.cdp.backend.api.hog_function import HogFunctionSerializer
     from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+    from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 
     if settings.DISABLE_MMDB or not created:
         return

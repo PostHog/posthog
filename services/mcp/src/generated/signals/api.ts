@@ -3,10 +3,145 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 63 enabled ops
+ * PostHog API - MCP 65 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Team-level signal autonomy config (singleton per team).
+ *
+ * GET  /signals/config/  → retrieve
+ * POST /signals/config/  → update
+ * @summary Read the project's signals config
+ */
+export const SignalsConfigListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Partial update of the per-project singleton. Omitted fields keep their value.
+ * @summary Update the project's signals config
+ */
+export const SignalsConfigCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsConfigCreateBodyDefaultSlackNotificationChannelMax = 255
+
+export const signalsConfigCreateBodyAutostartBaseBranchesMaxOne = 255
+
+export const signalsConfigCreateBodyScoutInstructionsMax = 20000
+
+export const signalsConfigCreateBodyResearchInstructionsMax = 20000
+
+export const signalsConfigCreateBodyImplementationInstructionsMax = 20000
+
+export const signalsConfigCreateBodyIssueTrackingConfigMaxOne = 255
+
+export const signalsConfigCreateBodyMaxReportsPerDayMax = 2147483647
+
+export const signalsConfigCreateBodyPullRequestLabelMax = 50
+
+export const SignalsConfigCreateBody = () => zod.object({
+    autostart_enabled: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set false to opt out, so actionable reports still generate and notify but the team never auto-starts an implementation task or opens a PR — reviewers open PRs manually.'
+        ),
+    default_autostart_priority: zod
+        .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+        .optional()
+        .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'),
+    default_slack_notification_channel: zod
+        .string()
+        .max(signalsConfigCreateBodyDefaultSlackNotificationChannelMax)
+        .nullish()
+        .describe(
+            "Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply."
+        ),
+    autostart_base_branches: zod
+        .record(zod.string(), zod.string().max(signalsConfigCreateBodyAutostartBaseBranchesMaxOne))
+        .optional()
+        .describe(
+            "Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization\/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch."
+        ),
+    scout_instructions: zod
+        .string()
+        .max(signalsConfigCreateBodyScoutInstructionsMax)
+        .optional()
+        .describe(
+            "Project-level instructions added to every scout run, alongside project instructions and the scout's own brief. Blank uses project instructions only."
+        ),
+    research_instructions: zod
+        .string()
+        .max(signalsConfigCreateBodyResearchInstructionsMax)
+        .optional()
+        .describe(
+            'Project-level instructions for the dedicated signal report research stage. Other agent roles do not receive them. Blank uses project instructions only.'
+        ),
+    implementation_instructions: zod
+        .string()
+        .max(signalsConfigCreateBodyImplementationInstructionsMax)
+        .optional()
+        .describe(
+            'Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.'
+        ),
+    issue_tracking_integration: zod
+        .number()
+        .nullish()
+        .describe(
+            'Connected GitHub, GitLab, Linear, or Jira integration that self-driving opens a tracker issue in for each pull request it makes. Null turns tracker issues off, which is the default.'
+        ),
+    issue_tracking_config: zod
+        .record(zod.string(), zod.string().max(signalsConfigCreateBodyIssueTrackingConfigMaxOne))
+        .optional()
+        .describe(
+            "Where in the tracker the issues land. Required keys depend on the integration kind: github -> {repository}; linear -> {team_id}; jira -> {project_key}; gitlab needs none, because its integration is already bound to one project. An optional 'label' is applied to created GitHub issues."
+        ),
+    max_reports_per_day: zod
+        .number()
+        .min(1)
+        .max(signalsConfigCreateBodyMaxReportsPerDayMax)
+        .nullish()
+        .describe(
+            "Daily cap on new reports surfacing to the inbox, counted per calendar day in the project's timezone. Once reached, signal ingestion, scout runs, and report research pause until local midnight. Null means unlimited."
+        ),
+    default_open_pull_request_ready: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether self-driving pull requests open ready for review instead of draft, so the full CI matrix starts when the pull request is created. False by default. A reviewer's own github_open_pull_request_ready overrides this for reports that suggest them as reviewer."
+        ),
+    github_issue_writeback_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether self-driving comments back on a GitHub issue that raised a report, linking to the report so everybody watching the issue knows it is being researched. The comment is public on the issue thread and carries a link only, never report content. False by default. Needs a GitHub integration that can reach the issue's repository."
+        ),
+    pull_request_label_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether self-driving adds a label to every pull request it opens, so GitHub search, saved searches, and notification rules can separate them from other automation on the repository. False by default. Needs a GitHub integration that can reach the repository.'
+        ),
+    pull_request_label: zod
+        .string()
+        .max(signalsConfigCreateBodyPullRequestLabelMax)
+        .nullish()
+        .describe(
+            "The label name self-driving applies, at most 50 characters. Null or blank means 'self-driving'. The label is created in the repository when it does not exist yet. Only used while pull_request_label_enabled is true."
+        ),
+})
 
 export const SignalsReportsListParams = () => zod.object({
     project_id: zod
@@ -104,7 +239,9 @@ export const SignalsReportsListQueryParams = () => zod.object({
     sort: zod
         .string()
         .optional()
-        .describe('Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.'),
+        .describe(
+            "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per project to a ranker: the priority order, or the served ranking model's fixed head with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used."
+        ),
     source_id: zod
         .string()
         .optional()
@@ -774,7 +911,7 @@ export const signalsScoutCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
 
-export const signalsScoutCreateBodyConfigOneWriteScopesMax = 10
+export const signalsScoutCreateBodyConfigOneWriteScopesMax = 12
 
 export const signalsScoutCreateBodyConfigOnePrecheckQueryMax = 10000
 
@@ -878,7 +1015,7 @@ export const SignalsScoutCreateBody = () => zod
                     .max(signalsScoutCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
                     ),
                 lifecycle_locked: zod
                     .boolean()
@@ -1070,7 +1207,7 @@ export const signalsScoutConfigCreateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigCreateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigCreateBodyWriteScopesMax = 10
+export const signalsScoutConfigCreateBodyWriteScopesMax = 12
 
 export const signalsScoutConfigCreateBodyPrecheckQueryMax = 10000
 
@@ -1134,7 +1271,7 @@ export const SignalsScoutConfigCreateBody = () => zod
             .max(signalsScoutConfigCreateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
             ),
         lifecycle_locked: zod
             .boolean()
@@ -1314,7 +1451,7 @@ export const signalsScoutConfigUpdateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigUpdateBodyWriteScopesMax = 10
+export const signalsScoutConfigUpdateBodyWriteScopesMax = 12
 
 export const signalsScoutConfigUpdateBodyPrecheckQueryMax = 10000
 
@@ -1470,7 +1607,7 @@ export const SignalsScoutConfigUpdateBody = () => zod
             .max(signalsScoutConfigUpdateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
             ),
         precheck_query: zod
             .string()
