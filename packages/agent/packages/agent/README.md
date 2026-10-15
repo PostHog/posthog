@@ -169,6 +169,22 @@ Optional behavior toggles:
 - `AI_GATEWAY_MODEL_PRICES_JSON` — optional override of the guard's per-million-token price table, a JSON object of `{ "<model id regex>": { input, output, cacheRead, cacheWrite } }` in USD. Defaults cover the Anthropic, GLM, Kimi and DeepSeek families the adapter serves.
 - `POSTHOG_BENJAMIN` — `1` or `true` appends the vendored Benjamin-Plus token-efficiency instruction (`@posthog/harness/extensions/benjamin`, source at `packages/harness/src/extensions/benjamin/instruction.ts`) to the Claude system prompt and the Codex instructions, and stamps the pinned upstream commit into run state as `benjamin_version` at session start. Any other value leaves prompts unchanged.
 
+### fx runtime
+
+`POSTHOG_CODE_RUNTIME_ADAPTER=fx` runs the session on [fx](https://fx.sh/docs/using-fx/acp) instead of Claude or Codex.
+`FxAcpAgent` (`src/adapters/fx/`) spawns `fx acp` and relays ACP between the server and fx.
+fx custom connections cannot send extra headers, so the adapter starts a loopback proxy that adds the gateway credential and the `X-PostHog-*` attribution headers.
+fx only sees a per-run local key in `POSTHOG_FX_GATEWAY_KEY`.
+The adapter writes the `posthog` connection into `~/.fx/settings.json` and selects it with `FX_PROVIDER`.
+Personal agent instructions go to `~/.fx/AGENTS.md`, like the Claude and Codex instruction files.
+
+- `POSTHOG_CODE_MODEL` picks the model and defaults to the Codex default. It must be one the gateway serves over Chat Completions.
+- `POSTHOG_FX_BINARY_PATH` points at the fx binary. Unset means `fx` on `PATH`.
+- fx always runs in its `ask` mode, so the server makes every approval decision. Server-side rules still apply: the PostHog `exec` approval regex, the publish block and background auto-approval. fx's own `auto` reviewer would skip those rules, so the PostHog `auto` mode runs as Ask.
+- fx has no read-only mode, so a session that requests `read-only` or `plan` fails to start.
+- The adapter drops `permission` rules from `~/.fx/settings.json`, so an allow rule there cannot skip a server approval.
+- fx sessions resume from the log summary. Native resume, relayed MCP servers, structured output and PostHog local tools are not wired yet.
+
 Optional run telemetry (the logs pair must both be set, otherwise telemetry stays off):
 
 - `POSTHOG_AGENT_OTEL_LOGS_URL` — full OTLP logs URL for run metadata, e.g. `https://us.i.posthog.com/i/v1/logs`

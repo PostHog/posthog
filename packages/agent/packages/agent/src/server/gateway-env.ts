@@ -170,11 +170,11 @@ export function buildGatewayEnv(
     if (sharedPromptCache) {
       openaiCustomHeaders["X-PostHog-Prompt-Cache-Scope"] = "shared";
     }
-    // Codex sends no trace header, so the gateway stamps a fresh id per
-    // request and a run's generations each land in a trace of one. Codex-only:
-    // this header outranks `traceparent`, so setting it for Claude would
+    // Codex and fx send no trace header, so the gateway stamps a fresh id per
+    // request and a run's generations each land in a trace of one. Not for
+    // Claude: this header outranks `traceparent`, so setting it there would
     // replace the per-turn ids its CLI mints with one id for the whole run.
-    if (taskRunId && runtimeAdapter === "codex") {
+    if (taskRunId && (runtimeAdapter === "codex" || runtimeAdapter === "fx")) {
       openaiCustomHeaders["X-PostHog-Trace-Id"] = taskRunId;
     }
   } else {

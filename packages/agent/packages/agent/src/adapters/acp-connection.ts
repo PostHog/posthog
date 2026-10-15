@@ -18,9 +18,12 @@ import type { GatewayEnv } from "./claude/session/options";
 import { nativeCodexBinaryPath } from "./codex-app-server/binary-path";
 import { CodexAppServerAgent } from "./codex-app-server/codex-app-server-agent";
 import type { CodexOptions } from "./codex-app-server/spawn";
+import { FxAcpAgent, type FxOptions } from "./fx/fx-agent";
+
+export type AcpAdapter = Adapter | "fx";
 
 export type AcpConnectionConfig = {
-  adapter?: Adapter;
+  adapter?: AcpAdapter;
   logWriter?: SessionLogWriter;
   /** Receives every parsed ACP wire message with the event id the session log stored it under. */
   onWireMessage?: (message: Record<string, unknown>, eventId: string) => void;
@@ -36,6 +39,7 @@ export type AcpConnectionConfig = {
   processCallbacks?: ProcessSpawnedCallback;
   codexOptions?: CodexOptions;
   codexModels?: ReadonlyArray<ModelInfo>;
+  fxOptions?: FxOptions;
   /** Callback invoked when the agent calls the create_output tool for structured output */
   onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
   /** PostHog API config; when set, enables file-read enrichment unless disabled. */
@@ -70,6 +74,10 @@ export function createAcpConnection(
 
   if (adapterType === "codex") {
     return createCodexConnection(config);
+  }
+
+  if (adapterType === "fx") {
+    return createFxConnection(config);
   }
 
   return createClaudeConnection(config);
@@ -290,6 +298,53 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
       } catch {
         // Stream may already be closed
       }
+    },
+  };
+}
+
+function createFxConnection(config: AcpConnectionConfig): AcpConnection {
+  const { fxOptions } = config;
+  if (!fxOptions) {
+    throw new Error("The fx adapter needs fxOptions");
+  }
+  const logger =
+    config.logger?.child("FxConnection") ??
+    new Logger({ debug: true, prefix: "[FxConnection]" });
+  const streams = createBidirectionalStreams();
+  const { agentWritable, clientWritable } = installWireTaps(
+    streams,
+    config,
+    logger,
+  );
+  const agentStream = ndJsonStream(agentWritable, streams.agent.readable);
+
+  let agent: FxAcpAgent | null = null;
+  const agentConnection = new AgentSideConnection((client) => {
+    agent = new FxAcpAgent(client, {
+      ...fxOptions,
+      logger: logger.child("FxAcpAgent"),
+      processCallbacks: config.processCallbacks,
+    });
+    return agent;
+  }, agentStream);
+
+  return {
+    agentConnection,
+    clientStreams: {
+      readable: streams.client.readable,
+      writable: clientWritable,
+    },
+    cleanup: async () => {
+      logger.info("Cleaning up fx connection");
+      if (agent) {
+        await agent.closeSession();
+      }
+      try {
+        await streams.client.writable.close();
+      } catch {}
+      try {
+        await streams.agent.writable.close();
+      } catch {}
     },
   };
 }

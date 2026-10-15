@@ -84,6 +84,7 @@ describe("agent instruction files", () => {
       join(home, ".claude", "CLAUDE.md"),
       join(home, ".codex", "AGENTS.md"),
       join(home, ".pi", "agent", "AGENTS.md"),
+      join(home, ".fx", "AGENTS.md"),
     ]);
     await mkdir(join(home, ".claude"), { recursive: true });
     await writeFile(paths[0], "# Baked into the image\n");

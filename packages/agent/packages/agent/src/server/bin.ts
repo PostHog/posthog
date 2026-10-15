@@ -50,7 +50,7 @@ const envSchema = z.object({
     .transform(Number)
     .optional(),
   POSTHOG_SANDBOX_ID: z.string().min(1).optional(),
-  POSTHOG_CODE_RUNTIME_ADAPTER: z.enum(["claude", "codex"]).optional(),
+  POSTHOG_CODE_RUNTIME_ADAPTER: z.enum(["claude", "codex", "fx"]).optional(),
   POSTHOG_CODE_MODEL: z.string().optional(),
   POSTHOG_CODE_REASONING_EFFORT: z
     .enum(["off", "minimal", ...EFFORT_LEVELS])
@@ -228,7 +228,7 @@ program
     if (
       options.claudeSubscription &&
       (env.POSTHOG_AGENT_RUNTIME === "pi" ||
-        env.POSTHOG_CODE_RUNTIME_ADAPTER === "codex")
+        (env.POSTHOG_CODE_RUNTIME_ADAPTER ?? "claude") !== "claude")
     ) {
       program.error("--claudeSubscription requires the Claude runtime");
     }
@@ -289,6 +289,7 @@ program
 
     if (
       env.POSTHOG_CODE_RUNTIME_ADAPTER &&
+      env.POSTHOG_CODE_RUNTIME_ADAPTER !== "fx" &&
       env.POSTHOG_CODE_MODEL &&
       env.POSTHOG_CODE_REASONING_EFFORT &&
       !isSupportedReasoningEffort(

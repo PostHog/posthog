@@ -35,6 +35,7 @@ export function getAgentInstructionFilePaths(
     ...claudeDirs.map((dir) => join(dir, "CLAUDE.md")),
     join(codexHome, "AGENTS.md"),
     join(home, ".pi", "agent", "AGENTS.md"),
+    join(home, ".fx", "AGENTS.md"),
   ];
 }
 

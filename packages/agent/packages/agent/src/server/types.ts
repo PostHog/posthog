@@ -1,8 +1,9 @@
-import type { Adapter, McpServerConnection } from "@posthog/agent-contracts";
+import type { McpServerConnection } from "@posthog/agent-contracts";
 import type {
   EffortLevel,
   ServiceTier,
 } from "@posthog/agent-contracts/domain-types";
+import type { AcpAdapter } from "../adapters/acp-connection";
 import type { AgentMode } from "../types";
 import type { RtkSavingsSummary } from "./rtk-savings";
 
@@ -61,7 +62,7 @@ export interface AgentServerConfig {
   claudeCode?: ClaudeCodeConfig;
   allowedDomains?: string[];
   piRpcHostPath?: string;
-  runtimeAdapter?: Adapter;
+  runtimeAdapter?: AcpAdapter;
   model?: string;
   claudeModelAccess?: "posthog-gateway" | "own-subscription";
   codexModelAccess?: "posthog-gateway" | "own-subscription";

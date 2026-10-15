@@ -17,7 +17,6 @@ import {
 import { type ServerType, serve } from "@hono/node-server";
 import {
   type AcpMcpServer,
-  type Adapter,
   buildPrOutput,
   getErrorMessage,
   IDLE_RESUME_STOP_REASON,
@@ -80,6 +79,7 @@ import {
   type SteerDeclineCause,
 } from "../acp-extensions";
 import {
+  type AcpAdapter,
   createAcpConnection,
   type InProcessAcpConnection,
 } from "../adapters/acp-connection";
@@ -101,6 +101,8 @@ import {
   isRetryableUpstreamErrorClassification,
   sanitizeAgentErrorCause,
 } from "../adapters/error-classification";
+import type { FxOptions } from "../adapters/fx/fx-agent";
+import { toFxPosthogMode } from "../adapters/fx/protocol";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
 import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
@@ -219,6 +221,23 @@ const errorWithClassificationSchema = z.object({
 });
 
 export const SSE_KEEPALIVE_INTERVAL_MS = 25_000;
+
+// Preserve native Codex modes for cloud runs so they behave the same as
+// local sessions. Claude keeps the historical auto-approved default when
+// PostHog Desktop has not explicitly selected a mode.
+export function initialPermissionModeFor(
+  runtimeAdapter: AcpAdapter,
+  requested: unknown,
+): PermissionMode {
+  if (typeof requested !== "string") {
+    if (runtimeAdapter === "codex") return "auto";
+    return runtimeAdapter === "fx" ? "full-access" : "bypassPermissions";
+  }
+  if (runtimeAdapter === "fx") {
+    return toFxPosthogMode(requested) ?? (requested as PermissionMode);
+  }
+  return requested as PermissionMode;
+}
 
 // Bounded per-turn retries for unattended (initial/resume) turns that hit a
 // transient upstream failure. Two covers a retry whose own attempt also gets
@@ -665,6 +684,15 @@ export class AgentServer {
     return this.mcpRelayServer.mcpServers;
   }
 
+  private skipMcpRelayForFx(): McpServerConnection[] {
+    if (this.config.relayMcpServers?.length) {
+      this.logger.warn("fx sessions do not support relayed MCP servers", {
+        servers: this.config.relayMcpServers,
+      });
+    }
+    return [];
+  }
+
   private detachSseController(controller: SseController): void {
     if (this.initializingSseController === controller) {
       this.initializingSseController = null;
@@ -728,7 +756,7 @@ export class AgentServer {
     this.app = this.createApp();
   }
 
-  private getRuntimeAdapter(): Adapter {
+  private getRuntimeAdapter(): AcpAdapter {
     return this.config.runtimeAdapter ?? "claude";
   }
 
@@ -747,7 +775,7 @@ export class AgentServer {
   private createRunTelemetry(
     payload: JwtPayload,
     deviceInfo: DeviceInfo,
-    adapter: "claude" | "codex",
+    adapter: AcpAdapter,
   ): OtelRunTelemetry | undefined {
     const { otelLogsUrl, otelLogsToken } = this.config;
     if (!otelLogsUrl || !otelLogsToken) return undefined;
@@ -1114,7 +1142,7 @@ export class AgentServer {
     payload: JwtPayload,
     posthogAPI: PostHogAPIClient,
     preTaskRun: TaskRun | null,
-    runtimeAdapter: Adapter,
+    runtimeAdapter: AcpAdapter,
     cwd: string,
     permissionMode: PermissionMode,
   ): Promise<{ sessionId: string; warm: boolean } | null> {
@@ -1128,6 +1156,13 @@ export class AgentServer {
     const priorSessionId = this.resumeState?.sessionId ?? null;
     if (!priorSessionId) {
       this.logger.debug("No prior session id; using summary resume fallback", {
+        resumeRunId,
+      });
+      return null;
+    }
+
+    if (runtimeAdapter === "fx") {
+      this.logger.debug("fx has no native resume; using summary fallback", {
         resumeRunId,
       });
       return null;
@@ -1197,7 +1232,7 @@ export class AgentServer {
   }
 
   private getNativeGoalForFreshSession(
-    runtimeAdapter: Adapter,
+    runtimeAdapter: AcpAdapter,
   ): ResumeState["nativeGoal"] {
     if (runtimeAdapter !== "codex") return undefined;
     return this.resumeState?.nativeGoal;
@@ -2244,10 +2279,10 @@ export class AgentServer {
       inboxReportUrl,
       runStateSystemPromptData,
     );
-    const codexInstructions =
-      runtimeAdapter === "codex"
-        ? this.buildCodexInstructions(sessionSystemPrompt)
-        : undefined;
+    const agentsMdRuntimeInstructions =
+      runtimeAdapter === "claude"
+        ? undefined
+        : this.buildCodexInstructions(sessionSystemPrompt);
 
     const posthogAPI = new PostHogAPIClient({
       apiUrl: this.config.apiUrl,
@@ -2301,6 +2336,11 @@ export class AgentServer {
       }
     }
 
+    const fxOptions =
+      runtimeAdapter === "fx"
+        ? await this.buildFxOptions(gatewayEnv, agentsMdRuntimeInstructions)
+        : undefined;
+
     this.shutdownController.signal.throwIfAborted();
     const acpConnection = createAcpConnection({
       adapter: runtimeAdapter,
@@ -2324,11 +2364,11 @@ export class AgentServer {
           }
         : undefined,
       claudeGatewayEnv:
-        runtimeAdapter !== "codex" && claudeSubscriptionToken === null
+        runtimeAdapter === "claude" && claudeSubscriptionToken === null
           ? gatewayEnv
           : undefined,
       claudeMachineAuth:
-        runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
+        runtimeAdapter === "claude" && claudeSubscriptionToken !== null
           ? { oauthToken: claudeSubscriptionToken }
           : undefined,
       codexOptions:
@@ -2364,7 +2404,7 @@ export class AgentServer {
                     runState.codex_max_subagents,
                 },
               }),
-              developerInstructions: codexInstructions,
+              developerInstructions: agentsMdRuntimeInstructions,
               httpHeaders: codexSubscriptionTokens
                 ? undefined
                 : gatewayEnv.openaiCustomHeaders,
@@ -2374,6 +2414,7 @@ export class AgentServer {
                 : undefined,
             }
           : undefined,
+      fxOptions,
       onStructuredOutput: async (output) => {
         await this.posthogAPI.setTaskRunOutput(
           payload.task_id,
@@ -2409,15 +2450,10 @@ export class AgentServer {
     const conversationClear =
       extractConversationClearCapability(initializeResult);
 
-    // Preserve native Codex modes for cloud runs so they behave the same as
-    // local sessions. Claude keeps the historical auto-approved default when
-    // PostHog Desktop has not explicitly selected a mode.
-    const initialPermissionMode: PermissionMode =
-      typeof runState?.initial_permission_mode === "string"
-        ? (runState.initial_permission_mode as PermissionMode)
-        : runtimeAdapter === "codex"
-          ? "auto"
-          : "bypassPermissions";
+    const initialPermissionMode = initialPermissionModeFor(
+      runtimeAdapter,
+      runState?.initial_permission_mode,
+    );
     const pendingUserArtifactIds = Array.isArray(
       runState?.pending_user_artifact_ids,
     )
@@ -2500,7 +2536,9 @@ export class AgentServer {
           );
           const preparedMcpServers: AcpMcpServer[] = toAcpMcpServers([
             ...(this.config.mcpServers ?? []),
-            ...(await this.startMcpRelayServer()),
+            ...(runtimeAdapter === "fx"
+              ? this.skipMcpRelayForFx()
+              : await this.startMcpRelayServer()),
           ]);
           return [preparedNativeResume, preparedMcpServers] as const;
         } finally {
@@ -4395,6 +4433,32 @@ export class AgentServer {
       : sessionPrompt;
   }
 
+  private async buildFxOptions(
+    gatewayEnv: GatewayEnv,
+    instructions: string | undefined,
+  ): Promise<FxOptions> {
+    const model = this.config.model ?? DEFAULT_CODEX_MODEL;
+    const gatewayModels = await fetchGatewayModels({
+      gatewayUrl: gatewayEnv.anthropicBaseUrl,
+      authToken: gatewayEnv.anthropicAuthToken,
+      projectId: Number(gatewayEnv.posthogProjectId) || undefined,
+    });
+    const gatewayModel = gatewayModels.find(
+      (candidate) => candidate.id === model,
+    );
+    return {
+      cwd: this.config.repositoryPath ?? "/tmp/workspace",
+      binaryPath: process.env.POSTHOG_FX_BINARY_PATH,
+      model,
+      contextWindow: gatewayModel?.context_window,
+      supportsVision: gatewayModel?.supports_vision,
+      gatewayBaseUrl: gatewayEnv.openaiBaseUrl,
+      gatewayApiKey: gatewayEnv.openaiApiKey,
+      gatewayHeaders: gatewayEnv.openaiCustomHeaders ?? {},
+      instructions,
+    };
+  }
+
   private buildCodexInstructions(
     systemPrompt: string | { append: string },
   ): string {
@@ -4415,7 +4479,7 @@ export class AgentServer {
    * it cannot sit behind a plugins guard.
    */
   private buildClaudeCodeSessionMeta(
-    runtimeAdapter: Adapter,
+    runtimeAdapter: AcpAdapter,
   ): { claudeCode: { options: Record<string, unknown> } } | undefined {
     const plugins = this.config.claudeCode?.plugins;
     const effort =

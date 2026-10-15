@@ -48,6 +48,7 @@ import { createPostHogHandlers } from "../test/mocks/msw-handlers";
 import type { StoredEntry, TaskRun } from "../types";
 import {
   AgentServer,
+  initialPermissionModeFor,
   isTurnCompleteNotification,
   MESSAGE_DRIVEN_RESUME_CAPABILITY,
   PREWARMED_RESUME_IDLE_CAPABILITY,
@@ -6145,6 +6146,21 @@ describe("AgentServer HTTP Mode", () => {
         "codex",
       );
     });
+
+    it.each([
+      { adapter: "fx", requested: undefined, mode: "full-access" },
+      { adapter: "fx", requested: "acceptEdits", mode: "default" },
+      { adapter: "fx", requested: "auto", mode: "default" },
+      { adapter: "fx", requested: "bypassPermissions", mode: "full-access" },
+      { adapter: "fx", requested: "plan", mode: "plan" },
+      { adapter: "codex", requested: undefined, mode: "auto" },
+      { adapter: "claude", requested: "acceptEdits", mode: "acceptEdits" },
+    ] as const)(
+      "starts a $adapter run requesting $requested in $mode",
+      ({ adapter, requested, mode }) => {
+        expect(initialPermissionModeFor(adapter, requested)).toBe(mode);
+      },
+    );
 
     it("flattens append-style prompts into plain codex instructions", () => {
       const s = createServer({
