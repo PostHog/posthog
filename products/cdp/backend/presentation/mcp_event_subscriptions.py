@@ -88,14 +88,8 @@ class MCPEventFiltersSerializer(HogFunctionFiltersSerializer):
         return super().to_internal_value(data)
 
     def validate(self, data: dict[str, JsonValue]) -> dict[str, JsonValue]:
-        if data.get("source", "events") != "events":
-            raise ValidationError("MCP subscriptions support captured events. Use source 'events'.")
-        result = super().validate(data)
-        return {
-            key: value
-            for key, value in result.items()
-            if key not in {"bytecode", "bytecode_error", "bytecode_contract", "transpiled"}
-        }
+        # The service validates live filters; cancellation must also accept filters for deleted actions.
+        return data
 
 
 class MCPEventArgumentsSerializer(serializers.Serializer):
@@ -110,17 +104,8 @@ class MCPEventArgumentsSerializer(serializers.Serializer):
         return value
 
 
-class MCPEventIdentityFiltersSerializer(MCPEventFiltersSerializer):
-    def validate(self, data: dict[str, JsonValue]) -> dict[str, JsonValue]:
-        if data.get("source", "events") != "events":
-            raise ValidationError("Use source 'events'.")
-        return data
-
-
 class MCPEventIdentityArgumentsSerializer(MCPEventArgumentsSerializer):
-    filters = MCPEventIdentityFiltersSerializer(
-        help_text="Original event filters, including filters for deleted resources."
-    )
+    filters = MCPEventFiltersSerializer(help_text="Original event filters, including filters for deleted resources.")
 
 
 class MCPEventWebhookSerializer(serializers.Serializer):

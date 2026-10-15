@@ -68,13 +68,21 @@ class MCPEventSubscriptions:
             raise ValidationError({"filters": "Send event filters without compiled bytecode."})
         serializer = HogFunctionFiltersSerializer(
             data=raw_filters,
-            context={"get_team": lambda: self.team, "function_type": "destination", "function_will_be_enabled": True},
+            context={
+                "get_team": lambda: self.team,
+                "function_type": "destination",
+                "function_will_be_enabled": True,
+                "allow_mcp_event_subscription": True,
+            },
         )
         serializer.is_valid(raise_exception=True)
-        filters = {key: value for key, value in serializer.validated_data.items() if key not in _DERIVED_FILTER_KEYS}
-        expression = compile_filters_expr(filters, self.team)
-        MCPEventFilterAccessValidator.validate(expression, team=self.team, user=self.user)
-        return cast(dict[str, JsonValue], filters)
+        MCPEventFilterAccessValidator.validate_snapshot(
+            serializer.validated_data["mcp_property_dependencies"], team=self.team, user=self.user
+        )
+        return cast(
+            dict[str, JsonValue],
+            {key: value for key, value in serializer.validated_data.items() if key not in _DERIVED_FILTER_KEYS},
+        )
 
     def identity(self, filters: dict[str, JsonValue], url: str) -> UUID:
         arguments = json.dumps({"project_id": self.team.pk, "filters": filters}, sort_keys=True, separators=(",", ":"))
