@@ -80,3 +80,6 @@ LOOKBACK_SECONDS: dict[str, int] = {
     for name, config in DAISYCON_ENDPOINTS.items()
     if config.default_incremental_lookback_seconds is not None
 }
+
+# Daily statistics re-read the last month each run. Appending would write those rows again.
+MERGE_ONLY = ("statistics_daily",)

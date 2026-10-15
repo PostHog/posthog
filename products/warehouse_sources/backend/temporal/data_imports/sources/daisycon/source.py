@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.daisycon.s
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     LOOKBACK_SECONDS,
+    MERGE_ONLY,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.daisycon import (
     DaisyconSourceConfig,
@@ -91,7 +92,11 @@ class DaisyconSource(ResumableSource[DaisyconSourceConfig, DaisyconResumeConfig]
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
-            ENDPOINTS, INCREMENTAL_FIELDS, names, default_incremental_lookback_seconds=LOOKBACK_SECONDS
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=MERGE_ONLY,
+            default_incremental_lookback_seconds=LOOKBACK_SECONDS,
         )
 
     def validate_credentials(
