@@ -672,10 +672,10 @@ export interface biEditorLogicActions {
     }
     updateFilter: (
         index: number,
-        update: Partial<Pick<BIFilter, 'enabled' | 'value' | 'values' | 'valueTo'>>
+        update: Partial<Pick<BIFilter, 'enabled' | 'label' | 'value' | 'values' | 'valueTo'>>
     ) => {
         index: number
-        update: Partial<Pick<BIFilter, 'enabled' | 'value' | 'values' | 'valueTo'>>
+        update: Partial<Pick<BIFilter, 'enabled' | 'label' | 'value' | 'values' | 'valueTo'>>
     }
     updateMeasureSettings: (
         index: number,
@@ -842,7 +842,10 @@ export const biEditorLogic = kea<biEditorLogicType>([
         combineMeasures: true,
         setFilterOperator: (index: number, operator: BIFilterOperator) => ({ index, operator }),
         setFilterValue: (index: number, value: string) => ({ index, value }),
-        updateFilter: (index: number, update: Partial<Pick<BIFilter, 'value' | 'values' | 'valueTo' | 'enabled'>>) => ({
+        updateFilter: (
+            index: number,
+            update: Partial<Pick<BIFilter, 'value' | 'values' | 'valueTo' | 'enabled' | 'label'>>
+        ) => ({
             index,
             update,
         }),
@@ -1251,6 +1254,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     source: config.source,
                     localFields: getBILocalFields(config),
                     hierarchies: config.hierarchies,
+                    memberAliases: config.memberAliases,
                     dateField: config.dateField,
                     dateRange: config.dateRange,
                 }),

@@ -1,6 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -8,6 +7,8 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode, NodeKind, RetentionQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightModel, RetentionPeriod } from '~/types'
+
+import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'products/product_analytics/frontend/insights/shared/aggregationTargetUtils'
 
 import { retentionLogic } from './retentionLogic'
 import { retentionModalLogic } from './retentionModalLogic'

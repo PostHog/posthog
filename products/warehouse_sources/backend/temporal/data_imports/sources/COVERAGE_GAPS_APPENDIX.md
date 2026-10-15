@@ -5832,7 +5832,7 @@ Diffed against: <https://docs.hetzner.cloud/cloud.spec.json>
 - [x] `GET /pricing` — lookup table of hourly/monthly prices per server type, volume, load balancer and location — the only way to cost the servers we already sync (high)
 - [x] `GET /servers/{id}/metrics` — cpu, disk and network time series per server, the headline analytical data in the API (high)
 - [x] `GET /zones` — DNS zones, now part of the Cloud API and not exposed at all today (medium)
-- [ ] `GET /zones/{id_or_name}/rrsets` — DNS records per zone — the actual queryable rows behind zones (medium)
+- [x] `GET /zones/{id_or_name}/rrsets` — DNS records per zone — the actual queryable rows behind zones (medium)
 - [x] `GET /load_balancers/{id}/metrics` — connections, throughput and requests per load balancer for capacity analysis (medium)
 - [x] `GET /networks/{id}/members` — servers and load balancers attached to each network, with their private IP and attach status (medium)
 
@@ -10566,10 +10566,10 @@ Today (6): `collections`, `columns`, `groups`, `tables`, `tags`, `users`
 
 Diffed against: <https://docs.secoda.co/llms.txt>
 
-- [ ] `databases (GET /api/v1/database/databases)` — top of the asset hierarchy; lookup resolving the parent of every schema and table already synced (high)
-- [ ] `schemas (GET /api/v1/database/schemas)` — lookup resolving the schema id carried on every synced table (high)
-- [ ] `integrations (GET /api/v1/integration/integrations)` — lookup resolving the integration id present on every resource, i.e. which source system an asset came from (high)
-- [ ] `lineage (GET /api/v1/lineage/manual/)` — the dependency graph between resources — the core analytical object of a catalog (high)
+- [x] `databases (GET /api/v1/database/databases)` — top of the asset hierarchy; lookup resolving the parent of every schema and table already synced (high)
+- [x] `schemas (GET /api/v1/database/schemas)` — lookup resolving the schema id carried on every synced table (high)
+- [x] `integrations (GET /api/v1/integration/integrations)` — lookup resolving the integration id present on every resource, i.e. which source system an asset came from (high)
+- [x] `lineage (GET /api/v1/lineage/manual/)` — the dependency graph between resources — the core analytical object of a catalog (high)
 - [ ] `monitors and incidents (/api/v1/monitor/monitors, /monitor/incidents)` — data-quality monitors and the incidents they raise, Secoda's headline reliability metric (high)
 - [ ] `monitor measurements (GET /api/v1/monitor/measurements)` — the time series behind each monitor; required for any quality trend analysis (high)
 - [ ] `queries (GET /api/v1/query/queries)` — query history driving table popularity and usage rankings (medium)

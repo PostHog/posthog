@@ -42412,6 +42412,11 @@ export namespace Schemas {
          * @minLength 1
          */
       prompt: string;
+      /**
+         * Judge method. Omit to keep the saved method; null restores automatic routing.
+         * @nullable
+         */
+      judge_method?: 'llm' | 'decision' | null;
     } | {
       /**
          * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
@@ -42501,28 +42506,36 @@ export namespace Schemas {
     };
 
     /**
-     * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
+     * 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'.
+     */
+    export type EvaluationTargetConfigStrategy = typeof EvaluationTargetConfigStrategy[keyof typeof EvaluationTargetConfigStrategy];
+
+
+    export const EvaluationTargetConfigStrategy = {
+      FixedWindow: 'fixed_window',
+      Inactivity: 'inactivity',
+    } as const;
+
+    /**
+     * Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`.
      */
     export type EvaluationTargetConfig = {
-      /** Wait a fixed window after the first matching generation, then evaluate. */
-      strategy: 'fixed_window';
+      /** 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'. */
+      strategy?: EvaluationTargetConfigStrategy;
       /**
-         * Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+         * fixed_window only. Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
          * @minimum 10
          * @maximum 604800
          */
       window_seconds?: number;
-    } | {
-      /** Evaluate once the unit has had no new activity for the quiet period. */
-      strategy: 'inactivity';
       /**
-         * Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
+         * inactivity only. Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
          * @minimum 10
          * @maximum 86400
          */
       quiet_period_seconds?: number;
       /**
-         * Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+         * inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
          * @minimum 60
          * @maximum 604800
          */
@@ -42733,7 +42746,7 @@ export namespace Schemas {
        * * `trace` - Trace
        * * `session` - Session */
       target?: EvaluationTargetEnum;
-      /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
+      /** Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. */
       target_config?: EvaluationTargetConfig;
       /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
@@ -80180,6 +80193,11 @@ export namespace Schemas {
          * @minLength 1
          */
       prompt: string;
+      /**
+         * Judge method. Omit to keep the saved method; null restores automatic routing.
+         * @nullable
+         */
+      judge_method?: 'llm' | 'decision' | null;
     } | {
       /**
          * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
@@ -80269,28 +80287,36 @@ export namespace Schemas {
     };
 
     /**
-     * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
+     * 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'.
+     */
+    export type PatchedEvaluationTargetConfigStrategy = typeof PatchedEvaluationTargetConfigStrategy[keyof typeof PatchedEvaluationTargetConfigStrategy];
+
+
+    export const PatchedEvaluationTargetConfigStrategy = {
+      FixedWindow: 'fixed_window',
+      Inactivity: 'inactivity',
+    } as const;
+
+    /**
+     * Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`.
      */
     export type PatchedEvaluationTargetConfig = {
-      /** Wait a fixed window after the first matching generation, then evaluate. */
-      strategy: 'fixed_window';
+      /** 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'. */
+      strategy?: PatchedEvaluationTargetConfigStrategy;
       /**
-         * Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+         * fixed_window only. Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
          * @minimum 10
          * @maximum 604800
          */
       window_seconds?: number;
-    } | {
-      /** Evaluate once the unit has had no new activity for the quiet period. */
-      strategy: 'inactivity';
       /**
-         * Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
+         * inactivity only. Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
          * @minimum 10
          * @maximum 86400
          */
       quiet_period_seconds?: number;
       /**
-         * Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+         * inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
          * @minimum 60
          * @maximum 604800
          */
@@ -80348,7 +80374,7 @@ export namespace Schemas {
        * * `trace` - Trace
        * * `session` - Session */
       target?: EvaluationTargetEnum;
-      /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
+      /** Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. */
       target_config?: PatchedEvaluationTargetConfig;
       /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
       model_configuration?: ModelConfiguration | null;
@@ -97852,6 +97878,12 @@ export namespace Schemas {
          * @nullable
          */
       next_offset: number | null;
+      /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception and no own choice. 0 otherwise. */
+      folded: number;
+      /** With view 'differs', or 'all' without a search: the names of the first left-out repositories, at most 3. Empty otherwise. */
+      folded_preview: string[];
+      /** With view 'differs', or 'all' without a search: what the requesting user's own pull requests get in every left-out repository, which is the same for all of them. Null otherwise, or when nothing is left out. */
+      folded_result: AutomaticReviewDecision | null;
       /** How many of the requesting user's own repository choices in this project give something other than their default. Counts every installation, so the search, the view, and the page do not change it. */
       my_choices_unlike_default: number;
     }
@@ -128817,12 +128849,13 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * 'all' repositories, 'in_project' (reviewed by this project), 'exceptions' (with a repository exception), or 'mine' (with the requesting user's own choice).
+     * 'all' repositories, 'in_project' (reviewed by this project), 'exceptions' (with a repository exception), 'mine' (with the requesting user's own choice), or 'differs' (every repository except the ones this project reviews with no exception and no own choice, which the response counts as 'folded').
      *
      * * `all` - All repositories
      * * `in_project` - In this project
      * * `exceptions` - With exceptions
      * * `mine` - My choices
+     * * `differs` - Different from the project
      * @minLength 1
      */
     view?: ReviewHogRepositoryOverviewRetrieveView;
@@ -128836,6 +128869,7 @@ export namespace Schemas {
       InProject: 'in_project',
       Exceptions: 'exceptions',
       Mine: 'mine',
+      Differs: 'differs',
     } as const;
 
     export type ReviewHogReviewsListParams = {

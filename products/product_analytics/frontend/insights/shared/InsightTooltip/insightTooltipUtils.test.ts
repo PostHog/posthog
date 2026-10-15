@@ -1,6 +1,6 @@
-import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-
 import { IntervalType } from '~/types'
+
+import { getFormattedDate } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 
 describe('getFormattedDate', () => {
     const paramsToExpectedWithNumericInput: [number, IntervalType, string][] = [
