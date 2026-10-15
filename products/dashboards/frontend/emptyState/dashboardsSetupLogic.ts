@@ -1,5 +1,4 @@
 import { createSetupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
-import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -25,7 +24,8 @@ export const dashboardsSetupLogic = createSetupDetectionLogic({
         dashboardsModel.actionTypes.addDashboardSuccess,
         dashboardsModel.actionTypes.deleteDashboardSuccess,
         dashboardsModel.actionTypes.restoreDashboardSuccess,
-        dashboardsLogic.actionTypes.bulkDeleteDashboardsSuccess,
+        dashboardsModel.actionTypes.bulkDeleteDashboardsSuccess,
+        dashboardsModel.actionTypes.reloadDashboardsSuccess,
     ],
     allowReturnToSetup: true,
     cacheHasData: true,

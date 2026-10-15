@@ -1,7 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
-import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -63,7 +62,7 @@ describe('dashboardsSetupLogic', () => {
             expect(productSetupStatusLogic({ productKey: ProductKey.DASHBOARDS }).values.status).toBe('has-data')
 
             if (method === 'bulk') {
-                dashboardsLogic.actions.bulkDeleteDashboardsSuccess({ deleted: [1], skipped: [] })
+                dashboardsModel.actions.bulkDeleteDashboardsSuccess({ deleted: [1], skipped: [] })
             } else {
                 dashboardsModel.actions.deleteDashboardSuccess({ id: 1, name: 'Last', deleted: true } as any)
             }
