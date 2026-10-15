@@ -45,12 +45,13 @@ from products.experiments.backend.temporal.models import (
 from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
-# stale and a fresh recalc is allowed. Sized to be safely above the workflow's worst-case end-to-end runtime
-# (discovery retries + per-metric calc retries + progress activities) so a legitimately-slow run can finish
-# without being clobbered, but tight enough that an operator can recover within an hour if the workflow
-# never started (Temporal connect failure, transient infra issue, etc.). See the rollback in
-# start_metrics_recalculation_workflow for the happy-path failure handling; this TTL is the defense-in-depth
-# backstop if that rollback itself fails.
+# stale and a fresh recalc is allowed. An IN_PROGRESS row counts from started_at, so it must outlast the phase
+# after the start activity: the calc budget (METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS), the failure
+# backstop and the finish step. test_in_progress_phase_ends_before_the_staleness_ttl keeps that sum below this
+# value, so a legitimately-slow run can finish without being clobbered. It is also tight enough that an operator
+# can recover within an hour if the workflow never started (Temporal connect failure, transient infra issue,
+# etc.). See the rollback in start_metrics_recalculation_workflow for the happy-path failure handling; this TTL
+# is the defense-in-depth backstop if that rollback itself fails.
 _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 
 # rate limiting manual reloads (including agents).

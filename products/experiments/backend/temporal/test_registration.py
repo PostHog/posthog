@@ -21,6 +21,7 @@ def test_activities_registered():
         "discover_experiment_metrics",
         "calculate_experiment_metric_for_recalculation",
         "update_recalculation_progress",
+        "record_metric_out_of_time_failure",
         "sample_experiment_canary_targets",
         "run_experiment_metric_canary",
         "report_experiment_canary_results",

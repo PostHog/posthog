@@ -55,6 +55,7 @@ from products.experiments.backend.temporal.models import (
     RECALCULATION_RETRY_MAX_INTERVAL_SECONDS,
     TIMEOUT_MAX_METRIC_ATTEMPTS,
     ExperimentMetricToRecalculate,
+    MetricOutOfTimeFailure,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
 )
@@ -64,6 +65,8 @@ logger = structlog.get_logger(__name__)
 
 # Cap stored/returned error messages so a pathological traceback can't bloat the Temporal payload (~2 MiB cap).
 _MAX_ERROR_MESSAGE_LENGTH = 2000
+
+_OUT_OF_TIME_MESSAGE = "The calculation ran out of time."
 
 # ---------------------------------------------------------------------------
 # Discovery
@@ -922,3 +925,51 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 # The error class cap is below MAX_METRIC_ATTEMPTS, so stop the RetryPolicy from retrying further.
                 raise ApplicationError(message, type=error_type, non_retryable=True) from e
             raise
+
+
+@database_sync_to_async_pool
+def _record_metric_out_of_time_failure_sync(failure: MetricOutOfTimeFailure) -> None:
+    close_old_connections()
+    state = _get_recalc_state(failure.recalculation_id)
+
+    with team_scope(state.team_id, canonical=True):
+        # A final attempt that ran to the end already persisted its own failure, with the real error type.
+        if ExperimentMetricsRecalculation.objects.filter(
+            id=failure.recalculation_id, metric_errors__has_key=failure.metric_uuid
+        ).exists():
+            return
+
+        experiment = Experiment.objects.filter(id=failure.experiment_id, deleted=False).first()
+        calculation_config = get_metric_calculation_config(experiment, failure.metric_uuid) if experiment else None
+        if experiment is None or calculation_config is None or not experiment.start_date or state.query_to is None:
+            _fail(
+                failure.recalculation_id, failure.metric_uuid, "calculation", _OUT_OF_TIME_MESSAGE, error_type="timeout"
+            )
+            return
+
+        MetricResultStore(experiment_id=experiment.id).record_run_failure(
+            failure.recalculation_id,
+            calculation_config,
+            window=state.query_to,
+            query_from=experiment.start_date,
+            error_message=_OUT_OF_TIME_MESSAGE,
+            query_id=None,
+        )
+        _record_failure(
+            failure.recalculation_id,
+            failure.metric_uuid,
+            "calculation",
+            _OUT_OF_TIME_MESSAGE,
+            error_type="timeout",
+            retriable=True,
+        )
+        _clear_retry(failure.recalculation_id, failure.metric_uuid)
+        _capture_experiment_metric_event(
+            experiment,
+            failure.metric_uuid,
+            failure.metric_type,
+            calculation_config.definition,
+            "experiment metric error",
+            {"error_type": "timeout", "error_message": _OUT_OF_TIME_MESSAGE},
+            trigger=state.trigger,
+        )
