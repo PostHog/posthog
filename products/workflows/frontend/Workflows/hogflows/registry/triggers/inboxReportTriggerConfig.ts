@@ -19,8 +19,14 @@ export const INBOX_REPORT_PROPERTIES = [
     },
 ] as const
 
-export function exampleInboxReportProperties(): Record<string, unknown> {
-    return Object.fromEntries(INBOX_REPORT_PROPERTIES.map(({ key, example }) => [key, example]))
+export type InboxReportProperties = {
+    [Property in (typeof INBOX_REPORT_PROPERTIES)[number] as Property['key']]: Property['example']
+}
+
+export function exampleInboxReportProperties(): InboxReportProperties {
+    return Object.fromEntries(
+        INBOX_REPORT_PROPERTIES.map(({ key, example }) => [key, example])
+    ) as InboxReportProperties
 }
 
 export type InboxReportReadyTriggerConfig = {

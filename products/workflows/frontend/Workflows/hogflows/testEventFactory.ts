@@ -149,7 +149,7 @@ export const createExampleInboxReportEvent = (
     return {
         event: {
             uuid: uuid(),
-            distinct_id: String(properties.report_id),
+            distinct_id: properties.report_id,
             timestamp: dayjs().toISOString(),
             elements_chain: '',
             url: '',

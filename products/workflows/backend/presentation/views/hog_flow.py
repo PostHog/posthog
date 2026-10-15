@@ -904,7 +904,10 @@ def _has_slack_channel_filter(filters: dict) -> bool:
     return False
 
 
-INBOX_REPORT_ACCESS_MESSAGE = "Inbox reports need viewer access to Tasks. An API key also needs the task:read scope."
+INBOX_REPORT_ACCESS_MESSAGE = (
+    "You need viewer access to Tasks to use Inbox reports in workflows. "
+    "If you use an API key, it also needs the task:read scope."
+)
 
 
 def _may_read_inbox_reports(request: Request | None, team: Team) -> bool:
@@ -1659,7 +1662,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                                 "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
                             }
                         )
-                if _subscribes_to(INBOX_REPORT_READY_EVENT) and not _may_read_inbox_reports(
+                if _subscribes_to_inbox_reports(filters) and not _may_read_inbox_reports(
                     self.context.get("request"), self.context["get_team"]()
                 ):
                     raise serializers.ValidationError({"filters": INBOX_REPORT_ACCESS_MESSAGE})

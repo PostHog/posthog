@@ -173,10 +173,11 @@ export function buildSampleGlobals(
     } else if (isInboxReportReadyTriggerConfig(trigger)) {
         // Property names mirror what Signals emits (products/signals/backend/workflow_events.py). No
         // person: report-triggered runs are person-less.
+        const properties = exampleInboxReportProperties()
         sampleGlobals.event = {
             event: INBOX_REPORT_READY_EVENT,
-            distinct_id: 'report123',
-            properties: exampleInboxReportProperties(),
+            distinct_id: properties.report_id,
+            properties,
             timestamp: '2024-01-01T12:00:00Z',
         }
     }

@@ -44,7 +44,9 @@ def emit_inbox_report_ready_event(*, team_id: int, report_id: str, source_produc
     """Write the report out once, the first time it settles as ready.
 
     Waits for the broker to accept the event, because the claim is what stops a second attempt.
-    A rejected event gives the claim back and raises, so the caller can retry.
+    A rejected event gives the claim back and raises, so the caller can retry. An event still
+    unresolved after the flush keeps its claim: retrying it could start a second run, so a later
+    failure of that event loses the run instead.
     """
     if not _claim_ready_event(team_id, report_id):
         return
