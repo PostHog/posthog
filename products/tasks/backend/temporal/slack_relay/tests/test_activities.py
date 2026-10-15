@@ -846,13 +846,12 @@ class TestSplitTextForSlack(unittest.TestCase):
         body = "".join(f"{index:04d}" for index in range(1250))
         text = f"```{long_label}\n{body}\n```"
         chunks = _split_markdown_for_slack(text, SLACK_MARKDOWN_TEXT_MAX_LEN)
-        # Plain-text packing keeps this to a small number of chunks.
         assert len(chunks) < 50
         for chunk in chunks:
             assert len(chunk) <= SLACK_MARKDOWN_TEXT_MAX_LEN
-        # Plain text, no fences since the available body room is below fence overhead.
-        assert all("```" not in chunk for chunk in chunks)
-        assert "".join(chunks) == body
+            assert chunk.startswith("```\n")
+            assert chunk.endswith("\n```")
+        assert "".join(chunk[4:-4] for chunk in chunks) == body
 
         # Short fences can still amplify chunk count when a small caller limit leaves
         # too little body capacity: the old path emitted 55 chunks for these 5,000 chars.

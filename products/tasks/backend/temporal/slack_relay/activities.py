@@ -126,6 +126,10 @@ class _SlackChunkPacker:
         overhead = len(fence_open) + len(fence_close)
         room = self._limit - overhead
         if room < max(overhead, _MIN_FENCED_CODE_BODY_CAPACITY):
+            fence_open = "```\n"
+            overhead = len(fence_open) + len(fence_close)
+            room = self._limit - overhead
+        if room < max(overhead, _MIN_FENCED_CODE_BODY_CAPACITY):
             # Too little body room amplifies the number of chunks even when the fence itself
             # is short. Plain-text packing keeps output growth bounded.
             self._pack_lines(body)
