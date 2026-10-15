@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("signals", "0179_inbox_summary_merge_index"),
+        ("signals", "0180_inbox_summary_merge_index"),
     ]
 
     operations = [

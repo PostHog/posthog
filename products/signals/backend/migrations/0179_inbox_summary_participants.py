@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1391_organization_provisioning"),
-        ("signals", "0177_backfill_scout_notebook_write"),
+        ("signals", "0178_signalscoutconfig_autovacuum_scale_factor"),
     ]
 
     operations = [
