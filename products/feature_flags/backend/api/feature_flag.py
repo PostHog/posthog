@@ -1307,16 +1307,14 @@ class FeatureFlagListSerializer(serializers.ListSerializer):
 
     def to_representation(self, data: Any) -> Any:
         flags = list(data)
-        # `many=True` binds a FeatureFlagSerializer as the child, so the ids come from the same walk its rows annotate.
         assert isinstance(self.child, FeatureFlagSerializer)
-        # A value that is not an integer would make the id lookup raise and fail the whole page.
-        # Skip it, so that condition gets no name.
-        cohort_ids = {
-            int(prop["value"])
-            for flag in flags
-            for prop in self.child._get_cohort_properties_from_filters(flag.get_filters())
-            if str(prop.get("value")).isdecimal()
-        }
+        cohort_ids: set[int] = set()
+        for flag in flags:
+            config = decode_config(flag.get_filters())
+            # A document no reader can parse has no cohort names to show, and must not fail the page.
+            if isinstance(config, UnsupportedConfig):
+                continue
+            cohort_ids.update(references(config).cohort_ids)
         cohort_names: dict[str, str | None] = {}
         if cohort_ids:
             cohort_names = {
