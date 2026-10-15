@@ -181,6 +181,26 @@ expiring cache or delete them during cache maintenance. Cooldown records expire 
 Redis failures skip new invitations. A response write must succeed before the original tool runs;
 the client can retry the continuation if that write fails.
 
+Recruitment analytics use the existing PostHog SDK and the MCP server's analytics project:
+
+| Event                                | Meaning                                                                                                               |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `mcp interview invitation sent`      | The server returns a native invitation after reserving it. This does not confirm that the client rendered the dialog. |
+| `mcp interview booking link opened`  | The invitation's redirect URL receives its first GET request. Repeated opens do not add events.                       |
+| `mcp interview invitation responded` | A valid response is saved, with `response` equal to `accept`, `decline`, or `cancel`.                                 |
+
+Every event carries the authenticated user's distinct ID, an `invitation_id`, and the `feature_flag`
+key. Count distinct people for reach and invitation IDs for attempts. Invitations without a response
+are unanswered, which can include abandonment, an open dialog, or a lost connection. An accepted
+response records permission to open the link; it does not establish that the booking page opened.
+
+The native dialog opens `/interview/<opaque UUID>` on the MCP host, which redirects to the configured
+HTTPS booking URL. Redis holds the destination and identity for seven days. Unknown or expired links
+return 404. Redirects disable caching and referrer forwarding, and HEAD requests do not count as opens.
+A GET can also come from a link scanner; this is a measured redirect request, not proof of a human visit
+or completed booking. Analytics delivery uses the SDK's normal best-effort pipeline and never blocks
+the original tool or a known booking redirect. Suppressed and impersonated requests do not recruit.
+
 To reset one user, delete that user's `:response` key and any matching
 `:response:mcp-interview:*` pending keys. Disable the flag or finish any open invitation before
 resetting. Do not reset all users just to test a change. Pending continuations expire after ten minutes

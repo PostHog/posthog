@@ -1,7 +1,14 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { resolveState, executeTool } = vi.hoisted(() => ({ resolveState: vi.fn(), executeTool: vi.fn() }))
+const { resolveState, executeTool, captureRecruitment } = vi.hoisted(() => ({
+    resolveState: vi.fn(),
+    executeTool: vi.fn(),
+    captureRecruitment: vi.fn(),
+}))
+
+vi.mock('@/lib/posthog', () => ({ getPostHogClient: () => ({ capture: captureRecruitment }) }))
 
 vi.mock('@/hono/request-state-resolver', () => ({
     RequestStateResolver: class {
@@ -29,6 +36,7 @@ vi.mock('@/hono/tool-executor', () => ({
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { McpDispatcher } from '@/hono/dispatcher'
 import { interviewRecruitmentConfigSchema, MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
+import { registerPublicRoutes } from '@/hono/public-routes'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import type { ToolCatalog } from '@/hono/tool-catalog'
 import type { ToolCallHooks } from '@/hono/tool-executor'
@@ -54,6 +62,19 @@ function createRedis(): {
         return entry?.value
     }
     const redis = {
+        get: vi.fn(async (key: string) => get(key) ?? null),
+        set: vi.fn(async (key: string, value: string, ...args: (string | number)[]) => {
+            if (args.includes('NX') && get(key) !== undefined) {
+                return null
+            }
+            const ttlIndex = args.indexOf('EX')
+            entries.set(key, {
+                value,
+                ...(ttlIndex >= 0 ? { expires: Date.now() + Number(args[ttlIndex + 1]) * 1000 } : {}),
+            })
+            return 'OK'
+        }),
+        del: vi.fn(async (...keys: string[]) => keys.reduce((count, key) => count + Number(entries.delete(key)), 0)),
         eval: vi.fn(async (_script: string, numberOfKeys: number, ...args: (string | number)[]) => {
             if (numberOfKeys === 1) {
                 const [key, now, ttl, request] = args as [string, number, number, string]
@@ -182,17 +203,32 @@ describe('MCP interview recruitment', () => {
                         method: 'elicitation/create',
                         params: {
                             mode: 'url',
-                            url: state.interviewRecruitmentConfig!.booking_url,
+                            url: `https://mcp.test/interview/${String(invitation.result?.requestState).slice('mcp-interview:'.length)}`,
                             message: state.interviewRecruitmentConfig!.message,
                         },
                     },
                 },
             })
             expect(executeTool).not.toHaveBeenCalled()
+            expect(captureRecruitment).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    event: 'mcp interview invitation sent',
+                    distinctId: 'test-person',
+                    properties: expect.objectContaining({
+                        invitation_id: String(invitation.result?.requestState).slice('mcp-interview:'.length),
+                    }),
+                })
+            )
 
             const resumed = await call(dispatcher, continuation(invitation.result?.requestState, answer))
             expect(resumed.result).toMatchObject({ resultType: 'complete', ...toolResult })
             expect(executeTool).toHaveBeenCalledTimes(1)
+            expect(captureRecruitment).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    event: 'mcp interview invitation responded',
+                    properties: expect.objectContaining({ response: answer.action }),
+                })
+            )
             const [key, record] = [...storage.entries.entries()].find(([key]) => key.endsWith(':response'))!
             expect(record.expires).toBeUndefined()
             expect(JSON.parse(record.value)).toMatchObject({
@@ -215,6 +251,12 @@ describe('MCP interview recruitment', () => {
         vi.useFakeTimers()
         const invitation = await call(dispatcher)
         await call(dispatcher, continuation(invitation.result?.requestState, { action: 'cancel' }))
+        expect(captureRecruitment).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: 'mcp interview invitation responded',
+                properties: expect.objectContaining({ response: 'cancel' }),
+            })
+        )
         expect((await call(dispatcher)).result).toMatchObject(toolResult)
         vi.setSystemTime(Date.now() + 7 * 24 * 60 * 60 * 1000)
         expect((await call(dispatcher)).result?.resultType).toBe('input_required')
@@ -327,6 +369,9 @@ describe('MCP interview recruitment', () => {
         const results = await Promise.all([call(dispatcher), call(other)])
         expect(results.filter((r) => r.result?.resultType === 'input_required')).toHaveLength(1)
         expect(executeTool).toHaveBeenCalledTimes(1)
+        expect(
+            captureRecruitment.mock.calls.filter(([event]) => event.event === 'mcp interview invitation sent')
+        ).toHaveLength(1)
     })
 
     it('does not prompt legacy clients', async () => {
@@ -388,6 +433,58 @@ describe('MCP interview recruitment', () => {
         expect((await call(dispatcher, resumed)).error?.code).toBe(-32603)
         expect(executeTool).not.toHaveBeenCalled()
         expect((await call(dispatcher, resumed)).result).toMatchObject(toolResult)
+    })
+
+    it('tracks actual link redirects once, independently of accepting the dialog, and expires the link', async () => {
+        vi.useFakeTimers()
+        const invitation = await call(dispatcher)
+        const inputs = invitation.result?.inputRequests as Record<string, { params: { url: string } }>
+        const url = inputs['mcp-interview']!.params.url
+        const app = new Hono()
+        registerPublicRoutes(app, storage.redis, { shuttingDown: false })
+        expect(captureRecruitment.mock.calls.map(([event]) => event.event)).toEqual(['mcp interview invitation sent'])
+        expect((await app.request(url, { method: 'HEAD' })).status).toBe(405)
+        expect(captureRecruitment).toHaveBeenCalledTimes(1)
+        const redirects = await Promise.all([app.request(url), app.request(url)])
+        for (const redirect of redirects) {
+            expect(redirect.status).toBe(302)
+            expect(redirect.headers.get('Location')).toBe(state.interviewRecruitmentConfig!.booking_url)
+            expect(redirect.headers.get('Referrer-Policy')).toBe('no-referrer')
+            expect(redirect.headers.get('Cache-Control')).toBe('no-store')
+        }
+        expect(captureRecruitment.mock.calls.map(([event]) => event.event)).toEqual([
+            'mcp interview invitation sent',
+            'mcp interview booking link opened',
+        ])
+        await call(dispatcher, continuation(invitation.result?.requestState, { action: 'accept' }))
+        expect(captureRecruitment).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                event: 'mcp interview invitation responded',
+                properties: expect.objectContaining({ response: 'accept' }),
+            })
+        )
+        vi.advanceTimersByTime(7 * 24 * 60 * 60 * 1000)
+        expect((await app.request(url)).status).toBe(404)
+        expect((await app.request('/interview/unknown?url=https://example.com')).status).toBe(404)
+        expect(captureRecruitment).toHaveBeenCalledTimes(3)
+    })
+
+    it('continues the booking redirect and original tool when analytics capture fails', async () => {
+        captureRecruitment.mockImplementation(() => {
+            throw new Error('capture unavailable')
+        })
+        try {
+            const invitation = await call(dispatcher)
+            const app = new Hono()
+            registerPublicRoutes(app, storage.redis, { shuttingDown: false })
+            const inputs = invitation.result?.inputRequests as Record<string, { params: { url: string } }>
+            expect((await app.request(inputs['mcp-interview']!.params.url)).status).toBe(302)
+            expect(
+                (await call(dispatcher, continuation(invitation.result?.requestState, { action: 'accept' }))).result
+            ).toMatchObject(toolResult)
+        } finally {
+            captureRecruitment.mockReset()
+        }
     })
 
     it('completes the URL round trip with the official MCP client', async () => {

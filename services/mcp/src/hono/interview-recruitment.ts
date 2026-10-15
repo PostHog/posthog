@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
+import { getPostHogClient } from '@/lib/posthog'
 import { META_CLIENT_CAPABILITIES } from '@/lib/stateless-protocol'
 import { parseExecCallInnerToolName } from '@/tools/exec'
 
@@ -9,6 +10,8 @@ import { resolveSessionKey } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 
 export const MCP_INTERVIEW_RECRUITMENT_FLAG = 'mcp-interview-recruitment'
+
+const bookingUrlSchema = z.url().refine((value) => value.startsWith('https://'))
 
 export const interviewRecruitmentConfigSchema = z.object({
     min_completed_tool_calls: z.number().int().min(0).max(1000).default(3),
@@ -19,10 +22,7 @@ export const interviewRecruitmentConfigSchema = z.object({
         .min(1)
         .max(1000)
         .default("Squeal on our MCP. Book a 20-minute chat. We'll pay you in PostHog merch."),
-    booking_url: z
-        .url()
-        .refine((value) => value.startsWith('https://'))
-        .default('https://cal.com/adam-posthog/posthog-chat'),
+    booking_url: bookingUrlSchema.default('https://cal.com/adam-posthog/posthog-chat'),
 })
 
 export type InterviewRecruitmentConfig = z.infer<typeof interviewRecruitmentConfigSchema>
@@ -65,12 +65,62 @@ redis.call('DEL', KEYS[2])
 return 1
 `
 
+const bookingLinkSchema = z.object({
+    distinct_id: z.string().min(1),
+    invitation_id: z.uuid(),
+    url: bookingUrlSchema,
+})
+
 const responseSchema = z.object({ action: z.enum(['accept', 'decline', 'cancel']) })
 
 export class InterviewRequestError extends Error {}
 
 export class InterviewRecruitment {
     constructor(private readonly redis: RedisLike) {}
+
+    private track(event: string, distinctId: string, invitationId: string, response?: string): void {
+        try {
+            getPostHogClient().capture({
+                distinctId,
+                event,
+                properties: {
+                    invitation_id: invitationId,
+                    feature_flag: MCP_INTERVIEW_RECRUITMENT_FLAG,
+                    ...(response ? { response } : {}),
+                },
+            })
+        } catch {
+            // Analytics availability must not block the invitation or booking page.
+        }
+    }
+
+    private bookingLinkKey(invitationId: string): string {
+        return `mcp:interview:link:{${invitationId}}`
+    }
+
+    async openBookingLink(invitationId: string): Promise<string | undefined> {
+        if (!z.uuid().safeParse(invitationId).success) {
+            return undefined
+        }
+        const key = this.bookingLinkKey(invitationId)
+        const raw = await this.redis.get(key)
+        if (!raw) {
+            return undefined
+        }
+        const link = bookingLinkSchema.safeParse(JSON.parse(raw))
+        if (!link.success || link.data.invitation_id !== invitationId) {
+            return undefined
+        }
+        try {
+            const firstOpen = await this.redis.set(`${key}:opened`, '1', 'EX', COOLDOWN_SECONDS, 'NX')
+            if (firstOpen === 'OK') {
+                this.track('mcp interview booking link opened', link.data.distinct_id, invitationId)
+            }
+        } catch {
+            // A failed analytics deduplication write must not prevent a known booking redirect.
+        }
+        return link.data.url
+    }
 
     private preferenceKey(state: ResolvedState): string {
         const identity = createHash('sha256')
@@ -202,12 +252,21 @@ export class InterviewRecruitment {
                 'Interview invitation expired or does not match this request. Retry the original tool call without requestState or inputResponses.'
             )
         }
+        if (!state.isImpersonated && !state.suppressAnalytics) {
+            this.track(
+                'mcp interview invitation responded',
+                state.distinctId,
+                requestState.slice(STATE_PREFIX.length),
+                parsed.data.action
+            )
+        }
     }
 
     async beforeToolCall(
         params: Record<string, unknown>,
         state: ResolvedState,
-        userHash: string
+        userHash: string,
+        requestOrigin: string
     ): Promise<Record<string, unknown> | undefined> {
         if (typeof params.requestState === 'string' && params.requestState.startsWith(STATE_PREFIX)) {
             // A flag change must not discard a response to an invitation that was already displayed.
@@ -227,7 +286,9 @@ export class InterviewRecruitment {
         }
         const config = state.interviewRecruitmentConfig!
 
-        const requestState = `${STATE_PREFIX}${randomUUID()}`
+        const invitationId = randomUUID()
+        const requestState = `${STATE_PREFIX}${invitationId}`
+        const linkKey = this.bookingLinkKey(invitationId)
         const preferenceKey = this.preferenceKey(state)
         try {
             const now = Date.now()
@@ -242,6 +303,12 @@ export class InterviewRecruitment {
             ) {
                 return undefined
             }
+            await this.redis.set(
+                linkKey,
+                JSON.stringify({ distinct_id: state.distinctId, invitation_id: invitationId, url: config.booking_url }),
+                'EX',
+                COOLDOWN_SECONDS
+            )
             const reserved = await this.redis.eval(
                 RESERVE_INVITATION,
                 2,
@@ -253,6 +320,7 @@ export class InterviewRecruitment {
                 PENDING_SECONDS
             )
             if (reserved !== 1) {
+                await this.redis.del(linkKey)
                 return undefined
             }
         } catch {
@@ -260,6 +328,8 @@ export class InterviewRecruitment {
             return undefined
         }
 
+        this.track('mcp interview invitation sent', state.distinctId, invitationId)
+        const bookingLink = new URL(`/interview/${invitationId}`, requestOrigin).toString()
         return {
             resultType: 'input_required',
             requestState,
@@ -269,7 +339,7 @@ export class InterviewRecruitment {
                     params: {
                         mode: 'url',
                         message: config.message,
-                        url: config.booking_url,
+                        url: bookingLink,
                     },
                 },
             },

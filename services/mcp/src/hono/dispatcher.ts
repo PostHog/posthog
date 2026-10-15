@@ -26,6 +26,7 @@ import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { McpSessionResetRequiredError, SESSION_RESET_REQUIRED_REASON } from '@/lib/errors'
 import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
+import { getPublicUrl } from '@/lib/routing'
 import {
     isModernRequest,
     META_SERVER_INFO,
@@ -289,21 +290,22 @@ class McpDispatcher {
         }
 
         if (!wasArray && requests.length === 1) {
-            const result = await this.dispatch(requests[0]!, props, state)
+            const result = await this.dispatch(requests[0]!, props, state, getPublicUrl(req).origin)
             // SEP-2575: unsupported RPCs get HTTP 404 in the modern dialect.
             const status =
                 singleModern && 'error' in result && result.error.code === ErrorCode.MethodNotFound ? 404 : 200
             return new Response(JSON.stringify(result), { status, headers })
         }
 
-        const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state)))
+        const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state, getPublicUrl(req).origin)))
         return new Response(JSON.stringify(results), { status: 200, headers })
     }
 
     private async dispatch(
         request: JSONRPCRequest,
         props: RequestProperties,
-        state: ResolvedState | undefined
+        state: ResolvedState | undefined,
+        requestOrigin: string
     ): Promise<JsonRpcResponse> {
         const { id, method, params } = request
 
@@ -313,7 +315,7 @@ class McpDispatcher {
         const stateless = protocolMeta.protocolVersion === STATELESS_PROTOCOL_VERSION
 
         try {
-            const result = await this.dispatchMethod(method, params, props, state, stateless, id)
+            const result = await this.dispatchMethod(method, params, props, state, stateless, id, requestOrigin)
             if (result === METHOD_NOT_FOUND) {
                 return jsonRpcMethodError(id, ErrorCode.MethodNotFound, 'Method not found')
             }
@@ -334,7 +336,8 @@ class McpDispatcher {
         props: RequestProperties,
         state: ResolvedState | undefined,
         stateless: boolean,
-        requestId: string | number
+        requestId: string | number,
+        requestOrigin: string
     ): Promise<unknown> {
         // SEP-2575 removed `initialize` and `ping` from the modern dialect.
         if (stateless && (method === Method.Initialize || method === Method.Ping)) {
@@ -354,7 +357,12 @@ class McpDispatcher {
                     stateless && params
                         ? {
                               beforeExecute: (callState) =>
-                                  this.interviewRecruitment.beforeToolCall(params, callState, props.userHash),
+                                  this.interviewRecruitment.beforeToolCall(
+                                      params,
+                                      callState,
+                                      props.userHash,
+                                      requestOrigin
+                                  ),
                               afterExecute: (callState, result) =>
                                   this.interviewRecruitment.afterToolCall(params, callState, result, requestId),
                           }
