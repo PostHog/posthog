@@ -406,7 +406,7 @@ export function DashboardsTable({
                                 type="primary"
                                 status="danger"
                                 icon={<IconTrash />}
-                                loading={bulkDeleteResponseLoading}
+                                loading={bulkDeleteResponseLoading || dashboardsLoading}
                                 disabledReason={
                                     ctx.selectedKeys.length > 100 ? 'Select at most 100 dashboards' : undefined
                                 }
