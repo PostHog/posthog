@@ -236,13 +236,12 @@ class VercelResourceViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, vi
         """
         https://vercel.com/docs/integrations/create-integration/marketplace-api/reference/partner/list-billing-plans-for-resource
 
-        Vercel's docs mark this endpoint optional, but a whole-installation transfer does not complete
-        without it. The action is not named `plans`, because `VercelPermission` exempts actions with
-        that name from binding the token to the installation in the URL.
+        The plans are the same for every resource, so the resource is not looked up.
+        The action is not named `plans`, because `VercelPermission` exempts actions with that name
+        from binding the token to the installation in the URL.
         """
-        resource_id = validate_resource_id(self.kwargs.get("resource_id"))
-        installation_id = validate_installation_id(self.kwargs.get("parent_lookup_installation_id"))
-        self._validate_resource_access(resource_id, installation_id)
+        validate_resource_id(self.kwargs.get("resource_id"))
+        validate_installation_id(self.kwargs.get("parent_lookup_installation_id"))
 
         return Response({"plans": VercelIntegration.get_vercel_plans()})
 

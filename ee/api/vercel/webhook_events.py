@@ -155,7 +155,7 @@ def _handle_transfer(config_id: str, in_receiving_region: bool) -> VercelEventOu
     # its billing page at Vercel invoices and change who gets Owner on login.
     if integration.config.get("type") == "connectable":
         logger.info("vercel_webhook_transfer_connectable_ignored", config_id=config_id)
-        return VercelEventOutcome.IGNORED
+        return VercelEventOutcome.ACCEPTED
 
     try:
         VercelIntegration.refresh_installation_account(integration)

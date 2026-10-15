@@ -142,52 +142,67 @@ class TestVercelWebhooks(VercelTestBase):
         [
             (
                 "vercel_returns_a_contact",
+                {"email": "old-owner@example.com", "name": "Old owner"},
                 {"email": "new-owner@example.com", "name": "New owner"},
                 {"email": "new-owner@example.com", "name": "New owner"},
             ),
-            ("vercel_returns_no_contact", None, {"email": "old-owner@example.com", "name": "Old owner"}),
+            (
+                "vercel_returns_no_contact",
+                {"email": "old-owner@example.com", "name": "Old owner"},
+                None,
+                {"email": "old-owner@example.com", "name": "Old owner"},
+            ),
+            ("no_contact_anywhere", None, None, None),
         ]
     )
-    @patch("ee.vercel.client.requests.Session.request")
-    def test_a_transfer_stores_the_new_team_from_vercel(self, _name, live_contact, stored_contact, vercel_request):
+    @patch("ee.vercel.client.requests.Session.request", autospec=True)
+    def test_a_transfer_stores_the_new_team_from_vercel(
+        self, _name, stored_contact, live_contact, expected_contact, vercel_request
+    ):
+        old_account: dict = {"url": "https://vercel.com/old-team/~/integrations/posthog/icfg_old", "name": "Old team"}
+        if stored_contact:
+            old_account["contact"] = stored_contact
         self.installation.config = {
             "billing_plan_id": "free",
             "user_mappings": {"vercel_user_1": self.user.pk},
-            "account": {
-                "url": "https://vercel.com/old-team/~/integrations/posthog/icfg_old",
-                "name": "Old team",
-                "contact": {"email": "old-owner@example.com", "name": "Old owner"},
-            },
+            "account": old_account,
         }
         self.installation.sensitive_config = {"credentials": {"access_token": "test_token", "token_type": "Bearer"}}
         self.installation.save()
-        vercel_response = MagicMock(status_code=200)
-        vercel_response.json.return_value = {
-            "url": "https://vercel.com/new-team/~/integrations/posthog/icfg_old",
-            "name": "New team",
-            "contact": live_contact,
-        }
-        vercel_request.return_value = vercel_response
+        both_mappings = {"vercel_user_1": self.user.pk, "vercel_user_2": self.user.pk}
+
+        def answer_while_sso_maps_another_user(session, method, url, **kwargs):
+            OrganizationIntegration.objects.filter(pk=self.installation.pk).update(
+                config={**self.installation.config, "user_mappings": both_mappings}
+            )
+            vercel_response = MagicMock(status_code=200)
+            vercel_response.json.return_value = {
+                "url": "https://vercel.com/new-team/~/integrations/posthog/icfg_old",
+                "name": "New team",
+                "contact": live_contact,
+            }
+            return vercel_response
+
+        vercel_request.side_effect = answer_while_sso_maps_another_user
 
         response = self._post(self._transfer_payload(self.installation_id))
 
         self.assertEqual(response.status_code, 202)
+        session, method, url = vercel_request.call_args.args
         self.assertEqual(
-            vercel_request.call_args.args[:2],
-            ("GET", f"https://api.vercel.com/v1/installations/{self.installation_id}/account"),
+            (method, url), ("GET", f"https://api.vercel.com/v1/installations/{self.installation_id}/account")
         )
+        self.assertEqual(session.headers["Authorization"], "Bearer test_token")
+        expected_account: dict = {
+            "url": "https://vercel.com/new-team/~/integrations/posthog/icfg_old",
+            "name": "New team",
+        }
+        if expected_contact:
+            expected_account["contact"] = expected_contact
         self.installation.refresh_from_db()
         self.assertEqual(
             self.installation.config,
-            {
-                "billing_plan_id": "free",
-                "user_mappings": {"vercel_user_1": self.user.pk},
-                "account": {
-                    "url": "https://vercel.com/new-team/~/integrations/posthog/icfg_old",
-                    "name": "New team",
-                    "contact": stored_contact,
-                },
-            },
+            {"billing_plan_id": "free", "user_mappings": both_mappings, "account": expected_account},
         )
 
     @patch("ee.vercel.client.requests.Session.request")
@@ -213,6 +228,7 @@ class TestVercelWebhooks(VercelTestBase):
         response = self._post(self._transfer_payload(self.installation_id))
 
         self.assertEqual(response.status_code, 500)
+        vercel_request.assert_called_once()
         self.installation.refresh_from_db()
         self.assertEqual(self.installation.config, config_before)
 

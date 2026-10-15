@@ -319,8 +319,10 @@ class TestVercelResourceAPI(VercelTestBase):
         response = self.client.post(url, **headers)
         self.assert_not_found(response)
 
-    def test_resource_plans_list_the_billing_plans(self):
-        url = f"{self.primary_resource['resource_url']}plans/"
+    @parameterized.expand([("a_resource_posthog_holds", None), ("a_resource_whose_project_was_deleted", "99999")])
+    def test_resource_plans_list_the_billing_plans(self, _name, resource_id):
+        resource_id = resource_id or self.primary_resource["resource_id"]
+        url = f"{self.primary_resource['base_url']}/{resource_id}/plans/"
         headers = self.auth_headers(self.installation_id, "system")
 
         response = self.client.get(url, **headers)

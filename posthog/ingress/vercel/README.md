@@ -1,6 +1,6 @@
 # Vercel
 
-Deliveries from the Vercel Marketplace integration: invoice lifecycle events and the deauthorization event.
+Deliveries from the Vercel Marketplace integration: invoice lifecycle events, the deauthorization event and the transfer event.
 
 ## Headers
 
@@ -46,8 +46,8 @@ Both are what the endpoint answered before this moved onto ingress, and Vercel's
 A missing secret also reaches error tracking (`reports_unconfigured`), because the 401 hides it from anyone reading status codes while every invoice event is refused.
 
 A delivery ingress cannot vouch for answers 500 rather than the 202 receipt: a consumer that raised, a forward that failed or answered non-2xx, or an ownership lookup that did not answer.
-Vercel does not publish a retry policy, so whether that buys a redelivery is unknown.
-The status is right either way, because the work did not run, and it is what the endpoint answered before.
+Vercel redelivers an event that gets a non-2xx answer for up to 24 hours with exponential backoff, then discards it ([webhooks API](https://vercel.com/docs/webhooks/webhooks-api#delivery-attempts-and-retries)).
+The status is also right because the work did not run, and it is what the endpoint answered before.
 
 An event for an installation **no** region holds is receipted with 202, and that is a deliberate change from the 404 the endpoint used to answer.
 By the time the primary region has looked, both regions have looked, and no later attempt can find an installation that does not exist, so a failure status reports a failure that will never resolve.
