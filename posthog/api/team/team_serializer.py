@@ -293,7 +293,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def validate_session_recording_linked_flag(self, value: Any) -> dict | None:
         project_id = self.instance.project_id if self.instance is not None else self.context.get("project_id")
-        return settings_validation.validate_team_session_recording_linked_flag(
+        return session_recording_settings.validate_session_recording_linked_flag(
             value,
             stored=self.instance.session_recording_linked_flag if self.instance is not None else None,
             project_id=project_id,

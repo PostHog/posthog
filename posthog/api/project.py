@@ -51,7 +51,6 @@ from posthog.api.team.settings_validation import (
     _format_serializer_errors,
     heatmaps_screenshot_secret_for_reader,
     validate_team_attrs,
-    validate_team_session_recording_linked_flag,
     validate_team_workflows_config,
 )
 from posthog.api.team.team_config import (
@@ -1101,7 +1100,7 @@ class ProjectBackwardCompatSerializer(
         return TeamSerializer.validate_access_control(cast(TeamSerializer, self), value)
 
     def validate_session_recording_linked_flag(self, value: Any) -> dict | None:
-        return validate_team_session_recording_linked_flag(
+        return session_recording_settings.validate_session_recording_linked_flag(
             value,
             stored=self.instance.passthrough_team.session_recording_linked_flag if self.instance is not None else None,
             project_id=self.instance.id if self.instance is not None else None,

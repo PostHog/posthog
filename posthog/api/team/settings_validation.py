@@ -17,14 +17,10 @@ from posthog.models.team.logs_retention import LOGS_CUSTOM_RETENTION_FLAG
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.types import AnyPropertyFilter
 
-from products.feature_flags.backend.session_recording_links import flag_exists_in_project
-
 from . import team_config
 
 if TYPE_CHECKING:
     from posthog.user_permissions import UserPermissions
-
-    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 test_account_filters_adapter = TypeAdapter(list[AnyPropertyFilter])
 
@@ -300,47 +296,3 @@ def validate_team_workflows_config(team: Team | None, value: dict[str, Any] | No
     if not serializer.is_valid():
         raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
     return serializer.validated_data
-
-
-def validate_team_session_recording_linked_flag(
-    value: Any, *, stored: Any, project_id: int | None, user_access_control: "UserAccessControl | None"
-) -> dict | None:
-    """Shared by the team and project serializers, because both endpoints can PATCH the link.
-
-    `stored` is the link the team holds before this request.
-    `project_id` is None when the request creates the project, so it has no flags to link yet.
-    """
-    if value is None:
-        return None
-
-    if not isinstance(value, dict):
-        raise exceptions.ValidationError("Must provide a dictionary or None.")
-    received_keys = value.keys()
-    valid_keys = [
-        {"id", "key"},
-        {"id", "key", "variant"},
-    ]
-    if received_keys not in valid_keys:
-        raise exceptions.ValidationError(
-            "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
-        )
-
-    flag_id = _replay_gate_flag_id(value["id"])
-    if flag_id is None:
-        raise exceptions.ValidationError("Must provide an integer 'id'.")
-
-    # A client that sends the whole team back also sends the link it did not change. A 400 on that
-    # link would reject the other edits in the same request. Accepting it reveals nothing, because a
-    # GET of the team returns the stored link. The key rewrite leaves a flag that the user cannot view
-    # as sent, so a match on the id alone would let a request store any key for that flag.
-    if (normalized := {**value, "id": flag_id}) == stored:
-        return normalized
-
-    # The SDKs treat a flag they cannot resolve as "do not record", so a link to a missing,
-    # deleted, or other-project flag turns replay off for the team without an error.
-    # A flag that the user cannot view gets the same error, so the error does not reveal that it exists.
-    if project_id is None or not flag_exists_in_project(flag_id, project_id, user_access_control):
-        raise exceptions.ValidationError(
-            f"Feature flag {flag_id} doesn't exist in this project or has been deleted. Choose a different flag."
-        )
-    return normalized
