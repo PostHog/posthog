@@ -169,7 +169,7 @@ class TestClassifyMapping(SimpleTestCase):
                 _pg_map(owner_deleted=True),
                 _ch_map(),
                 None,
-                _v("stray", None, "detach_stray"),
+                _v("stray", None, None),
             ),
             ("live_missing_in_ch", _pg_map(), None, None, _v("missing_in_ch", None, "republish")),
             ("live_and_swept", _pg_map(), _ch_map(visible_rows=0), None, _v("missing_in_ch", None, "republish")),
