@@ -289,10 +289,7 @@ class TestModelConfigurationSerializer(SimpleTestCase):
             "selection_mode": mode,
             "options": [{"key": f"option_{i}", "label": f"Option {i}"} for i in range(count)],
         }
-        with (
-            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=True),
-            patch("products.ai_observability.backend.api.evaluations.posthog_feature_flag_enabled", return_value=True),
-        ):
+        with patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=True):
             if valid:
                 assert serializer.validate({"output_config": config})["output_config"]["selection_mode"] == mode
             else:
