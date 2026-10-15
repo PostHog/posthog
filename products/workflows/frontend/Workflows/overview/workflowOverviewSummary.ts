@@ -13,8 +13,8 @@ export const EXIT_CONDITION_LABELS: Record<HogFlow['exit_condition'], string> = 
 }
 
 type TriggerType = NonNullable<HogFlow['trigger']>['type']
-// Data warehouse triggers always match a registered trigger type, which supplies their label.
-type BuiltInTriggerType = Exclude<TriggerType, 'data-warehouse-table' | 'data-warehouse-view'>
+// These triggers always match a registered trigger type, which supplies their label.
+type BuiltInTriggerType = Exclude<TriggerType, 'cohort' | 'data-warehouse-table' | 'data-warehouse-view'>
 
 const BUILT_IN_TRIGGER_LABELS: Record<BuiltInTriggerType, string> = {
     event: 'when they perform',
