@@ -54,6 +54,18 @@ _PROJECT_FANOUT = DependentEndpointConfig(
     child_response_actions=[{"status_code": 404, "action": "ignore"}],
 )
 
+# Lists that have no archived records of their own take no archive filter.
+_PROJECT_FANOUT_NO_ARCHIVE_FILTER = DependentEndpointConfig(
+    parent_name="projects",
+    resolve_param="project_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "project_id"},
+    parent_params={"include_archived": "true", **_CURSOR},
+    child_params=dict(_CURSOR),
+    child_response_actions=[{"status_code": 404, "action": "ignore"}],
+)
+
 ENDPOINTS: dict[str, PlaneEndpointConfig] = {
     "projects": PlaneEndpointConfig(
         name="projects",
@@ -72,9 +84,12 @@ ENDPOINTS: dict[str, PlaneEndpointConfig] = {
     ),
     "states": PlaneEndpointConfig(
         name="states",
-        path="/workspaces/{slug}/states/",
-        description="Workflow states of every project, or the workspace catalog when states are managed centrally.",
-        params=dict(_CURSOR),
+        path="/workspaces/{slug}/projects/{project_id}/states/",
+        # Per project: the workspace route leaves out archived projects and every triage state,
+        # which work items still point at.
+        description="Workflow states of every project, archived projects and triage states included.",
+        primary_keys=["project_id", "id"],
+        fanout=_PROJECT_FANOUT_NO_ARCHIVE_FILTER,
     ),
     "members": PlaneEndpointConfig(
         name="members",
@@ -100,16 +115,7 @@ ENDPOINTS: dict[str, PlaneEndpointConfig] = {
         name="labels",
         path="/workspaces/{slug}/projects/{project_id}/labels/",
         description="Work item labels of every project.",
-        fanout=DependentEndpointConfig(
-            parent_name="projects",
-            resolve_param="project_id",
-            resolve_field="id",
-            include_from_parent=["id"],
-            parent_field_renames={"id": "project_id"},
-            parent_params={"include_archived": "true", **_CURSOR},
-            child_params=dict(_CURSOR),
-            child_response_actions=[{"status_code": 404, "action": "ignore"}],
-        ),
+        fanout=_PROJECT_FANOUT_NO_ARCHIVE_FILTER,
     ),
 }
 

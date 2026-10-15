@@ -105,14 +105,15 @@ def test_first_incremental_sync_sends_no_filter_but_orders_by_the_field() -> Non
     assert result.params("order_by") == ["updated_at"]
 
 
-def test_cycles_fan_out_per_project_and_carry_the_project_id() -> None:
+@pytest.mark.parametrize("table", ["cycles", "states"])
+def test_per_project_lists_fan_out_and_carry_the_project_id(table: str) -> None:
     result = _driver().run(
-        "cycles",
+        table,
         route(
             {
                 "/workspaces/my-team/projects/": [cursor_page([{"id": "proj-1"}, {"id": "proj-2"}], None)],
-                "/projects/proj-1/cycles/": [cursor_page([{"id": "cyc-1", "name": "Sprint 1"}], None)],
-                "/projects/proj-2/cycles/": [
+                f"/projects/proj-1/{table}/": [cursor_page([{"id": "row-1", "project_id": None}], None)],
+                f"/projects/proj-2/{table}/": [
                     ScriptedResponse(
                         status=404, json={"type": "not_found", "code": "not_found", "detail": "Not found."}
                     )
@@ -122,11 +123,18 @@ def test_cycles_fan_out_per_project_and_carry_the_project_id() -> None:
     )
 
     assert result.raised is None
-    assert result.rows == [{"id": "cyc-1", "name": "Sprint 1", "project_id": "proj-1"}]
+    assert result.rows == [{"id": "row-1", "project_id": "proj-1"}]
+
+
+def test_a_server_that_repeats_its_cursor_stops_the_walk() -> None:
+    result = _driver().run("projects", always(cursor_page([{"id": "p1"}], "same")))
+
+    assert result.raised is not None
+    assert len(result.requests) <= 3
 
 
 def test_a_response_without_the_data_envelope_fails_instead_of_syncing_nothing() -> None:
-    result = _driver().run("states", [ScriptedResponse(json={"results": []})])
+    result = _driver().run("members", [ScriptedResponse(json={"results": []})])
 
     assert result.raised is not None
 

@@ -102,7 +102,9 @@ def _client_config(base_url: str | None, api_key: str) -> ClientConfig:
 
 
 def _paginator() -> BasePaginator:
-    return JSONResponseCursorPaginator(cursor_path="next_cursor", cursor_param="cursor")
+    # A server that keeps answering with the cursor it was sent would otherwise loop until the
+    # activity times out.
+    return JSONResponseCursorPaginator(cursor_path="next_cursor", cursor_param="cursor", raise_on_repeated_cursor=True)
 
 
 def get_resource(
