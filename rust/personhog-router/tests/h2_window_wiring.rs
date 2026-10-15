@@ -5,7 +5,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common::TestLeaderService;
+use common::{
+    h2_frame, read_h2_frame, H2Frame, TestLeaderService, H2_FRAME_SETTINGS, H2_FRAME_WINDOW_UPDATE,
+    H2_PREFACE,
+};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use personhog_router::backend::discovery::{build_discovered_endpoint, EndpointConfig};
 use personhog_router::backend::{
@@ -18,7 +21,6 @@ use tokio::sync::RwLock;
 use tonic::transport::{Channel, Server};
 use tower::{Service, ServiceExt};
 
-const PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 const DEFAULT_WINDOW: u32 = 65_535;
 const HYPER_SERVER_STREAM_WINDOW: u32 = 1 << 20;
 const HYPER_SERVER_CONNECTION_WINDOW: u32 = 1 << 20;
@@ -26,8 +28,6 @@ const HYPER_CLIENT_STREAM_WINDOW: u32 = 2 << 20;
 const HYPER_CLIENT_CONNECTION_WINDOW: u32 = 5 << 20;
 const STREAM_WINDOW: u32 = 4 << 20;
 const CONNECTION_WINDOW: u32 = 8 << 20;
-const FRAME_SETTINGS: u8 = 0x4;
-const FRAME_WINDOW_UPDATE: u8 = 0x8;
 const SETTINGS_INITIAL_WINDOW_SIZE: u16 = 0x4;
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -40,19 +40,14 @@ async fn read_advertised_windows(stream: &mut TcpStream) -> AdvertisedWindows {
     let mut seen = AdvertisedWindows::default();
     let read_all = async {
         while seen.stream.is_none() || seen.connection_increment.is_none() {
-            let mut header = [0u8; 9];
-            stream.read_exact(&mut header).await.expect("frame header");
-            let len = u32::from_be_bytes([0, header[0], header[1], header[2]]) as usize;
-            let frame_type = header[3];
-            let stream_id =
-                u32::from_be_bytes([header[5], header[6], header[7], header[8]]) & 0x7fff_ffff;
-            let mut payload = vec![0u8; len];
-            stream
-                .read_exact(&mut payload)
-                .await
-                .expect("frame payload");
+            let H2Frame {
+                frame_type,
+                stream_id,
+                payload,
+                ..
+            } = read_h2_frame(stream).await;
             match frame_type {
-                FRAME_SETTINGS => {
+                H2_FRAME_SETTINGS => {
                     for entry in payload.chunks_exact(6) {
                         let id = u16::from_be_bytes([entry[0], entry[1]]);
                         let value = u32::from_be_bytes([entry[2], entry[3], entry[4], entry[5]]);
@@ -61,7 +56,7 @@ async fn read_advertised_windows(stream: &mut TcpStream) -> AdvertisedWindows {
                         }
                     }
                 }
-                FRAME_WINDOW_UPDATE if stream_id == 0 => {
+                H2_FRAME_WINDOW_UPDATE if stream_id == 0 => {
                     let increment =
                         u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]])
                             & 0x7fff_ffff;
@@ -75,26 +70,6 @@ async fn read_advertised_windows(stream: &mut TcpStream) -> AdvertisedWindows {
         .await
         .expect("peer advertised both windows");
     seen
-}
-
-fn settings_frame(entries: &[(u16, u32)]) -> Vec<u8> {
-    let len = (entries.len() * 6) as u32;
-    let mut frame = vec![
-        (len >> 16) as u8,
-        (len >> 8) as u8,
-        len as u8,
-        FRAME_SETTINGS,
-        0,
-        0,
-        0,
-        0,
-        0,
-    ];
-    for (id, value) in entries {
-        frame.extend_from_slice(&id.to_be_bytes());
-        frame.extend_from_slice(&value.to_be_bytes());
-    }
-    frame
 }
 
 fn windows(configured: bool) -> Http2Windows {
@@ -204,10 +179,12 @@ async fn every_outbound_channel_builder_advertises_the_configured_windows() {
             drive(channel);
 
             let (mut peer, _) = listener.accept().await.unwrap();
-            let mut preface = [0u8; PREFACE.len()];
+            let mut preface = [0u8; H2_PREFACE.len()];
             peer.read_exact(&mut preface).await.unwrap();
-            assert_eq!(&preface, PREFACE, "{builder}");
-            peer.write_all(&settings_frame(&[])).await.unwrap();
+            assert_eq!(&preface, H2_PREFACE, "{builder}");
+            peer.write_all(&h2_frame(H2_FRAME_SETTINGS, 0, 0, &[]))
+                .await
+                .unwrap();
 
             let seen = read_advertised_windows(&mut peer).await;
             assert_eq!(
@@ -238,8 +215,10 @@ async fn the_server_advertises_the_configured_windows() {
         });
 
         let mut peer = TcpStream::connect(addr).await.unwrap();
-        peer.write_all(PREFACE).await.unwrap();
-        peer.write_all(&settings_frame(&[])).await.unwrap();
+        peer.write_all(H2_PREFACE).await.unwrap();
+        peer.write_all(&h2_frame(H2_FRAME_SETTINGS, 0, 0, &[]))
+            .await
+            .unwrap();
 
         let seen = read_advertised_windows(&mut peer).await;
         assert_eq!(

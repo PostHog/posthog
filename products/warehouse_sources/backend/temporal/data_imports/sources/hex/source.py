@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HexSource(ResumableSource[HexSourceConfig, HexResumeConfig]):
+    codebase_detection = detect(pypi=("airflow-provider-hex",))
+
     # Hex's public API has a single, unversioned surface under /api/v1.
     api_docs_url = "https://learn.hex.tech/docs/api-integrations/api/reference"
 

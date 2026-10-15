@@ -1372,7 +1372,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # Best-effort for the same reason as store skills.
     state_remove_keys: list[str] = []
     try:
-        instruction_updates, state_remove_keys = agent_instructions_state_update(task, actor_user)
+        instruction_updates, state_remove_keys = agent_instructions_state_update(
+            task, actor_user, ai_stage=state.get("ai_stage")
+        )
         state_updates.update(instruction_updates)
     except Exception as e:
         log_with_activity_context("agent_instructions_resolve_failed", run_id=run_id, error=str(e))

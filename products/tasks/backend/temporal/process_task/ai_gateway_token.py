@@ -57,6 +57,7 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "loop": "posthog_code",
     "metrics_import": "posthog_ai",
     "onboarding": "onboarding",
+    "account_audit": "account_audit",
     "posthog_ai": "posthog_ai",
     "review_hog": "review_hog",
     "scout_suggestions": "signals",
@@ -93,6 +94,7 @@ _SCOUT_STAGE_PREFIX = "scout:"
 MINTABLE_PRODUCTS = frozenset(
     {
         "posthog_ai",
+        "account_audit",
         "posthog_code",
         "review_hog",
         "slack_app",
@@ -133,6 +135,9 @@ def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None,
     # reservation; only the server-stamped `internal` flag admits the mintable product.
     if gateway_product == "review_hog" and not internal:
         logger.warning("review_hog origin without server-stamped internal flag; resolving posthog_code")
+        return "posthog_code"
+    if origin_product == "account_audit" and not internal:
+        logger.warning("account_audit origin without server-stamped internal flag; resolving posthog_code")
         return "posthog_code"
     if gateway_product is None:
         gateway_product = "background_agents" if internal else "posthog_code"
@@ -233,9 +238,12 @@ def mint_refusal(
     runtime: str | None,
     internal: bool = False,
     prior_slack_run: bool = False,
+    origin_product: str | None = None,
     distinct_id: str | None = None,
 ) -> str | None:
     """Why a routed run must not mint; a run without a token stays on the Python gateway."""
+    if ai_product == "account_audit" and (origin_product != "account_audit" or not internal):
+        return "no_account_audit_provenance"
     if ai_product == "slack_app" and not has_slack_provenance(
         state, internal=internal, prior_slack_run=prior_slack_run
     ):
@@ -244,8 +252,8 @@ def mint_refusal(
         refusal = _posthog_code_refusal(team_id, model, distinct_id)
         if refusal:
             return refusal
-    # The Pi harness reads only LLM_GATEWAY_URL.
-    if runtime == "pi":
+    # Pi reaches Go only for posthog_code.
+    elif runtime == "pi":
         return "pi_runtime"
     # The gateway denies an off-pin model with no fallback.
     if not model_allowed_by_product_pin(ai_product, model):

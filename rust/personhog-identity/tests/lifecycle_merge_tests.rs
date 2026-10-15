@@ -24,6 +24,7 @@ use sqlx::Row;
 use tonic::{Code, Status};
 use uuid::Uuid;
 
+use personhog_identity::lifecycle::detach::DetachedDrives;
 use personhog_identity::lifecycle::engine::{
     Engine, OpDriver, OpRow, SagaError, STEP_ABORTED, STEP_COMPLETED,
 };
@@ -39,6 +40,7 @@ struct MergeHarness {
     engine: Engine,
     leader: Arc<SimLeader>,
     driver: MergeDriver,
+    drives: DetachedDrives,
 }
 
 impl MergeHarness {
@@ -60,6 +62,7 @@ impl MergeHarness {
             engine,
             leader,
             driver,
+            drives: DetachedDrives::new(common::FAN_OUT_CONCURRENCY),
         }
     }
 
@@ -1757,6 +1760,7 @@ impl MergeHarness {
                         self.ctx.tables.clone(),
                         common::FAN_OUT_CONCURRENCY,
                     ),
+                    self.drives.clone(),
                 ),
             ),
             common::FAN_OUT_CONCURRENCY,
@@ -1784,6 +1788,7 @@ impl MergeHarness {
                         self.ctx.tables.clone(),
                         common::FAN_OUT_CONCURRENCY,
                     ),
+                    self.drives.clone(),
                 ),
             ),
             common::FAN_OUT_CONCURRENCY,
@@ -2051,6 +2056,190 @@ async fn the_rpc_runs_the_saga_and_a_retry_returns_the_recorded_answer() {
     h.ctx.cleanup().await.expect("cleanup");
 }
 
+async fn op_exists(pool: &PgPool, op_id: Uuid) -> bool {
+    sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM lifecycle_op WHERE op_id = $1)")
+        .bind(op_id)
+        .fetch_one(pool)
+        .await
+        .expect("existence query runs")
+}
+
+async fn wait_until_completed(pool: &PgPool, op_id: Uuid) -> bool {
+    for _ in 0..200 {
+        if op_exists(pool, op_id).await && op_row_state(pool, op_id).await.1 {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    false
+}
+
+#[tokio::test]
+async fn a_caller_that_hangs_up_mid_saga_leaves_the_merge_to_finish() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let target = h.ctx.insert_person_with_distinct_id("hangup-target").await;
+    let sources = ["hangup-a", "hangup-b", "hangup-c", "hangup-d", "hangup-e"];
+    let mut source_ids = Vec::new();
+    for did in sources {
+        source_ids.push(h.ctx.insert_person_with_distinct_id(did).await);
+    }
+
+    let op_id = Uuid::now_v7();
+    let request = rpc_request(h.ctx.team_id, "hangup-target", &sources, op_id);
+    {
+        let call = service.merge_persons(Request::new(request.clone()));
+        tokio::pin!(call);
+        loop {
+            tokio::select! {
+                biased;
+                _ = &mut call => panic!("the saga finished before the caller hung up"),
+                _ = tokio::time::sleep(std::time::Duration::from_micros(200)) => {
+                    if op_exists(&h.ctx.pool, op_id).await {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(
+        wait_until_completed(&h.ctx.pool, op_id).await,
+        "the merge completed without its caller"
+    );
+    for (did, id) in sources.iter().zip(&source_ids) {
+        assert_eq!(
+            h.pdi_state(did).await.0,
+            target,
+            "{did} moved to the target"
+        );
+        assert!(h.person_state(*id).await.0, "source {did} was destroyed");
+    }
+    let calls_after_saga = h.leader.calls().len();
+
+    let retry = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("the retry attaches to the finished op")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&retry),
+        sources
+            .iter()
+            .map(|did| (did.to_string(), MergeSourceOutcome::Merged))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(retry.survivor.expect("survivor present").id, target);
+    assert_eq!(h.leader.calls().len(), calls_after_saga);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn an_executor_call_dropped_once_detached_still_drives_the_merge() {
+    let h = MergeHarness::new().await;
+    let executor = MergeOpExecutor::new(
+        Arc::new(h.ctx.engine()),
+        MergeDriver::new(
+            h.leader.clone(),
+            h.ctx.tables.clone(),
+            common::FAN_OUT_CONCURRENCY,
+        ),
+        h.drives.clone(),
+    );
+    let target = h.ctx.insert_person_with_distinct_id("drop-target").await;
+    let source = h.ctx.insert_person_with_distinct_id("drop-source").await;
+    let op_id = Uuid::now_v7();
+    let frozen = serde_json::to_value(merge_request("drop-target", &["drop-source"])).unwrap();
+
+    {
+        let call = executor.execute(op_id, h.ctx.team_id, &frozen);
+        tokio::pin!(call);
+        loop {
+            tokio::select! {
+                biased;
+                _ = &mut call => panic!("the saga finished before the caller hung up"),
+                _ = tokio::time::sleep(std::time::Duration::from_micros(200)) => {
+                    if h.drives.in_flight() == 1 {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(wait_until_completed(&h.ctx.pool, op_id).await);
+    assert_eq!(h.pdi_state("drop-source").await.0, target);
+    assert!(h.person_state(source).await.0);
+    let calls_after_saga = h.leader.calls().len();
+
+    let row = executor
+        .execute(op_id, h.ctx.team_id, &frozen)
+        .await
+        .expect("the retry returns the recorded row");
+    assert_eq!(row.step, STEP_COMPLETED);
+    assert_eq!(h.leader.calls().len(), calls_after_saga);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_retry_waiting_behind_a_live_lease_dies_with_its_caller_instead_of_detaching() {
+    let h = MergeHarness::new().await;
+    let executor = MergeOpExecutor::new(
+        Arc::new(h.ctx.engine()),
+        MergeDriver::new(
+            h.leader.clone(),
+            h.ctx.tables.clone(),
+            common::FAN_OUT_CONCURRENCY,
+        ),
+        h.drives.clone(),
+    );
+    let target = h.ctx.insert_person_with_distinct_id("waiter-target").await;
+    h.ctx.insert_person_with_distinct_id("waiter-source").await;
+    let op_id = Uuid::now_v7();
+    let request = merge_request("waiter-target", &["waiter-source"]);
+    let frozen = serde_json::to_value(&request).unwrap();
+    h.create(op_id, &request).await;
+    sqlx::query(
+        "UPDATE lifecycle_op SET lease_expires_at = now() + interval '2 seconds' WHERE op_id = $1",
+    )
+    .bind(op_id)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("hold the lease as another driver");
+
+    let hung_up = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        executor.execute(op_id, h.ctx.team_id, &frozen),
+    )
+    .await;
+    assert!(
+        hung_up.is_err(),
+        "the retry was still waiting behind the lease"
+    );
+    assert_eq!(
+        h.drives.in_flight(),
+        0,
+        "a waiter never takes a detached slot"
+    );
+    assert_eq!(h.drives.free_slots(), common::FAN_OUT_CONCURRENCY);
+
+    sqlx::query("UPDATE lifecycle_op SET lease_expires_at = NULL WHERE op_id = $1")
+        .bind(op_id)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("release the lease");
+    let row = executor
+        .execute(op_id, h.ctx.team_id, &frozen)
+        .await
+        .expect("the next retry claims and drives");
+    assert_eq!(row.step, STEP_COMPLETED);
+    assert_eq!(h.pdi_state("waiter-source").await.0, target);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
 #[tokio::test]
 async fn inline_cases_settle_without_an_op_row_and_push_the_event_properties() {
     let h = MergeHarness::new().await;
@@ -2231,6 +2420,7 @@ async fn a_create_race_loser_answers_retryable_unavailable() {
             h.ctx.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
         ),
+        h.drives.clone(),
     );
     let op_id = Uuid::now_v7();
 
@@ -2604,7 +2794,7 @@ async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_targ
             MergeSourceOutcome::SkippedAlreadyIdentified
         )]
     );
-    // Establishment birthed the target, so the abort delivery stamps its
+    // Establishment birthed the target, so the inline delivery stamps its
     // creating event.
     let born_properties: serde_json::Value = if survivor.properties.is_empty() {
         serde_json::json!({})
@@ -2619,8 +2809,8 @@ async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_targ
     assert_eq!(h.pdi_state("elig-ident-source").await.0, source);
     let (source_deleted, _, _) = h.person_state(source).await;
     assert!(!source_deleted);
-    // The refused pair aborts the saga, so the abort delivery flips the
-    // newborn through the leader.
+    // The refused pair never reaches the saga, so the inline delivery
+    // flips the newborn through the leader.
     assert_eq!(
         h.leader.calls(),
         vec![LeaderCall::PropertyPush {
@@ -3039,7 +3229,7 @@ async fn a_move_limited_source_skips_while_the_rest_merge_through_the_rpc() {
 }
 
 #[tokio::test]
-async fn an_identified_source_abort_still_delivers_the_events_writes() {
+async fn an_identified_source_settles_inline_and_still_delivers_the_events_writes() {
     let h = MergeHarness::new().await;
     let service = h.service();
     let target = h
@@ -3063,14 +3253,14 @@ async fn an_identified_source_abort_still_delivers_the_events_writes() {
     let response = service
         .merge_persons(Request::new(request.clone()))
         .await
-        .expect("an aborted op still answers OK")
+        .expect("a skipped pair still answers OK")
         .into_inner();
 
-    // The skip is an answer, not an error. The saga never folds, so the
-    // event's $set and the identified flip are delivered through the
-    // ordinary write surface instead, and the answer carries the person
-    // they landed on — the same person ingestion continues the event with
-    // when it refuses a merge.
+    // The skip is an answer, not an error. No saga folds, so the event's
+    // $set and the identified flip are delivered through the ordinary
+    // write surface instead, and the answer carries the person they landed
+    // on — the same person ingestion continues the event with when it
+    // refuses a merge.
     assert_eq!(
         rpc_outcomes(&response),
         vec![(
@@ -3088,10 +3278,17 @@ async fn an_identified_source_abort_still_delivers_the_events_writes() {
     );
     let (source_deleted, _, _) = h.person_state(source).await;
     assert!(!source_deleted);
+    // The pre-filter settles the pair at the entrance: no op row, no
+    // claim, no fence.
+    let op_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM lifecycle_op WHERE op_id = $1")
+        .bind(op_id)
+        .fetch_one(&h.ctx.pool)
+        .await
+        .expect("count op rows");
+    assert_eq!(op_rows, 0);
 
-    // The abort is recorded: a retry reproduces the answer instead of
-    // re-running classification, and re-drives the delivery (the same
-    // at-least-once semantics as the inline branch).
+    // Nothing is recorded, so a retry re-classifies and delivers again:
+    // the same at-least-once semantics as every other inline answer.
     let retry = service
         .merge_persons(Request::new(request))
         .await
@@ -3122,7 +3319,9 @@ async fn a_failed_abort_delivery_errors_the_call_and_the_retry_delivers() {
         .ctx
         .insert_person_with_distinct_id("rpc-abort-fail-source")
         .await;
-    h.set_person(source, r#"{"plan": "pro"}"#, 3, true).await;
+    // Only the leader's sealed state carries the flip, so the entrance's
+    // pre-filter lets the pair through and the saga aborts at seal time.
+    h.leader.set_sealed_identified(source, true);
     h.leader.fail_next(
         Rpc::PropertyPush,
         target,
@@ -3162,8 +3361,14 @@ async fn a_failed_abort_delivery_errors_the_call_and_the_retry_delivers() {
             MergeSourceOutcome::SkippedAlreadyIdentified
         )]
     );
+    let pushes: Vec<LeaderCall> = h
+        .leader
+        .calls()
+        .into_iter()
+        .filter(|call| matches!(call, LeaderCall::PropertyPush { .. }))
+        .collect();
     assert_eq!(
-        h.leader.calls(),
+        pushes,
         vec![LeaderCall::PropertyPush {
             person_id: target,
             is_identified: Some(true),
