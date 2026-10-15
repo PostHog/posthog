@@ -15,7 +15,7 @@ from django.test.client import RequestFactory
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework import status, test
+from rest_framework import serializers, status, test
 
 from posthog.api.project import ProjectBackwardCompatSerializer, log_activity
 from posthog.api.team.conversations_settings import handle_conversations_token_on_update, merge_conversations_settings
@@ -4343,6 +4343,41 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         serializer = serializer_class(data={"conversations_settings": value}, partial=True)
         self.assertFalse(serializer.is_valid())
         self.assertIn("conversations_settings", serializer.errors)
+
+    @parameterized.expand(
+        [
+            (serializer, name, ai_reply_modes, expected_cleaned)
+            for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
+            for name, ai_reply_modes, expected_cleaned in (
+                ("non_string_mode_is_dropped", {"slack": {"how_to": ["bot_reply"]}}, {}),
+                (
+                    "bot_reply_for_diagnostic_becomes_private_note",
+                    {"slack": {"diagnostic": "bot_reply"}},
+                    {"slack": {"diagnostic": "private_note"}},
+                ),
+            )
+        ]
+    )
+    def test_conversations_settings_ai_reply_modes_cleans_up_values(
+        self,
+        serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer],
+        _name: str,
+        ai_reply_modes: dict,
+        expected_cleaned: dict,
+    ) -> None:
+        # Calls the field validator directly, like test_normalize_logs_json_attribute_key below:
+        # building a full serializer.is_valid() call needs view/request context neither
+        # serializer has outside a real request, which this no-DB test does not set up.
+        cleaned = serializer_class().validate_conversations_settings({"ai_reply_modes": ai_reply_modes})
+        assert cleaned is not None
+        self.assertEqual(cleaned["ai_reply_modes"], expected_cleaned)
+
+    @parameterized.expand([(TeamSerializer,), (ProjectBackwardCompatSerializer,)])
+    def test_conversations_settings_ai_reply_modes_requires_an_object(
+        self, serializer_class: type[TeamSerializer] | type[ProjectBackwardCompatSerializer]
+    ) -> None:
+        with self.assertRaises(serializers.ValidationError):
+            serializer_class().validate_conversations_settings({"ai_reply_modes": ["not", "a", "dict"]})
 
     @parameterized.expand([(None,), (True,), (123,), ([],), ({},), ("a" * 201,)])
     def test_invalid_logs_json_attribute_key(self, key):
