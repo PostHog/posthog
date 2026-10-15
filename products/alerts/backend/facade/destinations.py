@@ -230,17 +230,24 @@ def list_delivery_destination_groups(
 
 
 def classify_alert_destinations(
-    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], lock: bool = False
 ) -> tuple[DestinationEligibility, ...]:
-    """Every destination function of one alert, with what native delivery cannot carry for each."""
+    """Every destination function of one alert, with what native delivery cannot carry for each.
+
+    With `lock`, call inside a transaction: the function rows stay locked until it ends.
+    """
     return destination_eligibility.classify_alert_destinations(
-        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids, lock=lock
     )
 
 
-def unbound_alert_destinations(*, team_id: int, allowed_event_ids: Collection[str]) -> tuple[UUID, ...]:
-    """Enabled functions that take a source's alert events without being bound to one alert."""
-    return destination_eligibility.unbound_alert_destinations(team_id=team_id, allowed_event_ids=allowed_event_ids)
+def unbound_alert_destinations(
+    *, team_id: int, allowed_event_ids: Collection[str], include_disabled: bool = False
+) -> tuple[UUID, ...]:
+    """Functions that take a source's alert events without being bound to one alert, enabled ones only by default."""
+    return destination_eligibility.unbound_alert_destinations(
+        team_id=team_id, allowed_event_ids=allowed_event_ids, include_disabled=include_disabled
+    )
 
 
 def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
