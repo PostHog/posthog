@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from types import SimpleNamespace
 
 from unittest.mock import MagicMock, patch
@@ -54,6 +54,8 @@ def mock_share_link_authorization() -> Iterator[MagicMock]:
     client.streamed_list_objects.side_effect = list_objects
     with (
         patch("products.authz.backend.logic.authorization.ready_state", return_value=b"ready:test"),
-        patch("products.authz.backend.logic.authorization.get_openfga_client", return_value=client),
+        patch(
+            "products.authz.backend.logic.authorization.pooled_openfga_client", side_effect=lambda: nullcontext(client)
+        ),
     ):
         yield client

@@ -41,7 +41,7 @@ class TestAuthorizationFailures(SimpleTestCase):
     def tearDown(self) -> None:
         redis.get_client().delete(sync_state.state_key(self.organization_id))
 
-    @patch("products.authz.backend.logic.authorization.get_openfga_client")
+    @patch("products.authz.backend.logic.authorization.pooled_openfga_client")
     def test_pending_reconciliation_denies_without_consulting_stale_grants(self, get_client: MagicMock) -> None:
         sync_state.mark_pending(self.organization_id)
         assert not authorization.check(
@@ -49,25 +49,39 @@ class TestAuthorizationFailures(SimpleTestCase):
         )[0]
         get_client.assert_not_called()
 
-    @patch("products.authz.backend.logic.authorization.get_openfga_client")
+    @patch("products.authz.backend.logic.authorization.pooled_openfga_client")
     def test_error_is_not_an_allow_or_a_fallback(self, get_client: MagicMock) -> None:
         error = RuntimeError("Authorization service unavailable")
-        get_client.return_value.client_batch_check.side_effect = error
+        get_client.return_value.__enter__.return_value.client_batch_check.side_effect = error
         with self.assertRaises(RuntimeError):
             authorization.check([CheckRequest(resource=self.resource, action=Action.VIEW, subject=self.subject)], None)
-        get_client.return_value.close.assert_called_once()
+        get_client.return_value.__exit__.assert_called_once()
 
-    @patch("products.authz.backend.logic.authorization.get_openfga_client")
+    @patch("products.authz.backend.logic.authorization.pooled_openfga_client")
     def test_commit_during_check_invalidates_the_old_decision(self, get_client: MagicMock) -> None:
         def commit(*args: object, **kwargs: object) -> list[MagicMock]:
             sync_state.mark_pending(self.organization_id)
             sync_state.mark_ready(self.organization_id, self.pending)
             return [MagicMock(allowed=True, error=None)]
 
-        get_client.return_value.client_batch_check.side_effect = commit
+        get_client.return_value.__enter__.return_value.client_batch_check.side_effect = commit
         assert not authorization.check(
             [CheckRequest(resource=self.resource, action=Action.VIEW, subject=self.subject)], None
         )[0]
+
+    @parameterized.expand([("default", None, "HIGHER_CONSISTENCY"), ("cached", "MINIMIZE_LATENCY", "MINIMIZE_LATENCY")])
+    @patch("products.authz.backend.logic.authorization.pooled_openfga_client")
+    def test_enforcement_consistency_and_explicit_cached_checks(
+        self, _name: str, consistency: str | None, expected: str, get_client: MagicMock
+    ) -> None:
+        client = get_client.return_value.__enter__.return_value
+        client.client_batch_check.return_value = [MagicMock(allowed=True, error=None)]
+        requests = [CheckRequest(resource=self.resource, action=Action.VIEW, subject=self.subject)]
+        if consistency is None:
+            assert authorization.check(requests, None) == [True]
+        else:
+            assert authorization.check(requests, None, consistency="MINIMIZE_LATENCY") == [True]
+        assert client.client_batch_check.call_args.args[1] == {"consistency": expected}
 
     def test_context_and_principals_are_not_silently_ignored(self) -> None:
         with self.assertRaises(ValueError):

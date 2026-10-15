@@ -1,13 +1,7 @@
 type insight extends shareable_object
   relations
-    # An insight takes the legacy edit rule from the dashboards that show it.
+    # A dashboard that shows the insight lets the dashboard's guests view it.
     define dashboard: [dashboard]
-    # This marker distinguishes an unattached insight from one with no editable dashboards.
-    define has_dashboard: [user:*]
-    # An attached insight follows the dashboard's full edit decision; an unattached insight follows project membership.
-    define dashboard_editor: can_edit from dashboard or ((member from project) but not has_dashboard)
-    # An edit must pass both the insight access rules and its dashboard's edit decision.
-    override can_edit: editor and dashboard_editor
     # A notebook that embeds the insight lets the notebook's guests view it.
     define notebook: [notebook]
     # Guests view the insights on the dashboards and notebooks they can view, unless a member rule on the insight decides.

@@ -19,7 +19,7 @@ from products.access_control.backend.facade.user_access_control import ACCESS_CO
 from products.dashboards.backend.facade.authorization import authorization_dashboards
 from products.notebooks.backend.facade.authorization import authorization_notebooks
 
-from ..client import get_openfga_client
+from ..client import pooled_openfga_client
 from . import sync_state
 
 # Notebook content is user input, and an OpenFGA object id cannot hold whitespace, "#" or ":".
@@ -161,14 +161,6 @@ class OrganizationProjection:
                     self.add(
                         f"{self.key('organization_member', str(creator_membership.id))}#user", "creator", object_key
                     )
-                if dashboard.restricted:
-                    self.add("user:*", "restricted", object_key)
-                for user_id in dashboard.collaborator_user_ids:
-                    collaborator = membership_by_user.get(user_id)
-                    if collaborator is not None:
-                        self.add(
-                            f"{self.key('organization_member', str(collaborator.id))}#user", "collaborator", object_key
-                        )
 
             insights = authorization_insights(team.id)
             insight_ids = {str(insight.id) for insight in insights}
@@ -186,10 +178,9 @@ class OrganizationProjection:
                     self.add(
                         f"{self.key('organization_member', str(creator_membership.id))}#user", "creator", object_key
                     )
+                # A dashboard lets its guests view the insights it shows.
                 for dashboard_id in insight.dashboard_ids:
                     self.add(self.key("dashboard", f"{team.id}/{dashboard_id}"), "dashboard", object_key)
-                if insight.dashboard_ids:
-                    self.add("user:*", "has_dashboard", object_key)
 
             insight_ids_by_short_id = {insight.short_id: str(insight.id) for insight in insights if not insight.deleted}
             notebooks = authorization_notebooks(team.id)
@@ -318,8 +309,7 @@ def synchronize_organization(organization_id: UUID) -> None:
             pending = sync_state.mark_pending(organization_id)
         projection = OrganizationProjection(organization_id)
         desired = projection.build()
-        client = get_openfga_client()
-        try:
+        with pooled_openfga_client(consistency="HIGHER_CONSISTENCY") as client:
             if client.get_store_id() is None:
                 raise RuntimeError("Bootstrap the OpenFGA store before synchronizing authorization")
             current = {relationship for relationship in read_relationships(client) if projection.owns(relationship)}
@@ -332,5 +322,3 @@ def synchronize_organization(organization_id: UUID) -> None:
                 client.write(ClientWriteRequest(writes=[relationship.to_tuple() for relationship in batch]))
             lock.extend(300, replace_ttl=True)
             sync_state.mark_ready(organization_id, pending)
-        finally:
-            client.close()

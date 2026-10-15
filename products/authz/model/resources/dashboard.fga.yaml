@@ -181,39 +181,14 @@ tests:
             object: dashboard:dashboard
             assertions: { can_view: false, can_edit: false, can_manage_access: false }
 
-    - name: Legacy dashboard restrictions also gate attached insights
-      tuples:
-          - { user: 'user:*', relation: restricted, object: 'dashboard:dashboard' }
-          - { user: 'dashboard:dashboard', relation: dashboard, object: 'insight:insight' }
-          - { user: 'user:*', relation: has_dashboard, object: 'insight:insight' }
-      check:
-          - user: user:member
-            object: dashboard:dashboard
-            assertions: { can_view: true, can_edit: false, can_delete: false, can_share: false }
-          - users: [user:creator, user:admin, user:owner]
-            object: dashboard:dashboard
-            assertions: { can_edit: true }
-
-    - name: Legacy collaborators retain edit access
-      tuples:
-          - { user: 'user:*', relation: restricted, object: 'dashboard:dashboard' }
-          - { user: 'organization_member:member#user', relation: collaborator, object: 'dashboard:dashboard' }
-          - { user: 'dashboard:dashboard', relation: dashboard, object: 'insight:insight' }
-          - { user: 'user:*', relation: has_dashboard, object: 'insight:insight' }
-      check:
-          - user: user:member
-            object: dashboard:dashboard
-            assertions: { can_edit: true }
-
-    - name: Project admins bypass legacy restrictions but not resource viewer rules
+    - name: Project admins cannot bypass object viewer rules
       tuples:
           - { user: 'organization_member:member#user', relation: member_admin, object: 'project:project' }
-          - { user: 'user:*', relation: restricted, object: 'dashboard:dashboard' }
           - { user: 'user:*', relation: default_viewer, object: 'access_policy:object' }
       check:
           - user: user:member
             object: dashboard:dashboard
-            assertions: { legacy_editor: true, can_edit: false, can_manage_access: true }
+            assertions: { can_edit: false, can_manage_access: true }
 
     - name: Stale role assignees outside the organization never authorize
       tuples:
@@ -225,7 +200,7 @@ tests:
             object: dashboard:dashboard
             assertions: { can_view: false, can_edit: false, can_manage_access: false }
 
-    - name: Access rules and legacy restrictions are inert without access control
+    - name: Access rules are inert without access control
       tuples:
           - { user: 'user:free', relation: user, object: 'organization_member:free' }
           - { user: 'organization_member:free#user', relation: member, object: 'organization:free' }
@@ -241,7 +216,6 @@ tests:
           - { user: 'project:free', relation: project, object: 'dashboard:free' }
           - { user: 'resource:free', relation: resource, object: 'dashboard:free' }
           - { user: 'access_policy:free', relation: policy, object: 'dashboard:free' }
-          - { user: 'user:*', relation: restricted, object: 'dashboard:free' }
       check:
           - user: user:free
             object: dashboard:free

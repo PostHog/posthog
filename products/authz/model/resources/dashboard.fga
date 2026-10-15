@@ -1,10 +1,2 @@
 type dashboard extends shareable_object
   relations
-    # Legacy collaborator restrictions remain an independent write gate.
-    define restricted: [user:*] and access_control_enabled from project
-    # Members with a legacy collaborator privilege can edit a restricted dashboard.
-    define collaborator: [organization_member#user]
-    # The legacy rule: anyone in the project can edit, except on a restricted dashboard.
-    define legacy_editor: creator or admin from project or collaborator or ((member from project) but not restricted)
-    # An edit must pass both the access rules and the legacy collaborator rule.
-    override can_edit: editor and legacy_editor

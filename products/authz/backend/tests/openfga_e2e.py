@@ -225,7 +225,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
             assert api.check(requests) == expected * len(resources)
             assert not self._check(Action.VIEW)
 
-    def test_insight_access_uses_its_rules_and_attached_dashboard_permissions(self) -> None:
+    def test_insight_access_uses_its_own_rules_independently_of_dashboard_permissions(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             self.creator_user = User.objects.create_and_join(
                 self.organization, "insight-creator@example.com", "test-password"
@@ -267,7 +267,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
                 insight_id=insight.id,
                 team_id=self.team.id,
             )
-        assert not api.check(resource=resource, action=Action.EDIT, subject=self.subject)
+        assert api.check(resource=resource, action=Action.EDIT, subject=self.subject)
         with self.captureOnCommitCallbacks(execute=True):
             dashboard_testing.set_dashboard_collaborator(
                 team_id=self.team.id,
@@ -276,6 +276,12 @@ class TestOpenFgaDashboardMirror(BaseTest):
                 level=PrivilegeLevel.CAN_EDIT,
             )
         assert api.check(resource=resource, action=Action.EDIT, subject=self.subject)
+
+        self._grant("none")
+        assert not api.check(resource=self._resource(self.dashboard_id), action=Action.EDIT, subject=self.subject)
+        assert api.check(resource=resource, action=Action.EDIT, subject=self.subject)
+        self._grant("viewer", resource="insight", resource_id=insight.id)
+        assert not api.check(resource=resource, action=Action.EDIT, subject=self.subject)
 
     def test_share_links_only_read_their_objects_and_current_embedded_insights(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):
@@ -832,24 +838,27 @@ class TestOpenFgaDashboardMirror(BaseTest):
             )
         self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["editor"])
 
-    def test_legacy_collaborator_grants_update_and_revoke_without_losing_view_access(self) -> None:
+    @parameterized.expand([("editor", "editor"), ("viewer", "viewer")])
+    def test_legacy_collaborator_changes_do_not_override_access_rules(self, _name: str, level: str) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             self._add_rule(Rule(scope="project", subject="member", level="member"))
-            self._add_rule(Rule(scope="object", subject="member", level="editor"))
+            self._add_rule(Rule(scope="object", subject="member", level=level))
             dashboard_testing.set_dashboard_restriction(
                 team_id=self.team.id, dashboard_id=self.dashboard_id, level=RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
             )
-        self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["viewer"])
-        for level in (PrivilegeLevel.CAN_EDIT, PrivilegeLevel.CAN_VIEW, PrivilegeLevel.CAN_EDIT, None):
+        self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS[level])
+        for collaborator_level in (PrivilegeLevel.CAN_EDIT, PrivilegeLevel.CAN_VIEW, PrivilegeLevel.CAN_EDIT, None):
             with self.captureOnCommitCallbacks(execute=True):
                 dashboard_testing.set_dashboard_collaborator(
-                    team_id=self.team.id, dashboard_id=self.dashboard_id, user_id=self.other_user.id, level=level
+                    team_id=self.team.id,
+                    dashboard_id=self.dashboard_id,
+                    user_id=self.other_user.id,
+                    level=collaborator_level,
                 )
-            expected = "editor" if level == PrivilegeLevel.CAN_EDIT else "viewer"
-            self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS[expected])
+            self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS[level])
 
     @parameterized.expand([("editor", "editor"), ("viewer", "viewer")])
-    def test_project_admin_legacy_bypass_respects_the_object_grant(self, _name: str, level: str) -> None:
+    def test_project_admin_respects_the_object_grant(self, _name: str, level: str) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             self._add_rule(Rule(scope="project", subject="member", level="admin"))
             self._add_rule(Rule(scope="object", subject="member", level=level))

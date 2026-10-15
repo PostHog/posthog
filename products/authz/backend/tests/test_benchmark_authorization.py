@@ -13,8 +13,8 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.authz.backend.facade.contracts import CheckRequest
-from products.authz.backend.logic import rollout
-from products.authz.backend.management.commands.benchmark_authorization import summarize
+from products.authz.backend.logic import authorization, legacy_authorization, rollout
+from products.authz.backend.management.commands.benchmark_authorization import measure_checkers, summarize
 
 
 class TestAuthorizationBenchmarkStats(SimpleTestCase):
@@ -27,6 +27,21 @@ class TestAuthorizationBenchmarkStats(SimpleTestCase):
         self.assertAlmostEqual(summary["p90"], 3.7)
         self.assertAlmostEqual(summary["p95"], 3.85)
         self.assertAlmostEqual(summary["p99"], 3.97)
+
+    def test_component_timings_accumulate_separately_and_reset_for_each_batch(self) -> None:
+        with (
+            patch(
+                "products.authz.backend.management.commands.benchmark_authorization.time.perf_counter_ns",
+                side_effect=[0, 2_000_000, 2_000_000, 5_000_000, 5_000_000, 9_000_000],
+            ),
+            measure_checkers("HIGHER_CONSISTENCY") as timings,
+        ):
+            assert authorization.check([], None) == []
+            assert legacy_authorization.check([], None) == []
+            assert authorization.check([], None) == []
+        assert timings == {"OpenFGA": 6.0, "Legacy": 3.0}
+        with measure_checkers("MINIMIZE_LATENCY") as next_batch:
+            assert next_batch == {}
 
 
 @override_settings(DEBUG=True)

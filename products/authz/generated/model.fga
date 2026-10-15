@@ -1,5 +1,5 @@
 # Generated from products/authz/model/ by products/authz/generate_model.sh. Do not edit.
-# Content digest: 4113f8e39c22ba85
+# Content digest: 6b41267561c699c2
 model
   schema 1.1
 
@@ -165,15 +165,8 @@ type dashboard
     define policy_guest_viewer: guest_viewer from policy
     define guest_viewer: (guest from project) and (policy_guest_viewer or ((guest_viewer from resource) but not has_member_rule))
     define shared_viewer: [share_link]
-    # Legacy collaborator restrictions remain an independent write gate.
-    define restricted: [user:*] and access_control_enabled from project
-    # Members with a legacy collaborator privilege can edit a restricted dashboard.
-    define collaborator: [organization_member#user]
-    # The legacy rule: anyone in the project can edit, except on a restricted dashboard.
-    define legacy_editor: creator or admin from project or collaborator or ((member from project) but not restricted)
     define can_view: viewer or shared_viewer or guest_viewer
-    # An edit must pass both the access rules and the legacy collaborator rule.
-    define can_edit: editor and legacy_editor
+    define can_edit: editor
     define can_delete: can_edit
     define can_manage_access: manager or can_manage_access from project
     define can_share: can_edit
@@ -192,20 +185,15 @@ type insight
     define policy_guest_viewer: guest_viewer from policy
     define guest_viewer: (guest from project) and (policy_guest_viewer or ((guest_viewer from resource) but not has_member_rule))
     define shared_viewer: [share_link]
-    # An insight takes the legacy edit rule from the dashboards that show it.
+    # A dashboard that shows the insight lets the dashboard's guests view it.
     define dashboard: [dashboard]
-    # This marker distinguishes an unattached insight from one with no editable dashboards.
-    define has_dashboard: [user:*]
-    # An attached insight follows the dashboard's full edit decision; an unattached insight follows project membership.
-    define dashboard_editor: can_edit from dashboard or ((member from project) but not has_dashboard)
     # A notebook that embeds the insight lets the notebook's guests view it.
     define notebook: [notebook]
     # Guests view the insights on the dashboards and notebooks they can view, unless a member rule on the insight decides.
     define guest_embed_viewer: (guest from project) and ((guest_viewer from dashboard or guest_viewer from notebook) but not has_member_rule)
     # Members keep the base rule. Only guests view an insight through its dashboards and notebooks.
     define can_view: viewer or shared_viewer or guest_viewer or guest_embed_viewer
-    # An edit must pass both the insight access rules and its dashboard's edit decision.
-    define can_edit: editor and dashboard_editor
+    define can_edit: editor
     define can_delete: can_edit
     define can_manage_access: manager or can_manage_access from project
     define can_share: can_edit
