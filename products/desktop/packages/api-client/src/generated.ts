@@ -224,6 +224,7 @@ export namespace Schemas {
         sessionIdPushdown: boolean | null;
         sessionPropertyPreAggregation: boolean | null;
         sessionTableVersion: SessionTableVersion | null;
+        sessionTimestampBufferMinutes: number | null;
         sessionsV2JoinMode: SessionsV2JoinMode | null;
         timings: boolean | null;
         typeAwareCastSimplification: boolean | null;
