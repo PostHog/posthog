@@ -96,16 +96,13 @@ class AmazonSellingPartnerResumeConfig:
     window_start: str | None = None
     window_end: str | None = None
     transaction_status: str | None = None
-    # Marketplaces whose inventory walk finished. Inventory page tokens expire in 30 seconds, so a
-    # marketplace restarts from its first page.
+    # Marketplaces whose walk finished.
     completed_marketplaces: list[str] = field(default_factory=list)
     # The marketplace being handed on, and how many of its rows (or of its report's rows) already were.
     marketplace_id: str | None = None
     rows_done: int = 0
     # The report of a vendor report walk, so a resume polls the report it created.
     report_id: str | None = None
-    # Rows of that report already handed on, so a resumed attempt skips them.
-    rows_done: int = 0
 
 
 class LwaAuth(OAuth2Auth):
@@ -495,14 +492,22 @@ def presigned_secret_values(url: str) -> tuple[str, ...]:
     )
 
 
-def report_windows(report: VendorReport, start: datetime | None, now: datetime) -> list[ReportWindow]:
-    """The date ranges to request, oldest first, from `start` (or the oldest Amazon keeps) to the newest it publishes."""
+def report_windows(
+    report: VendorReport, start: datetime | None, now: datetime, *, resumed: bool = False
+) -> list[ReportWindow]:
+    """The date ranges to request, oldest first, from `start` (or the oldest Amazon keeps) to the newest it publishes.
+
+    A resumed `start` belongs to a report that already exists, so it is kept even when the lookback
+    floor moved past it since the report was created.
+    """
     if report.window is None or report.lookback is None:
         return []
     if report.hourly:
         newest = (now - report.availability_delay).replace(minute=0, second=0, microsecond=0)
         oldest = now.replace(minute=0, second=0, microsecond=0) - report.lookback
-        cursor = max(start.replace(minute=0, second=0, microsecond=0), oldest) if start else oldest
+        if start is not None:
+            start = start.replace(minute=0, second=0, microsecond=0)
+        cursor = (start if resumed else max(start, oldest)) if start else oldest
         windows = []
         while cursor < newest:
             end = min(cursor + report.window, newest)
@@ -512,7 +517,7 @@ def report_windows(report: VendorReport, start: datetime | None, now: datetime) 
 
     last_day = (now - report.availability_delay).date()
     oldest_day = now.date() - report.lookback
-    day = max(start.date(), oldest_day) if start else oldest_day
+    day = (start.date() if resumed else max(start.date(), oldest_day)) if start else oldest_day
     windows = []
     while day <= last_day:
         end_day = min(day + report.window - timedelta(days=1), last_day)
@@ -646,10 +651,13 @@ def _vendor_report_rows(
         if marketplace_id in completed:
             continue
         pending = resume if resume is not None and resume.marketplace_id == marketplace_id else None
+        resumed = pending is not None and pending.window_start is not None
         start = (
             parse_datetime_value(pending.window_start) if pending is not None and pending.window_start else watermark
         )
-        windows: list[ReportWindow | None] = list(report_windows(report, start, now)) if report.window else [None]
+        windows: list[ReportWindow | None] = (
+            list(report_windows(report, start, now, resumed=resumed)) if report.window else [None]
+        )
 
         for index, window in enumerate(windows):
             window_start = window.data_start_time if window is not None else None

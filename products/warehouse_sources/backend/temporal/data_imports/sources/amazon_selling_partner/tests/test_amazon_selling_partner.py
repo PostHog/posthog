@@ -632,6 +632,21 @@ class TestVendorReports:
             marketplace_id="ATVPDKIKX0DER", report_id="r7", rows_done=4000
         )
 
+    def test_resume_polls_a_saved_report_older_than_the_moving_lookback_floor(self) -> None:
+        vendor = _ReportsVendor(["CANCELLED"], [])
+
+        result = _driver("ATVPDKIKX0DER").run(
+            "vendor_real_time_sales",
+            vendor,
+            resume_state=AmazonSellingPartnerResumeConfig(
+                marketplace_id="ATVPDKIKX0DER", window_start="2026-09-16T11:00:00Z", report_id="r5"
+            ),
+        )
+
+        assert result.raised is None
+        assert "r5" in vendor.polls
+        assert vendor.created[0]["dataStartTime"] == "2026-09-17T11:00:00Z"
+
     def test_forecasts_request_one_report_per_marketplace_without_a_date_range(self) -> None:
         vendor = _ReportsVendor(["CANCELLED"], [])
 
@@ -736,10 +751,17 @@ class TestVendorReports:
         # An hourly report stops at the last hour that closed five minutes before now.
         ("vendor_real_time_sales", None, ("2026-09-16T12:00:00Z", "2026-09-17T12:00:00Z", 29)),
         ("vendor_sales", datetime(2026, 10, 12, tzinfo=UTC), None),
+        # A resumed report keeps its start after the lookback floor moved past it.
+        (
+            "vendor_real_time_sales",
+            datetime(2026, 9, 16, 11, tzinfo=UTC),
+            ("2026-09-16T11:00:00Z", "2026-09-17T11:00:00Z", 29),
+        ),
     ],
 )
 def test_report_windows(endpoint: str, start: datetime | None, expected: tuple[str, str, int] | None) -> None:
-    windows = report_windows(VENDOR_REPORTS[endpoint], start, NOW)
+    # Only the hour-11 start stands for a resumed report; the others start fresh.
+    windows = report_windows(VENDOR_REPORTS[endpoint], start, NOW, resumed=start is not None and start.hour == 11)
 
     if expected is None:
         assert windows == []
