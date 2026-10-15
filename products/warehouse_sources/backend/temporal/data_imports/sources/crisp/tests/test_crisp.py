@@ -145,6 +145,31 @@ def test_incremental_messages_read_small_windows_oldest_first_and_stop_after_the
     assert result.response is not None and result.response.sort_mode == "desc"
 
 
+def test_incremental_messages_page_through_a_window_that_no_split_can_shrink(config: CrispSourceConfig) -> None:
+    updated_at = int(datetime(2026, 1, 1, tzinfo=UTC).timestamp() * 1000)
+    conversations: list[dict[str, Any]] = [
+        {"session_id": f"c{number}", "updated_at": updated_at} for number in range(51)
+    ]
+    list_requests = 0
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        nonlocal list_requests
+        if request.path.endswith("/messages"):
+            return page([]) if request.param("timestamp_before") else page([{"fingerprint": 1, "timestamp": 1000}])
+        list_requests += 1
+        if list_requests > 200:
+            raise RuntimeError("the window walk did not terminate")
+        low = datetime.fromisoformat(request.param("filter_date_start") or "").timestamp() * 1000
+        high = datetime.fromisoformat(request.param("filter_date_end") or "").timestamp() * 1000
+        matching = [row for row in conversations if low <= row["updated_at"] <= high]
+        number = int(request.path.rsplit("/", 1)[1])
+        return page(matching[(number - 1) * 50 : number * 50])
+
+    result = SourceDriver(CrispSource(), config).run("messages", respond, incremental_field="conversation_updated_at")
+    assert result.raised is None
+    assert sorted(row["session_id"] for row in result.rows) == sorted(row["session_id"] for row in conversations)
+
+
 def test_resumed_incremental_messages_defer_conversations_updated_after_the_run_started(
     config: CrispSourceConfig,
 ) -> None:

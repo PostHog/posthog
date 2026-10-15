@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crisp.sett
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crisp import CrispSourceConfig
 
 # A window that one list page holds cannot lose a conversation to a page shift during the run.
-WINDOW_PAGE_SIZE = 50
+WINDOW_PAGE_SIZE = int(CONVERSATION_PARAMS["per_page"])
 # An incremental message sync stops after this many conversations with messages, so that the run
 # completes and keeps its watermark. A website token allows 10,000 requests a day, and a backfill
 # that needs more would otherwise start again from zero every run.
@@ -214,13 +214,15 @@ def conversation_windows(
         low, high = pending.pop()
         rows = list_window(low, high, False)
         if len(rows) >= WINDOW_PAGE_SIZE:
-            if high - low > ONE_MILLISECOND:
+            # The left half is one millisecond wider than half the window, so only a window wider
+            # than two milliseconds splits into strictly smaller halves.
+            if high - low > 2 * ONE_MILLISECOND:
                 middle = low + (high - low) / 2
                 pending.append((middle, high))
                 pending.append((low, middle + ONE_MILLISECOND))
                 safe_point()
                 continue
-            # More conversations than a page share one millisecond, so only page numbers reach them.
+            # More conversations than a page share the same few milliseconds, so only page numbers reach them.
             rows = list_window(low, high, True)
         yield rows
 
