@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -288,6 +289,20 @@ class TestDeliverEvaluation(APIBaseTest):
 
         assert RecordingTransport.sends == []
         assert outcome.sent == 0
+
+    def test_every_message_links_to_the_alert_page_the_request_names(self) -> None:
+        url = "https://app.example.com/project/7/logs/alerts/legacy-1"
+
+        with (
+            patch(f"{_MODULE}.posthoganalytics.feature_enabled", return_value=True),
+            patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
+            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(SLACK)]),
+            patch(f"{_MODULE}.DatabaseThreadStore"),
+            patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}),
+        ):
+            deliver_evaluation(replace(_request(self.team.id), source_alert_url=url))
+
+        assert [m.alert_url for _, m in RecordingTransport.sends] == [url]
 
     def test_an_evaluation_that_announced_nothing_sends_nothing(self) -> None:
         outcome = self._run(None, {FIRING_EVENT: [_group(SLACK)]})
