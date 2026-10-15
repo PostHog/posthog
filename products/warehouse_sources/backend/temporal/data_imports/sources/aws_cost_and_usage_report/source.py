@@ -1,8 +1,36 @@
-from typing import cast
+from typing import Optional, cast
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+from products.warehouse_sources.backend.facade.source_config import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_and_usage_report.aws_cost_and_usage_report import (
+    ERROR_PREFIX,
+    VALIDATION_ERROR_MESSAGES,
+    WRONG_REGION_CODES,
+    WRONG_REGION_MESSAGE,
+    aws_cost_and_usage_report_source,
+    validate_credentials as validate_cost_and_usage_report_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_and_usage_report.settings import (
+    ENDPOINT_DESCRIPTIONS,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awscostandusagereport import (
     AwsCostAndUsageReportSourceConfig,
 )
@@ -11,17 +39,165 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsCostAndUsageReportSource(SimpleSource[AwsCostAndUsageReportSourceConfig]):
+    codebase_detection = detect(
+        npm=("@aws-sdk/client-bcm-data-exports", "@aws-sdk/client-cost-and-usage-report-service"),
+        cargo=("aws-sdk-bcmdataexports", "aws-sdk-costandusagereport"),
+        go=(
+            "github.com/aws/aws-sdk-go-v2/service/bcmdataexports",
+            "github.com/aws/aws-sdk-go-v2/service/costandusagereportservice",
+        ),
+        maven=("software.amazon.awssdk:bcmdataexports", "software.amazon.awssdk:costandusagereport"),
+        rubygems=("aws-sdk-bcmdataexports", "aws-sdk-costandusagereportservice"),
+    )
+
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.aws.amazon.com/cur/latest/userguide/dataexports-export-delivery.html"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AWSCOSTANDUSAGEREPORT
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        errors: dict[str, str | None] = {
+            f"{ERROR_PREFIX}: {code}": message for code, message in VALIDATION_ERROR_MESSAGES.items()
+        }
+        errors.update({f"{ERROR_PREFIX}: {code}": WRONG_REGION_MESSAGE for code in WRONG_REGION_CODES})
+        errors["Enter the first billing period as YYYY-MM"] = (
+            "The first billing period on the source is not in YYYY-MM form. Fix it and retry the sync."
+        )
+        return errors
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_and_usage_report.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,
+        )
+
+        return CANONICAL_DESCRIPTIONS
+
+    def get_schemas(
+        self,
+        config: AwsCostAndUsageReportSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=ENDPOINT_DESCRIPTIONS)
+
+    def validate_credentials(
+        self,
+        config: AwsCostAndUsageReportSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        return validate_cost_and_usage_report_credentials(
+            config.aws_access_key_id,
+            config.aws_secret_access_key,
+            config.aws_session_token,
+            config.aws_region,
+            config.bucket,
+            config.prefix,
+            config.export_name,
+            config.first_billing_period,
+        )
+
+    def source_for_pipeline(self, config: AwsCostAndUsageReportSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        return aws_cost_and_usage_report_source(
+            aws_access_key_id=config.aws_access_key_id,
+            aws_secret_access_key=config.aws_secret_access_key,
+            aws_session_token=config.aws_session_token,
+            aws_region=config.aws_region,
+            bucket=config.bucket,
+            prefix=config.prefix,
+            export_name=config.export_name,
+            first_billing_period=config.first_billing_period,
+            logger=inputs.logger,
+        )
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.AWSCOSTANDUSAGEREPORT,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
-            label="Amazon Web Services (AWS Cost and Usage Report)",
+            label="AWS Cost and Usage Report",
+            caption="""Sync the line items of an AWS Data Exports export (Cost and Usage Report 2.0 or FOCUS) from its S3 bucket into the PostHog Data warehouse.
+
+Create the export in the AWS Billing console under **Data Exports**, delivered to S3 as Parquet or gzip CSV. Then create an IAM user or role with `s3:ListBucket` on the bucket and `s3:GetObject` on the export's prefix, and paste its access key ID and secret access key.
+
+AWS rewrites a whole billing period on each delivery and restates the previous month for up to two weeks after it ends, so every sync rebuilds the table from the latest delivery of each billing period. Set a first billing period to limit how many months each sync reads.""",
             iconPath="/static/services/aws_cost_and_usage_report.png",
-            fields=cast(list[FieldType], []),
-            unreleasedSource=True,
+            docsUrl="https://posthog.com/docs/cdp/sources/aws-cost-and-usage-report",
+            releaseStatus=ReleaseStatus.ALPHA,
+            keywords=["aws", "cur", "finops", "cloud spend", "data exports", "focus"],
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="aws_access_key_id",
+                        label="AWS access key ID",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="AKIA...",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="aws_secret_access_key",
+                        label="AWS secret access key",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="aws_session_token",
+                        label="AWS session token (only for temporary credentials)",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=False,
+                        placeholder="",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="aws_region",
+                        label="Bucket region",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="us-east-1",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="bucket",
+                        label="S3 bucket",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="my-billing-exports",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="prefix",
+                        label="S3 path prefix (as set on the export, empty when none)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="billing/cur",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="export_name",
+                        label="Export name",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="my-cur-export",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="first_billing_period",
+                        label="First billing period to sync (YYYY-MM, empty syncs every period in the bucket)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="2024-01",
+                        secret=False,
+                    ),
+                ],
+            ),
         )
