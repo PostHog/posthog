@@ -17,6 +17,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertSnapshot,
     PlatformConfigurationSnapshot,
     SourceCorrespondence,
+    SourceKind,
 )
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.logic.platform_reads import instance_view
@@ -79,11 +80,10 @@ def start_firing(configuration_id: UUID, *, team_id: int, at: datetime) -> None:
     )
 
 
-def set_state(configuration_id: UUID, *, team_id: int, state: str) -> None:
-    """Put a configuration's ungrouped instance in a state, as a check outside the test can leave it."""
-    PlatformAlert.objects.update_or_create(
-        team_id=team_id, configuration_id=configuration_id, grouping_key="", defaults={"state": state}
-    )
+def set_check_status(configuration_id: UUID, check_status: str) -> None:
+    """Mark a configuration's checks as failing or not, as checks outside the test can leave it."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(check_status=check_status)
 
 
 def record_check(
@@ -101,6 +101,7 @@ def record_check(
         [
             PlatformAlertEventRow(
                 team_id=team_id,
+                source_kind=SourceKind.LOGS.value,
                 configuration_id=configuration_id,
                 alert_id=configuration_id,
                 grouping_key="",

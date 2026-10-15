@@ -2912,7 +2912,7 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
     def test_timeline_shows_a_reset_of_a_platform_broken_alert(self) -> None:
         with team_scope(self.team.id):
             copy_id = platform_testing.copy_of(self.alert.id).id
-            platform_testing.set_state(copy_id, team_id=self.team.id, state="broken")
+            platform_testing.set_check_status(copy_id, "broken")
         platform_testing.record_check(
             copy_id,
             team_id=self.team.id,
