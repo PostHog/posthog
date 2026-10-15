@@ -180,5 +180,5 @@ class CrispSource(ResumableSource[CrispSourceConfig, CrispResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
         )

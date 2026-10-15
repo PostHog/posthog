@@ -98,7 +98,7 @@ class YoutubeDataSource(ResumableSource[YoutubeDataSourceConfig, YoutubeDataResu
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_schemas(

@@ -135,7 +135,7 @@ class WhopSource(
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             webhookSetupCaption=(
                 "PostHog tries to register a Whop webhook for you using your API key, which needs the "
                 "`developer:manage_webhook` permission.\n\n"

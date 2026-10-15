@@ -137,5 +137,5 @@ class TeachableSource(ResumableSource[TeachableSourceConfig, TeachableResumeConf
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
         )

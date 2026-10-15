@@ -133,5 +133,5 @@ class ApitallySource(ResumableSource[ApitallySourceConfig, ApitallyResumeConfig]
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
         )

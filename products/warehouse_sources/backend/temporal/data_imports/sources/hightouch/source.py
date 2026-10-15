@@ -142,5 +142,5 @@ You can create an API key in Hightouch under **Settings → API keys**. Only wor
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
         )

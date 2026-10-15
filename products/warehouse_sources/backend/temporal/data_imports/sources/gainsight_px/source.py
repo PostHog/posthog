@@ -168,5 +168,5 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
         )

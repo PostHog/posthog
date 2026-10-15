@@ -204,5 +204,5 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
         )

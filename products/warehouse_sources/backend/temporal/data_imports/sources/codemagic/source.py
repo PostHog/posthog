@@ -79,7 +79,7 @@ Supported tables:
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

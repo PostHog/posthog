@@ -59,7 +59,7 @@ class TailscaleSource(ResumableSource[TailscaleSourceConfig, TailscaleResumeConf
             name=ExternalDataSourceType.TAILSCALE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Tailscale",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["vpn", "wireguard", "tailnet"],
             caption="""Sync your Tailscale devices, users, keys, and configuration audit logs into the PostHog Data warehouse.
 

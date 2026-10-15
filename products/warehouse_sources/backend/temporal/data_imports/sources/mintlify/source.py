@@ -132,5 +132,5 @@ class MintlifySource(ResumableSource[MintlifySourceConfig, MintlifyResumeConfig]
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
         )

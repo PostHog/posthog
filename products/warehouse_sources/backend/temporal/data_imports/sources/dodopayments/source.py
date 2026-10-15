@@ -196,5 +196,5 @@ class DodoPaymentsSource(ResumableSource[DodoPaymentsSourceConfig, DodoPaymentsR
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
         )

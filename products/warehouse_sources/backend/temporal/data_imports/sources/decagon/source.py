@@ -67,7 +67,7 @@ You can find your API key on the **Developer** page of the [Decagon dashboard](h
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
