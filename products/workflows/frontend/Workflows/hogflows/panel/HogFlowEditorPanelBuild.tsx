@@ -368,6 +368,19 @@ export function HogFlowEditorPanelBuild({
     const delayNodes = hideIfRowScoped(DELAY_NODES_TO_SHOW)
     const logicNodes = hideIfRowScoped(LOGIC_NODES_TO_SHOW)
 
+    const aiNodes: CreateActionType[] = [
+        ...(featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] ? [AI_TASK_ACTION_NODE] : []),
+        // Scouts belong to the project's main environment, and the server refuses the step elsewhere.
+        // Require currentTeam explicitly: while it's still loading, both sides of the id comparison are
+        // undefined, which would otherwise pass.
+        ...(featureFlags[FEATURE_FLAGS.WORKFLOW_RUN_SCOUT_ACTION] &&
+        !!currentTeam &&
+        currentTeam.id === currentTeam.project_id
+            ? [RUN_SCOUT_ACTION_NODE]
+            : []),
+        ...(featureFlags[FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION] ? [CLASSIFY_ACTION_NODE] : []),
+    ]
+
     return (
         <div
             className={`flex flex-col overflow-y-auto${className ? ` ${className}` : ''}`}
@@ -385,32 +398,6 @@ export function HogFlowEditorPanelBuild({
                     <HogFlowEditorToolbarNode
                         key="push-notifications"
                         action={PUSH_NOTIFICATION_ACTION_NODE}
-                        onActionSelect={onActionSelect}
-                    />
-                )}
-                {featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] && (
-                    <HogFlowEditorToolbarNode
-                        key="ai-task"
-                        action={AI_TASK_ACTION_NODE}
-                        onActionSelect={onActionSelect}
-                    />
-                )}
-                {/* Scouts belong to the project's main environment, and the server refuses the step elsewhere.
-                Require currentTeam explicitly: while it's still loading, both sides of the id comparison are
-                undefined, which would otherwise pass. */}
-                {featureFlags[FEATURE_FLAGS.WORKFLOW_RUN_SCOUT_ACTION] &&
-                    !!currentTeam &&
-                    currentTeam.id === currentTeam.project_id && (
-                        <HogFlowEditorToolbarNode
-                            key="run-scout"
-                            action={RUN_SCOUT_ACTION_NODE}
-                            onActionSelect={onActionSelect}
-                        />
-                    )}
-                {featureFlags[FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION] && (
-                    <HogFlowEditorToolbarNode
-                        key="classify"
-                        action={CLASSIFY_ACTION_NODE}
                         onActionSelect={onActionSelect}
                     />
                 )}
@@ -448,6 +435,18 @@ export function HogFlowEditorPanelBuild({
                     />
                 ))}
             </HogFlowEditorToolbarSection>
+
+            {aiNodes.length > 0 && (
+                <HogFlowEditorToolbarSection title="AI">
+                    {aiNodes.map((action, index) => (
+                        <HogFlowEditorToolbarNode
+                            key={`${action.type}-${index}`}
+                            action={action}
+                            onActionSelect={onActionSelect}
+                        />
+                    ))}
+                </HogFlowEditorToolbarSection>
+            )}
 
             {registeredCategories.map((cat) => (
                 <HogFlowEditorToolbarSection key={cat.label} title={cat.label}>
