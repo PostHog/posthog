@@ -12,17 +12,9 @@
             "type": "string"
         },
         "sentiment": {
-            "anyOf": [
-                {
-                    "description": "* `positive` - positive\n* `negative` - negative",
-                    "enum": ["positive", "negative"],
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.\n\n* `positive` - positive\n* `negative` - negative"
+            "description": "The report rating: 'positive' (thumbs up) or 'negative' (thumbs down).",
+            "enum": ["positive", "negative"],
+            "type": "string"
         }
     },
     "required": ["id", "sentiment", "note"],

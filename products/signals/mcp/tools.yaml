@@ -243,6 +243,8 @@ tools:
             id:
                 aliases:
                     - report_id
+            sentiment:
+                input_schema: SignalReportFeedbackSentimentSchema
             note:
                 description: The person's context for why the report was or was not useful, up to 4000 characters.
                 input_schema: SignalReportFeedbackNoteSchema

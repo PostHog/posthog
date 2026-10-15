@@ -1700,6 +1700,11 @@
             "maxLength": 4000,
             "description": "The person's context for why the report was or was not useful, up to 4000 characters."
         },
+        "SignalReportFeedbackSentimentSchema": {
+            "type": "string",
+            "enum": ["positive", "negative"],
+            "description": "The report rating: 'positive' (thumbs up) or 'negative' (thumbs down)."
+        },
         "TaskAgentCreateSchema": {
             "type": "object",
             "properties": {
