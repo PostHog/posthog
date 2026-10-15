@@ -10920,6 +10920,7 @@ dependencies = [
  "hkdf",
  "hmac 0.12.1",
  "md5",
+ "memchr",
  "moka",
  "posthog-replay-anonymizer",
  "rand 0.8.5",

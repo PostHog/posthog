@@ -25,6 +25,7 @@ governor = { workspace = true, optional = true }
 hkdf = "0.12"
 hmac = { workspace = true }
 md5 = "0.8"
+memchr = "2"
 moka = { workspace = true, optional = true }
 posthog-replay-anonymizer = { path = "../../replay-anonymizer", default-features = false }
 rand = { workspace = true, optional = true }
