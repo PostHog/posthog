@@ -85,7 +85,10 @@ For Google Ads landing pages, enable `landing_page_stats` and wait for its first
 
 `marketing-analytics-search-recommendations` enables read-only suggestions above the main Search performance table.
 It is independent of the source onboarding and organic search rollout flags.
-Suggestions use the report's existing rows and comparison period; they do not issue extra queries or change campaigns.
+Suggestions use the report's filters and comparison period and do not change campaigns.
+The interface and the read-only `marketing-analytics-search-recommendations` MCP tool call the same project-scoped API endpoint.
+The endpoint executes the search report with the caller's permissions, then applies the rules in `products/marketing_analytics/backend/services/search_recommendations.py`.
+It is protected by the same feature flag, read scope, query throttles, and concurrency limits as other marketing queries.
 The conversion source can be a single loaded PostHog goal or platform-reported conversions.
 PostHog is the default when its conversion columns are enabled, and incomplete goal data never silently falls back to platform conversions.
 

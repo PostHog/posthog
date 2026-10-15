@@ -210,3 +210,16 @@ tools:
             integrations, unmatched custom sources, and total spend at risk. Use when the user asks why their events
             appear in 'non-integrated', or why UTMs are not matching the ad platform data.
         feature_flag: marketing-analytics-mcp
+    marketing-analytics-search-recommendations:
+        operation: marketing_analytics_search_recommendations_create
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get search performance suggestions
+        description: >
+            Compare search report rows with the previous period and return up to five suggestions
+            to investigate, with the observed metrics. Choose one PostHog conversion goal or
+            ad platform conversions. Does not change campaigns or infer profitability.
+        feature_flag: marketing-analytics-search-recommendations

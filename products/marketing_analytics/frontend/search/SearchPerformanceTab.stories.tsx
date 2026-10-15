@@ -415,6 +415,24 @@ export const Recommendations: Story = {
                 ...MOCKS,
                 post: {
                     ...MOCKS.post,
+                    '/api/projects/:team_id/marketing_analytics/search_recommendations/': () => [
+                        200,
+                        {
+                            result: {
+                                goal_id: null,
+                                warning: null,
+                                recommendations: [
+                                    {
+                                        row: ROWS[0],
+                                        kind: 'lower_organic_ctr',
+                                        current: ROWS[0].clicks / ROWS[0].impressions,
+                                        previous: (2 * ROWS[0].clicks) / ROWS[0].impressions,
+                                    },
+                                    { row: ROWS[1], kind: 'higher_cpa', current: 30, previous: 15 },
+                                ],
+                            },
+                        },
+                    ],
                     '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': () => [
                         200,
                         {

@@ -33,7 +33,6 @@ import {
 } from '~/queries/schema/schema-general'
 
 import { searchPerformanceRowKey } from './searchPerformance'
-import { SearchRecommendation, searchRecommendations } from './searchRecommendationRules'
 
 export interface SearchPerformanceTableLogicProps {
     query: MarketingAnalyticsSearchQuery
@@ -77,7 +76,6 @@ export interface searchPerformanceTableLogicValues extends Pick<
     recommendationSource: string | null
     recommendationGoalId: string | null
     recommendationsEnabled: boolean
-    recommendations: SearchRecommendation[]
 }
 
 export interface searchPerformanceTableLogicActions extends Pick<dataNodeLogicActions, 'loadData'> {
@@ -141,43 +139,6 @@ export const searchPerformanceTableLogic: LogicWrapper<searchPerformanceTableLog
                         : source
                           ? (goals.find((goal) => goal.id === source)?.id ?? null)
                           : (goals[0]?.id ?? null),
-            ],
-            recommendations: [
-                (s) => [
-                    s.recommendationsEnabled,
-                    s.rows,
-                    s.responseLoading,
-                    s.responseError,
-                    s.conversionsLoading,
-                    s.conversionsError,
-                    s.conversionsResponse,
-                    s.recommendationGoalId,
-                    s.conversionsEnabled,
-                    s.recommendationSource,
-                ],
-                (
-                    enabled,
-                    rows,
-                    loading,
-                    error,
-                    conversionsLoading,
-                    conversionsError,
-                    conversionsResponse,
-                    goalId,
-                    posthogEnabled,
-                    source
-                ): SearchRecommendation[] =>
-                    !enabled ||
-                    loading ||
-                    error ||
-                    (posthogEnabled && source !== 'platform' && !goalId) ||
-                    (goalId &&
-                        (conversionsLoading ||
-                            conversionsError ||
-                            !conversionsResponse ||
-                            conversionsResponse.posthogConversionsWarning))
-                        ? []
-                        : searchRecommendations(rows, goalId),
             ],
             baseDataNodeProps: [
                 (_, p) => [p.query, p.queryKey],

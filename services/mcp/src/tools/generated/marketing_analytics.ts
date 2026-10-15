@@ -301,6 +301,39 @@ const marketingAnalyticsUtmAudit = (): ToolBase<
     },
 })
 
+const MarketingAnalyticsSearchRecommendationsSchema = () => {
+    const MarketingAnalyticsSearchRecommendationsCreateBody =
+        orvalSchemas.MarketingAnalyticsSearchRecommendationsCreateBody()
+    return MarketingAnalyticsSearchRecommendationsCreateBody
+}
+
+const marketingAnalyticsSearchRecommendations = (): ToolBase<
+    ReturnType<typeof MarketingAnalyticsSearchRecommendationsSchema>,
+    Schemas.SearchRecommendationsResponse
+> => ({
+    name: 'marketing-analytics-search-recommendations',
+    schema: MarketingAnalyticsSearchRecommendationsSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof MarketingAnalyticsSearchRecommendationsSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.goal_id !== undefined) {
+            body['goal_id'] = params.goal_id
+        }
+        const result = await context.api.request<Schemas.SearchRecommendationsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/search_recommendations/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'marketing-analytics-conversion-goals': marketingAnalyticsConversionGoals,
     'marketing-analytics-create-conversion-goal': marketingAnalyticsCreateConversionGoal,
@@ -313,4 +346,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'marketing-analytics-suggest-utm-mappings': marketingAnalyticsSuggestUtmMappings,
     'marketing-analytics-update-conversion-goal': marketingAnalyticsUpdateConversionGoal,
     'marketing-analytics-utm-audit': marketingAnalyticsUtmAudit,
+    'marketing-analytics-search-recommendations': marketingAnalyticsSearchRecommendations,
 }

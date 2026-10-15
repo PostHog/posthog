@@ -106,11 +106,10 @@ describe('searchPerformanceTableLogic', () => {
         logic = searchPerformanceTableLogic({ query, queryKey: 'recommendations-test' })
         logic.mount()
         await waitFor(() => expect(logic.values.responseLoading).toBe(false))
-        expect(logic.values.recommendations).toEqual([])
+        expect(logic.values.recommendationsEnabled).toBe(false)
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_RECOMMENDATIONS]: true,
         })
-        expect(logic.values.recommendations).toEqual([])
         pending.resolve({
             posthogConversionGoals: [{ id: 'signup', name: 'Signups' }],
             results: [
@@ -130,11 +129,10 @@ describe('searchPerformanceTableLogic', () => {
         })
         await waitFor(() => expect(logic.values.conversionsLoading).toBe(false))
         expect(logic.values.recommendationGoalId).toBe('signup')
-        expect(logic.values.recommendations).toEqual([])
         logic.actions.setRecommendationSource('platform')
-        expect(logic.values.recommendations).toMatchObject([{ kind: 'higher_cpa', current: 20, previous: 5 }])
+        expect(logic.values.recommendationGoalId).toBeNull()
         featureFlagLogic.actions.setFeatureFlags([], {})
-        expect(logic.values.recommendations).toEqual([])
+        expect(logic.values.recommendationsEnabled).toBe(false)
     })
 
     it.each(['success', 'failure'] as const)(
