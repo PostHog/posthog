@@ -6,9 +6,11 @@
 #   grafana-token us               # Show if US token exists
 #   grafana-token eu               # Show if EU token exists
 #   grafana-token dev              # Show if dev token exists
+#   grafana-token internal         # Show if internal token exists
 #   grafana-token us <token>       # Set prod-us token
 #   grafana-token eu <token>       # Set prod-eu token
 #   grafana-token dev <token>      # Set dev token
+#   grafana-token internal <token> # Set internal token
 #
 # Note: This script requires macOS (uses Keychain).
 # On Linux, set the GRAFANA_SERVICE_ACCOUNT_TOKEN environment variable instead.
@@ -43,19 +45,27 @@ show_status() {
     else
         echo "  dev:           not configured"
     fi
+
+    if security find-generic-password -a "$USER" -s "grafana-service-account-token-internal" &>/dev/null; then
+        echo "  internal:      configured"
+    else
+        echo "  internal:      not configured"
+    fi
 }
 
 show_usage() {
-    echo "Usage: grafana-token [us|eu|dev] [token]"
+    echo "Usage: grafana-token [us|eu|dev|internal] [token]"
     echo ""
     echo "Commands:"
     echo "  (no args)        Show token status for all regions"
     echo "  us               Show if US token is configured"
     echo "  eu               Show if EU token is configured"
     echo "  dev              Show if dev token is configured"
+    echo "  internal         Show if internal token is configured"
     echo "  us <token>       Set prod-us token"
     echo "  eu <token>       Set prod-eu token"
     echo "  dev <token>      Set dev token"
+    echo "  internal <token> Set internal token"
     echo ""
     echo "After setting a token, restart your MCP client to pick it up."
     echo ""
@@ -69,7 +79,7 @@ case "${1:-}" in
     "")
         show_status
         ;;
-    us|eu|dev)
+    us|eu|dev|internal)
         REGION="$1"
         SERVICE="grafana-service-account-token-$REGION"
 
@@ -109,7 +119,7 @@ case "${1:-}" in
         show_usage
         ;;
     *)
-        echo "Error: Invalid region '$1'. Must be 'us', 'eu', or 'dev'." >&2
+        echo "Error: Invalid region '$1'. Must be 'us', 'eu', 'dev', or 'internal'." >&2
         echo ""
         show_usage
         exit 1
