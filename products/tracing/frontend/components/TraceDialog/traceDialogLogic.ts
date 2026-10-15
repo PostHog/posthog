@@ -281,7 +281,7 @@ export interface traceDialogLogicMeta {
             spanTree: TraceDialogTree,
             collapsedSpanIds: Set<string>,
             fullChildListSpanIds: Set<string>,
-            openChainIds: any,
+            openChainIds: Set<string>,
             trace: TraceLinkParams | null
         ) => TraceDialogRow[]
         flatSpans: (spanRows: TraceDialogRow[]) => SpanNode[]
