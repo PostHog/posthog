@@ -1316,6 +1316,11 @@ class TestProperty(BaseTest):
                 "foobars.properties.`$feature/test` = 'control' OR foobars.properties.`$feature/test` = 'test'",
             ),
             (
+                "is_not",
+                ["control", "test"],
+                "foobars.properties.`$feature/test` != 'control' AND foobars.properties.`$feature/test` != 'test'",
+            ),
+            (
                 "not_in",
                 ["control", "test"],
                 "foobars.properties.`$feature/test` NOT IN ('control', 'test')",
