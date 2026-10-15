@@ -543,22 +543,32 @@ describe('BI editor query generation', () => {
         expect(result.query).toContain(`properties.$browser AS ${seriesBreakdownColumn}`)
     })
 
-    it.each([100, 1000, 10000, 50000] as const)(
-        'maps every BI row and column dimension to pivot table axes with limit %i',
-        (limit) => {
+    it.each([
+        ...([100, 1000, 10000, 50000] as const).map((limit) => ({ limit, repeated: false })),
+        { limit: 100 as const, repeated: true },
+    ])(
+        'maps every BI row and column dimension to pivot table axes with limit $limit (repeated: $repeated)',
+        ({ limit, repeated }) => {
+            const secondRow = repeated ? eventField : timestampField
+            const secondColumn = repeated ? browserField : countryField
             const result = buildBIQuery({
                 source: { table: 'events' },
                 chartType: ChartDisplayType.TwoDimensionalHeatmap,
-                rows: [eventField, timestampField],
-                columns: [browserField, countryField],
+                rows: [eventField, secondRow],
+                columns: [browserField, secondColumn],
                 values: [{ field: revenueField, aggregation: 'sum' }],
                 filters: [],
                 limit,
             })
 
-            expect(result?.query).toContain('event AS bi_row_event, timestamp AS bi_row_timestamp_2')
+            expect(result?.query).toContain(
+                `event AS bi_row_event, ${secondRow.expression} AS bi_row_${secondRow.name}_2`
+            )
             expect(result?.query).toContain('properties.$browser AS bi_column_browser')
-            expect(result?.query).toContain('properties.$geoip_country_name AS bi_column_country_2')
+            expect(result?.query).toContain(`${secondColumn.expression} AS bi_column_${secondColumn.name}_2`)
+            expect(result?.query).toContain(
+                `GROUP BY GROUPING SETS ((bi_row_event, bi_row_${secondRow.name}_2, bi_column_browser, bi_column_${secondColumn.name}_2)`
+            )
             expect(result?.query).toMatch(/toJSONString\(tuple\(.*\)\) AS bi_rows/)
             expect(result?.query).toMatch(/toJSONString\(tuple\(.*\)\) AS bi_columns/)
             expect(result?.query).toContain(`LIMIT ${limit}`)
@@ -567,8 +577,8 @@ describe('BI editor query generation', () => {
                     xAxisColumn: 'bi_columns',
                     yAxisColumn: 'bi_rows',
                     valueColumn: 'sum_revenue',
-                    xAxisLabel: 'browser / country',
-                    yAxisLabel: 'event / timestamp',
+                    xAxisLabel: `browser / ${secondColumn.name}`,
+                    yAxisLabel: `event / ${secondRow.name}`,
                 },
             })
         }
