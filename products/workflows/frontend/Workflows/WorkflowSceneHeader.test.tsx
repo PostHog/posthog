@@ -109,7 +109,6 @@ describe('WorkflowSceneHeader', () => {
     })
 
     it('leaves Quick start out of the header even for a new organization with setup tasks left', () => {
-        organizationLogic.mount()
         act(() => {
             organizationLogic.actions.loadCurrentOrganizationSuccess({
                 ...MOCK_DEFAULT_ORGANIZATION,
