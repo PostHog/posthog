@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Exists, OuterRef, QuerySet
+from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -522,9 +523,11 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["experiment", "fingerprint"],
+                models.F("experiment"),
+                KeyTextTransform("uuid", "metric"),
+                models.F("fingerprint"),
                 condition=models.Q(status__in=["pending", "in_progress"]),
-                name="unique_active_recalculation_per_experiment_metric",
+                name="unique_active_backfill_per_metric_key",
             ),
         ]
         db_table = "posthog_experimenttimeseriesrecalculation"

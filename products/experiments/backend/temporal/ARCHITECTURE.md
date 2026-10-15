@@ -124,6 +124,8 @@ A successful daily write then takes over the recalculation's row, and the next r
 A failed daily write leaves a completed row under another fingerprint in place, because it has no result to replace it with.
 The calc activity's write keeps its lock order and its terminal-run guard (see [cancellation and result-write protection](../../../../docs/internal/experiment-metric-recalculation.md)).
 
+Backfill requests lock the experiment while checking for an active job by metric UUID, deleting its daily results, and creating the new job in one transaction. Failed job creation preserves the existing results. The active-job unique index includes the metric UUID as well as the experiment and calculation key, so equivalent metrics can backfill independently. Keeping the key in the index allows existing jobs for one UUID under different keys to coexist during a rolling deployment; the locked UUID lookup prevents new requests from adding another job for that metric.
+
 ### Counters are derived, not stored
 
 `completed_metrics` and `failed_metrics` aren't columns on the recalc row. They're computed at read time from `ExperimentMetricResult` rows (`status=COMPLETED` for completed, `status=FAILED` plus discovery-step failures from `metric_errors` for failed). This eliminates a class of bug: when Temporal retries an activity, there's no counter to double-increment. The only thing that matters is whether the result row exists.

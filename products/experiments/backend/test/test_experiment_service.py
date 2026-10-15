@@ -12,6 +12,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from django.db import IntegrityError
 from django.db.models import F
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -66,6 +67,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
+    ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
@@ -5542,7 +5544,10 @@ class TestExperimentService(APIBaseTest):
 
         assert message in str(ctx.exception)
 
-    def test_request_timeseries_recalculation_deletes_old_results(self):
+    @parameterized.expand([("created", False), ("creation_failed", True)])
+    def test_request_timeseries_recalculation_deletes_old_results_only_when_created(
+        self, _name: str, creation_fails: bool
+    ) -> None:
         self._create_flag(key="ts-delete-old")
         service = self._service()
         now = timezone.now()
@@ -5566,9 +5571,54 @@ class TestExperimentService(APIBaseTest):
         )
         assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 1
 
-        service.request_timeseries_recalculation(experiment, metric_uuid="m1")
+        if creation_fails:
+            with (
+                patch.object(
+                    ExperimentTimeseriesRecalculation.objects, "create", side_effect=IntegrityError("insert failed")
+                ),
+                self.assertRaises(IntegrityError),
+            ):
+                service.request_timeseries_recalculation(experiment, metric_uuid="m1")
+        else:
+            service.request_timeseries_recalculation(experiment, metric_uuid="m1")
 
-        assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 0
+        assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == int(
+            creation_fails
+        )
+        assert ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).count() == int(
+            not creation_fails
+        )
+
+    @parameterized.expand([("inline", False), ("saved", True)])
+    def test_request_timeseries_recalculation_distinguishes_equivalent_metrics(self, _name: str, saved: bool) -> None:
+        self._create_flag(key="ts-equivalent")
+        service = self._service()
+        second_metric = {**self._DEFAULT_METRIC, "uuid": "m2"}
+        experiment = service.create_experiment(
+            name="Equivalent metrics",
+            feature_flag_key="ts-equivalent",
+            start_date=timezone.now(),
+            metrics=[self._DEFAULT_METRIC] if saved else [self._DEFAULT_METRIC, second_metric],
+            allow_unknown_events=True,
+        )
+        if saved:
+            saved_metric = ExperimentSavedMetric.objects.create(
+                team=self.team, name="Equivalent metric", query=second_metric
+            )
+            ExperimentToSavedMetric.objects.create(
+                experiment=experiment, saved_metric=saved_metric, metadata={"type": "secondary"}
+            )
+
+        first = service.request_timeseries_recalculation(experiment, metric_uuid="m1")
+        second = service.request_timeseries_recalculation(experiment, metric_uuid="m2")
+
+        assert first["fingerprint"] == second["fingerprint"]
+        assert first["id"] != second["id"]
+        assert (first["metric_uuid"], second["metric_uuid"]) == ("m1", "m2")
+        assert not second["is_existing"]
+        assert service.request_timeseries_recalculation(experiment, metric_uuid="m1")["id"] == first["id"]
+        assert service.request_timeseries_recalculation(experiment, metric_uuid="m2")["id"] == second["id"]
+        assert ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).count() == 2
 
     # ------------------------------------------------------------------
     # Experiment list/querying
