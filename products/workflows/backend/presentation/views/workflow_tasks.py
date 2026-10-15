@@ -161,12 +161,13 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
     )
 
     output_field_descriptions = serializers.DictField(
-        child=serializers.CharField(max_length=MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH),
+        child=serializers.CharField(max_length=MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH, allow_blank=True),
         required=False,
         allow_null=True,
         help_text=(
             "What the agent should put in each output field, as {name: instruction}. Each name must also be in "
-            "`output_fields`. The agent sees each instruction as the field's JSON Schema description and in its prompt."
+            "`output_fields`. The agent sees each instruction as the field's JSON Schema description and in its prompt. "
+            "Whitespace runs collapse to one space, and a blank instruction is dropped."
         ),
     )
 

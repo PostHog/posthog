@@ -192,3 +192,25 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
         serializer = WorkflowTaskCreateSerializer(data={"prompt": "look into the alert"})
 
         assert serializer.is_valid(), serializer.errors
+
+    @parameterized.expand(
+        [
+            ("blank_after_strip_is_dropped", " \n\t ", None),
+            ("inner_whitespace_is_collapsed", "ship\n\n  or\thold", "ship or hold"),
+        ]
+    )
+    def test_normalizes_output_field_descriptions(
+        self, _name: str, description: str, expected_description: str | None
+    ) -> None:
+        serializer = WorkflowTaskCreateSerializer(
+            data={
+                "prompt": "p",
+                "output_fields": {"verdict": "string"},
+                "output_field_descriptions": {"verdict": description},
+            }
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["output_fields"]["properties"]["verdict"].get("description") == (
+            expected_description
+        )

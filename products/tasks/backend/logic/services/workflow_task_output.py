@@ -30,7 +30,7 @@ def build_output_schema(fields: Mapping[str, str], descriptions: Mapping[str, st
         raise WorkflowTaskOutputFieldsInvalid("output_fields must name at least one field")
     if len(fields) > MAX_OUTPUT_FIELDS:
         raise WorkflowTaskOutputFieldsInvalid(f"output_fields allows at most {MAX_OUTPUT_FIELDS} fields")
-    descriptions = descriptions or {}
+    descriptions = _normalized_descriptions(descriptions or {})
     undeclared = sorted(set(descriptions) - set(fields))
     if undeclared:
         raise WorkflowTaskOutputFieldsInvalid(
@@ -54,6 +54,12 @@ def build_output_schema(fields: Mapping[str, str], descriptions: Mapping[str, st
         if name in descriptions:
             properties[name]["description"] = descriptions[name]
     return {"type": "object", "properties": properties, "required": list(properties)}
+
+
+def _normalized_descriptions(descriptions: Mapping[str, str]) -> dict[str, str]:
+    """One line per instruction, so each stays a single item in the prompt's field list."""
+    collapsed = {name: " ".join(description.split()) for name, description in descriptions.items()}
+    return {name: description for name, description in collapsed.items() if description}
 
 
 def output_fields_sentence(output_schema: Mapping[str, Any] | None) -> str | None:
