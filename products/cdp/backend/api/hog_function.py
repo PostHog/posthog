@@ -972,8 +972,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # Standard update
         res: HogFunction = super().update(instance, validated_data)
 
-        if res.enabled and res.status.get("state", 0) == HogFunctionState.DISABLED.value:
-            res.set_function_status(HogFunctionState.DEGRADED.value)
+        transaction.on_commit(res.reset_disabled_status)
 
         return res
 
