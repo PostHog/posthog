@@ -978,7 +978,7 @@ def _is_liquid(item: Any) -> bool:
 
 def _adds_liquid_templating(submitted: Any, stored_values: list[Any]) -> bool:
     return _is_liquid(submitted) and not any(
-        _is_liquid(stored) and stored.get("value") == submitted.get("value") for stored in stored_values
+        isinstance(stored, dict) and stored.get("value") == submitted.get("value") for stored in stored_values
     )
 
 
@@ -1038,8 +1038,8 @@ class InputsSerializer(serializers.DictField):
 
             if schema.get("templating") is False and isinstance(value, dict):
                 # Liquid would render event data into an input the template keeps literal, such as AI
-                # instructions. The worker runs it literally anyway, so Hog and an unchanged stored Liquid
-                # value are dropped instead: refusing those would leave a saved row impossible to edit.
+                # instructions. The worker runs it literally anyway, so Hog, and Liquid on a value already
+                # stored, are dropped instead: refusing those would leave a saved row impossible to edit.
                 stored_values = [
                     stored.get(key) for stored in self.context.get("stored_inputs") or [] if isinstance(stored, dict)
                 ]

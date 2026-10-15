@@ -385,7 +385,8 @@ def _stored_input_variants(instance: Optional[HogFunction]) -> list[dict]:
     if instance is None:
         return []
     draft = instance.draft if isinstance(instance.draft, dict) else {}
-    return [inputs for inputs in (instance.inputs, draft.get("inputs")) if isinstance(inputs, dict)]
+    variants = (instance.inputs, draft.get("inputs"), instance.encrypted_inputs, instance.draft_encrypted_inputs)
+    return [inputs for inputs in variants if isinstance(inputs, dict)]
 
 
 _AlertMarkers = tuple[frozenset[tuple[object, object]], frozenset[str]]

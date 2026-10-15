@@ -444,9 +444,10 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         [
             ("stored_live", [{"fields": LIQUID_FIELDS}]),
             ("stored_in_a_draft", [{}, {"fields": LIQUID_FIELDS}]),
+            ("stored_by_an_earlier_resend", [{"fields": {"value": LIQUID_FIELDS["value"]}}]),
         ]
     )
-    def test_input_without_templating_keeps_unchanged_stored_liquid_as_literal(self, _name, stored_inputs):
+    def test_input_without_templating_keeps_an_unchanged_stored_value_literal(self, _name, stored_inputs):
         validated = validate_inputs(
             LITERAL_FIELDS_SCHEMA, {"fields": LIQUID_FIELDS}, context_extra={"stored_inputs": stored_inputs}
         )

@@ -1728,7 +1728,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                         "existing_email_from": (self.context.get("existing_action_email_from") or {}).get(
                             data.get("id")
                         ),
-                        "stored_inputs": (self.context.get("existing_action_inputs") or {}).get(data.get("id")) or [],
+                        "stored_inputs": [
+                            *((self.context.get("existing_action_inputs") or {}).get(data.get("id")) or []),
+                            (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id")) or {},
+                        ],
                         # Request-scoped: a drip sequence's steps share senders, and the actions
                         # list validates one action at a time (mirrors _message_template_cache).
                         "email_integration_domain_cache": self.context.setdefault(
