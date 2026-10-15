@@ -82,7 +82,7 @@ The final summary retains the legacy PostHog results link alongside the offline 
 
 The temporary [Radu evals test workflow](../../.github/workflows/ci-radu-evals-test.yml) runs only `sql/eval_sql::eval_sql`, the suite currently enrolled in offline publishing.
 It has a manual `workflow_dispatch` trigger and a temporary label trigger limited to PR #114538 in `PostHog/posthog`.
-Before merging, add the `radu-evals-test` label to that PR to run `sql_pageviews_by_browser` with one trial as a publishing smoke test.
+Before merging, add the `radu-evals-test` label to that PR to run the full SQL suite with one trial per case.
 Pushes do not start another run; remove and re-add the label to test new commits.
 Remove the temporary label trigger after validating the pilot.
 Once the workflow is on `master`, open **Actions → Radu evals test → Run workflow**, choose a branch, and optionally supply a SQL case name substring and the number of trials per case.

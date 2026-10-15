@@ -141,7 +141,7 @@ jobs:
                   BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
                   LLM_GATEWAY_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_OFFLINE_EVALS_API_KEY }}
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-                  CASE_FILTER: ${{ github.event_name == 'pull_request' && 'sql_pageviews_by_browser' || inputs.case_filter }}
+                  CASE_FILTER: ${{ inputs.case_filter || '' }}
               run: |
                   python -m products.posthog_ai.eval_harness.harness sql/eval_sql::eval_sql \
                       --provider docker --max-sandboxes 1 --verbose \
