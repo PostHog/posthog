@@ -404,6 +404,18 @@ export function HogFlowEditorPanelBuild({
                 <HogFunctionTemplatesChooser onActionSelect={onActionSelect} />
             </HogFlowEditorToolbarSection>
 
+            {aiNodes.length > 0 && (
+                <HogFlowEditorToolbarSection title="AI">
+                    {aiNodes.map((action, index) => (
+                        <HogFlowEditorToolbarNode
+                            key={`${action.type}-${index}`}
+                            action={action}
+                            onActionSelect={onActionSelect}
+                        />
+                    ))}
+                </HogFlowEditorToolbarSection>
+            )}
+
             <HogFlowEditorToolbarSection title="Delays">
                 {delayNodes.map((action, index) => (
                     <HogFlowEditorToolbarNode
@@ -435,18 +447,6 @@ export function HogFlowEditorPanelBuild({
                     />
                 ))}
             </HogFlowEditorToolbarSection>
-
-            {aiNodes.length > 0 && (
-                <HogFlowEditorToolbarSection title="AI">
-                    {aiNodes.map((action, index) => (
-                        <HogFlowEditorToolbarNode
-                            key={`${action.type}-${index}`}
-                            action={action}
-                            onActionSelect={onActionSelect}
-                        />
-                    ))}
-                </HogFlowEditorToolbarSection>
-            )}
 
             {registeredCategories.map((cat) => (
                 <HogFlowEditorToolbarSection key={cat.label} title={cat.label}>
