@@ -138,9 +138,8 @@ from products.workflows.backend.facade.contracts import CohortDependentWorkflow,
 def _workflows_relying_on_cohort(cohort: Cohort) -> list[CohortDependentWorkflow]:
     # A cohort that includes this one as a criterion reads its membership, so a workflow on that cohort
     # also relies on this one. Load the project's cohort references in one query and walk them in memory.
-    project_id = cohort.team.project_id
     dependents: defaultdict[int, set[int]] = defaultdict(set)
-    for other in Cohort.objects.filter(team__project_id=project_id, deleted=False).only(
+    for other in Cohort.objects.filter(team__project_id=cohort.team.project_id, deleted=False).only(
         "id", "filters", "groups", "deleted"
     ):
         for dependency_id in extract_cohort_dependencies(other):
@@ -151,30 +150,27 @@ def _workflows_relying_on_cohort(cohort: Cohort) -> list[CohortDependentWorkflow
         for dependent_id in dependents[pending.pop()] - cohort_ids:
             cohort_ids.add(dependent_id)
             pending.append(dependent_id)
-    return get_active_workflows_using_realtime_cohort(project_id=project_id, cohort_ids=cohort_ids)
+    return get_active_workflows_using_realtime_cohort(team_id=cohort.team_id, cohort_ids=cohort_ids)
 
 
 def _workflow_names_suffix(
     request: Request,
     user_access_control: Optional[UserAccessControl],
-    request_team_id: int,
+    team_id: int,
     workflows: list[CohortDependentWorkflow],
 ) -> str:
-    # The caller sees the names of the workflows it can view in its current environment. The count covers
-    # every environment in the project, because a cohort is shared by all of them.
+    # The caller sees the names of the workflows it can view. The count covers every workflow.
     scopes = get_authenticator_scopes(request.successful_authenticator)
     if user_access_control is None or (
         scopes is not None and not {"*", "hog_flow:read", "hog_flow:write"} & set(scopes)
     ):
         return ""
     references = [
-        HogFlowReference(id=workflow.id, name=workflow.name, status=workflow.status)
-        for workflow in workflows
-        if workflow.team_id == request_team_id
+        HogFlowReference(id=workflow.id, name=workflow.name, status=workflow.status) for workflow in workflows
     ]
-    visible = filter_hog_flow_references_by_access_level(
-        request_team_id, {"blocking": references}, user_access_control
-    ).get("blocking", [])
+    visible = filter_hog_flow_references_by_access_level(team_id, {"blocking": references}, user_access_control).get(
+        "blocking", []
+    )
     if not visible:
         return ""
     hidden = len(workflows) - len(visible)
@@ -1553,10 +1549,6 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     def _user_access_control(self) -> Optional[UserAccessControl]:
         return getattr(self.context.get("view"), "user_access_control", None)
 
-    def _request_team_id(self, cohort: Cohort) -> int:
-        team = _team_from_serializer_context(self.context)
-        return team.id if team else cohort.team_id
-
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         existing_has_criteria = cohort_filters_have_values(cohort.filters)
@@ -1600,7 +1592,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             workflows_relying_on_realtime = _workflows_relying_on_cohort(cohort)
             if workflows_relying_on_realtime:
                 names = _workflow_names_suffix(
-                    request, self._user_access_control(), self._request_team_id(cohort), workflows_relying_on_realtime
+                    request, self._user_access_control(), cohort.team_id, workflows_relying_on_realtime
                 )
                 raise ValidationError(
                     f"This change stops the cohort updating in real time, and {len(workflows_relying_on_realtime)} "
@@ -1630,7 +1622,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 workflows_with_cohort = _workflows_relying_on_cohort(cohort)
                 if workflows_with_cohort:
                     names = _workflow_names_suffix(
-                        request, self._user_access_control(), self._request_team_id(cohort), workflows_with_cohort
+                        request, self._user_access_control(), cohort.team_id, workflows_with_cohort
                     )
                     raise ValidationError(
                         f"This cohort is used in {len(workflows_with_cohort)} active workflow(s){names}. "

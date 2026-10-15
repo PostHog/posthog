@@ -7062,7 +7062,7 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert response.data["cohort_type"] == CohortType.REALTIME
         return response.data["id"]
 
-    def _create_workflow_using_cohort(self, cohort_id: int, usage: str, status: str, team_id: int | None = None) -> str:
+    def _create_workflow_using_cohort(self, cohort_id: int, usage: str, status: str) -> str:
         if usage == "trigger":
             action = {"id": "trigger_node", "type": "trigger", "config": {"type": "cohort", "cohort_id": cohort_id}}
         else:
@@ -7070,7 +7070,7 @@ class TestCohortTypeIntegration(APIBaseTest):
             condition = {"filters": {"properties": [{"key": "id", "type": filter_type, "value": cohort_id}]}}
             action = {"id": "branch", "type": "conditional_branch", "config": {"conditions": [condition]}}
         return create_workflow_for_test(
-            team_id=team_id or self.team.id, name=f"Workflow {usage}", status=status, actions=[action]
+            team_id=self.team.id, name=f"Workflow {usage}", status=status, actions=[action]
         ).id
 
     @parameterized.expand(
@@ -7132,16 +7132,6 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "used in 2 active workflow(s): Workflow branch and 1 more." in response.json()["detail"]
         assert "Workflow trigger" not in response.json()["detail"]
-
-    def test_blocked_delete_counts_workflows_in_other_environments_without_naming_them(self):
-        cohort_id = self._create_realtime_cohort()
-        sibling = Team.objects.create(organization=self.organization, project=self.team.project, name="Sibling")
-        self._create_workflow_using_cohort(cohort_id, "trigger", "active", team_id=sibling.id)
-
-        response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort_id}", {"deleted": True})
-
-        assert response.status_code == 400, response.json()
-        assert "used in 1 active workflow(s). Please remove" in response.json()["detail"]
 
     def test_edit_that_stops_realtime_is_blocked_by_active_workflows_using_it(self):
         cohort_id = self._create_realtime_cohort()

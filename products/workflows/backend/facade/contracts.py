@@ -33,7 +33,6 @@ class CohortDependentWorkflow:
     id: str
     name: str
     status: str
-    team_id: int
 
 
 @frozen

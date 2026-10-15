@@ -224,7 +224,7 @@ def get_active_workflows_using_integration(*, team_id: int, integration_id: int)
 
 
 def get_active_workflows_using_realtime_cohort(
-    *, project_id: int, cohort_ids: Collection[int]
+    *, team_id: int, cohort_ids: Collection[int]
 ) -> list[CohortDependentWorkflow]:
     # Deferred to keep the cdp filter compiler, and the HogQL schema it loads, off the django.setup() path.
     from products.workflows.backend.services.cohort_usage import (  # noqa: PLC0415
@@ -232,8 +232,8 @@ def get_active_workflows_using_realtime_cohort(
     )
 
     return [
-        CohortDependentWorkflow(id=str(flow.id), name=flow.name or "", status=flow.status, team_id=flow.team_id)
-        for flow in get_active_hog_flows_using_realtime_cohort(project_id=project_id, cohort_ids=cohort_ids)
+        CohortDependentWorkflow(id=str(flow.id), name=flow.name or "", status=flow.status)
+        for flow in get_active_hog_flows_using_realtime_cohort(team_id=team_id, cohort_ids=cohort_ids)
     ]
 
 
