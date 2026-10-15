@@ -64,12 +64,13 @@ const meta: Meta<typeof InboxSetupFlow> = {
     title: 'Scenes-App/Inbox/Focused setup',
     component: InboxSetupFlow,
     parameters: {
+        layout: 'fullscreen',
         mockDate: '2026-10-14',
         featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test', [FEATURE_FLAGS.INBOX_REDESIGN]: true },
     },
     decorators: [
         (Story) => (
-            <div className="h-[calc(100dvh-2rem)]">
+            <div className="h-dvh p-4">
                 <Story />
             </div>
         ),

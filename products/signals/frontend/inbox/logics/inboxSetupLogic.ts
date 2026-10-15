@@ -231,7 +231,7 @@ export interface inboxSetupLogicMeta {
             editedDraft: InboxOnboardingDraftApi | null,
             sources: InboxSetupSource[],
             visionScanners: ReplayScannerApi[] | null,
-            scannerInventoryKnown: any
+            scannerInventoryKnown: boolean
         ) => InboxOnboardingDraftApi
         scoutsLoading: (
             scoutConfigsLoading: boolean,
