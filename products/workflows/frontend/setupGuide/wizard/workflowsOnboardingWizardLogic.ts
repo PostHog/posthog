@@ -46,6 +46,7 @@ export interface workflowsOnboardingWizardLogicValues {
     initialized: boolean
     isLastStep: boolean
     missingConnections: WizardConnection[]
+    offersSuggestions: boolean
     pushEnabled: boolean
     pushSetupStarted: boolean
     selectedTemplate: HogFlowTemplate | null
@@ -55,7 +56,9 @@ export interface workflowsOnboardingWizardLogicValues {
     stepDone: Partial<Record<WizardStepKey, boolean>> | null
     stepIndex: number
     stepKeys: readonly WizardStepKey[]
+    suggestionsFirst: boolean
     templates: HogFlowTemplate[]
+    templatesShown: boolean
     wizardPath: WorkflowsOnboardingPath
 }
 
@@ -120,6 +123,9 @@ export interface workflowsOnboardingWizardLogicActions {
     setStepIndex: (index: number) => {
         index: number
     }
+    setTemplatesShown: (shown: boolean) => {
+        shown: boolean
+    }
     startPushSetup: () => {
         value: true
     }
@@ -155,6 +161,8 @@ export interface workflowsOnboardingWizardLogicMeta {
             selectedTemplate: HogFlowTemplate | null,
             startsBlank: boolean
         ) => string | null
+        offersSuggestions: (wizardPath: WorkflowsOnboardingPath, featureFlags: FeatureFlagsSet) => boolean
+        suggestionsFirst: (offersSuggestions: boolean, currentStep: WizardStepKey, templatesShown: boolean) => boolean
     }
 }
 
@@ -208,6 +216,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
         positionAtFirstOpenStep: (index: number) => ({ index }),
         positionIfReady: true,
         startPushSetup: true,
+        setTemplatesShown: (shown: boolean) => ({ shown }),
     }),
     reducers({
         wizardPath: [
@@ -249,6 +258,15 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 initWizard: () => true,
             },
         ],
+        // A person who comes back with a template picked, or picks one, stays on the template list.
+        templatesShown: [
+            false,
+            {
+                initWizard: (_, { templateId }) => templateId !== null,
+                selectTemplate: () => true,
+                setTemplatesShown: (_, { shown }) => shown,
+            },
+        ],
         pushSetupStarted: [
             false,
             {
@@ -278,6 +296,18 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             (s) => [s.stepKeys, s.stepIndex],
             (stepKeys: readonly WizardStepKey[], stepIndex: number): WizardStepKey =>
                 stepKeys[Math.min(stepIndex, stepKeys.length - 1)],
+        ],
+        // The suggestions logic starts an AI run when it mounts, so nothing mounts it without the flag. Suggestions are
+        // messages to users, so the automation path never offers them.
+        offersSuggestions: [
+            (s) => [s.wizardPath, s.featureFlags],
+            (wizardPath: WorkflowsOnboardingPath, featureFlags: FeatureFlagsSet): boolean =>
+                wizardPath === 'messaging' && !!featureFlags[FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS],
+        ],
+        suggestionsFirst: [
+            (s) => [s.offersSuggestions, s.currentStep, s.templatesShown],
+            (offersSuggestions: boolean, currentStep: WizardStepKey, templatesShown: boolean): boolean =>
+                offersSuggestions && currentStep === 'journey' && !templatesShown,
         ],
         isLastStep: [
             (s) => [s.stepKeys, s.stepIndex],

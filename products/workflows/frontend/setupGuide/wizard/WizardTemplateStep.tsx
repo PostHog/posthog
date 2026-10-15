@@ -2,28 +2,29 @@ import '../../Workflows/templates/WorkflowTemplateChooser.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { IconPlus } from '@posthog/icons'
+import { IconArrowLeft, IconPlus } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { WorkflowTemplateCard } from '../../Workflows/templates/WorkflowTemplateCard'
 import { WorkflowTemplateMeta } from '../../Workflows/templates/WorkflowTemplateMeta'
 import { WorkflowTemplateSteps } from '../../Workflows/templates/WorkflowTemplateSteps'
-import { WorkflowDataSuggestions } from '../suggestions/WorkflowDataSuggestions'
 import { BLANK_START_ID } from './onboardingWizardSteps'
+import { WizardSuggestionsStep } from './WizardSuggestionsStep'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
 
 /** A template picker that selects, rather than creates, so the wizard can show more steps before it creates. */
 export function WizardTemplateStep(): JSX.Element {
-    const { templates, selectedTemplateId, workflowTemplatesLoading, startsBlank, wizardPath } =
-        useValues(workflowsOnboardingWizardLogic)
-    const { selectTemplate } = useActions(workflowsOnboardingWizardLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    // The suggestions logic starts an AI run on mount, so it only mounts behind the flag. Suggestions are messages
-    // to users, so the automation path keeps the plain template list.
-    const showSuggestions = wizardPath === 'messaging' && !!featureFlags[FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS]
+    const {
+        templates,
+        selectedTemplateId,
+        workflowTemplatesLoading,
+        startsBlank,
+        offersSuggestions,
+        suggestionsFirst,
+    } = useValues(workflowsOnboardingWizardLogic)
+    const { selectTemplate, setTemplatesShown } = useActions(workflowsOnboardingWizardLogic)
 
     if (workflowTemplatesLoading && templates.length === 0) {
         return (
@@ -62,13 +63,25 @@ export function WizardTemplateStep(): JSX.Element {
         </div>
     )
 
-    if (!showSuggestions) {
+    if (suggestionsFirst) {
+        return <WizardSuggestionsStep fallback={templateGrid} />
+    }
+    if (!offersSuggestions) {
         return templateGrid
     }
-
     return (
-        <div className="flex flex-col gap-6">
-            <WorkflowDataSuggestions surface="onboarding_wizard" />
+        <div className="flex flex-col gap-3">
+            <div>
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    icon={<IconArrowLeft />}
+                    onClick={() => setTemplatesShown(false)}
+                    data-attr="workflows-onboarding-wizard-show-suggestions"
+                >
+                    Back to suggestions from your data
+                </LemonButton>
+            </div>
             {templateGrid}
         </div>
     )

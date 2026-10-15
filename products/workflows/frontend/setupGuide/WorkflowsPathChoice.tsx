@@ -28,7 +28,7 @@ function PathChoiceWithSuggestions(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <PathButtons messagingIsPrimary={cards.length === 0} />
-            <WorkflowDataSuggestions surface="empty_state" />
+            <WorkflowDataSuggestions />
         </div>
     )
 }

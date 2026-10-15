@@ -3,19 +3,13 @@ import { useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { WorkflowDataSuggestionsSurface, workflowDataSuggestionsLogic } from './workflowDataSuggestionsLogic'
+import { workflowDataSuggestionsLogic } from './workflowDataSuggestionsLogic'
 import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
 
 const LOADING_CARD_COUNT = 3
 
-// On the empty state the cards sit under the path buttons. In the wizard they sit above the templates.
-const SECTION_LABELS: Record<WorkflowDataSuggestionsSurface, string> = {
-    empty_state: 'Or start from your data',
-    onboarding_wizard: 'Suggested from your data',
-}
-
-export function WorkflowDataSuggestions({ surface }: { surface: WorkflowDataSuggestionsSurface }): JSX.Element | null {
-    const { cards, generating } = useValues(workflowDataSuggestionsLogic({ surface }))
+export function WorkflowDataSuggestions(): JSX.Element | null {
+    const { cards, generating } = useValues(workflowDataSuggestionsLogic({ surface: 'empty_state' }))
 
     // Suggestions are optional: a failed or empty run shows nothing, not even the divider.
     if (!generating && cards.length === 0) {
@@ -28,7 +22,7 @@ export function WorkflowDataSuggestions({ surface }: { surface: WorkflowDataSugg
                 <div className="h-px flex-1 bg-border-primary" />
                 <span className="inline-flex items-center gap-1 text-xs text-tertiary">
                     {generating ? <Spinner className="size-3" /> : <IconSparkles className="size-3" />}
-                    {SECTION_LABELS[surface]}
+                    Or start from your data
                     <Tooltip title="AI writes these suggestions from your project's events. Check each draft before you turn it on.">
                         <LemonTag type="completion" size="small">
                             Beta
@@ -48,13 +42,7 @@ export function WorkflowDataSuggestions({ surface }: { surface: WorkflowDataSugg
                 </>
             ) : (
                 cards.map((card, index) => (
-                    <WorkflowSuggestionCard
-                        key={card.key}
-                        card={card}
-                        surface={surface}
-                        // The wizard's own footer button is the primary action there.
-                        primary={surface === 'empty_state' && index === 0}
-                    />
+                    <WorkflowSuggestionCard key={card.key} card={card} surface="empty_state" primary={index === 0} />
                 ))
             )}
         </div>
