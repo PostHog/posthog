@@ -7429,10 +7429,10 @@ Today (3): `advanced_shipping_notices`, `destinations`, `returns`
 
 Diffed against: <https://docs.loopreturns.com/llms.txt>
 
-- [ ] `Orders (GET /api/v1/orders)` — resolve return order IDs and supply sales denominators for return-rate analysis (high)
-- [ ] `Products (GET /api/v1/products)` — resolve product references on returned and exchanged items for catalog analysis (high)
-- [ ] `Product variants (GET /api/v1/products/{productId}/product-variants)` — resolve variant references for return rates by SKU and product option (high)
-- [ ] `Customers (GET /api/v1/customers)` — analyze repeat return behavior and customer cohorts beyond the email on a return (medium)
+- [x] `Orders (GET /api/v1/orders)` — resolve return order IDs and supply sales denominators for return-rate analysis (high)
+- [x] `Products (GET /api/v1/products)` — resolve product references on returned and exchanged items for catalog analysis (high)
+- [x] `Product variants (GET /api/v1/products/{productId}/product-variants)` — resolve variant references for return rates by SKU and product option (high)
+- [x] `Customers (GET /api/v1/customers)` — analyze repeat return behavior and customer cohorts beyond the email on a return (medium)
 - [ ] `Return notes (GET /api/v1/warehouse/return/{id}/notes)` — analyze support explanations and operational handling of returns (medium)
 - [ ] `Inventories (GET /api/v1/inventories)` — compare exchange demand with stock availability by variant and location (medium)
 - [ ] `Locations (GET /api/v1/locations)` — provide location names and metadata for inventory analysis (medium)
