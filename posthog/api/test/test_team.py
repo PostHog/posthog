@@ -815,6 +815,13 @@ def team_api_test_factory():
             self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(backup)).exists())
             self.assertTrue(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
 
+            # The new primary only authenticates through its mirror row now that the legacy
+            # verifiers are off, so rotation must create one with the migrated scopes.
+            self.team.refresh_from_db()
+            new_row = ProjectSecretAPIKey.objects.get(secure_value=hash_key_value(self.team.secret_api_token))
+            self.assertEqual(new_row.team_id, self.team.id)
+            self.assertEqual(new_row.scopes, ["feature_flag:read", "support_ticket:read"])
+
             # Deleting the backup (the rotated-out primary) retires its row too.
             response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)

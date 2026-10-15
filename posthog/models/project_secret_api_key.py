@@ -8,7 +8,7 @@ from django.utils import timezone
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.manager import TeamScopedManager
 
-from .utils import generate_random_token, hash_key_value
+from .utils import generate_random_token, hash_key_value, mask_key_value
 
 
 class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
@@ -100,3 +100,28 @@ def delete_project_secret_api_keys_for_token(team_id: int, token: str) -> None:
     """A PSAK row whose hash equals a retired legacy token IS that credential: it must
     stop authenticating when the token does (#63111 backfill)."""
     ProjectSecretAPIKey.objects.filter(team_id=team_id, secure_value=hash_key_value(token)).delete()
+
+
+# The surfaces the #63111 backfill granted to migrated legacy tokens; a rotated-in
+# token gets the same ones so rotation does not widen or narrow access.
+MIRRORED_LEGACY_TOKEN_SCOPES = ["feature_flag:read", "support_ticket:read"]
+
+MIRRORED_LEGACY_TOKEN_LABEL = "Migrated legacy secret API key"
+
+
+def create_project_secret_api_key_for_token(team_id: int, token: str) -> None:
+    """With the legacy verifiers off, a legacy token only authenticates through its PSAK
+    mirror row — so the rotation that mints a token must mint its row too (#63111)."""
+    secure_value = hash_key_value(token)
+    label = MIRRORED_LEGACY_TOKEN_LABEL
+    if ProjectSecretAPIKey.objects.filter(team_id=team_id, label=label).exists():
+        # (team, label) is unique and the old primary's migrated row keeps its label
+        # while it serves as backup; the hash suffix matches the backfill's fallback.
+        label = f"{label} {secure_value[-8:]}"
+    ProjectSecretAPIKey.objects.create(
+        team_id=team_id,
+        label=label,
+        mask_value=mask_key_value(token),
+        secure_value=secure_value,
+        scopes=MIRRORED_LEGACY_TOKEN_SCOPES,
+    )

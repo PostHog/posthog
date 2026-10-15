@@ -25,7 +25,10 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.project_secret_api_key import delete_project_secret_api_keys_for_token
+from posthog.models.project_secret_api_key import (
+    create_project_secret_api_key_for_token,
+    delete_project_secret_api_keys_for_token,
+)
 from posthog.models.signals import mutable_receiver, secret_api_token_rotated
 from posthog.models.utils import (
     UUIDTClassicModel,
@@ -1021,6 +1024,9 @@ class Team(UUIDTClassicModel):
                     # The migrated PSAK row holding this exact token (#63111 backfill) must
                     # retire with it, or the dropped token keeps authenticating via PSAK.
                     delete_project_secret_api_keys_for_token(self.id, expired_token)
+                # The mirror row is the only thing that authenticates the new token now
+                # that the legacy verifiers are off.
+                create_project_secret_api_key_for_token(self.id, new_token)
                 secret_api_token_rotated.send(sender=self.__class__, team=self)
         except Exception:
             # save() already cached this team (post_save) with the new tokens, which the
