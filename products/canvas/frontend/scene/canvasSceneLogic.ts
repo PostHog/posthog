@@ -19,7 +19,9 @@ import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill'
 
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -811,24 +813,25 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 !!view && (isGenerating || buildStatus === 'building'),
         ],
         breadcrumbs: [
-            (s) => [s.canvas, s.space, (_, props: CanvasSceneLogicProps) => props.id, router.selectors.searchParams],
+            (s) => [
+                s.canvas,
+                s.space,
+                (_, props: CanvasSceneLogicProps) => props.id,
+                router.selectors.searchParams,
+                featureFlagLogic.selectors.featureFlags,
+            ],
             (
                 canvas: CanvasApi | null,
                 space: CanvasSpace | null,
                 id: string,
-                searchParams: Record<string, any>
+                searchParams: Record<string, any>,
+                featureFlags: FeatureFlagsSet
             ): Breadcrumb[] => {
-                // A list that opened the canvas can name the way back, like the dashboard scene allows.
-                const backUrl = searchParams.backUrl as string | undefined
+                // The Analytics list that opened the canvas names the way back, like the dashboard scene allows.
+                const backLink = analyticsBackLink(searchParams, featureFlags)
                 return [
-                    ...(backUrl
-                        ? [
-                              {
-                                  key: backUrl,
-                                  name: (searchParams.backName as string | undefined) || 'Back',
-                                  path: backUrl,
-                              },
-                          ]
+                    ...(backLink
+                        ? [{ key: backLink.url, name: backLink.name, path: backLink.url }]
                         : space
                           ? [{ key: 'canvas-space', name: canvasSpaceLabel(space), path: urls.taskSpace(space.id) }]
                           : []),

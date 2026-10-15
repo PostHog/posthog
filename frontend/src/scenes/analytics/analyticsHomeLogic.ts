@@ -1,10 +1,12 @@
-import { MakeLogicType, connect, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -111,6 +113,19 @@ export const analyticsHomeLogic = kea<analyticsHomeLogicType>([
                     .slice(0, ANALYTICS_HOME_RECENT_LIMIT),
         ],
     }),
+    listeners(({ actions, values }) => ({
+        // Flags can arrive after urlToAction ran, so a visit that skipped the load must load now.
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            if (
+                values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] &&
+                values.recentEntries === null &&
+                !values.recentEntriesLoading &&
+                removeProjectIdIfPresent(router.values.location.pathname) === urls.analytics()
+            ) {
+                actions.loadRecentEntries()
+            }
+        },
+    })),
     urlToAction(({ actions, values }) => ({
         [urls.analytics()]: () => {
             // The scene renders nothing without the flag, so it must not load anything either.

@@ -20,6 +20,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { InsightEventSource, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
+import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
 import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
@@ -570,6 +571,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 s.dashboardBackPath,
                 (state, props) => s.insightLogicRef(state, props)?.logic.selectors.insightName(state, props),
                 router.selectors.searchParams,
+                featureFlagLogic.selectors.featureFlags,
             ],
             (
                 insightLogicRef: {
@@ -583,18 +585,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 sceneSource: InsightSceneSource | null,
                 dashboardBackPath: string | null,
                 insightName: string | undefined,
-                searchParams: Record<string, any>
+                searchParams: Record<string, any>,
+                featureFlags: FeatureFlagsSet
             ): Breadcrumb[] => {
                 const dashboardLabel = dashboardName ?? 'Dashboard'
-                // A list that opened the insight can name the way back, like the dashboard scene allows.
-                const backUrl = searchParams.backUrl as string | undefined
+                // The Analytics list that opened the insight names the way back, like the dashboard scene allows.
+                const backLink = analyticsBackLink(searchParams, featureFlags)
                 return [
-                    ...(backUrl && dashboardId === null
+                    ...(backLink && dashboardId === null
                         ? [
                               {
-                                  key: backUrl,
-                                  name: (searchParams.backName as string | undefined) || 'Back',
-                                  path: backUrl,
+                                  key: backLink.url,
+                                  name: backLink.name,
+                                  path: backLink.url,
                                   iconType: 'product_analytics' as FileSystemIconType,
                               },
                           ]

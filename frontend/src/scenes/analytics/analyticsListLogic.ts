@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { AnalyticsListUrlParams, urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import type { OrganizationMemberType, UserBasicType, UserType } from '~/types'
@@ -38,7 +38,7 @@ import {
 
 export const ANALYTICS_PREFETCH_COUNT = ANALYTICS_FEED_PAGE_SIZE
 // A folder lists its direct children in one request. Deeper folders are opened by drilling in.
-const FOLDER_PAGE_SIZE = 500
+const FOLDER_PAGE_SIZE = 100
 
 export const CREATED_BY_ME = 'me'
 
@@ -65,6 +65,9 @@ export type AnalyticsListMode = 'feed' | 'folder'
 export type AnalyticsListScope = 'all' | 'mine'
 
 export interface FolderContents {
+    /** The folder these rows belong to, so a failed or slow load never shows another folder's rows. */
+    folder: string
+    hasMore: boolean
     entries: FileSystemEntry[]
     users: UserBasicType[]
 }
@@ -204,12 +207,16 @@ export interface analyticsListLogicActions {
     loadFolderContentsSuccess: (
         folderContents: {
             entries: FileSystemEntry[]
+            folder: string
+            hasMore: boolean
             users: UserBasicType[]
         } | null,
         payload?: void
     ) => {
         folderContents: {
             entries: FileSystemEntry[]
+            folder: string
+            hasMore: boolean
             users: UserBasicType[]
         } | null
         payload?: void
@@ -219,6 +226,21 @@ export interface analyticsListLogicActions {
     }
     loadMore: () => {
         value: true
+    }
+    loadMoreFolderContents: (_: void) => void
+    loadMoreFolderContentsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMoreFolderContentsSuccess: (
+        folderContents: FolderContents | null,
+        payload?: void
+    ) => {
+        folderContents: FolderContents | null
+        payload?: void
     }
     setFeedSearch: (search: string) => {
         search: string
@@ -291,7 +313,12 @@ export interface analyticsListLogicMeta {
         folderBreadcrumbs: (filters: AnalyticsListFilters) => FolderRow[]
         loading: (mode: AnalyticsListMode, feed: AnalyticsFeed, folderContentsLoading: boolean) => boolean
         loadedCount: (feed: AnalyticsFeed) => number
-        hasMore: (mode: AnalyticsListMode, feed: AnalyticsFeed) => boolean
+        hasMore: (
+            mode: AnalyticsListMode,
+            feed: AnalyticsFeed,
+            folderContents: FolderContents | null,
+            filters: AnalyticsListFilters
+        ) => boolean
         failedTypes: (mode: AnalyticsListMode, feed: AnalyticsFeed) => AnalyticsFeed['failedTypes']
         listState: (
             mode: AnalyticsListMode,
@@ -363,10 +390,36 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                     const response = await api.fileSystem.list({
                         parent: folder,
                         depth: splitPath(folder).length + 1,
+                        search: values.filters.search.trim() || undefined,
                         limit: FOLDER_PAGE_SIZE,
                     })
                     breakpoint()
-                    return { entries: response.results, users: response.users }
+                    return {
+                        folder,
+                        entries: response.results,
+                        users: response.users,
+                        hasMore: !!response.next,
+                    }
+                },
+                loadMoreFolderContents: async (_: void, breakpoint) => {
+                    const current = values.folderContents
+                    if (!current || !current.hasMore || current.folder !== values.filters.folder) {
+                        return current
+                    }
+                    const response = await api.fileSystem.list({
+                        parent: current.folder,
+                        depth: splitPath(current.folder).length + 1,
+                        search: values.filters.search.trim() || undefined,
+                        limit: FOLDER_PAGE_SIZE,
+                        offset: current.entries.length,
+                    })
+                    breakpoint()
+                    return {
+                        ...current,
+                        entries: [...current.entries, ...response.results],
+                        users: [...current.users, ...response.users],
+                        hasMore: !!response.next,
+                    }
                 },
             },
         ],
@@ -499,7 +552,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                             (item.createdBy?.uuid === user?.uuid && (scope === 'mine' || showPersonal))
                     )
                 }
-                const entries = folderContents?.entries ?? []
+                const entries = folderContents?.folder === filters.folder ? folderContents.entries : []
                 const items = entries.flatMap((entry) => {
                     const item = ANALYTICS_FILE_SYSTEM_TYPES.has(fileSystemBaseType(entry.type))
                         ? fileSystemEntryToAnalytics(entry, folderContents?.users ?? [])
@@ -516,7 +569,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 folderContents: FolderContents | null,
                 filters: AnalyticsListFilters
             ): FolderRow[] => {
-                if (mode !== 'folder' || !folderContents) {
+                if (mode !== 'folder' || !folderContents || folderContents.folder !== filters.folder) {
                     return []
                 }
                 const needle = filters.search.trim().toLowerCase()
@@ -536,7 +589,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 const segments = splitPath(filters.folder)
                 return segments.map((segment, index) => ({
                     name: segment,
-                    path: segments.slice(0, index + 1).join('/'),
+                    path: joinPath(segments.slice(0, index + 1)),
                 }))
             },
         ],
@@ -548,8 +601,16 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
         // Rows fetched before the personal filter, so the end sentinel keeps loading while hidden rows arrive.
         loadedCount: [(s) => [s.feed], (feed: AnalyticsFeed): number => feed.items.length],
         hasMore: [
-            (s) => [s.mode, s.feed],
-            (mode: AnalyticsListMode, feed: AnalyticsFeed): boolean => mode === 'feed' && feed.hasMore,
+            (s) => [s.mode, s.feed, s.folderContents, s.filters],
+            (
+                mode: AnalyticsListMode,
+                feed: AnalyticsFeed,
+                folderContents: FolderContents | null,
+                filters: AnalyticsListFilters
+            ): boolean =>
+                mode === 'feed'
+                    ? feed.hasMore
+                    : !!folderContents && folderContents.folder === filters.folder && folderContents.hasMore,
         ],
         failedTypes: [
             (s) => [s.mode, s.feed],
@@ -587,6 +648,10 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 }
                 if (items.length || subfolders.length) {
                     return 'ready'
+                }
+                // Pages can still hold rows a client-side filter left out, so an empty list is not final yet.
+                if (mode === 'feed' && feed.hasMore) {
+                    return 'loading'
                 }
                 return (mode === 'feed' ? filtersActive : narrowingFiltersActive) ? 'no-matches' : 'empty'
             },
@@ -629,8 +694,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 if (
                     values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] &&
                     cache.visitStartedAt === undefined &&
-                    !values.currentFeed.initialized &&
-                    !values.currentFeed.loading &&
+                    !values.loading &&
                     [urls.analyticsList(), urls.analyticsMine()].includes(
                         removeProjectIdIfPresent(router.values.location.pathname)
                     )
@@ -649,7 +713,12 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 }
             },
             loadMore: () => {
-                if (values.hasMore) {
+                if (!values.hasMore) {
+                    return
+                }
+                if (values.mode === 'folder') {
+                    actions.loadMoreFolderContents()
+                } else {
                     actions.ensureFeed(values.feedQuery, values.feed.items.length + ANALYTICS_PREFETCH_COUNT)
                 }
             },
@@ -700,30 +769,42 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             folderCreated: () => actions.loadList(),
         }
     }),
-    actionToUrl(({ values }) => {
-        const toUrl = (): string =>
-            values.scope === 'mine'
+    actionToUrl(({ values, cache }) => {
+        const toUrl = (): string => {
+            // The URL change below is ours, so the matching urlToAction must not reload the list again.
+            cache.writingUrl = true
+            return values.scope === 'mine'
                 ? urls.analyticsMine(analyticsListUrlParams(values.filters))
                 : urls.analyticsList(analyticsListUrlParams(values.filters))
+        }
         return {
             setFilters: toUrl,
             clearFilters: toUrl,
         }
     }),
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values, cache }) => {
         const open = (scope: AnalyticsListScope, searchParams: Record<string, any>): void => {
-            // The scene renders nothing without the flag, so it must not load anything either.
-            if (!values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+            if (cache.writingUrl) {
+                cache.writingUrl = false
                 return
             }
             if (values.scope !== scope) {
                 actions.setScope(scope)
             }
+            // The filters apply even before the flags arrive, so a cold open lands on the right list once they do.
             const filters = analyticsListFiltersFromUrl(searchParams)
-            if (JSON.stringify(filters) !== JSON.stringify(values.filters) || !values.currentFeed.initialized) {
-                actions.setFiltersFromUrl(filters)
+            const changed = JSON.stringify(filters) !== JSON.stringify(values.filters)
+            // The scene renders nothing without the flag, so it must not load anything either.
+            if (!values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+                if (changed) {
+                    actions.setFilters(filters)
+                }
+                return
             }
-            if (values.mode === 'feed' && !values.currentFeed.initialized) {
+            if (changed) {
+                actions.setFiltersFromUrl(filters)
+            } else {
+                // A visit shows the last loaded rows at once and reads again, so a new item shows up on return.
                 actions.loadList()
             }
         }

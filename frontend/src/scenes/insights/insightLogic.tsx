@@ -1301,7 +1301,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             } else if (!insightNumericId) {
                 // If we've just saved a new insight without redirecting to view mode, we need to redirect to edit mode
                 // so that we aren't stuck on /insights/new
-                router.actions.push(urls.insightEdit(savedInsight.short_id))
+                router.actions.push(withBackLink(urls.insightEdit(savedInsight.short_id)))
             }
         },
         saveAs: async ({ redirectToViewMode, persist, folder }) => {
@@ -1348,7 +1348,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             if (redirectToViewMode) {
                 router.actions.push(withBackLink(urls.insightView(insight.short_id)))
             } else {
-                router.actions.push(urls.insightEdit(insight.short_id))
+                router.actions.push(withBackLink(urls.insightEdit(insight.short_id)))
             }
         },
         onRejectSuggestedInsight: () => {
@@ -1411,7 +1411,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     if (sidePanel?.values.modalMode) {
                         sidePanel.actions.closeSidePanel()
                     }
-                    router.actions.push(urls.insightEdit(newInsight.short_id))
+                    router.actions.push(withBackLink(urls.insightEdit(newInsight.short_id)))
                 }
             } catch (e: any) {
                 // Nothing downstream reports this: the copy is created by a plain listener rather than

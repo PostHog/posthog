@@ -2,6 +2,8 @@ import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, s
 import type { BuiltLogic } from 'kea'
 import { router } from 'kea-router'
 
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -141,15 +143,20 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.notebook, s.loading, router.selectors.searchParams],
-            (notebook: NotebookType | null, loading: boolean, searchParams: Record<string, any>): Breadcrumb[] => {
-                // A list that opened the notebook can name the way back, like the dashboard scene allows.
-                const backUrl = searchParams.backUrl as string | undefined
-                const parent: Breadcrumb = backUrl
+            (s) => [s.notebook, s.loading, router.selectors.searchParams, featureFlagLogic.selectors.featureFlags],
+            (
+                notebook: NotebookType | null,
+                loading: boolean,
+                searchParams: Record<string, any>,
+                featureFlags: FeatureFlagsSet
+            ): Breadcrumb[] => {
+                // The Analytics list that opened the notebook names the way back, like the dashboard scene allows.
+                const backLink = analyticsBackLink(searchParams, featureFlags)
+                const parent: Breadcrumb = backLink
                     ? {
-                          key: backUrl,
-                          name: (searchParams.backName as string | undefined) || 'Back',
-                          path: backUrl,
+                          key: backLink.url,
+                          name: backLink.name,
+                          path: backLink.url,
                           iconType: 'notebook',
                       }
                     : notebook?.parent_resource?.type === 'account'

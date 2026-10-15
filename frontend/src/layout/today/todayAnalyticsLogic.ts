@@ -388,7 +388,8 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
         },
         createFolder: async ({ name }) => {
             const parent = values.newFolderParent
-            const path = parent ? `${parent}/${escapePath(name.trim())}` : name.trim()
+            // One name is one segment: a slash in it must not create a nested folder.
+            const path = parent ? `${parent}/${escapePath(name.trim())}` : escapePath(name.trim())
             if (!name.trim()) {
                 actions.folderCreationFailed()
                 return
