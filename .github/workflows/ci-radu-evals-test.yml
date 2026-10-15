@@ -48,12 +48,12 @@ jobs:
               env:
                   POSTHOG_OFFLINE_EVAL_API_KEY: ${{ secrets.POSTHOG_OFFLINE_EVAL_API_KEY }}
                   BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
-                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  ANTHROPIC_OFFLINE_EVALS_API_KEY: ${{ secrets.ANTHROPIC_OFFLINE_EVALS_API_KEY }}
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
               shell: bash
               run: |
                   missing=""
-                  for name in POSTHOG_OFFLINE_EVAL_API_KEY BRAINTRUST_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY; do
+                  for name in POSTHOG_OFFLINE_EVAL_API_KEY BRAINTRUST_API_KEY ANTHROPIC_OFFLINE_EVALS_API_KEY OPENAI_API_KEY; do
                       [ -n "${!name}" ] || missing="$missing $name"
                   done
                   if [ -n "$missing" ]; then
@@ -139,7 +139,7 @@ jobs:
               env:
                   POSTHOG_OFFLINE_EVAL_API_KEY: ${{ secrets.POSTHOG_OFFLINE_EVAL_API_KEY }}
                   BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
-                  LLM_GATEWAY_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  LLM_GATEWAY_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_OFFLINE_EVALS_API_KEY }}
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   CASE_FILTER: ${{ github.event_name == 'pull_request' && 'sql_pageviews_by_browser' || inputs.case_filter }}
               run: |
