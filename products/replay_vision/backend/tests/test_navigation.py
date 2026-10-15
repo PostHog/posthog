@@ -42,6 +42,13 @@ class TestNavigationTimeline:
         [
             ("entry count", [_change(i, f"https://ex.com/page-{i}") for i in range(120)], 100, 20),
             ("total URL characters", [_change(i, f"https://ex.com/{'p' * 180}{i:03d}") for i in range(80)], 50, 30),
+            (
+                "a short URL after one that overflows",
+                [_change(i, f"https://ex.com/{'p' * 180}{i:03d}") for i in range(51)]
+                + [_change(51 + i, f"https://ex.com/s-{i}") for i in range(10)],
+                55,
+                6,
+            ),
         ]
     )
     def test_budget_counts_what_it_drops(

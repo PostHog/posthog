@@ -52,7 +52,7 @@ def navigation_timeline(changes: Sequence[NavigationChange]) -> tuple[list[Navig
         ends.append(None)
     entries = [entry.model_copy(update={"end_t": end}) for entry, end in zip(entries, ends)]
 
-    # Over budget, the shortest visits go first, so the timeline still spans the whole video. Tab openings stay, since
+    # Over budget, the shortest visits go first, so late long visits outlast early bounces. Tab openings stay, since
     # they mark hand-offs, and a visit that lasts to the end has no known length.
     kept: set[int] = set()
     url_chars = 0
@@ -63,7 +63,7 @@ def navigation_timeline(changes: Sequence[NavigationChange]) -> tuple[list[Navig
             continue
         kept.add(i)
         url_chars += len(entries[i].url)
-    return [entry for i, entry in enumerate(entries) if i in kept], len(entries) - len(kept)
+    return [entries[i] for i in sorted(kept)], len(entries) - len(kept)
 
 
 def _visit_length(entry: NavigationEntry) -> float:
