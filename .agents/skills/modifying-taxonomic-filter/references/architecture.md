@@ -64,8 +64,8 @@ when locking design, then build against it.
   the parent. See `topMatchesForQuery`, `isSuggestedFilters`, `results`.
   The parent only collects matches via `appendTopMatches` on
   `infiniteListResultsReceived`.
-- **`PROMOTED_PROPERTIES_BY_SEARCH_TERM` is in `infiniteListLogic.ts`**,
-  not in `taxonomicFilterLogic.tsx`.
+- **`PROMOTED_PROPERTIES_BY_SEARCH_TERM` is in `utils/promoteProperties.ts`**,
+  not in `infiniteListLogic.ts` or `taxonomicFilterLogic.tsx`.
 - **Pinned/recent rows carry `_pinnedContext` / `_recentContext`** so
   `selectItem` records the _original_ `sourceGroupType` in telemetry,
   not "Pinned" or "Recents".

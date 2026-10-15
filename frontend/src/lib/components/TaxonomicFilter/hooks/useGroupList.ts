@@ -105,7 +105,9 @@ export interface UseGroupListResult {
     isFetching: boolean
     needsMoreSearchCharacters: boolean
     hasRemoteDataSource: boolean
-    /** The remote fetch for the current query failed, with nothing usable to fall back on. */
+    /** The last error from the active remote source for the current query. Can be truthy
+     *  even when `items` is non-empty (a cached page still has rows while a later search
+     *  fails), so use `showErrorState` when "nothing usable to fall back on" is what matters. */
     error: unknown
     showEmptyState: boolean
     /** A fetch that failed for the current query. Kept separate from `showEmptyState` so a
