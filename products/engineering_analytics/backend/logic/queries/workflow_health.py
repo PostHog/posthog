@@ -87,7 +87,7 @@ _SELECT = f"""
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__ __WORKFLOW__
     GROUP BY repo_owner, repo_name, workflow_name
-    ORDER BY run_count DESC
+    ORDER BY run_count DESC, workflow_name
     LIMIT {_LIMIT}
 """
 

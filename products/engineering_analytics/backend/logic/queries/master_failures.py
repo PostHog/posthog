@@ -34,7 +34,7 @@ _FAILED_RUNS_SELECT = f"""
     WHERE run_started_at >= {{date_from}} __DATE_TO__
         AND head_branch = {{branch}}
         AND status = 'completed' AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
-    ORDER BY run_started_at DESC
+    ORDER BY run_started_at DESC, id DESC
     LIMIT {_RUN_CAP}
 """
 

@@ -54,8 +54,8 @@ def _normalized(value: Any) -> Any:
     if isinstance(value, bool | int):
         return int(value)
     if isinstance(value, float | Decimal):
-        number = float(value)
-        return int(number) if number.is_integer() else float(f"{number:.{_SIGNIFICANT_DIGITS}g}")
+        number = float(f"{float(value):.{_SIGNIFICANT_DIGITS}g}")
+        return int(number) if number.is_integer() else number
     if isinstance(value, list | tuple):
         return tuple(_normalized(item) for item in value)
     return value

@@ -178,6 +178,7 @@ class TestStoredReads(BaseTest):
         [
             ("same_rows_in_another_order", [(2, 0.30000000000000004), (1, True)], [(1, 1), (2, 0.3)], True),
             ("ids_past_float_precision", [(12345678901, 3.0)], [(12345678902, 3)], False),
+            ("a_sum_straddling_an_integer", [(1, 12.0)], [(1, 12.000000000000002)], True),
             ("a_row_missing", [(1, 0.1)], [(1, 0.1), (2, 0.3)], False),
             ("the_raw_read_fails", [(1, 0.1)], ClickHouseAtCapacity(), False),
         ]
