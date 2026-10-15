@@ -3,19 +3,22 @@ import { createHmac } from 'node:crypto'
 
 export class EncryptedFields {
     private fernets: Fernet[] = []
-    private signingKey: string | undefined
+    private signingKeys: string[]
 
     constructor(encryptionSaltKeys: string) {
         const saltKeys = encryptionSaltKeys.split(',').filter((key) => key)
         this.fernets = saltKeys.map((key) => new Fernet(Buffer.from(key, 'utf-8').toString('base64')))
-        this.signingKey = saltKeys[0]
+        this.signingKeys = saltKeys
     }
 
-    sign(value: string): string {
-        if (!this.signingKey) {
+    // One signature per configured key, primary key first, so that a value signed before a key rotation still
+    // verifies. The purpose keeps a signature made for one use from being valid for another.
+    signatures(purpose: string, value: string): string[] {
+        if (!this.signingKeys.length) {
             throw new Error('Encryption keys are not set')
         }
-        return createHmac('sha256', this.signingKey).update(value).digest('hex')
+        const message = `${purpose.length}:${purpose}:${value}`
+        return this.signingKeys.map((key) => createHmac('sha256', key).update(message).digest('hex'))
     }
 
     encrypt(value: string): string {

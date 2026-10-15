@@ -14,14 +14,15 @@ describe('Encrypted fields', () => {
         const empty = new EncryptedFields('')
         expect(() => empty.encrypt('test')).toThrow('Encryption keys are not set')
         expect(() => empty.decrypt('test')).toThrow('Encryption keys are not set')
-        expect(() => empty.sign('test')).toThrow('Encryption keys are not set')
+        expect(() => empty.signatures('purpose', 'test')).toThrow('Encryption keys are not set')
     })
 
-    it('signs a value the same way every time, and differently under another key', () => {
-        const signature = encryptedFields.sign('value')
+    it('signs a value the same way every time, and differently under another key or purpose', () => {
+        const [signature] = encryptedFields.signatures('purpose', 'value')
 
-        expect(encryptedFields.sign('value')).toEqual(signature)
-        expect(new EncryptedFields('f'.repeat(32)).sign('value')).not.toEqual(signature)
+        expect(encryptedFields.signatures('purpose', 'value')).toEqual([signature])
+        expect(new EncryptedFields('f'.repeat(32)).signatures('purpose', 'value')).not.toContain(signature)
+        expect(encryptedFields.signatures('other-purpose', 'value')).not.toContain(signature)
     })
 
     describe('encryption and decryption', () => {
@@ -69,11 +70,13 @@ describe('Encrypted fields', () => {
                         [NEW, OLD],
                     ],
                 ],
-            ])('%s: coexisting apps decrypt each others writes', (_name, coexisting) => {
+            ])('%s: coexisting apps decrypt and verify each others writes', (_name, coexisting) => {
                 for (const writerKeys of coexisting) {
                     const token = app(writerKeys).encrypt(PLAINTEXT)
+                    const [signature] = app(writerKeys).signatures('purpose', PLAINTEXT)
                     for (const readerKeys of coexisting) {
                         expect(app(readerKeys).decrypt(token)).toEqual(PLAINTEXT)
+                        expect(app(readerKeys).signatures('purpose', PLAINTEXT)).toContain(signature)
                     }
                 }
             })

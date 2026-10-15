@@ -38,6 +38,7 @@ import {
     insertIntegration,
 } from '../_tests/fixtures'
 import { isConnectionLevelError } from '../utils/cdp-fetch'
+import { EncryptedFields } from '../utils/encryption-utils'
 import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
@@ -2031,7 +2032,10 @@ describe('Hog Executor', () => {
             `)
         })
 
-        it('puts the integration token only where the template placed it', async () => {
+        it.each([
+            ['the keys that built the inputs', (keys: string): string => keys],
+            ['a key rotation that promoted a new key', (keys: string): string => `${'n'.repeat(32)},${keys}`],
+        ])('puts each integration token only where the template placed it, under %s', async (_name, rotate) => {
             jest.mocked(fetch).mockImplementation(() => {
                 return Promise.resolve({
                     status: 200,
@@ -2044,37 +2048,47 @@ describe('Hog Executor', () => {
             })
 
             const team = (await createTestTeamFixture(hub.postgres)).team
-            const integration = await insertIntegration(hub.postgres, team.id, {
-                kind: 'oauth',
-                sensitive_config: { access_token: hub.encryptedFields.encrypt('actual_secret_token_12345') },
-            })
+            const insertTokenIntegration = (token: string) =>
+                insertIntegration(hub.postgres, team.id, {
+                    kind: 'oauth',
+                    sensitive_config: { access_token: hub.encryptedFields.encrypt(token) },
+                })
+            const crm = await insertTokenIntegration('crm_secret_token')
+            const chat = await insertTokenIntegration('chat_secret_token')
 
             const invocation = createExampleInvocation({ ...hogFunction, team_id: team.id })
-            invocation.hogFunction.inputs = { oauth: { value: integration.id } }
-            invocation.hogFunction.inputs_schema = [{ key: 'oauth', type: 'integration', required: true }]
-            const inputs = await executor.hogExecutor.buildInputsWithGlobals(
+            invocation.hogFunction.inputs = { crm: { value: crm.id }, chat: { value: chat.id } }
+            invocation.hogFunction.inputs_schema = [
+                { key: 'crm', type: 'integration', required: true },
+                { key: 'chat', type: 'integration', required: true },
+            ]
+            const { inputs } = await executor.hogExecutor.buildInputsWithGlobals(
                 invocation.hogFunction,
                 invocation.state.globals
             )
-            const placeholder: string = inputs.inputs.oauth.access_token
-            const lookAlike = ACCESS_TOKEN_PLACEHOLDER + integration.id
+            const lookAlike = ACCESS_TOKEN_PLACEHOLDER + crm.id
 
             invocation.state.vmState = { stack: [] } as any
             invocation.queueParameters = {
                 type: 'fetch',
-                url: `https://example.com/test?q=${placeholder}`,
+                url: `https://example.com/test?q=${inputs.chat.access_token}`,
                 method: 'POST',
-                headers: { Authorization: `Bearer ${placeholder}` },
-                body: JSON.stringify({ token: placeholder, title: lookAlike }),
+                headers: { Authorization: `Bearer ${inputs.crm.access_token}`, 'X-Chat': inputs.chat.access_token },
+                body: JSON.stringify({ token: inputs.crm.access_token, title: lookAlike }),
             } as any
 
+            executor['deps'].hogInputsService = new HogInputsService(
+                hub.integrationManager,
+                undefined,
+                new EncryptedFields(rotate(hub.ENCRYPTION_SALT_KEYS))
+            )
             await executor.executeFetch(invocation)
 
             const [url, options] = jest.mocked(fetch).mock.calls[0] as any
             expect([url, options.headers, parseJSON(options.body)]).toEqual([
-                'https://example.com/test?q=actual_secret_token_12345',
-                { Authorization: 'Bearer actual_secret_token_12345' },
-                { token: 'actual_secret_token_12345', title: lookAlike },
+                'https://example.com/test?q=chat_secret_token',
+                { Authorization: 'Bearer crm_secret_token', 'X-Chat': 'chat_secret_token' },
+                { token: 'crm_secret_token', title: lookAlike },
             ])
         })
 
