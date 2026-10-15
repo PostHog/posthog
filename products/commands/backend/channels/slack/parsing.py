@@ -1,12 +1,14 @@
-"""Reads one pull request command out of a Slack message that mentions the PostHog app.
+"""Reads one command out of a Slack message that mentions the PostHog app.
 
 The Slack app removes its own mention and hands over plain text. What is left must be the command
-and a pull request URL, in either order: ``review --deep https://github.com/PostHog/posthog/pull/123``
+and the URL of its subject, in either order. For a pull request: ``review --deep https://github.com/PostHog/posthog/pull/123``
 as in a shell, or ``https://github.com/PostHog/posthog/pull/123 review --deep``. Options and free
 text, such as the focus of ``qa``, may also follow the URL. With the verb first, every word before
 the URL must be an option, so a valued option takes the ``--name=value`` form there. Anything else is
 not a command and stays with the agent, so this parser is strict on purpose: a sentence that happens
-to hold a pull request URL, such as "review this <URL>", never runs a command.
+to hold a URL, such as "review this <URL>", never runs a command.
+
+A new kind of subject adds its URL type and a pattern in ``_read_subject_url``.
 """
 
 import re
@@ -25,9 +27,17 @@ _OPTION_PREFIXES = ("-", "–", "—")
 
 
 @frozen
-class SlackPullRequestCommand:
+class PullRequestUrl:
     repository: str
-    pr_number: int
+    number: int
+
+
+SubjectUrl = PullRequestUrl
+
+
+@frozen
+class SlackCommand:
+    subject: SubjectUrl
     verb: str
     argument: str
 
@@ -37,12 +47,24 @@ def may_hold_command(text: str) -> bool:
     return _PULL_REQUEST_URL_RE.search(text) is not None
 
 
-def parse_slack_command(text: str) -> SlackPullRequestCommand | None:
+def _read_subject_url(word: str) -> SubjectUrl | None:
+    match = _PULL_REQUEST_URL_RE.fullmatch(word)
+    if match is None:
+        return None
+    repository = match.group("repository")
+    number = int(match.group("number"))
+    if not REPOSITORY_NAME_RE.fullmatch(repository) or number < 1:
+        return None
+    return PullRequestUrl(repository=repository, number=number)
+
+
+def parse_slack_command(text: str) -> SlackCommand | None:
     words = text.split()
     if len(words) < 2:
         return None
-    if _PULL_REQUEST_URL_RE.fullmatch(words[0]):
-        url, verb, argument_words = words[0], words[1], words[2:]
+    first_url = _read_subject_url(words[0])
+    if first_url is not None:
+        subject, verb, argument_words = first_url, words[1], words[2:]
     else:
         verb = words[0]
         url_index = next(
@@ -50,18 +72,11 @@ def parse_slack_command(text: str) -> SlackPullRequestCommand | None:
         )
         if url_index is None:
             return None
-        url = words[url_index]
+        url = _read_subject_url(words[url_index])
+        if url is None:
+            return None
+        subject = url
         argument_words = [*words[1:url_index], *words[url_index + 1 :]]
-    match = _PULL_REQUEST_URL_RE.fullmatch(url)
-    if match is None or not _VERB_RE.fullmatch(verb):
+    if not _VERB_RE.fullmatch(verb):
         return None
-    repository = match.group("repository")
-    pr_number = int(match.group("number"))
-    if not REPOSITORY_NAME_RE.fullmatch(repository) or pr_number < 1:
-        return None
-    return SlackPullRequestCommand(
-        repository=repository,
-        pr_number=pr_number,
-        verb=verb.lower(),
-        argument=sanitize_argument(" ".join(argument_words)),
-    )
+    return SlackCommand(subject=subject, verb=verb.lower(), argument=sanitize_argument(" ".join(argument_words)))

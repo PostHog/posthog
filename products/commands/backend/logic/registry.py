@@ -9,7 +9,7 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
-from .commands import Answer, CommandContext, CommandOutcome, CommandTarget, PullRequestRef
+from .commands import Answer, CommandContext, CommandOutcome, CommandTarget, SubjectRef
 from .handlers import handle_loop, handle_qa, handle_review, handle_stamp, review_target, stamp_target
 from .schema import (
     COMMAND_DECLARATIONS,
@@ -41,7 +41,7 @@ class CommandSpec[A]:
     handler: Callable[[CommandContext, A], CommandOutcome]
     # Names the projects the command's product acts in, out of the rolled-out candidates, before
     # dispatch checks membership and access. Without one, every candidate counts.
-    target: Callable[[PullRequestRef, tuple[int, ...]], CommandTarget | Answer] | None = None
+    target: Callable[[SubjectRef, tuple[int, ...]], CommandTarget | Answer] | None = None
 
     def parse(self, raw_argument: str) -> Invocation[A] | ArgumentError:
         args = parse_arguments(self.declaration, raw_argument)

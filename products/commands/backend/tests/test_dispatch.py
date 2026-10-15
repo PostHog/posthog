@@ -59,7 +59,7 @@ CLAIM_CACHE = "products.commands.backend.logic.admission.cache"
 CONSUME_BUDGET = "products.commands.backend.logic.admission.consume"
 RUN_COMMENT_COMMAND = "products.commands.backend.tasks.tasks.run_comment_command.delay"
 RUN_SLACK_COMMAND = "products.commands.backend.tasks.tasks.run_slack_command.delay"
-SLACK_INSTALLATION_GITHUB = "products.commands.backend.channels.slack.mentions.InstallationGitHub.for_installation"
+SLACK_INSTALLATION_GITHUB = "products.commands.backend.logic.subjects.InstallationGitHub.for_installation"
 SLACK_POST = "products.commands.backend.channels.slack.mentions.post_message"
 
 # Each test gets its own commenter, so the per-commenter rate limit in Redis never carries over.
@@ -347,7 +347,7 @@ class TestDispatchCommentCommand(BaseTest):
     def test_loop_reports_retirement(self) -> None:
         context = CommandContext(
             request=self._command_request(verb="loop", argument="Triage PR"),
-            pull_request=_pull_request(),
+            subject=_pull_request(),
             members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
         )
 
@@ -367,7 +367,7 @@ class TestDispatchCommentCommand(BaseTest):
     ) -> None:
         context = CommandContext(
             request=self._command_request(verb="qa"),
-            pull_request=_pull_request(),
+            subject=_pull_request(),
             members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
         )
 
@@ -527,7 +527,7 @@ class TestDispatchCommentCommand(BaseTest):
 
         assert (command.verb if command else None) == expected_verb
         if command is not None:
-            assert (command.installation_id, command.team_ids) == (INSTALLATION_ID, (self.team.id,))
+            assert (command.subject.installation_id, command.team_ids) == (INSTALLATION_ID, (self.team.id,))
         # Inside the Slack webhook, a flag that needs a remote call reads as off.
         assert all(call.kwargs["only_evaluate_locally"] for call in self.flag.call_args_list)
 

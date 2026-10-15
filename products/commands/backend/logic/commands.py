@@ -6,12 +6,15 @@ handler, so a new command inherits the full set of checks by being declared in `
 """
 
 import re
-from typing import Literal
+from typing import ClassVar, Literal
 
 from posthog.dataclasses import frozen
 
 # The name goes into GitHub API paths, so it must be exactly `owner/name`.
 REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")
+
+SubjectKind = Literal["pull_request"]
+SUBJECT_NAMES: dict[SubjectKind, str] = {"pull_request": "pull requests"}
 
 DispatchOutcome = Literal[
     "duplicate",
@@ -25,6 +28,7 @@ DispatchOutcome = Literal[
     "help",
     "unknown_command",
     "invalid_arguments",
+    "wrong_subject",
     "unlinked",
     "account_refused",
     "no_project",
@@ -51,9 +55,17 @@ class Answer:
 class PullRequestRef:
     """A pull request as a channel names it, before anything about it is checked."""
 
+    kind: ClassVar[SubjectKind] = "pull_request"
+
     installation_id: str
     repository: str
     number: int
+
+    def describe(self) -> str:
+        return f"{self.repository}#{self.number}"
+
+
+SubjectRef = PullRequestRef
 
 
 @frozen
@@ -72,7 +84,7 @@ class CommandRequest:
     It holds identifiers and the requester's own command text only, never text other people wrote.
     """
 
-    subject: PullRequestRef
+    subject: SubjectRef
     verb: str
     argument: str
     ambiguous: bool
@@ -101,6 +113,9 @@ class PullRequestFacts:
     is_fork: bool
 
 
+SubjectFacts = PullRequestFacts
+
+
 @frozen
 class ProjectMember:
     """A project the commenter may act in, and the commenter's PostHog account that acts there.
@@ -116,16 +131,21 @@ class ProjectMember:
 @frozen
 class CommandContext:
     request: CommandRequest
-    pull_request: PullRequestFacts
+    subject: SubjectFacts
     # Best candidate first. Every entry passed the membership, rollout and resource-access checks
     # for this command. A project appears once per linked account that is a member of it.
     members: tuple[ProjectMember, ...]
+
+    @property
+    def pull_request(self) -> PullRequestFacts:
+        """The subject of a command that accepts only pull requests."""
+        return self.subject
 
 
 @frozen
 class CommandOutcome:
     accepted: bool
-    # Markdown posted back on the pull request. Handlers build it from fixed text and values
-    # PostHog or GitHub produced, never from the comment, so a reply cannot be made to say
-    # something the commenter wrote.
+    # Markdown posted back where the command came from. Handlers build it from fixed text and values
+    # PostHog or GitHub produced, never from the request, so a reply cannot be made to say
+    # something the requester wrote.
     message: str
