@@ -5,6 +5,8 @@ import { StepDefinition } from '../../steps'
 export interface OtelRequestContextConfig {
     /** Language tabs the surrounding page shows, in the order it shows them. */
     languages: ('Python' | 'Node' | 'Go')[]
+    /** The tracer setup class the page's Node setup step uses. Defaults to `NodeSDK`. */
+    nodeTracerSetup?: 'NodeSDK' | 'NodeTracerProvider'
 }
 
 const PYTHON_CODE = `
@@ -19,17 +21,24 @@ with posthog.new_context():
     reply = handle_turn(user_message)
 `.trim()
 
-const NODE_CODE = `
+const NODE_SETUP_VARIABLES = { NodeSDK: 'sdk', NodeTracerProvider: 'provider' }
+
+const getNodeCode = (tracerSetup: 'NodeSDK' | 'NodeTracerProvider'): string =>
+    `
 // Requires @posthog/ai 8.14.0 and posthog-node 5.15.0 or later
 import { PostHog } from 'posthog-node'
 
 const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
 
-// Pass the client to the processor you configured earlier
-new PostHogSpanProcessor({
-  projectToken: '<ph_project_token>',
-  host: '<ph_client_api_host>',
-  client: posthog,
+const ${NODE_SETUP_VARIABLES[tracerSetup]} = new ${tracerSetup}({
+  // ...the rest of your setup from the earlier step
+  spanProcessors: [
+    new PostHogSpanProcessor({
+      projectToken: '<ph_project_token>',
+      host: '<ph_client_api_host>',
+      client: posthog,
+    }),
+  ],
 })
 
 const reply = await posthog.withContext(
@@ -59,10 +68,18 @@ ctx = posthog.WithRequestContext(ctx, posthog.RequestContext{
 reply := handleTurn(ctx, userMessage)
 `.trim()
 
-const CODE_BY_LANGUAGE = {
-    Python: { language: 'python', file: 'Python', code: PYTHON_CODE },
-    Node: { language: 'typescript', file: 'Node', code: NODE_CODE },
-    Go: { language: 'go', file: 'Go', code: GO_CODE },
+const getCodeBlock = (
+    language: OtelRequestContextConfig['languages'][number],
+    config: OtelRequestContextConfig
+): { language: string; file: string; code: string } => {
+    switch (language) {
+        case 'Python':
+            return { language: 'python', file: 'Python', code: PYTHON_CODE }
+        case 'Node':
+            return { language: 'typescript', file: 'Node', code: getNodeCode(config.nodeTracerSetup ?? 'NodeSDK') }
+        case 'Go':
+            return { language: 'go', file: 'Go', code: GO_CODE }
+    }
 }
 
 export const getOtelRequestContextStep = (
@@ -89,7 +106,7 @@ export const getOtelRequestContextStep = (
                     `}
                 </Markdown>
 
-                <CodeBlock blocks={config.languages.map((language) => CODE_BY_LANGUAGE[language])} />
+                <CodeBlock blocks={config.languages.map((language) => getCodeBlock(language, config))} />
 
                 {config.languages.includes('Node') && (
                     <Markdown>
@@ -104,7 +121,9 @@ export const getOtelRequestContextStep = (
                     <Markdown>
                         {dedent`
                             In Go, \`posthog.NewRequestContextMiddleware\` fills the context for each HTTP request
-                            from the \`X-PostHog-Distinct-Id\` and \`X-PostHog-Session-Id\` headers.
+                            from the \`X-PostHog-Distinct-Id\` and \`X-PostHog-Session-Id\` headers. The session
+                            header sets the web session ID (\`$session_id\`), not \`$ai_session_id\`, so set
+                            \`$ai_session_id\` in \`Properties\` to group traces in the Sessions tab.
                         `}
                     </Markdown>
                 )}

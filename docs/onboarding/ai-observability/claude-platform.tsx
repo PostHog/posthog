@@ -396,7 +396,10 @@ const getSendTracesStep = (ctx: OnboardingComponentsContext): StepDefinition => 
 
 const getRequestContextStep = (ctx: OnboardingComponentsContext): StepDefinition => {
     const { Markdown } = ctx
-    const step = getOtelRequestContextStep(ctx, { languages: ['Python', 'Node', 'Go'] })
+    const step = getOtelRequestContextStep(ctx, {
+        languages: ['Python', 'Node', 'Go'],
+        nodeTracerSetup: 'NodeTracerProvider',
+    })
 
     return {
         ...step,
