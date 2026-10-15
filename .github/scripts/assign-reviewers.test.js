@@ -13,7 +13,6 @@ const {
     computeAdditionOwners,
     computeSensitiveOwners,
     sensitiveOwnersToExplain,
-    loadLabelRules,
     matchTeamsToRequestAndLabel,
     isSubstantive,
     classifyOwners,
@@ -440,25 +439,16 @@ const NO_MATCH = { labels: [], teams: [] }
 const TEAM_RULE_RESOLUTIONS = {
     'packages/agent/src/run.ts': resolved(['team-agent-infrastructure'], 'packages/agent/owners.yaml'),
     'products/surveys/backend/api.py': resolved(['team-surveys'], 'products/surveys/product.yaml'),
-    'products/feature_flags/backend/api.py': resolved(['team-feature-flags'], 'products/feature_flags/product.yaml'),
 }
 
-for (const { description, title, files, expected } of [
+for (const { description, files, expected } of [
     {
-        description: 'an agent infra scope requests the team without its code',
-        title: 'feat(agent-proxy): x',
-        files: [file('products/surveys/backend/api.py', 50)],
-        expected: AGENT_INFRA_MATCH,
-    },
-    {
-        description: 'a minor change to agent infra code requests the team without its scope',
-        title: 'chore: x',
+        description: 'a minor change to agent infra code requests and labels the team',
         files: [file('products/surveys/backend/api.py', 200), file('packages/agent/src/run.ts', 1)],
         expected: AGENT_INFRA_MATCH,
     },
     {
-        description: 'a rename out of agent infra code requests the team',
-        title: 'chore: x',
+        description: 'a rename out of agent infra code requests and labels the team',
         files: [
             {
                 ...file('products/surveys/backend/api.py', 1),
@@ -469,20 +459,13 @@ for (const { description, title, files, expected } of [
         expected: AGENT_INFRA_MATCH,
     },
     {
-        description: 'a scope mapped to another label requests nobody',
-        title: 'feat(flags): x',
-        files: [file('products/feature_flags/backend/api.py', 50)],
-        expected: NO_MATCH,
-    },
-    {
-        description: 'an unrelated PR requests nobody',
-        title: 'feat(surveys): x',
+        description: 'a PR without agent infra code requests nobody',
         files: [file('products/surveys/backend/api.py', 50)],
         expected: NO_MATCH,
     },
 ]) {
-    test(`matchTeamsToRequestAndLabel with the shipped config: ${description}`, () => {
-        const { labels, teams } = matchTeamsToRequestAndLabel(loadLabelRules(), title, TEAM_RULE_RESOLUTIONS, files)
+    test(`matchTeamsToRequestAndLabel: ${description}`, () => {
+        const { labels, teams } = matchTeamsToRequestAndLabel(TEAM_RULE_RESOLUTIONS, files)
         assert.deepEqual({ labels, teams: teams.map((entry) => entry.owner) }, expected)
     })
 }

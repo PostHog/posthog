@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require('child_process')
-const fs = require('fs')
-const path = require('path')
 const { pathMatchesPattern } = require('./codeowners')
 
 // Tunable knobs for how aggressively we trim the reviewer list. Kept in one
@@ -333,23 +331,6 @@ function computeSensitiveOwners(resolutionByPath, changedFiles, config = CONFIG)
     return Array.from(owners.values())
 }
 
-// Read as data so the reviewer app token never runs code outside the security-owned scripts.
-function loadLabelRules() {
-    const parsed = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'auto-assign-labels.json'), 'utf8'))
-    return Array.isArray(parsed.rules) ? parsed.rules : []
-}
-
-function parseTitleScopes(title) {
-    const match = /^\s*\w+\(([^)]+)\)!?:/.exec(title || '')
-    if (!match) {
-        return []
-    }
-    return match[1]
-        .split(',')
-        .map((scope) => scope.trim().toLowerCase())
-        .filter(Boolean)
-}
-
 function teamsOwningChanges(resolutionByPath, changedFiles, config = CONFIG) {
     const teams = new Set()
     for (const file of changedFiles) {
@@ -373,17 +354,9 @@ function teamsOwningChanges(resolutionByPath, changedFiles, config = CONFIG) {
     return teams
 }
 
-function matchTeamsToRequestAndLabel(labelRules, title, resolutionByPath, changedFiles, config = CONFIG) {
-    const scopes = new Set(parseTitleScopes(title))
-    const scopeLabels = new Set(
-        labelRules
-            .filter((rule) => (rule.scopes || []).some((scope) => scopes.has(String(scope).toLowerCase())))
-            .flatMap((rule) => rule.labels || [])
-    )
+function matchTeamsToRequestAndLabel(resolutionByPath, changedFiles, config = CONFIG) {
     const owningTeams = teamsOwningChanges(resolutionByPath, changedFiles, config)
-    const matched = config.teamsToRequestAndLabel.filter(
-        ({ team, label }) => owningTeams.has(team) || scopeLabels.has(label)
-    )
+    const matched = config.teamsToRequestAndLabel.filter(({ team }) => owningTeams.has(team))
     return {
         labels: matched.map(({ label }) => label),
         teams: matched.map(({ team }) => classifyOwner(`@PostHog/${team}`)),
@@ -774,12 +747,7 @@ async function main() {
         const footprints = computeOwnerFootprints(resolutionByPath, changedFiles)
         const additionOwners = computeAdditionOwners(resolutionByPath, changedFiles)
         const sensitiveOwners = computeSensitiveOwners(resolutionByPath, changedFiles)
-        const requestAndLabel = matchTeamsToRequestAndLabel(
-            loadLabelRules(),
-            process.env.PR_TITLE,
-            resolutionByPath,
-            changedFiles
-        )
+        const requestAndLabel = matchTeamsToRequestAndLabel(resolutionByPath, changedFiles)
         const { requested, demoted } = classifyOwnersWithPinned(footprints, [
             ...additionOwners,
             ...sensitiveOwners,
@@ -836,7 +804,6 @@ module.exports = {
     computeAdditionOwners,
     computeSensitiveOwners,
     sensitiveOwnersToExplain,
-    loadLabelRules,
     matchTeamsToRequestAndLabel,
     isSubstantive,
     classifyOwners,
