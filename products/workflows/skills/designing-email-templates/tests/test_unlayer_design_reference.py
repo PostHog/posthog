@@ -3,8 +3,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from products.messaging.backend.api.design_operations import apply_design_operations
-from products.messaging.backend.api.design_validation import validate_design
+from products.messaging.backend.facade.api import apply_design_operations, validate_design
 
 REFERENCE = Path(__file__).resolve().parent.parent / "references" / "unlayer-design-json.md"
 JSON_FENCE = re.compile(r"```json\n(.*?)\n```", re.DOTALL)
