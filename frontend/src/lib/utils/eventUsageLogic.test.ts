@@ -22,7 +22,12 @@ import {
     StepOrderValue,
 } from '~/types'
 
-import { dashboardViewedProperties, eventUsageLogic, getEventPropertiesForMetric, sanitizeQuery } from './eventUsageLogic'
+import {
+    dashboardViewedProperties,
+    eventUsageLogic,
+    getEventPropertiesForMetric,
+    sanitizeQuery,
+} from './eventUsageLogic'
 
 describe('eventUsageLogic', () => {
     describe('experiments list viewed', () => {
