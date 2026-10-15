@@ -35,15 +35,15 @@ Each head is graded only on its cohort.
 
 | Head               | Probability                                                 | Horizon |
 | ------------------ | ----------------------------------------------------------- | ------- |
-| `open`             | P(opened) over every report                                 | 3d      |
-| `action`           | P(acted on) over every report                               | 7d      |
+| `open`             | P(opened) over every report                                 | 7d      |
+| `action`           | P(acted on) over every report                               | 14d     |
 | `discuss`          | P(discuss) over every report                                | 7d      |
 | `dismiss_wrong`    | P(dismissed as wrong) over every report                     | 21d     |
 | `reviewer_fix`     | P(reviewers corrected) over every report                    | 14d     |
 | `thumbs_up`        | P(thumbs up) over every report                              | 7d      |
 | `pr_created`       | P(PR created) over every report                             | 7d      |
 | `pr_merged`        | P(PR merged) over every report                              | 14d     |
-| `fixed`            | P(fixed) over every report                                  | 21d     |
+| `fixed`            | P(fixed) over every report                                  | 30d     |
 | `refund`           | P(refund) over every report                                 | 14d     |
 | `dismiss_lowvalue` | P(dismissed as real but not worth fixing) over every report | 21d     |
 

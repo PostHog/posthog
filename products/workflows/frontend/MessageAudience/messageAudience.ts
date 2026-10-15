@@ -1,6 +1,14 @@
 import posthog from 'posthog-js'
 
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AnyPropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { urlForNewBroadcastWithAudience } from '../Broadcasts/broadcastAudiencePrefill'
 import type { EmailDraftRequestApi } from '../generated/api.schemas'
@@ -57,4 +65,9 @@ export function captureMessageAudienceClicked(
 ): void {
     // pinned: analytics event name
     posthog.capture('message audience clicked', { source, destination, ...extra })
+}
+
+/** Why this person can't start a broadcast or workflow, if they can't: both need editor access to workflows. */
+export function messageAudienceAccessDisabledReason(): string | null {
+    return getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor)
 }

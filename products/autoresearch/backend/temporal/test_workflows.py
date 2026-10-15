@@ -61,8 +61,8 @@ def _validation(status: str = "completed", error: Optional[str] = None) -> Valid
     return ValidationWorkflowResult(dates_validated=1, total_rows=10, status=status, error=error)
 
 
-def _kickoff(reason: str = "started", error: Optional[str] = None) -> KickoffTrainingResult:
-    return KickoffTrainingResult(kicked_off=reason == "started", reason=reason, error=error)
+def _kickoff(reason: str = "explore", error: Optional[str] = None) -> KickoffTrainingResult:
+    return KickoffTrainingResult(kicked_off=reason == "explore", reason=reason, error=error)
 
 
 class TestEvaluatePipelineOutcome(SimpleTestCase):
@@ -76,7 +76,7 @@ class TestEvaluatePipelineOutcome(SimpleTestCase):
             ("kickoff_raises", _inference(), _validation(), RuntimeError("boom"), False, 1),
             ("kickoff_errors", _inference(), _validation(), _kickoff(reason="error", error="boom"), False, 1),
             ("kickoff_no_creator", _inference(), _validation(), _kickoff(reason="no_creator", error="boom"), False, 1),
-            ("kickoff_skip_is_not_failure", _inference(), _validation(), _kickoff(reason="budget_exhausted"), True, 0),
+            ("kickoff_skip_is_not_failure", _inference(), _validation(), _kickoff(reason="not_due"), True, 0),
             ("not_due_runs_validation_only", None, _validation(), None, True, 0),
             (
                 "multiple_failures_all_counted",
@@ -125,7 +125,6 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
             "name": "test pipeline",
             "target_event": "$pageview",
             "status": AutoresearchPipeline.Status.RUNNING,
-            "iteration_budget_remaining": 20,
             **overrides,
         }
         return AutoresearchPipeline.objects.create(**params)
@@ -410,14 +409,11 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
 
         assert result.kicked_off
-        assert result.reason == "started"
         mock_run_training.assert_called_once()
         assert mock_run_training.call_args.kwargs["user_id"] == self.user.id
-        pipeline.refresh_from_db()
-        assert pipeline.iteration_budget_remaining == 10
 
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
-    def test_kickoff_without_creator_fails_loudly_and_spends_no_budget(self, mock_run_training: MagicMock) -> None:
+    def test_kickoff_without_creator_fails_loudly(self, mock_run_training: MagicMock) -> None:
         pipeline = self._create_pipeline(created_by=None)
 
         result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
@@ -426,8 +422,6 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         assert result.reason == "no_creator"
         assert result.error
         mock_run_training.assert_not_called()
-        pipeline.refresh_from_db()
-        assert pipeline.iteration_budget_remaining == 20
 
     @parameterized.expand(
         [
@@ -439,7 +433,7 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         ]
     )
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
-    def test_kickoff_skips_without_spending_budget(
+    def test_kickoff_skips(
         self,
         _name: str,
         run_status: Optional[str],
@@ -461,28 +455,65 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
         assert result.reason == expected_reason
         mock_run_training.assert_not_called()
-        pipeline.refresh_from_db()
-        assert pipeline.iteration_budget_remaining == 20
 
     @parameterized.expand(
         [
-            ("unscorable_champion_gets_a_rescue", 0, True, None, "rescue_unscorable"),
-            ("scorable_champion_stays_exhausted", 0, False, None, "budget_exhausted"),
-            ("rescue_ran_yesterday", 0, True, datetime(2026, 9, 10, 2, tzinfo=UTC), "rescue_throttled"),
-            ("rescue_ran_two_days_ago", 0, True, datetime(2026, 9, 9, 2, tzinfo=UTC), "rescue_unscorable"),
+            ("new_pipeline_explores", 7, [], False, "explore"),
+            (
+                "promoting_runs_keep_exploring",
+                7,
+                [("explore", "completed", True, 9), ("explore", "completed", True, 10)],
+                False,
+                "explore",
+            ),
+            (
+                "rescue_runs_do_not_end_the_burst",
+                7,
+                [*[("explore", "failed", None, d) for d in (5, 6, 7, 8)], ("rescue", "completed", False, 10)],
+                False,
+                "explore",
+            ),
+            ("explore_takes_precedence_over_rescue", 7, [], True, "explore"),
+            ("non_promoting_run_ends_the_burst", 7, [("explore", "completed", False, 10)], False, "not_due"),
+            (
+                "five_runs_end_the_burst_then_interval_passes",
+                7,
+                [(None, "failed", None, d) for d in (0, 1, 2, 3, 4)],
+                False,
+                "scheduled",
+            ),
+            ("maintain_within_interval", 14, [(None, "failed", None, d) for d in (1, 2, 3, 4, 5)], False, "not_due"),
+            (
+                "manual_run_resets_the_clock",
+                7,
+                [("scheduled", "completed", False, -30), ("manual", "completed", True, 5)],
+                False,
+                "not_due",
+            ),
+            ("only_when_asked", None, [], False, "manual_only"),
+            ("only_when_asked_still_rescues", None, [], True, "rescue_unscorable"),
+            (
+                "not_due_rescues_an_unscorable_champion",
+                7,
+                [("explore", "completed", False, 8)],
+                True,
+                "rescue_unscorable",
+            ),
+            ("rescue_ran_yesterday", None, [("rescue", "failed", None, 10)], True, "rescue_throttled"),
         ]
     )
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
-    def test_exhausted_budget_rescues_only_an_unscorable_champion(
+    def test_kickoff_follows_the_research_schedule(
         self,
         _name: str,
-        remaining: int,
+        research_interval_days: Optional[int],
+        prior_runs: list[tuple[Optional[str], str, Optional[bool], int]],
         unscorable: bool,
-        last_run_at: Optional[datetime],
         expected_reason: str,
         mock_run_training: MagicMock,
     ) -> None:
-        pipeline = self._create_pipeline(iteration_budget_remaining=remaining)
+        with time_machine.travel(datetime(2026, 8, 1, tzinfo=UTC), tick=False):
+            pipeline = self._create_pipeline(research_interval_days=research_interval_days, iterations_per_run=8)
         champion = AutoresearchModel.objects.create(
             pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION, model_recipe={"stub": True}, recipe_hash="abc"
         )
@@ -495,28 +526,35 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
                 status=AutoresearchRun.Status.FAILED if unscorable else AutoresearchRun.Status.COMPLETED,
                 metrics={"prediction_date": prediction_date, "failure_kind": "limit_exceeded"} if unscorable else {},
             )
-        if last_run_at is not None:
-            with time_machine.travel(last_run_at, tick=False):
+        # The day of each prior run is a day of September 2026; a value below 1 counts back into August.
+        for kickoff_reason, run_status, promoted, day in prior_runs:
+            with time_machine.travel(datetime(2026, 9, 1, 2, tzinfo=UTC) + timedelta(days=day - 1), tick=False):
                 AutoresearchTrainingRun.objects.create(
-                    pipeline=pipeline, status=AutoresearchTrainingRun.Status.FAILED, iteration_budget=3
+                    pipeline=pipeline,
+                    status=run_status,
+                    kickoff_reason=kickoff_reason,
+                    iteration_budget=3,
+                    summary={} if promoted is None else {"champion_promoted": promoted},
                 )
 
         with time_machine.travel(datetime(2026, 9, 11, 2, tzinfo=UTC), tick=False):
             result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
 
         assert result.reason == expected_reason
-        if expected_reason == "rescue_unscorable":
+        if expected_reason in ("explore", "scheduled", "rescue_unscorable"):
             assert result.kicked_off
-            assert mock_run_training.call_args.kwargs["iteration_budget"] == RESCUE_ITERATION_BUDGET
-            assert mock_run_training.call_args.kwargs["rescue"] is True
+            kwargs = mock_run_training.call_args.kwargs
+            rescue = expected_reason == "rescue_unscorable"
+            assert kwargs["iteration_budget"] == (RESCUE_ITERATION_BUDGET if rescue else 8)
+            assert kwargs["rescue"] is rescue
+            assert kwargs["kickoff_reason"] == ("rescue" if rescue else expected_reason)
         else:
+            assert not result.kicked_off
             mock_run_training.assert_not_called()
-        pipeline.refresh_from_db()
-        assert pipeline.iteration_budget_remaining == remaining
 
     @parameterized.expand([("transient_failure_raises", RuntimeError("boom")), ("refused_launch", ValueError("left"))])
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
-    def test_failed_launch_spends_no_budget(self, _name: str, error: Exception, mock_run_training: MagicMock) -> None:
+    def test_failed_launch(self, _name: str, error: Exception, mock_run_training: MagicMock) -> None:
         pipeline = self._create_pipeline()
         mock_run_training.side_effect = error
 
@@ -526,9 +564,6 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         else:
             result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
             assert result.reason == "not_launchable"
-
-        pipeline.refresh_from_db()
-        assert pipeline.iteration_budget_remaining == 20
 
 
 @pytest.mark.parametrize(
