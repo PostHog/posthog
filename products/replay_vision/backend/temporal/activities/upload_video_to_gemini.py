@@ -93,7 +93,7 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
             f"ExportedAsset {inputs.asset_id} produced empty video bytes", kind=FailureKind.INTERNAL_ERROR
         )
 
-    gateway = replay_gateway_client(asset.team_id)
+    gateway = await replay_gateway_client(asset.team_id)
     try:
         return await _store_video(gateway, video_bytes, asset.export_format, workflow_id)
     finally:

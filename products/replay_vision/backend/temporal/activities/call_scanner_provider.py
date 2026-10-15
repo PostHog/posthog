@@ -641,7 +641,7 @@ async def _run_mission(
             )
         steps.append(step)
 
-    gateway = replay_gateway_client(team_id, properties=properties)
+    gateway = await replay_gateway_client(team_id, properties=properties)
     client: Any
     cache_client: Any
     if gateway is not None:

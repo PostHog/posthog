@@ -18,6 +18,7 @@ from posthog.llm.gateway_client import (
     resolve_ai_gateway_config,
     team_distinct_id,
 )
+from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
 
 AI_PRODUCT = "replay_vision"
@@ -26,19 +27,23 @@ GATEWAY_FLAG = "replay-vision-ai-gateway"
 logger = structlog.get_logger(__name__)
 
 
-def replay_gateway_client(team_id: int, *, properties: Mapping[str, Any] | None = None) -> "GatewayGeminiClient | None":
-    """The gateway client when gateway mode is on for the team, else None so the caller goes direct.
+async def replay_gateway_client(
+    team_id: int, *, properties: Mapping[str, Any] | None = None
+) -> "GatewayGeminiClient | None":
+    """The gateway client when gateway mode is on for the team's org, else None so the caller goes direct.
 
     Cleanup and the sweep delete files with the direct key, so gateway mode also needs Replay Vision's own direct key.
     """
     if not (settings.REPLAY_VISION_AI_GATEWAY_API_KEY and settings.REPLAY_VISION_GEMINI_API_KEY):
         return None
-    # Local evaluation only: a scan makes many calls, and a flag outage must leave them direct and fast.
+    organization_id = str(await Team.objects.values_list("organization_id", flat=True).aget(id=team_id))
+    # Org-targeted like the desktop rollout. Local evaluation only: a scan makes many calls, and a flag outage
+    # must leave them direct and fast, so conditions must use the org or project id, not server-side properties.
     enabled = feature_enabled_or_false(
         GATEWAY_FLAG,
         team_distinct_id(team_id),
-        groups={"project": str(team_id)},
-        group_properties={"project": {"id": str(team_id)}},
+        groups={"organization": organization_id, "project": str(team_id)},
+        group_properties={"organization": {"id": organization_id}, "project": {"id": str(team_id)}},
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )

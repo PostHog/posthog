@@ -37,10 +37,20 @@ _OK = {"candidates": [{"content": {"role": "model", "parts": [{"text": "ok"}]}, 
 _FLAG = "products.replay_vision.backend.gemini_client.feature_enabled_or_false"
 
 
+_ORG = "0190e1a2-0000-7000-8000-000000000042"
+
+
 @pytest.fixture(autouse=True)
 def flag_on() -> Any:
     with patch(_FLAG, return_value=True) as flag:
         yield flag
+
+
+@pytest.fixture(autouse=True)
+def team_org() -> Any:
+    with patch("products.replay_vision.backend.gemini_client.Team") as team:
+        team.objects.values_list.return_value.aget = AsyncMock(return_value=_ORG)
+        yield team
 
 
 def _sse(*chunks: dict[str, Any]) -> bytes:
@@ -53,65 +63,77 @@ def _ok(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json=_OK)
 
 
-def _gateway_client(properties: dict[str, Any] | None = None) -> GatewayGeminiClient:
+async def _agateway_client(properties: dict[str, Any] | None = None) -> GatewayGeminiClient:
     with override_settings(**_GATEWAY):
-        client = replay_gateway_client(42, properties=properties)
+        client = await replay_gateway_client(42, properties=properties)
     assert isinstance(client, GatewayGeminiClient)
     return client
+
+
+def _gateway_client(properties: dict[str, Any] | None = None) -> GatewayGeminiClient:
+    return asyncio.run(_agateway_client(properties))
 
 
 def _wired_gateway_client(
     properties: dict[str, Any], respond: Callable[[httpx.Request], httpx.Response] = _ok
 ) -> tuple[GatewayGeminiClient, list[httpx.Request]]:
+    client = _gateway_client(properties)
+    return client, _wire(client, respond)
+
+
+def _wire(client: GatewayGeminiClient, respond: Callable[[httpx.Request], httpx.Response] = _ok) -> list[httpx.Request]:
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         return respond(request)
 
-    client = _gateway_client(properties)
     # Swaps only the transport, so a client the SDK has closed still fails the call.
     api_client = client._client._api_client
     api_client._httpx_client._transport = httpx.MockTransport(handler)
     api_client._async_httpx_client._transport = httpx.MockTransport(handler)
-    return client, seen
+    return seen
 
 
 class TestReplayGatewayClient:
     @pytest.mark.parametrize(
         "unset", ["REPLAY_VISION_AI_GATEWAY_API_KEY", "REPLAY_VISION_GEMINI_API_KEY"], ids=["gateway-key", "google-key"]
     )
-    def test_a_missing_key_stays_direct_without_the_flag(self, flag_on: MagicMock, unset: str) -> None:
+    def test_a_missing_key_stays_direct_without_the_flag(
+        self, flag_on: MagicMock, team_org: MagicMock, unset: str
+    ) -> None:
         with (
             override_settings(**{**_GATEWAY, unset: ""}),
             patch("posthog.llm.gateway_client.genai.Client") as gateway_client,
             patch("posthog.llm.gateway_client.logger") as gateway_logger,
         ):
-            assert replay_gateway_client(42) is None
+            assert asyncio.run(replay_gateway_client(42)) is None
         flag_on.assert_not_called()
+        team_org.objects.values_list.assert_not_called()
         gateway_client.assert_not_called()
         gateway_logger.warning.assert_not_called()
 
     def test_flag_off_stays_direct(self, flag_on: MagicMock) -> None:
         flag_on.return_value = False
         with override_settings(**_GATEWAY), patch("posthog.llm.gateway_client.genai.Client") as gateway_client:
-            assert replay_gateway_client(42) is None
+            assert asyncio.run(replay_gateway_client(42)) is None
         gateway_client.assert_not_called()
 
-    def test_flag_is_evaluated_locally_per_project_without_events(self, flag_on: MagicMock) -> None:
+    def test_flag_is_evaluated_locally_per_org_without_events(self, flag_on: MagicMock, team_org: MagicMock) -> None:
         _gateway_client()
+        team_org.objects.values_list.return_value.aget.assert_awaited_once_with(id=42)
         flag_on.assert_called_once_with(
             GATEWAY_FLAG,
             "team-42",
-            groups={"project": "42"},
-            group_properties={"project": {"id": "42"}},
+            groups={"organization": _ORG, "project": "42"},
+            group_properties={"organization": {"id": _ORG}, "project": {"id": "42"}},
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
 
     def test_replay_vision_calls_use_its_own_key_never_the_shared_one(self) -> None:
         with override_settings(**_GATEWAY), patch("posthog.llm.gateway_client.genai.Client") as gateway_client:
-            assert replay_gateway_client(42) is not None
+            assert asyncio.run(replay_gateway_client(42)) is not None
         assert gateway_client.call_args.kwargs["api_key"] == "phs_replay_vision"
 
     def test_per_call_capture_kwargs_become_request_headers(self) -> None:
@@ -148,7 +170,8 @@ class TestReplayGatewayClient:
     def test_the_sdk_client_outlives_the_wrapper(self) -> None:
         async def call_after_collection() -> list[httpx.Request]:
             # Built inside a running loop, as the scan activity does: only there does the SDK close its async transport.
-            client, seen = _wired_gateway_client({"feature": "scanner"})
+            client = await _agateway_client({"feature": "scanner"})
+            seen = _wire(client)
             aio = client.aio
             del client
             gc.collect()

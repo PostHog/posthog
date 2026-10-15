@@ -138,7 +138,7 @@ def contains_pii(*, team_id: int, text: dict[str, str], trace_id: str) -> bool |
 async def rewrite_without_pii(*, team_id: int, question: str, text: dict[str, str], trace_id: str) -> dict[str, str]:
     """Rewrite the answer's text fields without the personal data; fields the rewrite drops keep their old text."""
     properties = {"ai_product": "replay_vision", "feature": "pii_rewrite", "team_id": team_id}
-    gateway = replay_gateway_client(team_id, properties=properties)
+    gateway = await replay_gateway_client(team_id, properties=properties)
     client: Any = (
         gateway.aio
         if gateway is not None
