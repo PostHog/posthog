@@ -1,10 +1,11 @@
 import ssl
+import hmac
 import json
 import base64
 import asyncio
+import hashlib
 from functools import partial
 from ipaddress import ip_address
-from typing import TYPE_CHECKING
 
 from unittest.mock import patch
 
@@ -20,11 +21,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.security.pinned_httpx import pinned_client
 from posthog.security.url_validation import PinnedUrlVerdict
 
-if TYPE_CHECKING:
-    pass
-
-
-from products.cdp.backend.mcp_event_delivery import MCPCallbackError, signing_key, verify_callback
+from products.cdp.backend.mcp_event_delivery import MCPCallbackError, signed_headers, signing_key, verify_callback
 from products.cdp.backend.mcp_event_envelope import MCPEventEnvelopeSerializer
 
 
@@ -53,6 +50,16 @@ class TestMCPEventSigning(SimpleTestCase):
     @parameterized.expand([(200, "echo"), (200, "wrong"), (302, "echo"), (500, "echo"), (200, "oversized")])
     def test_callback_must_echo_the_signed_challenge(self, status: int, mode: str) -> None:
         async def respond(request: httpx.Request) -> httpx.Response:
+            message = (
+                request.headers["webhook-id"].encode()
+                + b"."
+                + request.headers["webhook-timestamp"].encode()
+                + b"."
+                + request.content
+            )
+            signature = base64.b64encode(hmac.new(b"a" * 32, message, hashlib.sha256).digest()).decode()
+            self.assertEqual(request.headers["webhook-signature"], "v1," + signature)
+            self.assertEqual(request.headers["X-MCP-Subscription-Id"], "test-subscription")
             challenge = json.loads(request.content)["challenge"]
             payload = {"challenge": challenge if mode == "echo" else "wrong"}
             raw = b"x" * 9000 if mode == "oversized" else json.dumps(payload).encode()
@@ -68,6 +75,37 @@ class TestMCPEventSigning(SimpleTestCase):
                     verify_callback(
                         subscription_id="test-subscription", url="https://example.com/callback", secret=self.secret
                     )
+
+    @parameterized.expand(
+        [
+            "http://example.com/callback",
+            "https://example:password@example.com/callback",
+            "https://@example.com/callback",
+            "https://example.com/callback#fragment",
+            "https://[example/callback",
+        ]
+    )
+    def test_invalid_callback_url_is_rejected_before_network_access(self, url: str) -> None:
+        with (
+            patch("products.cdp.backend.mcp_event_delivery.validate_url_and_pin_ips") as validate,
+            self.assertRaises(ValidationError) as caught,
+        ):
+            verify_callback(subscription_id="example-subscription", url=url, secret=self.secret)
+        validate.assert_not_called()
+        self.assertNotIn(url, str(caught.exception))
+
+    def test_standard_webhooks_signature_preserves_utf8_body(self) -> None:
+        headers = signed_headers(
+            subscription_id="example-subscription",
+            webhook_id="example-event",
+            body='{"message":"héllo"}',
+            secret=self.secret,
+            signed_at=1700000000,
+        )
+        self.assertEqual(headers["webhook-id"], "example-event")
+        self.assertEqual(headers["webhook-timestamp"], "1700000000")
+        self.assertEqual(headers["webhook-signature"], "v1,5Mi8Lo9fF/q6194GNsKBNCmHwcnxHy43GoS3EWee/8Y=")
+        self.assertEqual(headers["X-MCP-Subscription-Id"], "example-subscription")
 
     def test_callback_deadline_cancels_a_trickling_response_header(self) -> None:
         clock = [0.0]
@@ -92,7 +130,7 @@ class TestMCPEventSigning(SimpleTestCase):
         self.assertEqual(caught.exception.reason, "timeout")
         close.assert_awaited()
 
-    @parameterized.expand(["timeout", "tls_error", "connection_failed"])
+    @parameterized.expand(["timeout", "tls_error", "connection_failed", "invalid_url"])
     def test_callback_transport_errors_remain_sanitized(self, reason: str) -> None:
         async def respond(request: httpx.Request) -> httpx.Response:
             if reason == "timeout":
@@ -105,8 +143,9 @@ class TestMCPEventSigning(SimpleTestCase):
             patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=respond),
             self.assertRaises(MCPCallbackError) as caught,
         ):
-            verify_callback(subscription_id="test-subscription", url="https://example.com/callback", secret=self.secret)
-        self.assertEqual(caught.exception.reason, reason)
+            url = "https://example.com:abc/callback" if reason == "invalid_url" else "https://example.com/callback"
+            verify_callback(subscription_id="test-subscription", url=url, secret=self.secret)
+        self.assertEqual(caught.exception.reason, "connection_failed" if reason == "invalid_url" else reason)
         self.assertNotIn("example", str(caught.exception))
 
 
@@ -133,3 +172,20 @@ class TestMCPEventEnvelope(SimpleTestCase):
         }
         with self.assertRaises(ValidationError):
             MCPEventEnvelopeSerializer.parse(json.dumps(envelope))
+
+    def test_valid_envelope_round_trip_preserves_content(self) -> None:
+        value: dict[str, JsonValue] = {
+            "eventId": "example-event",
+            "name": "posthog.event_captured",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "data": {
+                "event": "  example event  ",
+                "distinct_id": "  example-user  ",
+                "properties": {"nested": {"items": [None, True, 3, "héllo"]}},
+            },
+            "cursor": None,
+        }
+        envelope = MCPEventEnvelopeSerializer.parse(json.dumps(value))
+        self.assertEqual(envelope.data.event, "  example event  ")
+        self.assertEqual(envelope.data.distinct_id, "  example-user  ")
+        self.assertEqual(json.loads(MCPEventEnvelopeSerializer.render(envelope)), value)

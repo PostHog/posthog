@@ -86,7 +86,7 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
 from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
-from posthog.utils import format_query_params_absolute_url, str_to_bool
+from posthog.utils import format_query_params_absolute_url, safe_int, str_to_bool
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.cdp.backend.filters import build_behavioral_event_expr
@@ -1335,6 +1335,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             return str_to_bool(self.initial_data["is_static"])
         return bool(getattr(self.instance, "is_static", False))
 
+    def _reactivates_static_cohort(self, attrs: dict) -> bool:
+        instance = cast(Optional[Cohort], self.instance)
+        return instance is not None and instance.is_static and attrs.get("is_static") is False
+
     def _effective_filters_after_update(self, attrs: dict, team: Optional[Team] = None) -> dict | None:
         # Derive the properties that survive the save, mirroring Cohort.properties precedence:
         # filters win over the legacy groups field, so clearing filters re-activates preserved
@@ -1396,7 +1400,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         can change - `filters`, the legacy `groups` field, and query-based cohorts' `query`."""
         instance = cast(Optional[Cohort], self.instance)
         # Flipping a static cohort to dynamic activates its preserved definition.
-        reactivating_static = instance is not None and instance.is_static and attrs.get("is_static") is False
+        reactivating_static = self._reactivates_static_cohort(attrs)
         if not reactivating_static and not any(field in attrs for field in ("filters", "groups", "query")):
             return
         team = self._team_for_warehouse_access_check()
@@ -1440,20 +1444,75 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             # Only access denials gate saving; other compile problems surface elsewhere.
             return
 
+    def _validate_cohort_references(self, attrs: dict) -> None:
+        """Reject criteria that include a cohort that is deleted or does not exist.
+
+        The flag evaluator loads only non-deleted cohorts. A flag on a cohort that includes a
+        deleted one therefore fails on every request. This check covers only this cohort's own
+        references. Each included cohort's own save checks its references. A deeper check here
+        would block this save because of a fault in another cohort.
+        """
+        instance = cast(Optional[Cohort], self.instance)
+        # The delete call sends the whole cohort, criteria included. Checking it would block
+        # deleting a cohort that includes a deleted cohort.
+        if instance is not None and attrs.get("deleted"):
+            return
+        restoring = instance is not None and instance.deleted and attrs.get("deleted") is False
+        if not (restoring or self._reactivates_static_cohort(attrs) or "filters" in attrs or "groups" in attrs):
+            return
+        # Static criteria run once, when the cohort is created. The editor resends them on every save.
+        if instance is not None and self._cohort_will_be_static():
+            return
+
+        team = _team_from_serializer_context(self.context)
+        if team is None:
+            return
+        effective = self._effective_filters_after_update(attrs, team=team)
+        if not effective:
+            return
+        referenced_ids = [
+            prop.value for prop in parse_property_group_data(effective.get("properties")).flat if prop.type == "cohort"
+        ]
+        if not referenced_ids:
+            return
+
+        # The lookup includes deleted cohorts so that the error can name the cohort.
+        cohorts_by_id = Cohort.objects.filter(team__project_id=team.project_id).in_bulk(
+            {cohort_id for cohort_id in map(safe_int, referenced_ids) if cohort_id is not None}
+        )
+        # A deleted cohort's page has no criteria editor. The restore messages therefore do not ask the user to remove the criterion.
+        for value in referenced_ids:
+            cohort = cohorts_by_id.get(safe_int(value))
+            if cohort is None:
+                detail = (
+                    f"This cohort can't be restored because it includes cohort with id {value}, which does not exist. Create a new cohort instead."
+                    if restoring
+                    else f"Cohort with id {value} does not exist. Choose another cohort or remove this criterion."
+                )
+                raise ValidationError(detail=detail, code="cohort_does_not_exist")
+            if cohort.deleted:
+                label = f"'{cohort.name}' (ID {cohort.pk})" if cohort.name else f"with id {cohort.pk}"
+                detail = (
+                    f"This cohort includes cohort {label}, which has been deleted. Restore that cohort first."
+                    if restoring
+                    else f"Cohort {label} has been deleted. Choose another cohort or remove this criterion."
+                )
+                raise ValidationError(detail=detail, code="cohort_does_not_exist")
+
     def validate(self, attrs: dict) -> dict:
         # Field-level validate_filters only runs when the PATCH body includes `filters`. This
         # object-level guard covers the static-to-dynamic flip when it does not, re-checking the
         # instance's preserved behavioral filters against the feature-flag rule.
         attrs = super().validate(attrs)
 
+        self._validate_cohort_references(attrs)
         self._validate_warehouse_access(attrs)
         self._validate_no_new_hidden_event_criteria(attrs)
 
         if self.context["request"].method != "PATCH" or self.instance is None:
             return attrs
 
-        instance = cast(Cohort, self.instance)
-        if instance.is_static and attrs.get("is_static") is False:
+        if self._reactivates_static_cohort(attrs):
             effective_filters = self._effective_filters_after_update(attrs)
             if effective_filters is not None and cohort_filters_have_values(effective_filters):
                 self._validate_feature_flag_constraints(effective_filters, cohort_will_be_static=False)
@@ -1534,7 +1593,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 self._validate_nested_cohort_behavioral_filters(prop, cohort_used_in_flags)
 
     def _validate_nested_cohort_behavioral_filters(self, prop: Any, cohort_used_in_flags: bool):
-        nested_cohort = Cohort.objects.get(pk=prop.value, team__project_id=self.context["project_id"])
+        try:
+            nested_cohort = Cohort.objects.get(
+                pk=prop.value, team__project_id=self.context["project_id"], deleted=False
+            )
+        except Cohort.DoesNotExist:
+            # _validate_cohort_references reports a missing or deleted cohort with an error that names it.
+            return
         dependency_cohorts = get_all_cohort_dependencies(nested_cohort, stop_traversal_at_static=True)
 
         for dependency_cohort in [nested_cohort, *dependency_cohorts]:
@@ -1881,6 +1946,8 @@ def get_insights_using_cohort(cohort: Cohort) -> QuerySet[Insight]:
 
 def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
     """Return other cohorts that include this cohort as criteria."""
+    # Legacy groups can store the cohort id as a string.
+    path_vars = json.dumps({"id": cohort.id, "id_text": str(cohort.id)})
     return (
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
         Cohort.objects.filter(
@@ -1890,9 +1957,10 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
         .exclude(id=cohort.id)
         .extra(
             where=[
-                """jsonb_path_exists(filters, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)"""
+                # Cohort.properties reads groups only when filters is empty.
+                """jsonb_path_exists(COALESCE(NULLIF(filters, '{}'::jsonb), groups), '$.** ? (@.type == "cohort" && (@.value == $id || @.value == $id_text))', %s::jsonb)"""
             ],
-            params=[cohort.id, cohort.id],
+            params=[path_vars],
         )
         .order_by("id")
     )
