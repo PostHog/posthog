@@ -12,6 +12,7 @@ loses a field surfaces at the facade boundary instead of further down the caller
 (``facade.models``, ``facade.queries``); as they convert, their contracts land here too.
 """
 
+from dataclasses import field
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
@@ -23,6 +24,7 @@ from products.product_analytics.backend.facade.enums import (
     InsightDataCheckKey,
     InsightDataCheckLevel,
     InsightDataCheckMethod,
+    InsightDataCheckSkipReason,
     InsightDataChecksStatus,
 )
 
@@ -63,16 +65,17 @@ class SavedInsightDefinition:
 class InsightDataCheck:
     key: InsightDataCheckKey
     level: InsightDataCheckLevel
-    name: str
-    # A statement that reads without the name next to it. A check with no result repeats the name.
-    result: str
-    fix: str | None = None
-    action: InsightDataCheckAction | None = None
+    skip_reason: InsightDataCheckSkipReason | None = None
     method: InsightDataCheckMethod | None = None
     # The affected events on the checked days, scaled up from the sample when `scaled` is true.
     events: int | None = None
     share: float | None = None
     scaled: bool = False
+    action: InsightDataCheckAction | None = None
+    # The most affected values first, so a finding says what is affected as well as how much.
+    top_events: list[str] = field(default_factory=list)
+    top_hosts: list[str] = field(default_factory=list)
+    top_bots: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

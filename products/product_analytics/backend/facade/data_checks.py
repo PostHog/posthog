@@ -18,6 +18,6 @@ from products.product_analytics.backend.facade.contracts import InsightDataCheck
 def run_insight_data_checks(query: Mapping[str, Any], *, team: Team, user: User) -> InsightDataChecks:
     """Check the events an insight query reads for local traffic, bots and events sent twice.
 
-    The checks read the events as `user`. They do not run when a property of the project is hidden from that person.
+    The checks read the events as `user`. They do not run when a property they read is hidden from that person.
     """
     return insight_data_checks.run_insight_data_checks(query, team, user)

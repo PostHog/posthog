@@ -35,6 +35,13 @@ class InsightDataCheckMethod(LabeledStrEnum):
     SAMPLED = "sampled", "Checked a sample of the events on the days checked"
 
 
+class InsightDataCheckSkipReason(LabeledStrEnum):
+    TOO_MANY_EVENTS = "too_many_events", "The days checked hold too many events to count"
+    READ_LIMIT = "read_limit", "The check would read more data than it is allowed"
+    TIME_LIMIT = "time_limit", "The check took longer than it is allowed"
+    TOO_FEW_SAMPLED_EVENTS = "too_few_sampled_events", "The sample has too few events to give a share"
+
+
 class InsightDataCheckAction(LabeledStrEnum):
     OPEN_FILTER_SETTINGS = "open_filter_settings", "Change the project's internal and test users filter"
 

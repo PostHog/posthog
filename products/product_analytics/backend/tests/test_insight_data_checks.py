@@ -20,11 +20,17 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.facade.contracts import InsightDataChecks, InsightDataChecksCoverage
 from products.product_analytics.backend.facade.data_checks import run_insight_data_checks
-from products.product_analytics.backend.facade.enums import InsightDataCheckKey, InsightDataCheckLevel
+from products.product_analytics.backend.facade.enums import (
+    InsightDataCheckKey,
+    InsightDataCheckLevel,
+    InsightDataCheckSkipReason,
+)
 from products.product_analytics.backend.insight_data_check_days import newest_days_within
 from products.product_analytics.backend.insight_data_check_results import (
     CheckedEvents,
+    LocalEvents,
     SampledEvents,
+    Skipped,
     evaluate_data_checks,
 )
 
@@ -61,19 +67,20 @@ def checked(
     bots: int = 0,
     repeats: int = 0,
     sample_rate: float = 1.0,
-    newest_days_of_a_longer_range: int | None = None,
 ) -> CheckedEvents:
+    too_many_to_count = Skipped(reason=InsightDataCheckSkipReason.TOO_MANY_EVENTS)
     return CheckedEvents(
-        local_events=local,
+        local=too_many_to_count if local is None else LocalEvents(count=local, top_hosts=[], top_events=[]),
         sample=SampledEvents(
             rate=sample_rate,
             events=sampled_events,
-            bot_events=bots,
-            repeated_events=repeats,
             distinct_ids=sampled_events,
+            bot_events=bots,
+            top_bots=[],
+            top_bot_events=[],
+            repeated_events=repeats,
+            top_repeated_events=[],
         ),
-        days_checked=newest_days_of_a_longer_range or 1,
-        checked_whole_range=newest_days_of_a_longer_range is None,
     )
 
 
@@ -117,38 +124,24 @@ class TestEvaluateDataChecks(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("local_with_too_many_events_to_count", LOCAL, checked(1000, local=None), "too_many_events"),
+            ("bots_with_too_few_sampled_events", BOTS, checked(500, sample_rate=0.1), "too_few_sampled_events"),
             (
-                "count_over_the_whole_range",
-                LOCAL,
-                checked(1_000_000, local=66),
-                "66 of these events came from local development",
-            ),
-            (
-                "count_on_the_newest_days_of_a_longer_range",
-                LOCAL,
-                checked(1_000_000, local=66, newest_days_of_a_longer_range=7),
-                "In the last 7 days, 66 of these events came from local development",
-            ),
-            ("pass_on_every_event", BOTS, checked(50_000), "No bots or crawlers found"),
-            (
-                "pass_on_a_sample",
-                BOTS,
-                checked(50_000, sample_rate=0.5),
-                "No bots or crawlers found in a sample of 50,000 events",
-            ),
-            (
-                "estimate_from_a_sample",
-                BOTS,
-                checked(50_000, bots=5000, sample_rate=0.5),
-                "About 10% of these events came from bots and crawlers",
+                "duplicates_whose_sample_hit_the_read_limit",
+                DUPLICATES,
+                CheckedEvents(
+                    local=LocalEvents(count=0, top_hosts=[], top_events=[]),
+                    sample=Skipped(reason=InsightDataCheckSkipReason.READ_LIMIT),
+                ),
+                "read_limit",
             ),
         ]
     )
-    def test_result_says_what_its_number_covers(
-        self, _name: str, key: InsightDataCheckKey, checked_events: CheckedEvents, expected: str
+    def test_a_skipped_check_says_why(
+        self, _name: str, key: InsightDataCheckKey, checked_events: CheckedEvents, reason: str
     ) -> None:
-        results = {check.key: check.result for check in evaluate_data_checks(checked_events)}
-        assert results[key] == expected
+        skip_reasons = {check.key: check.skip_reason for check in evaluate_data_checks(checked_events)}
+        assert skip_reasons[key] == reason
 
 
 class TestNewestDaysWithin(SimpleTestCase):
@@ -245,6 +238,11 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             "local_development": ("warning", 60),
             "bot_traffic": ("warning", 60),
             "duplicate_events": ("warning", 110),
+        }
+        assert {check.key: (check.top_events, check.top_hosts, check.top_bots) for check in result.checks} == {
+            "local_development": ([EVENT], [LOCAL_HOST], []),
+            "bot_traffic": ([EVENT], [], ["Google fetcher", "Googlebot"]),
+            "duplicate_events": ([EVENT], [], []),
         }
 
     @parameterized.expand(
@@ -400,8 +398,16 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         assert (sample.rate, sample.events) == (0.25, sampled_events)
         assert {check.key: check.level for check in result.checks}[BOTS] == bot_check_level
 
-    def test_checks_only_the_newest_days_of_a_longer_range(self) -> None:
-        for days_ago in range(20):
+    @parameterized.expand(
+        [
+            ("events_on_every_day", range(20), "problem", 70),
+            ("no_events_on_the_newest_days", range(10, 20), "no_events", 0),
+        ]
+    )
+    def test_checks_only_the_newest_days_of_a_longer_range(
+        self, _name: str, days_with_events: range, status: str, events_checked: int
+    ) -> None:
+        for days_ago in days_with_events:
             self._events(10, event=WIDELY_SENT_EVENT, days_ago=days_ago, properties={"$host": LOCAL_HOST})
         flush_persons_and_events()
         query = self._query(
@@ -414,12 +420,8 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             result = self._check(query)
 
         coverage = self._coverage(result)
-        local = next(check for check in result.checks if check.key == LOCAL)
-        assert (coverage.days_in_range, coverage.days_checked, coverage.events_checked) == (20, 7, 70)
-        assert (local.events, local.result) == (
-            70,
-            "In the last 7 days, 100% of these events came from local development",
-        )
+        assert (result.status, coverage.days_in_range, coverage.days_checked) == (status, 20, 7)
+        assert coverage.events_checked == events_checked
 
     def test_counts_an_event_as_sent_twice_only_when_an_identical_one_came_under_100_ms_before(self) -> None:
         sent_twice_by_the_app = (timedelta(0), timedelta(milliseconds=20))
@@ -453,25 +455,30 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ExposedCHQueryError):
             self._check(query)
 
-    def test_does_not_check_for_a_member_with_a_hidden_property(self) -> None:
+    @parameterized.expand(
+        [
+            ("a_property_the_checks_read", "$host", "unsupported"),
+            ("a_property_the_checks_do_not_read", "plan", "warning"),
+        ]
+    )
+    def test_a_hidden_property_stops_the_checks_only_when_they_read_it(
+        self, _name: str, hidden_property: str, status: str
+    ) -> None:
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
         self.organization.save()
-        self._events(40, event=WIDELY_SENT_EVENT, properties={"plan": "paid"})
-        flush_persons_and_events()
-        query = self._query([{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}], properties=[IS_PAID])
-        assert self._events_checked(query) == 40
-
-        plan = PropertyDefinition.objects.create(team=self.team, name="plan", type=PropertyDefinition.Type.EVENT)
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name=hidden_property, type=PropertyDefinition.Type.EVENT
+        )
         upsert_property_access_control(
             team_id=self.team.id,
             created_by_id=self.user.id,
             input=UpsertPropertyAccessControlInput(
                 access_level=PropertyAccessLevel.NONE,
-                property_definition_id=str(plan.id),
+                property_definition_id=str(definition.id),
                 organization_member_id=self.organization_membership.id,
             ),
         )
 
-        assert self._check(query).status == "unsupported"
+        assert self._check(self._query()).status == status
