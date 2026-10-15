@@ -10,15 +10,19 @@ older than about three months.
 
 ## How users pick
 
-- **~85% of opens end in a selection.** p50 dwell ~5.5s, p90 ~23s. Most
-  opens are quick and successful.
+- **~85% of engaged opens end in a selection.** p50 dwell ~5.5s, p90
+  ~23s. Most engaged opens are quick and successful.
+- "Engaged" means the user interacted. The legacy picker sends
+  `taxonomic filter closed` only when `hadInteraction` is true, so an
+  open dismissed untouched is not counted. The rate over all opens is
+  lower.
 - The previous figure (~34%, May 2026) came from before close telemetry
   was complete. Don't compare the two numbers as a trend.
 - **Position is everything.** Row 0 takes ~52% of picks, row 1 ~23%,
   row 2 ~10%. About 85% of picks are in the top three rows.
 - **~93% of opens never select a category** (7-day sample, opens
   approximated by splitting sessions at `taxonomic filter add filter
-  clicked`).
+clicked`).
 - **Suggested carries about three quarters of selections.** Roughly half of
   those are recents.
 
@@ -85,14 +89,18 @@ So promote email and URL, but don't design only for them.
 
 Summary only. Detail in [failure-modes](failure-modes.md).
 
-- Category picked, then a search that finds nothing: ~20% empty-result
-  rate after a category pick vs ~4% without one.
+- Category picked, then a search that finds nothing: ~16% of opens with a
+  category pick have an empty result after the pick, vs ~4% of opens
+  without one.
 - Most empty searches are ordinary words in the wrong scope.
 - Recovery within 30s of an empty result fell from ~46% to ~39%
-  (Jul to Oct 2026) while the empty-result rate stayed flat.
-- About 2% of searches end in a fetch failure.
-- Person properties is the weakest big tab: ~70% of opens on it end in a
-  selection.
+  (Jul to Oct 2026, health dashboard session tile) while the empty-result
+  rate stayed flat.
+- About 2% of timed searches end in a fetch failure (health dashboard).
+  Per typed legacy search the overall rate is well under 1%, but a few
+  groups fail far more often.
+- Person properties is the weakest big tab: ~70% of engaged opens on it
+  end in a selection.
 
 ## What customers report
 

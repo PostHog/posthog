@@ -73,6 +73,11 @@ LIMIT 40
 
 ### 4. Selection rate and dwell distribution
 
+Measures engaged opens only. The legacy picker sends `taxonomic filter
+closed` only after the user interacts, so untouched dismissals are
+missing. The rebuild sends it on every close: split by `surface` before
+comparing the two.
+
 ```sql
 SELECT
   round(100 * countIf(toBool(properties.hadSelection)) / count(), 1) AS selection_rate_pct,
@@ -170,13 +175,15 @@ per_open AS (
     has(chunk, 'taxonomic filter empty result') AS had_empty,
     has(chunk, 'taxonomic filter item selected') AS had_selection,
     indexOf(chunk, 'taxonomic filter category selected') AS cat_idx,
-    indexOf(chunk, 'taxonomic filter empty result') AS empty_idx
+    indexOf(chunk, 'taxonomic filter empty result') AS empty_idx,
+    arrayLastIndex(x -> x = 'taxonomic filter empty result', chunk) AS last_empty_idx
   FROM opens
   ARRAY JOIN chunks AS chunk
 )
 SELECT
   round(100 * countIf(picked_category) / count(), 1) AS opens_with_category_pct,
-  round(100 * countIf(had_empty AND picked_category) / countIf(picked_category), 1) AS empty_rate_after_category_pct,
+  -- only an empty result after the category pick counts, not one the pick recovered from
+  round(100 * countIf(picked_category AND last_empty_idx > cat_idx) / countIf(picked_category), 1) AS empty_rate_after_category_pct,
   round(100 * countIf(had_empty AND NOT picked_category) / countIf(NOT picked_category), 1) AS empty_rate_without_category_pct,
   round(countIf(picked_category AND had_empty AND cat_idx < empty_idx) / countIf(picked_category AND had_empty AND empty_idx < cat_idx), 1) AS category_then_empty_ratio,
   round(100 * countIf(had_selection AND picked_category) / countIf(picked_category), 1) AS selection_after_category_pct,
@@ -203,15 +210,20 @@ LIMIT 15
 
 ### 10. Fetch failures by group
 
-The denominator is typed searches, which only the legacy surface emits,
-while failures also fire on initial loads. Rates above 100 per 100
-searches mean the group fails before anyone types. Read it as a ranking.
+Only the legacy `infiniteListLogic` sends fetch failures, but both
+surfaces send `taxonomic_filter_search_query`. Filter both sides to
+`legacy-pill` so the rate does not fall as rebuild use grows. The
+denominator is typed searches, while failures also fire on initial
+loads. Rates above 100 per 100 searches mean the group fails before
+anyone types. Read it as a ranking. The health dashboard divides by
+timed searches instead, so its rate is higher.
 
 ```sql
 WITH f AS (
   SELECT toString(properties.groupType) AS g, count() AS n
   FROM events
   WHERE event = 'taxonomic filter fetch failed'
+    AND properties.surface = 'legacy-pill'
     AND timestamp >= now() - INTERVAL 7 DAY
   GROUP BY g
 ),
@@ -219,6 +231,7 @@ s AS (
   SELECT toString(properties.groupType) AS g, count() AS n
   FROM events
   WHERE event = 'taxonomic_filter_search_query'
+    AND properties.surface = 'legacy-pill'
     AND timestamp >= now() - INTERVAL 7 DAY
   GROUP BY g
 )
@@ -273,13 +286,10 @@ picks AS (
     AND toBool(properties.hadSearchInput)
     AND timestamp >= now() - INTERVAL 7 DAY
 )
-SELECT round(100 * countIf(recovered) / count(), 1) AS recovered_within_30s_pct
-FROM (
-  SELECT e.person_id, e.t, max(p.t > e.t AND p.t <= e.t + INTERVAL 30 SECOND) AS recovered
-  FROM empties e
-  LEFT JOIN picks p ON e.person_id = p.person_id
-  GROUP BY e.person_id, e.t
-)
+-- ASOF matches only the next pick per empty result, so the join does not grow as empties x picks
+SELECT round(100 * countIf(p.t > e.t AND p.t <= e.t + INTERVAL 30 SECOND) / count(), 1) AS recovered_within_30s_pct
+FROM empties e
+ASOF LEFT JOIN picks p ON e.person_id = p.person_id AND p.t > e.t
 ```
 
 ## Updating the doc

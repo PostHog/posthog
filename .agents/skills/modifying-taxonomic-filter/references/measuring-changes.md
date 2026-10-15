@@ -7,7 +7,7 @@ are easy to ship and hard to judge after the fact.
 
 | Metric                                 | What it tells you                  | Direction                |
 | -------------------------------------- | ---------------------------------- | ------------------------ |
-| Opens ending in a selection            | Overall success                    | Up                       |
+| Engaged opens ending in a selection    | Overall success                    | Up                       |
 | Position of the selected row           | Ranking quality                    | Lower is better          |
 | Empty-result rate                      | Search coverage and scope mismatch | Down                     |
 | Category-then-empty rate               | The hidden-mode failure            | Down                     |

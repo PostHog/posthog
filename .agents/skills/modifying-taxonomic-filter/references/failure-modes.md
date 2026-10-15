@@ -9,8 +9,9 @@ A user picks a category, then searches for something that lives in
 another group, and gets nothing.
 
 - **Signal:** a category pick followed by an empty result is ~2.7x more
-  common than the reverse order. Empty-result rate is ~20% after a
-  category pick vs ~4% without one. Selection rate drops ~9 points.
+  common than the reverse order. ~16% of opens with a category pick have
+  an empty result after the pick, vs ~4% of opens without one. Selection
+  rate drops ~13 points.
 - **Why:** the active category silently narrows search. Users don't hold
   the category in mind once they start typing.
 - **Fix direction:** search all groups even when a tab is active. Show the
@@ -40,7 +41,8 @@ Most empty searches are real words that exist somewhere else.
 
 ## 4. Failures that look like loading
 
-- **Signal:** `taxonomic filter fetch failed` on ~2% of searches. Events,
+- **Signal:** `taxonomic filter fetch failed` on ~2% of timed searches
+  (health dashboard). Events,
   cohorts, person properties and flags fail most. Some pseudo-category
   groups fail more often than they are picked. First-load failures have
   only been captured since 2026-09-13, so compare from then on.
@@ -76,7 +78,7 @@ Most empty searches are real words that exist somewhere else.
 
 ## 8. The weakest big tab: person properties
 
-- **Signal:** ~70% of opens on it end in a selection, the lowest of the
+- **Signal:** ~70% of engaged opens on it end in a selection, the lowest of the
   large tabs. Average selected position is far down the list. It is also
   the top scope for empty queries.
 - **Fix direction:** rank properties seen on the chosen event or recently

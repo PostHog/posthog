@@ -32,8 +32,8 @@ change needs. The references hold the detail and the evidence.
 
 ## The picture in five lines (refreshed 2026-10-15)
 
-- Most opens end in a selection (~85%), and most never touch a category
-  tab (~93% of opens).
+- Most engaged opens end in a selection (~85%), and most opens never
+  touch a category tab (~93%).
 - The Suggested view carries roughly three quarters of selections. About
   half of those come from recents.
 - Position matters: ~52% of picks are row 0, ~85% are in the top three.

@@ -12,8 +12,8 @@ test it if you want to reverse it. Bring evidence, not seniority.
 - **Against changing:** a remembered tab is a hidden mode. The biggest
   measured failure is a category active while searching for something in
   another group. Recents already put the last pick at the top.
-- **To test:** run it behind a flag. Primary metric: opens ending in a
-  selection. Guardrails: empty-result rate, category-then-empty rate.
+- **To test:** run it behind a flag. Primary metric: engaged opens ending
+  in a selection. Guardrails: empty-result rate, category-then-empty rate.
 
 ## Is the picker "the email or URL box"?
 
@@ -40,7 +40,8 @@ test it if you want to reverse it. Bring evidence, not seniority.
 - **Evidence:** thin. Docking and include-stale have small, stable use.
   No data isolates power users.
 - **Implication:** removing a cheap feature saves little. Removing an
-  expensive one with almost no use (a model call per search) saves a lot.
+  expensive one with almost no use saves a lot. Event match calls a model
+  only for uncached empty searches, so measure its real call volume first.
 
 ## Should there be a natural-language or chat input?
 

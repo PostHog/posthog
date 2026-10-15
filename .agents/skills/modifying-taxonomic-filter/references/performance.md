@@ -17,7 +17,7 @@ Refresh with query 9 in [refreshing-product-reality](refreshing-product-reality.
 
 ## A failed request must end the loading state
 
-`taxonomic filter fetch failed` fires on ~2% of searches, and some groups (cohorts, flags,
+`taxonomic filter fetch failed` fires on ~2% of timed searches, and some groups (cohorts, flags,
 session properties) fail far more often than average.
 A failure that leaves a spinner looks like slowness to the user.
 A 403 must not look like a slow request.

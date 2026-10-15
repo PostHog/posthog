@@ -32,7 +32,9 @@ neither.
 
 - `taxonomic filter closed`: `surface`, `dwellMs`, `hadSelection`,
   `categoryRailDocked`. Legacy also sends `groupType`; the rebuild omits
-  it because there is no single active tab at close.
+  it because there is no single active tab at close. Legacy sends it only
+  when `hadInteraction` is true. The rebuild sends it on every close, so
+  their selection rates have different denominators.
 - `taxonomic filter item selected`: `surface`, `groupType`,
   `sourceGroupType`, `wasFromRecents`, `wasFromPinnedList`,
   `wasQuickFilter`, `hadSearchInput`, `position`, `query`, `wasStale`.
