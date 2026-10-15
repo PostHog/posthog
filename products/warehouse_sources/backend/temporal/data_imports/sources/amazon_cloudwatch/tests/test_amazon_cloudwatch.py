@@ -1,0 +1,586 @@
+import json
+import datetime as dt
+from collections.abc import Callable
+from typing import Any
+from urllib.parse import parse_qs
+
+import pytest
+import time_machine
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_cloudwatch.amazon_cloudwatch import (
+    GENERIC_VALIDATION_ERROR,
+    TRANSIENT_VALIDATION_ERROR,
+    VALIDATION_ERROR_MESSAGES,
+    AmazonCloudWatchResumeConfig,
+    parse_metric_queries,
+    validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_cloudwatch.source import (
+    AmazonCloudWatchSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.responders import UnexpectedRequest
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amazoncloudwatch import (
+    AmazonCloudWatchSourceConfig,
+)
+
+NOW = "2024-03-10T12:00:00Z"
+LOGS_ORIGIN = "https://logs.us-east-1.amazonaws.com"
+MONITORING_ORIGIN = "https://monitoring.us-east-1.amazonaws.com"
+XMLNS = "http://monitoring.amazonaws.com/doc/2010-08-01/"
+
+
+def config(**overrides: Any) -> AmazonCloudWatchSourceConfig:
+    values: dict[str, Any] = {
+        "aws_access_key_id": "AKIAEXAMPLE",
+        "aws_secret_access_key": "secret",
+        "aws_session_token": None,
+        "aws_region": "us-east-1",
+        "log_group_names": "/aws/lambda/one\n/aws/lambda/two\n",
+        "metric_queries": None,
+        "start_date": "2024-03-08",
+    }
+    values.update(overrides)
+    return AmazonCloudWatchSourceConfig(**values)
+
+
+def driver(**overrides: Any) -> SourceDriver:
+    return SourceDriver(AmazonCloudWatchSource(), config(**overrides))
+
+
+def by_origin(**queues: list[ScriptedResponse]) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """Both AWS APIs post to `/`, so answers are routed by host rather than by path."""
+    table = {"logs": queues.get("logs", []), "monitoring": queues.get("monitoring", [])}
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        queue = table["logs"] if request.origin == LOGS_ORIGIN else table["monitoring"]
+        if not queue:
+            raise UnexpectedRequest(f"no answer left for {request.method} {request.url}")
+        return queue.pop(0)
+
+    return respond
+
+
+def logs_page(events: list[dict[str, Any]], next_token: str | None = None) -> ScriptedResponse:
+    body: dict[str, Any] = {"events": events, "searchedLogStreams": []}
+    if next_token:
+        body["nextToken"] = next_token
+    return ScriptedResponse(json=body)
+
+
+def event(event_id: str, timestamp: int = 1709900000000) -> dict[str, Any]:
+    return {
+        "eventId": event_id,
+        "timestamp": timestamp,
+        "ingestionTime": timestamp + 5,
+        "message": "m",
+        "logStreamName": "s",
+    }
+
+
+def xml_response(action: str, result_xml: str, status: int = 200) -> ScriptedResponse:
+    body = (
+        f'<{action}Response xmlns="{XMLNS}"><{action}Result>{result_xml}</{action}Result>'
+        f"<ResponseMetadata><RequestId>r</RequestId></ResponseMetadata></{action}Response>"
+    )
+    return ScriptedResponse(status=status, body=body.encode(), headers={"Content-Type": "text/xml"})
+
+
+def xml_error(code: str, message: str, status: int = 400) -> ScriptedResponse:
+    body = f'<ErrorResponse xmlns="{XMLNS}"><Error><Type>Sender</Type><Code>{code}</Code><Message>{message}</Message></Error><RequestId>r</RequestId></ErrorResponse>'
+    return ScriptedResponse(status=status, body=body.encode(), headers={"Content-Type": "text/xml"})
+
+
+def metric_result(query_id: str, points: list[tuple[str, float]], label: str = "CPUUtilization") -> str:
+    timestamps = "".join(f"<member>{ts}</member>" for ts, _ in points)
+    values = "".join(f"<member>{value}</member>" for _, value in points)
+    return (
+        f"<member><Id>{query_id}</Id><Label>{label}</Label><Timestamps>{timestamps}</Timestamps>"
+        f"<Values>{values}</Values><StatusCode>Complete</StatusCode></member>"
+    )
+
+
+def form(request: RecordedRequest) -> dict[str, str]:
+    return {key: values[0] for key, values in parse_qs((request.body or b"").decode()).items()}
+
+
+@pytest.fixture(autouse=True)
+def _frozen_clock():
+    with time_machine.travel(NOW, tick=False):
+        yield
+
+
+class TestLogEvents:
+    def test_walks_every_page_of_each_log_group_and_stages_the_cursor_before_the_batch(self) -> None:
+        result = driver().run(
+            "log_events",
+            by_origin(
+                logs=[
+                    logs_page([event("a1")], next_token="p2"),
+                    logs_page([], next_token="p3"),
+                    logs_page([event("a2")]),
+                    logs_page([event("b1")]),
+                ]
+            ),
+        )
+
+        assert result.raised is None
+        assert [request.headers["x-amz-target"] for request in result.requests] == ["Logs_20140328.FilterLogEvents"] * 4
+        bodies = [request.json() for request in result.requests]
+        assert [(body["logGroupName"], body.get("nextToken")) for body in bodies] == [
+            ("/aws/lambda/one", None),
+            ("/aws/lambda/one", "p2"),
+            ("/aws/lambda/one", "p3"),
+            ("/aws/lambda/two", None),
+        ]
+        assert bodies[0]["startTime"] == int(dt.datetime(2024, 3, 8, tzinfo=dt.UTC).timestamp() * 1000)
+        assert bodies[0]["endTime"] == int(dt.datetime(2024, 3, 10, 12, tzinfo=dt.UTC).timestamp() * 1000)
+        assert [row["event_id"] for row in result.rows] == ["a1", "a2", "b1"]
+        assert result.rows[0]["log_group_name"] == "/aws/lambda/one"
+        assert result.rows[0]["timestamp"] == dt.datetime(2024, 3, 8, 12, 13, 20, tzinfo=dt.UTC)
+        # The cursor staged with the first page points at the second page, and persisted with it.
+        assert result.saved_states[0] == AmazonCloudWatchResumeConfig(slice_key="/aws/lambda/one", next_token="p2")
+        assert result.committed_states[0] == AmazonCloudWatchResumeConfig(slice_key="/aws/lambda/one", next_token="p2")
+        assert result.final_state is None
+        assert result.response is not None and result.response.sort_mode is None
+
+    def test_resumes_at_the_saved_log_group_and_page(self) -> None:
+        result = driver().run(
+            "log_events",
+            by_origin(logs=[logs_page([event("b2")])]),
+            resume_state=AmazonCloudWatchResumeConfig(slice_key="/aws/lambda/two", next_token="p9"),
+        )
+
+        assert result.raised is None
+        assert [(r.json()["logGroupName"], r.json().get("nextToken")) for r in result.requests] == [
+            ("/aws/lambda/two", "p9")
+        ]
+
+    def test_a_saved_log_group_no_longer_configured_restarts_from_the_first_group(self) -> None:
+        result = driver().run(
+            "log_events",
+            by_origin(logs=[logs_page([]), logs_page([])]),
+            resume_state=AmazonCloudWatchResumeConfig(slice_key="/aws/lambda/gone", next_token="p9"),
+        )
+
+        assert result.raised is None
+        assert [r.json()["logGroupName"] for r in result.requests] == ["/aws/lambda/one", "/aws/lambda/two"]
+        assert all("nextToken" not in r.json() for r in result.requests)
+
+    @pytest.mark.parametrize(
+        ("incremental_field", "watermark", "expected_start"),
+        [
+            ("timestamp", dt.datetime(2024, 3, 9, 6, tzinfo=dt.UTC), dt.datetime(2024, 3, 9, 6, tzinfo=dt.UTC)),
+            # A watermark older than the configured start date never widens the window.
+            ("timestamp", dt.datetime(2024, 1, 1, tzinfo=dt.UTC), dt.datetime(2024, 3, 8, tzinfo=dt.UTC)),
+            (None, None, dt.datetime(2024, 3, 8, tzinfo=dt.UTC)),
+        ],
+    )
+    def test_an_incremental_run_starts_at_the_watermark(
+        self, incremental_field: str | None, watermark: dt.datetime | None, expected_start: dt.datetime
+    ) -> None:
+        result = driver(log_group_names="/aws/lambda/one").run(
+            "log_events",
+            by_origin(logs=[logs_page([])]),
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        assert result.requests[0].json()["startTime"] == int(expected_start.timestamp() * 1000)
+
+    def test_no_configured_log_groups_discovers_them_first(self) -> None:
+        result = driver(log_group_names="").run(
+            "log_events",
+            by_origin(
+                logs=[
+                    ScriptedResponse(json={"logGroups": [{"logGroupName": "/discovered"}]}),
+                    logs_page([event("d1")]),
+                ]
+            ),
+        )
+
+        assert result.raised is None
+        assert [r.headers["x-amz-target"] for r in result.requests] == [
+            "Logs_20140328.DescribeLogGroups",
+            "Logs_20140328.FilterLogEvents",
+        ]
+        assert result.requests[1].json()["logGroupName"] == "/discovered"
+
+    def test_a_missing_log_group_fails_the_run_with_the_aws_code(self) -> None:
+        result = driver(log_group_names="/aws/lambda/one").run(
+            "log_events",
+            by_origin(
+                logs=[
+                    ScriptedResponse(
+                        status=400,
+                        headers={"x-amzn-ErrorType": "ResourceNotFoundException"},
+                        json={
+                            "__type": "ResourceNotFoundException",
+                            "message": "The specified log group does not exist.",
+                        },
+                    )
+                ]
+            ),
+        )
+
+        assert result.raised is not None
+        assert str(result.raised).startswith("Amazon CloudWatch request failed: ResourceNotFoundException")
+        assert (
+            "Amazon CloudWatch request failed: ResourceNotFoundException"
+            in AmazonCloudWatchSource().get_non_retryable_errors()
+        )
+
+
+class TestLogGroups:
+    def test_converts_creation_time_and_follows_next_token(self) -> None:
+        result = driver().run(
+            "log_groups",
+            by_origin(
+                logs=[
+                    ScriptedResponse(
+                        json={
+                            "logGroups": [{"logGroupName": "/a", "creationTime": 1709900000000, "storedBytes": 10}],
+                            "nextToken": "n2",
+                        }
+                    ),
+                    ScriptedResponse(json={"logGroups": [{"logGroupName": "/b", "creationTime": 1709900000000}]}),
+                ]
+            ),
+        )
+
+        assert result.raised is None
+        assert [r.json().get("nextToken") for r in result.requests] == [None, "n2"]
+        assert result.rows[0] == {
+            "log_group_name": "/a",
+            "creation_time": dt.datetime(2024, 3, 8, 12, 13, 20, tzinfo=dt.UTC),
+            "stored_bytes": 10,
+        }
+        assert [row["log_group_name"] for row in result.rows] == ["/a", "/b"]
+
+
+class TestMetricData:
+    QUERIES = json.dumps(
+        [
+            {
+                "id": "cpu",
+                "namespace": "AWS/EC2",
+                "metric_name": "CPUUtilization",
+                "dimensions": {"InstanceId": "i-1"},
+                "stat": "Average",
+                "period": 300,
+            },
+            {"Id": "errors", "Expression": "SUM(METRICS())", "Period": 60},
+        ]
+    )
+
+    def test_sends_the_queries_as_a_signed_form_request_and_reads_the_xml_datapoints(self) -> None:
+        result = driver(metric_queries=self.QUERIES, start_date="2024-03-09").run(
+            "metric_data",
+            by_origin(
+                monitoring=[
+                    xml_response(
+                        "GetMetricData",
+                        "<MetricDataResults>"
+                        + metric_result("cpu", [("2024-03-09T00:00:00Z", 1.5), ("2024-03-09T00:05:00Z", 2.0)])
+                        + metric_result("errors", [("2024-03-09T00:00:00Z", 3)], label="errors")
+                        + "</MetricDataResults><NextToken>tok2</NextToken>",
+                    ),
+                    xml_response("GetMetricData", "<MetricDataResults></MetricDataResults>"),
+                ]
+            ),
+        )
+
+        assert result.raised is None
+        assert [r.origin for r in result.requests] == [MONITORING_ORIGIN] * 2
+        first = form(result.requests[0])
+        assert first["Action"] == "GetMetricData"
+        assert first["Version"] == "2010-08-01"
+        assert first["ScanBy"] == "TimestampAscending"
+        assert first["StartTime"] == "2024-03-09T00:00:00Z"
+        assert first["EndTime"] == "2024-03-10T12:00:00Z"
+        assert first["MetricDataQueries.member.1.Id"] == "cpu"
+        assert first["MetricDataQueries.member.1.MetricStat.Metric.Dimensions.member.1.Value"] == "i-1"
+        assert first["MetricDataQueries.member.1.MetricStat.Period"] == "300"
+        assert first["MetricDataQueries.member.2.Expression"] == "SUM(METRICS())"
+        assert "NextToken" not in first
+        assert form(result.requests[1])["NextToken"] == "tok2"
+        assert "authorization" in result.requests[0].headers
+        assert result.rows == [
+            {
+                "query_id": "cpu",
+                "label": "CPUUtilization",
+                "timestamp": dt.datetime(2024, 3, 9, 0, 0, tzinfo=dt.UTC),
+                "value": 1.5,
+                "status_code": "Complete",
+            },
+            {
+                "query_id": "cpu",
+                "label": "CPUUtilization",
+                "timestamp": dt.datetime(2024, 3, 9, 0, 5, tzinfo=dt.UTC),
+                "value": 2.0,
+                "status_code": "Complete",
+            },
+            {
+                "query_id": "errors",
+                "label": "errors",
+                "timestamp": dt.datetime(2024, 3, 9, 0, 0, tzinfo=dt.UTC),
+                "value": 3.0,
+                "status_code": "Complete",
+            },
+        ]
+
+    @pytest.mark.parametrize(
+        ("resume_state", "expected_windows"),
+        [
+            (
+                None,
+                [
+                    ("2024-02-01T00:00:00Z", "2024-02-15T00:00:00Z"),
+                    ("2024-02-15T00:00:00Z", "2024-02-29T00:00:00Z"),
+                    ("2024-02-29T00:00:00Z", "2024-03-10T12:00:00Z"),
+                ],
+            ),
+            (
+                AmazonCloudWatchResumeConfig(slice_key="2024-02-29T00:00:00+00:00", next_token=None),
+                [("2024-02-29T00:00:00Z", "2024-03-10T12:00:00Z")],
+            ),
+        ],
+    )
+    def test_a_long_range_is_split_into_windows_and_a_saved_window_resumes_there(
+        self, resume_state: AmazonCloudWatchResumeConfig | None, expected_windows: list[tuple[str, str]]
+    ) -> None:
+        empty = xml_response("GetMetricData", "<MetricDataResults></MetricDataResults>")
+        result = driver(metric_queries=self.QUERIES, start_date="2024-02-01").run(
+            "metric_data",
+            by_origin(monitoring=[empty, empty, empty]),
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        assert [(form(r)["StartTime"], form(r)["EndTime"]) for r in result.requests] == expected_windows
+
+    def test_without_queries_nothing_is_requested(self) -> None:
+        result = driver(metric_queries="  ").run("metric_data", by_origin())
+
+        assert result.raised is None
+        assert result.requests == []
+        assert result.rows == []
+
+    def test_an_aws_error_in_the_xml_body_fails_the_run_with_its_code(self) -> None:
+        result = driver(metric_queries=self.QUERIES).run(
+            "metric_data",
+            by_origin(monitoring=[xml_error("InvalidParameterValue", "The value of Period is invalid.")]),
+        )
+
+        assert result.raised is not None
+        assert str(result.raised) == (
+            "Amazon CloudWatch request failed: InvalidParameterValue - The value of Period is invalid."
+        )
+
+    def test_a_throttled_call_is_retried_until_it_succeeds(self) -> None:
+        result = driver(metric_queries=self.QUERIES).run(
+            "metric_data",
+            by_origin(
+                monitoring=[
+                    xml_error("Throttling", "Rate exceeded"),
+                    xml_response("GetMetricData", "<MetricDataResults></MetricDataResults>"),
+                ]
+            ),
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 2
+
+
+class TestAlarms:
+    def test_metric_and_composite_alarms_land_in_one_table_tagged_by_type(self) -> None:
+        result = driver().run(
+            "alarms",
+            by_origin(
+                monitoring=[
+                    xml_response(
+                        "DescribeAlarms",
+                        "<MetricAlarms><member><AlarmName>cpu-high</AlarmName><AlarmArn>arn:1</AlarmArn>"
+                        "<StateValue>OK</StateValue><Threshold>80.0</Threshold>"
+                        "<Dimensions><member><Name>InstanceId</Name><Value>i-1</Value></member></Dimensions>"
+                        "</member></MetricAlarms><CompositeAlarms><member><AlarmName>site-down</AlarmName>"
+                        "<AlarmArn>arn:2</AlarmArn><AlarmRule>ALARM(cpu-high)</AlarmRule></member></CompositeAlarms>"
+                        "<NextToken>n2</NextToken>",
+                    ),
+                    xml_response("DescribeAlarms", "<MetricAlarms></MetricAlarms><CompositeAlarms></CompositeAlarms>"),
+                ]
+            ),
+        )
+
+        assert result.raised is None
+        first = form(result.requests[0])
+        assert first["Action"] == "DescribeAlarms"
+        assert {first["AlarmTypes.member.1"], first["AlarmTypes.member.2"]} == {"CompositeAlarm", "MetricAlarm"}
+        assert form(result.requests[1])["NextToken"] == "n2"
+        assert [(row["alarm_arn"], row["alarm_type"]) for row in result.rows] == [
+            ("arn:1", "MetricAlarm"),
+            ("arn:2", "CompositeAlarm"),
+        ]
+        assert result.rows[0]["threshold"] == 80.0
+        assert result.rows[0]["dimensions"] == [{"Name": "InstanceId", "Value": "i-1"}]
+        assert result.rows[1]["alarm_rule"] == "ALARM(cpu-high)"
+
+
+class TestAlarmHistory:
+    def test_an_incremental_run_asks_for_history_after_the_watermark_in_ascending_order(self) -> None:
+        result = driver().run(
+            "alarm_history",
+            by_origin(
+                monitoring=[
+                    xml_response(
+                        "DescribeAlarmHistory",
+                        "<AlarmHistoryItems><member><AlarmName>cpu-high</AlarmName><AlarmType>MetricAlarm</AlarmType>"
+                        "<Timestamp>2024-03-09T08:00:00.123Z</Timestamp><HistoryItemType>StateUpdate</HistoryItemType>"
+                        '<HistorySummary>Alarm updated from OK to ALARM</HistorySummary><HistoryData>{"x":1}</HistoryData>'
+                        "</member></AlarmHistoryItems>",
+                    )
+                ]
+            ),
+            incremental_field="timestamp",
+            db_incremental_field_last_value=dt.datetime(2024, 3, 9, 6, tzinfo=dt.UTC),
+        )
+
+        assert result.raised is None
+        params = form(result.requests[0])
+        assert params["Action"] == "DescribeAlarmHistory"
+        assert params["StartDate"] == "2024-03-09T06:00:00Z"
+        assert params["EndDate"] == "2024-03-10T12:00:00Z"
+        assert params["ScanBy"] == "TimestampAscending"
+        assert result.rows == [
+            {
+                "alarm_name": "cpu-high",
+                "alarm_type": "MetricAlarm",
+                "timestamp": dt.datetime(2024, 3, 9, 8, 0, 0, 123000, tzinfo=dt.UTC),
+                "history_item_type": "StateUpdate",
+                "history_summary": "Alarm updated from OK to ALARM",
+                "history_data": '{"x":1}',
+            }
+        ]
+        assert result.response is not None and result.response.sort_mode == "asc"
+
+
+class TestParseMetricQueries:
+    def test_flat_queries_become_metric_data_queries(self) -> None:
+        assert parse_metric_queries(
+            '[{"namespace": "AWS/S3", "metric_name": "BucketSizeBytes", "dimensions": [{"name": "BucketName", "value": "b"}], "unit": "Bytes", "label": "size"}]'
+        ) == [
+            {
+                "Id": "q1",
+                "MetricStat": {
+                    "Metric": {
+                        "Namespace": "AWS/S3",
+                        "MetricName": "BucketSizeBytes",
+                        "Dimensions": [{"Name": "BucketName", "Value": "b"}],
+                    },
+                    "Period": 300,
+                    "Stat": "Average",
+                    "Unit": "Bytes",
+                },
+                "Label": "size",
+                "ReturnData": True,
+            }
+        ]
+
+    @pytest.mark.parametrize(
+        ("raw", "message"),
+        [
+            ("not json", "Metric queries must be valid JSON"),
+            ('{"id": "a"}', "Metric query 1 needs a namespace and a metric_name"),
+            ('[{"id": "a", "expression": "x"}, {"id": "a", "expression": "y"}]', "Metric query ids must be unique"),
+            ("[1]", "Metric queries must be a JSON list"),
+        ],
+    )
+    def test_bad_queries_raise_a_message_for_the_wizard(self, raw: str, message: str) -> None:
+        with pytest.raises(ValueError, match=message):
+            parse_metric_queries(raw)
+
+
+class TestValidateCredentials:
+    @pytest.mark.parametrize(
+        ("overrides", "expected"),
+        [
+            ({"aws_access_key_id": ""}, "AWS access key ID and secret access key are required"),
+            ({"aws_region": "mars"}, "Enter an AWS region code, for example us-east-1."),
+            (
+                {"metric_queries": "{"},
+                "Metric queries must be valid JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+            ),
+        ],
+    )
+    def test_local_checks_fail_before_any_request(self, overrides: dict[str, Any], expected: str) -> None:
+        c = config(**overrides)
+
+        with scripted_network([]) as network:
+            assert validate_credentials(
+                c.aws_access_key_id, c.aws_secret_access_key, c.aws_session_token, c.aws_region, c.metric_queries
+            ) == (False, expected)
+
+        assert network.requests == 0
+
+    @pytest.mark.parametrize(
+        ("response", "expected"),
+        [
+            (ScriptedResponse(json={"logGroups": []}), (True, None)),
+            (
+                ScriptedResponse(
+                    status=400,
+                    json={
+                        "__type": "UnrecognizedClientException",
+                        "message": "The security token included in the request is invalid.",
+                    },
+                ),
+                (False, VALIDATION_ERROR_MESSAGES["UnrecognizedClientException"]),
+            ),
+            (
+                ScriptedResponse(
+                    status=400,
+                    json={
+                        "__type": "AccessDeniedException",
+                        "message": "User: arn:aws:iam::000000000000:user/example is not authorized to perform: logs:DescribeLogGroups",
+                    },
+                ),
+                (False, VALIDATION_ERROR_MESSAGES["AccessDeniedException"]),
+            ),
+            (
+                ScriptedResponse(status=400, json={"__type": "SomethingNewException", "message": "?"}),
+                (False, GENERIC_VALIDATION_ERROR),
+            ),
+        ],
+    )
+    def test_the_probe_result_is_translated_and_never_echoes_the_aws_text(
+        self, response: ScriptedResponse, expected: tuple[bool, str | None]
+    ) -> None:
+        c = config()
+
+        with scripted_network([response]) as network:
+            assert (
+                validate_credentials(
+                    c.aws_access_key_id, c.aws_secret_access_key, c.aws_session_token, c.aws_region, c.metric_queries
+                )
+                == expected
+            )
+
+        probe = network.requests_log[0]
+        assert probe.origin == LOGS_ORIGIN
+        assert probe.headers["x-amz-target"] == "Logs_20140328.DescribeLogGroups"
+        assert probe.json() == {"limit": 1}
+
+    def test_a_throttled_probe_asks_the_user_to_retry(self) -> None:
+        c = config()
+        throttled = ScriptedResponse(status=400, json={"__type": "ThrottlingException", "message": "Rate exceeded"})
+
+        with scripted_network(lambda _request: throttled):
+            assert validate_credentials(
+                c.aws_access_key_id, c.aws_secret_access_key, c.aws_session_token, c.aws_region, c.metric_queries
+            ) == (False, TRANSIENT_VALIDATION_ERROR)
