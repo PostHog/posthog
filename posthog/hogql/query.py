@@ -926,10 +926,8 @@ class HogQLQueryExecutor:
             )
 
             workload = self.workload
-            table_workload = clickhouse_context.workload
-            # A table that lives on one cluster only (LOGS) must run there, whatever cluster the caller prefers.
-            if table_workload is not None and (workload == Workload.DEFAULT or table_workload != Workload.DEFAULT):
-                workload = table_workload
+            if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
+                workload = clickhouse_context.workload
 
             def run_clickhouse_query() -> Any:
                 return sync_execute(
