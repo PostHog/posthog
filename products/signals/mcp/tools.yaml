@@ -534,6 +534,48 @@ tools:
             Replace an existing signal source config by ID (full update — `source_product` and `source_type` are
             required; `enabled` and `config` are optional and keep their current values if omitted). Prefer
             `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`.
+    inbox-steering-instructions-get:
+        operation: signals_config_list
+        enabled: true
+        scopes:
+            - task:read
+        title: Get Self-driving steering instructions
+        description: >
+            Read the current project's research, implementation, and scout instructions. Returns only the three
+            instruction fields from the project's Self-driving config singleton, with empty strings for unset roles.
+            Read shared project instructions separately with tasks-config-list. A role's instructions supplement the
+            shared project instructions; scouts also retain their individual briefs.
+        response:
+            include:
+                - research_instructions
+                - implementation_instructions
+                - scout_instructions
+    inbox-steering-instructions-update:
+        operation: signals_config_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update Self-driving steering instructions
+        description: >
+            Set project-level instructions for research agents, implementation agents, or all scouts. Requires project
+            admin. Sandbox agents cannot change these instructions. Read inbox-steering-instructions-get first. Send the
+            full replacement text for each role you change, not a diff; omitted roles keep their instructions. Send an
+            empty string to clear a role while retaining shared project instructions. Each field accepts up to 20,000
+            characters. New and resumed runs receive the saved instructions. Use tasks-config-agent-instructions-create
+            to edit the shared project instructions instead.
+        include_params:
+            - research_instructions
+            - implementation_instructions
+            - scout_instructions
+        response:
+            include:
+                - research_instructions
+                - implementation_instructions
+                - scout_instructions
     scout-check-record-result:
         operation: signals_scout_record_check_result
         enabled: true

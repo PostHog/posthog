@@ -1,11 +1,11 @@
 import json
 
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 from posthog.renderers import SafeJSONRenderer
 
 
-class TestCleanDataForJSON(TestCase):
+class TestCleanDataForJSON(SimpleTestCase):
     def test_cleans_dict_with_nan_and_inf_scalars(self):
         response = {
             "control": 1.0,

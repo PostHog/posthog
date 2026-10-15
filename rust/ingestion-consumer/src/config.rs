@@ -307,10 +307,10 @@ pub struct Config {
     #[envconfig(from = "WORKER_DRAIN_TIMEOUT_MS", default = "30000")]
     pub worker_drain_timeout_ms: u64,
 
-    /// How unpinned routing keys are assigned to workers: `binpack` (default,
-    /// least-loaded — accurate for the co-located sidecar) or `p2c`
-    /// (power-of-two-choices — herd-resistant for a shared worker pool).
-    #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
+    /// How unpinned routing keys are assigned to workers: `p2c` (default,
+    /// power-of-two-choices — herd-resistant for a shared worker pool) or
+    /// `aperture` (P2C within this consumer's slice of the worker ring).
+    #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "p2c")]
     pub routing_strategy: RoutingStrategy,
 
     /// Which scheduler orders and places runs: `pin_stash` (default, sticky

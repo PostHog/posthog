@@ -702,7 +702,7 @@ async def test_custom_export_recompilation_preserves_column_names(ateam, use_new
     }
     with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
         _, _, _, fields, _, values = await database_sync_to_async(resolve_batch_exports_model)(
-            team_id=ateam.pk, batch_export_schema=schema
+            team_id=ateam.pk, batch_export_model=BatchExportModel(name="events", schema=schema)
         )
 
     assert fields is not None
@@ -770,7 +770,7 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 "values": {"unused_old_parameter": "stale"},
             }
             _, _, _, fields, _, values = await database_sync_to_async(resolve_batch_exports_model)(
-                team_id=ateam.pk, batch_export_schema=schema
+                team_id=ateam.pk, batch_export_model=BatchExportModel(name="events", schema=schema)
             )
             assert fields is not None
             assert "unused_old_parameter" not in values

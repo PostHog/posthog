@@ -27,9 +27,9 @@ export function BIResultSummary({ tabId }: { tabId: string }): JSX.Element | nul
             className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-3 py-2 text-xs text-secondary"
             data-attr="bi-result-summary"
         >
-            <Tooltip title="Groups are distinct combinations of the worksheet dimensions. Marks count non-empty measure values, including comparison periods. These are aggregated results, not source rows.">
+            <Tooltip title="Groups are distinct combinations of the worksheet dimensions. Values count non-empty measure values, including comparison periods. These are aggregated results, not source rows.">
                 <span>
-                    {summary.groups.toLocaleString()} groups · {summary.marks.toLocaleString()} marks
+                    {summary.groups.toLocaleString()} groups · {summary.marks.toLocaleString()} values
                     {summary.limited ? ' (limited)' : ''}
                 </span>
             </Tooltip>

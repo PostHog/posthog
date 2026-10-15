@@ -12,7 +12,7 @@ export function TodaySidebarBreadcrumb(): JSX.Element {
     const { title } = TODAY_PANES[activePane]
 
     return (
-        <Tooltip>
+        <Tooltip disableHoverablePopup>
             <TooltipTrigger
                 delay={0}
                 render={
@@ -26,7 +26,8 @@ export function TodaySidebarBreadcrumb(): JSX.Element {
             >
                 {/* The hide button centers this icon 7.5px from its edge. This button pads it by 8px, so pull it back. */}
                 <IconShowSidebar className="-ms-[0.5px]" />
-                {title}
+                {/* A narrow scene keeps only the icon, so the scene's own name has room. */}
+                <span className="@max-xl/main-content:hidden">{title}</span>
             </TooltipTrigger>
             <TooltipContent>
                 Show sidebar

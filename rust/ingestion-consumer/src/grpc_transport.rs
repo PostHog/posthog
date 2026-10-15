@@ -548,6 +548,7 @@ impl WorkerStreamRunner {
                     messages: item.messages.iter().map(to_proto_message).collect(),
                     replay: item.replay,
                     assignment_epoch: self.assignment_epoch.current(),
+                    soft_budget_ms: 0,
                 })),
             };
             // tonic gzips the frame after this point, so only the raw size is observable here.

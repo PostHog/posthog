@@ -20,13 +20,13 @@ import { GENERATED_TOOL_MAP } from './generated'
 import queryInsight from './insights/query'
 // Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
-import loopsReview from './loops/loopsReview'
 import { mergeToolFactories } from './mergeToolFactories'
 // Notebooks (edit + cell tools are hand-written — generated CRUD lives in generated/notebooks.ts)
 import notebookAddCell from './notebooks/addCell'
 import notebookCreateMarkdown from './notebooks/createMarkdown'
 import notebookDeleteCell from './notebooks/deleteCell'
 import notebookEdit from './notebooks/edit'
+import notebookRunCell from './notebooks/runCell'
 import notebookRun from './notebooks/runNotebook'
 import notebookRunStatus from './notebooks/runNotebookStatus'
 import notebookSetVariables from './notebooks/setVariables'
@@ -113,13 +113,13 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-create-markdown': notebookCreateMarkdown,
     'notebooks-delete-cell': notebookDeleteCell,
     'notebooks-run': notebookRun,
+    'notebooks-run-cell': notebookRunCell,
     'notebooks-run-status': notebookRunStatus,
     'notebooks-set-variables': notebookSetVariables,
     'notebooks-update-cell': notebookUpdateCell,
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
-    'loops-review': loopsReview,
 
     // Feedback
     'agent-feedback': submitFeedback,

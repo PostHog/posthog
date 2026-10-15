@@ -38,6 +38,7 @@ def _context(
         is_paused=False,
         archived=False,
         flag=parse_flag_state(active=True, deleted=deleted, groups=groups, variants=variants, early_exit=early_exit),
+        baseline_variant_key=None,
         primary_metric_count=1,
         secondary_metric_count=0,
         exposures=None,

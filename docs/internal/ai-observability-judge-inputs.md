@@ -131,6 +131,8 @@ Models without a catalog match retain their usage with cost left unknown.
 A custom deployment reporting a recognized model name can inherit that model's catalog estimate; this does not measure its hosting cost.
 
 Evaluations that allow N/A send a separate Noul question about whether the criteria apply, using the 0.5 threshold.
+The instructions ask the judge to follow the evaluation prompt's N/A rules and treat missing essential context or evidence as not applicable.
+A judgeable failure remains applicable; the question tells the judge not to invent missing facts.
 Uncertainty alone does not produce N/A.
 Decision model answers contain no written reasoning, so reports inspect the original source when explaining outcomes.
 
@@ -170,13 +172,11 @@ N/A and skipped numeric runs omit the score, while zero remains a graded result.
 Separate properties preserve the existing boolean property's type and saved queries.
 The numeric property uses normal numeric inference and can be aggregated in Insights.
 Numeric queries use `toFloat(properties.$ai_evaluation_numeric_result)` to also handle properties whose metadata has not been registered yet.
-No property-definition migration is required before enabling `llm-analytics-numeric-evaluations`.
+No property-definition migration is required for numeric evaluations.
 
 ## Categorical outputs
 
 Hog and LLM judge evaluations support categorical output for generation, trace, and session targets.
-Creation is gated by `llm-analytics-categorical-evaluations`, disabled by default, in the API and frontend.
-Existing evaluations remain editable and continue running when the flag is off.
 
 The output configuration defines `options` as `{key, label}` pairs, `selection_mode` as `single` or `multiple`, and optional `allows_na`.
 Each evaluation supports 1 to 100 categories, enforced by the API and editor.

@@ -107,6 +107,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
+    FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
 
 
 class ExperimentHealthFindingSeverity(LabeledStrEnum):

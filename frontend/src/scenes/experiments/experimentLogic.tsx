@@ -244,6 +244,7 @@ const HEALTH_CHECK_INPUTS = [
     'start_date',
     'end_date',
     'archived',
+    'stats_config',
 ] as const satisfies readonly (keyof Experiment)[]
 
 function healthCheckInputs(experiment: Experiment): Partial<Experiment> {
@@ -1926,19 +1927,6 @@ export const experimentLogic = kea<experimentLogicType>([
         reportHealthFindingActedOn: ({ finding, actionKind }) => {
             captureExperimentHealthFindingActedOn(values.experiment, finding, values.healthUi, actionKind)
         },
-        loadExperimentHealthSuccess: ({ experimentHealth, payload }) => {
-            // One comparison per experiment load. A reload after a write would compare unsaved edits in the
-            // page with the saved experiment on the server.
-            if (experimentHealth && payload === 'experiment_load') {
-                captureExperimentHealthChecked(
-                    values.experiment,
-                    experimentHealth,
-                    values.healthUi,
-                    values.browserExperimentWarning,
-                    values.browserNoMetricsWarning
-                )
-            }
-        },
         setExperiment: () => {
             // A save returns the whole experiment, so compare values: only a changed input makes the findings stale.
             if (
@@ -2827,20 +2815,30 @@ export const experimentLogic = kea<experimentLogicType>([
                         await breakpoint(300)
                     }
                     cache.healthCheckInputs = healthCheckInputs(values.experiment)
+                    // Timed here rather than in the success listener, which would have to read a start time off
+                    // `cache` that a superseded request can overwrite.
+                    const startedAt = performance.now()
+                    let health: ExperimentHealthApi | null = null
                     try {
-                        const health = await experimentsHealthRetrieve(
-                            String(values.currentProjectId),
-                            values.experimentId
-                        )
-                        breakpoint()
-                        return health
-                    } catch (error) {
+                        health = await experimentsHealthRetrieve(String(values.currentProjectId), values.experimentId)
+                    } catch {
                         // The page applies its own rules without findings, so a failed request shows no error.
-                        if (isBreakpoint(error as Error)) {
-                            throw error
-                        }
-                        return null
                     }
+                    // Kept outside the `try`: a superseded request throws here and is not a failure.
+                    breakpoint()
+                    // One comparison per experiment load. A reload after a write would compare unsaved edits in the
+                    // page with the saved experiment on the server.
+                    if (trigger === 'experiment_load') {
+                        captureExperimentHealthChecked(
+                            values.experiment,
+                            health,
+                            values.healthUi,
+                            values.browserExperimentWarning,
+                            values.browserNoMetricsWarning,
+                            Math.round(performance.now() - startedAt)
+                        )
+                    }
+                    return health
                 },
             },
         ],
