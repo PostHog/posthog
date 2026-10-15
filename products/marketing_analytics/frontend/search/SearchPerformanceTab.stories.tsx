@@ -403,6 +403,42 @@ export const Comparison: Story = {
         await expect(table.getBoundingClientRect().height).toBeLessThan(600)
     },
 }
+export const Recommendations: Story = {
+    parameters: {
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true`,
+        featureFlags: [
+            FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_RECOMMENDATIONS,
+        ],
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: {
+                    ...MOCKS.post,
+                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': () => [
+                        200,
+                        {
+                            results: ROWS.map((row) => ({
+                                ...row,
+                                previous: {
+                                    ...row,
+                                    cost: row.cost == null ? null : row.cost / 2,
+                                    clicks: row.clicks * 2,
+                                },
+                            })),
+                        },
+                    ],
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText('Suggestions to investigate')).toBeVisible()
+        await expect(await canvas.findByText(/Cost per conversion rose from 15.00 to 30.00 USD/)).toBeVisible()
+        await expect(await canvas.findByText(/Organic CTR fell/)).toBeVisible()
+    },
+}
 export const MixedWithPosition: Story = {
     ...Comparison,
     play: async ({ canvasElement }) => {
