@@ -94,6 +94,15 @@ c" \
         <(search_item e "feat: follow-up to #42" "Builds on #42") |
         pick_existing_reverts "$culprit" 42)"
 
+printf 'body\n' >"$workdir/body.md"
+check "open reports a failed GitHub read in the boundary recheck as a read failure" \
+    "5" \
+    "$( (
+        # shellcheck disable=SC2329  # replaces the boundary read that cmd_open calls
+        cmd_boundary() { fail "GitHub read failed: runs of ci.yml"; }
+        cmd_open "$culprit" 42 ci.yml job "$workdir/body.md"
+    ) >/dev/null 2>&1 || echo $?)"
+
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 
 seed_in() {

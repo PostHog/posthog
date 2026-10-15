@@ -134,7 +134,7 @@ Any check that fails means no proposal: reply with the diagnosis as the verdicts
    .agents/skills/debugging-ci-failures/scripts/master-red-revert.sh boundary <workflow-file> '<failing job name>'
    ```
 
-   It exits 0 only when the newest settled run still fails, the job failed in the first red run and passed in the last green one, and exactly one commit separates the two.
+   It exits 0 only when the newest settled run still fails, the job failed in the first and newest red runs and passed in the last green one, and exactly one commit separates the two.
    It prints that commit as `culprit_sha`, with links to both runs.
    Any other answer prints `refused=` with the reason and exits 10.
    Pass the job name exactly as the jobs API reports it, including a reusable workflow's `Parent / child` prefix and a shard suffix.

@@ -128,7 +128,7 @@ cmd_boundary() {
     [ -n "$boundary" ] || refuse 10 "no green run within $MAX_RUN_PAGES pages of runs"
     read -r green_id green_sha red_id red_sha newest_red_id <<<"$boundary"
 
-    local red_job green_job ahead status
+    local red_job green_job newest_job ahead status
     red_job=$(job_conclusion "$red_id" "$job") || fail "GitHub read failed: jobs of run $red_id"
     green_job=$(job_conclusion "$green_id" "$job") || fail "GitHub read failed: jobs of run $green_id"
     case "$red_job" in
@@ -136,6 +136,13 @@ cmd_boundary() {
         *) refuse 10 "job is $red_job in the first red run $red_id" ;;
     esac
     [ "$green_job" = "success" ] || refuse 10 "job is $green_job in the last green run $green_id"
+    if [ "$newest_red_id" != "$red_id" ]; then
+        newest_job=$(job_conclusion "$newest_red_id" "$job") || fail "GitHub read failed: jobs of run $newest_red_id"
+        case "$newest_job" in
+            failure | timed_out) ;;
+            *) refuse 10 "job is $newest_job in the newest red run $newest_red_id" ;;
+        esac
+    fi
 
     read -r status ahead < <(api "repos/$REPO/compare/$green_sha...$red_sha" | jq -r '"\(.status) \(.ahead_by)"') ||
         fail "GitHub read failed: compare $green_sha...$red_sha"
@@ -205,7 +212,7 @@ revert_matches_culprit() {
 }
 
 cmd_prepare() {
-    local sha=$1 branch parents
+    local sha=$1 branch parents changed
     branch=$(revert_branch "$sha")
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || refuse 11 "not inside a git checkout"
     [ -z "$(git status --porcelain --untracked-files=no)" ] || refuse 11 "the checkout has uncommitted changes"
@@ -213,7 +220,8 @@ cmd_prepare() {
 
     parents=$(git rev-list --parents -n 1 "$sha" | awk '{print NF - 1}')
     [ "$parents" = "1" ] || refuse 11 "$sha has $parents parents; only a single-parent commit reverts cleanly"
-    if git diff --name-only "$sha^" "$sha" | grep -q '^\.github/workflows/'; then
+    changed=$(git diff --name-only "$sha^" "$sha") || fail "could not list the files $sha changes"
+    if grep -q '^\.github/workflows/' <<<"$changed"; then
         refuse 11 "$sha changes .github/workflows, which needs the workflows permission"
     fi
 
@@ -231,11 +239,13 @@ cmd_prepare() {
 }
 
 cmd_open() {
-    local sha=$1 pr=$2 workflow=$3 job=$4 body_file=$5 branch ahead found lane
+    local sha=$1 pr=$2 workflow=$3 job=$4 body_file=$5 branch ahead found lane lane_status=0
     [ -s "$body_file" ] || usage
     branch=$(revert_branch "$sha")
 
-    lane=$(cmd_boundary "$workflow" "$job") || refuse 10 "the lane changed since the boundary check: ${lane#refused=}"
+    lane=$(cmd_boundary "$workflow" "$job") || lane_status=$?
+    [ "$lane_status" -ne 5 ] || exit 5
+    [ "$lane_status" -eq 0 ] || refuse 10 "the lane changed since the boundary check: ${lane#refused=}"
     printf '%s\n' "$lane" | grep -qx "culprit_sha=$sha" || refuse 10 "the boundary no longer names $sha"
 
     found=$(find_existing "$sha" "$pr")
