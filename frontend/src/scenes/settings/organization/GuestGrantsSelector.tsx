@@ -1,96 +1,129 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { pluralize } from 'lib/utils/strings'
 
-import { GuestGrant, inviteLogic } from './inviteLogic'
+import type { GuestGrantPreviewApi } from '~/generated/core/api.schemas'
 
-const RESOURCE_OPTIONS: { value: GuestGrant['resource']; label: string }[] = [
+import { GuestGrantResource, guestGrantsLogic } from './guestGrantsLogic'
+
+const RESOURCES: { value: GuestGrantResource; label: string }[] = [
     { value: 'dashboard', label: 'Dashboards' },
     { value: 'insight', label: 'Insights' },
     { value: 'notebook', label: 'Notebooks' },
 ]
 
-const GROUP_TYPES: Record<GuestGrant['resource'], TaxonomicFilterGroupType> = {
-    dashboard: TaxonomicFilterGroupType.Dashboards,
-    insight: TaxonomicFilterGroupType.Insights,
-    notebook: TaxonomicFilterGroupType.Notebooks,
+function PreviewItem({ item }: { item: GuestGrantPreviewApi }): JSX.Element {
+    const label = RESOURCES.find((resource) => resource.value === item.resource)?.label ?? item.resource
+    const insights = item.includes.filter((include) => include.resource === 'insight')
+    const recordingCount = item.includes.length - insights.length
+    return (
+        <div className="flex flex-col gap-1">
+            <div className="font-semibold">{item.name ?? `All ${label.toLowerCase()}`}</div>
+            {insights.map((insight) => (
+                <div key={insight.id} className="text-secondary pl-3">
+                    {insight.name || 'Untitled insight'}
+                </div>
+            ))}
+            {recordingCount > 0 && <div className="text-secondary pl-3">{pluralize(recordingCount, 'recording')}</div>}
+        </div>
+    )
 }
 
 export function GuestGrantsSelector({ inviteIndex }: { inviteIndex: number }): JSX.Element {
-    const { invitesToSend } = useValues(inviteLogic)
-    const { updateInviteAtIndex } = useActions(inviteLogic)
-    const grants = invitesToSend[inviteIndex]?.guest_grants ?? []
-
-    const setGrants = (guest_grants: GuestGrant[]): void => updateInviteAtIndex({ guest_grants }, inviteIndex)
-    const updateGrant = (grantIndex: number, grant: GuestGrant): void =>
-        setGrants(grants.map((existing, index) => (index === grantIndex ? grant : existing)))
+    const logic = guestGrantsLogic({ inviteIndex })
+    const {
+        activeResource,
+        search,
+        options,
+        optionsLoading,
+        preview,
+        previewLoading,
+        allSelected,
+        selectedIds,
+        selectedCounts,
+    } = useValues(logic)
+    const { setActiveResource, setSearch, toggleObject, toggleAll } = useActions(logic)
+    const activeLabel = (RESOURCES.find((resource) => resource.value === activeResource)?.label ?? '').toLowerCase()
 
     return (
-        <div className="space-y-2" data-attr="invite-guest-grants">
+        <div className="@container/guest-grants flex flex-col gap-2" data-attr="invite-guest-grants">
             <div className="font-semibold">What this guest can view</div>
-            <div className="text-secondary text-xs">Guests can only view what you choose here, in this project.</div>
-            {grants.map((grant, grantIndex) => (
-                <div key={grantIndex} className="flex gap-2 items-center">
-                    <LemonSelect
-                        size="small"
-                        options={RESOURCE_OPTIONS}
-                        value={grant.resource}
-                        onChange={(resource) => updateGrant(grantIndex, { resource, id: null })}
-                    />
-                    <LemonSelect
-                        size="small"
-                        options={[
-                            { value: 'all', label: 'All of them' },
-                            { value: 'one', label: 'One of them' },
-                        ]}
-                        value={grant.id === null && grant.name === undefined ? 'all' : 'one'}
-                        onChange={(scope) =>
-                            updateGrant(grantIndex, {
-                                resource: grant.resource,
-                                id: null,
-                                name: scope === 'one' ? '' : undefined,
-                            })
-                        }
-                    />
-                    {grant.name !== undefined && (
-                        <TaxonomicPopover
+            <div className="grid grid-cols-1 gap-4 @2xl/guest-grants:grid-cols-[10rem_minmax(0,1fr)_14rem]">
+                <nav
+                    aria-label="Item types"
+                    className="grid grid-cols-3 gap-1 content-start @2xl/guest-grants:grid-cols-1"
+                >
+                    {RESOURCES.map((resource) => (
+                        <LemonButton
+                            key={resource.value}
                             size="small"
-                            groupType={GROUP_TYPES[grant.resource]}
-                            value={grant.name || null}
-                            placeholder="Choose one"
-                            onChange={(_value, _groupType, item) =>
-                                updateGrant(grantIndex, {
-                                    resource: grant.resource,
-                                    id: String(item.id),
-                                    name: item.name || item.title || String(item.id),
-                                })
+                            fullWidth
+                            active={resource.value === activeResource}
+                            onClick={() => setActiveResource(resource.value)}
+                            sideIcon={
+                                selectedCounts[resource.value] ? (
+                                    <span className="text-xs text-secondary">{selectedCounts[resource.value]}</span>
+                                ) : null
                             }
-                            renderValue={() => <span>{grant.name}</span>}
-                        />
-                    )}
-                    <LemonButton
+                            data-attr={`invite-guest-grants-type-${resource.value}`}
+                        >
+                            {resource.label}
+                        </LemonButton>
+                    ))}
+                </nav>
+                <div className="flex flex-col gap-1 min-w-0">
+                    <LemonInput
+                        type="search"
                         size="small"
-                        icon={<IconTrash />}
-                        status="danger"
-                        onClick={() => setGrants(grants.filter((_, index) => index !== grantIndex))}
-                        tooltip="Remove this access"
+                        fullWidth
+                        placeholder={`Search ${activeLabel}`}
+                        value={search}
+                        onChange={setSearch}
                     />
+                    <LemonCheckbox
+                        className="py-1"
+                        label={`All ${activeLabel}`}
+                        checked={allSelected}
+                        onChange={() => toggleAll(activeResource)}
+                        data-attr="invite-guest-grant-all"
+                    />
+                    <div className="flex flex-col max-h-60 overflow-y-auto">
+                        {optionsLoading && !options.length ? (
+                            <Spinner className="m-2" />
+                        ) : !options.length ? (
+                            <div className="text-secondary py-1">
+                                {search ? `No ${activeLabel} match your search.` : `No ${activeLabel} yet.`}
+                            </div>
+                        ) : (
+                            options.map((option) => (
+                                <LemonCheckbox
+                                    key={option.id}
+                                    className="py-1"
+                                    label={option.name}
+                                    checked={allSelected || selectedIds.has(option.id)}
+                                    disabledReason={allSelected ? `All ${activeLabel} are selected` : null}
+                                    onChange={() => toggleObject(activeResource, option)}
+                                    data-attr="invite-guest-grant-item"
+                                />
+                            ))
+                        )}
+                    </div>
                 </div>
-            ))}
-            <LemonButton
-                size="small"
-                type="secondary"
-                icon={<IconPlus />}
-                onClick={() => setGrants([...grants, { resource: 'dashboard', id: null }])}
-                data-attr="invite-guest-add-grant"
-            >
-                Add access
-            </LemonButton>
+                <div className="flex flex-col gap-3 @2xl/guest-grants:border-l @2xl/guest-grants:pl-4">
+                    <div className="text-xs font-semibold text-secondary">They will see</div>
+                    {preview === null && previewLoading ? (
+                        <Spinner />
+                    ) : !preview?.length ? (
+                        <div className="text-secondary">Nothing yet. Pick what they can view.</div>
+                    ) : (
+                        preview.map((item) => <PreviewItem key={`${item.resource}-${item.id}`} item={item} />)
+                    )}
+                </div>
+            </div>
         </div>
     )
 }

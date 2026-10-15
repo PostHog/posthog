@@ -32,7 +32,7 @@ export interface InviteRowState {
 export interface GuestGrant {
     resource: 'dashboard' | 'insight' | 'notebook'
     id: string | null
-    /** Shown in the picker only, and never sent. Set when the grant names one object, even before one is chosen. */
+    /** Shown in the picker only, and never sent. */
     name?: string
 }
 
@@ -272,10 +272,7 @@ export const inviteLogic = kea<inviteLogicType>([
                                               level: AccessControlLevel.Member,
                                           },
                                       ],
-                                      // A row set to one object but with none chosen yet would otherwise grant them all.
-                                      guest_grants: invite.guest_grants
-                                          .filter((grant) => grant.name === undefined || grant.id !== null)
-                                          .map(({ resource, id }) => ({ resource, id })),
+                                      guest_grants: invite.guest_grants.map(({ resource, id }) => ({ resource, id })),
                                   }
                                 : { ...invite, guest_grants: [] }
                         )
