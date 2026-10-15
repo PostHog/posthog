@@ -2337,8 +2337,15 @@ class TaskSourcesListField(RepeatedOrCommaSeparatedListField, JSONTolerantListFi
     """Repeated keys, one comma-joined value (the generated frontend client) or one JSON array (the MCP client).
 
     The base order matters: JSONTolerantListField reads a JSON array before
-    RepeatedOrCommaSeparatedListField splits on commas.
+    RepeatedOrCommaSeparatedListField splits on commas. Blank values are dropped, so an empty
+    value means no source filter, as an empty source list does in the desktop filter.
     """
+
+    def get_value(self, dictionary: Any) -> Any:
+        value = super().get_value(dictionary)
+        if isinstance(value, list):
+            return [source for source in value if source != ""]
+        return value
 
 
 class TaskListQuerySerializer(serializers.Serializer):
