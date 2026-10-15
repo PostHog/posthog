@@ -733,6 +733,9 @@ def _reject_label_in_cooldown(repo_config: StamphogRepoConfig, pr: dict[str, Any
         cooldown_ends_at = cache.get(_label_cooldown_key(repo_config, pr_number))
         client = StamphogGitHubClient(repo_config.installation_id)
         client.remove_pr_label(repo_config.repository, pr_number, repo_config.trigger_label)
+        # upsert_sticky_comment reads then creates, so overlapping deliveries could each post a comment.
+        if not cache.add(f"{_label_cooldown_key(repo_config, pr_number)}:notice", True, timeout=60):
+            return
         client.upsert_sticky_comment(
             repo_config.repository,
             pr_number,
