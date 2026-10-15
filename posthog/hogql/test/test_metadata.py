@@ -221,6 +221,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": "select 1",
                 "errors": [
                     {
+                        "code": None,
                         "message": "trailing tokens after expression: '1' (Number)",
                         "start": 7,
                         "end": 8,
@@ -262,6 +263,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": "timestamp",
                 "errors": [
                     {
+                        "code": None,
                         "message": "mismatched input 'timestamp' expecting {SELECT, WITH, '{', '(', '<'}",
                         "start": 0,
                         "end": 9,
@@ -282,6 +284,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": "1 as true",
                 "errors": [
                     {
+                        "code": None,
                         "message": '"true" cannot be an alias or identifier, as it\'s a reserved keyword',
                         "start": 0,
                         "end": 9,
@@ -302,6 +305,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": "1 + no_field",
                 "errors": [
                     {
+                        "code": None,
                         "message": "Unable to resolve field: no_field",
                         "start": 4,
                         "end": 12,
@@ -1051,6 +1055,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": query,
                 "notices": [
                     {
+                        "code": None,
                         "message": "Field 'person_id' is of type 'UUID'",
                         "start": 7,
                         "end": 16,
@@ -1058,6 +1063,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "url": None,
                     },
                     {
+                        "code": None,
                         "message": f"Cohort #{cohort.pk} can also be specified as '{cohort.name}'",
                         "start": 55,
                         "end": 55 + len(str(cohort.pk)),
@@ -1065,6 +1071,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "url": None,
                     },
                     {
+                        "code": None,
                         "message": "Field 'person_id' is of type 'UUID'",
                         "start": 35,
                         "end": 44,
@@ -1072,6 +1079,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "url": None,
                     },
                     {
+                        "code": None,
                         "message": f"Searching for cohort by name. Replace with numeric ID {cohort.pk} to protect against renaming.",
                         "start": 79 + len(str(cohort.pk)),
                         "end": 92 + len(str(cohort.pk)),
@@ -1079,6 +1087,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "url": None,
                     },
                     {
+                        "code": None,
                         "message": "Field 'person_id' is of type 'UUID'",
                         "start": 59 + len(str(cohort.pk)),
                         "end": 68 + len(str(cohort.pk)),
@@ -1112,6 +1121,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": "properties.string || properties.number",
                 "notices": [
                     {
+                        "code": None,
                         "message": "Event property 'string' is of type 'String'. This property is not materialized 🐢.",
                         "start": 11,
                         "end": 17,
@@ -1119,6 +1129,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "url": None,
                     },
                     {
+                        "code": None,
                         "message": f"Event property 'number' is of type 'Float'. This property is {materialized_notice}",
                         "start": 32,
                         "end": 38,
@@ -1177,6 +1188,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": "properties.string || properties.number",
                 "notices": [
                     {
+                        "code": None,
                         "message": "Event property 'string' is of type 'String'.",
                         "start": 11,
                         "end": 17,
@@ -1184,6 +1196,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "url": None,
                     },
                     {
+                        "code": None,
                         "message": "Event property 'number' is of type 'Float'.",
                         "start": 32,
                         "end": 38,
@@ -1267,6 +1280,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                     {
                         "end": 15,
                         "fix": None,
+                        "code": None,
                         "message": "Hog function `NONO` is not implemented",
                         "start": 9,
                         "url": None,
@@ -1283,9 +1297,18 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "query": "print(event, region)",
                 "isValid": True,
-                "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6, "url": None}],
+                "notices": [
+                    {"end": 11, "fix": None, "code": None, "message": "Global variable: event", "start": 6, "url": None}
+                ],
                 "warnings": [
-                    {"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13, "url": None}
+                    {
+                        "end": 19,
+                        "fix": None,
+                        "code": None,
+                        "message": "Unknown global variable: region",
+                        "start": 13,
+                        "url": None,
+                    }
                 ],
                 "errors": [],
             },
@@ -1313,6 +1336,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                     {
                         "end": 17,
                         "fix": None,
+                        "code": None,
                         "message": "Hog function `NONO` is not implemented",
                         "start": 11,
                         "url": None,

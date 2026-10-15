@@ -57,7 +57,6 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
-from posthog.schema_enums import PersonsOnEventsMode
 
 logger = structlog.get_logger(__name__)
 
@@ -113,7 +112,16 @@ def get_hogql_metadata(
         return response
 
     database = None
-    if source:
+    from posthog.hogql.transforms.trino.editor import (  # noqa: PLC0415 -- editor target resolution does not run SQL
+        prepare_trino_editor_target,
+        uses_trino_compiler,
+    )
+
+    hosted_trino = isinstance(query.sourceQuery, HogQLQuery) and query.sourceQuery.executionTarget == "managed_trino"
+    trino_selected = query.language == HogLanguage.HOG_QL and (
+        hosted_trino or (source is not None and uses_trino_compiler(team, source))
+    )
+    if source and not trino_selected:
         database = Database.create_for(
             team=team,
             user=user,
@@ -159,6 +167,52 @@ def get_hogql_metadata(
             else:
                 process_expr_on_table(node, context=context)
         elif query.language == HogLanguage.HOG_QL:
+            if trino_selected:
+                from posthog.hogql.constants import LimitContext, get_default_limit_for_context  # noqa: PLC0415
+                from posthog.hogql.transforms.trino.compiler import compile_trino_query  # noqa: PLC0415
+
+                if hosted_trino and isinstance(query.sourceQuery, HogQLQuery):
+                    from products.managed_warehouse.backend.facade.query_execution import (
+                        validate_managed_trino_query,  # noqa: PLC0415
+                    )
+
+                    validate_managed_trino_query(query.sourceQuery, team, user)
+                target = prepare_trino_editor_target(
+                    team=team,
+                    user=user,
+                    source=source,
+                    hosted=hosted_trino,
+                    context=context,
+                    modifiers=query.modifiers,
+                )
+                context = target.context
+                compiled = compile_trino_query(
+                    query.query,
+                    context=context,
+                    expansion_mode=target.expansion_mode,
+                    values=query.globals,
+                    filters=query.filters,
+                    variables=query.variables,
+                    modifiers=query.modifiers,
+                    default_limit=get_default_limit_for_context(LimitContext.QUERY),
+                    include_hogql=True,
+                )
+                response.table_names = list(compiled.dependencies)
+                response.ch_table_names = list(compiled.dependencies)
+                if query.includeOutputTypes:
+                    response.output_columns = [
+                        HogQLMetadataColumn(name=column.name, type=column.type) for column in compiled.output_columns
+                    ]
+                context.warnings.extend(
+                    HogQLNotice(
+                        message=warning.message,
+                        code=warning.code,
+                        start=warning.start,
+                        end=warning.end,
+                    )
+                    for warning in compiled.warnings
+                )
+                return response
             if not hogql_ast:
                 hogql_ast = parse_select(query.query)
                 finder = find_placeholders(hogql_ast)
@@ -191,22 +245,6 @@ def get_hogql_metadata(
                 direct_dialect: HogQLDialect = (
                     direct_adapter.dialect if direct_adapter and direct_adapter.dialect else "postgres"
                 )
-                if source and direct_dialect == "trino":
-                    from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the Trino backend only for Trino connections
-                        find_unsupported_pure_trino_features,
-                    )
-
-                    # Execution rejects these regardless of Django expansion, so surface the
-                    # same error at edit time.
-                    find_unsupported_pure_trino_features(hogql_ast)
-                    # Direct queries cannot join PostHog person tables, so the team's
-                    # person-on-events mode has no effect; print with the one mode the Trino
-                    # dialect accepts. A direct database exposes no event or person properties,
-                    # so property restrictions cannot apply either.
-                    context.modifiers = context.modifiers.model_copy(
-                        update={"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
-                    )
-                    context.restricted_properties = set()
                 printed_sql, prepared_ast = prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,
@@ -236,7 +274,9 @@ def get_hogql_metadata(
             # A notice without a span marks the whole query, so a fix carried alongside one would
             # replace everything the user typed instead of the token the suggestion stands in for.
             fix = e.fix if start is not None and end is not None else None
-            response.errors.append(HogQLNotice(message=error, start=start, end=end, fix=fix))
+            response.errors.append(
+                HogQLNotice(message=error, start=start, end=end, fix=fix, code=getattr(e, "feature_code", None))
+            )
         elif (
             settings.DEBUG
         ):  # We don't want to accidentally expose too much data via errors, so expose only when debug is enabled

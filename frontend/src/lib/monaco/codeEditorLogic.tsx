@@ -176,6 +176,9 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         props.sourceQuery?.kind === NodeKind.HogQLQuery
                             ? (props.sourceQuery.connectionId ?? undefined)
                             : undefined
+                    const queryValues =
+                        props.sourceQuery?.kind === NodeKind.HogQLQuery ? props.sourceQuery.values : undefined
+                    const globals = queryValues ? { ...queryValues, ...props.globals } : props.globals
                     const sourceQuery = getContextSourceQuery(props.sourceQuery, query)
 
                     const response = await performQuery<HogQLMetadata>(
@@ -184,10 +187,18 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                                 kind: NodeKind.HogQLMetadata,
                                 language: props.language as HogLanguage,
                                 query: query,
-                                filters: props.metadataFilters,
-                                globals: props.globals,
+                                filters:
+                                    props.metadataFilters ??
+                                    (props.sourceQuery?.kind === NodeKind.HogQLQuery
+                                        ? props.sourceQuery.filters
+                                        : undefined),
+                                globals,
                                 sourceQuery,
                                 variables,
+                                modifiers:
+                                    props.sourceQuery?.kind === NodeKind.HogQLQuery
+                                        ? props.sourceQuery.modifiers
+                                        : undefined,
                                 connectionId,
                                 indexUsage: props.indexUsage,
                             },
@@ -235,7 +246,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                             hogQLAIFixPrompt: error.fix?.startsWith('ai_prompt:')
                                 ? error.fix.slice('ai_prompt:'.length)
                                 : undefined,
-                            code: noticeLink(error.url, props.monaco),
+                            code: noticeLink(error.url, props.monaco) ?? error.code,
                         }
                     }
 
@@ -301,6 +312,9 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
             props.sourceQuery?.kind === NodeKind.HogQLQuery ? (props.sourceQuery.connectionId ?? null) : null
 
         if (
+            props.sourceQuery !== oldProps.sourceQuery ||
+            props.metadataFilters !== oldProps.metadataFilters ||
+            props.globals !== oldProps.globals ||
             props.query !== oldProps.query ||
             props.metadataQuery !== oldProps.metadataQuery ||
             props.metadataQueryOffset !== oldProps.metadataQueryOffset ||

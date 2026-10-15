@@ -18,6 +18,11 @@ from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID
 
+from posthog.hogql.transforms.trino.contracts import (
+    TrinoCompilation as TrinoCompiledQuery,
+    TrinoExpansionMode,
+)
+
 from posthog.dataclasses import frozen
 
 __all__ = [
@@ -317,15 +322,6 @@ class DuckLakeCompiledQuery:
 
 
 @frozen
-class TrinoCompiledQuery:
-    """A HogQL query compiled to Trino SQL with named parameter bindings."""
-
-    sql: str
-    values: dict[str, Any]
-    hogql: str | None = None
-
-
-@frozen
 class TrinoIncrementalWrite:
     """How a Trino model build tracks an incremental view.
 
@@ -337,11 +333,6 @@ class TrinoIncrementalWrite:
     incremental_key: str
     unique_key: tuple[str, ...]
     since: Any = None
-
-
-class TrinoExpansionMode(StrEnum):
-    PURE = "pure"
-    DJANGO = "django"
 
 
 @dataclass

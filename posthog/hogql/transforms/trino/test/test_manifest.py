@@ -8,19 +8,24 @@ from syrupy.assertion import SnapshotAssertion
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryModifiers, HogQLVariable
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import ExpressionField, StringDatabaseField
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.transforms.trino.compiler import compile_trino_query
+from posthog.hogql.transforms.trino.contracts import TrinoExpansionMode
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.manifest import (
     TrinoCatalogManifest,
     TrinoManifestColumn,
     TrinoManifestTable,
+    TrinoManifestTranspilerResult,
     build_trino_manifest_database,
     prepare_trino_catalog,
     transpile_hogql_to_trino,
 )
 
+from posthog.models import Team
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode
 
 pytestmark = pytest.mark.django_db
@@ -155,6 +160,38 @@ def test_prepared_catalog_reuses_metadata_and_isolates_query_state(django_assert
     assert second.values == {"hogql_val_0": "second"}
 
 
+@pytest.mark.parametrize("change", ["locator", "column_type", "binding"])
+def test_fingerprint_changes_with_compilation_inputs(change: str) -> None:
+    def compile_variant(
+        *,
+        physical_name: str = "orders",
+        field_type: DatabaseSerializedFieldType = DatabaseSerializedFieldType.INTEGER,
+        value: int = 1,
+    ) -> TrinoManifestTranspilerResult:
+        return transpile_hogql_to_trino(
+            "SELECT id FROM orders WHERE id = {value}",
+            values={"value": value},
+            manifest=_manifest(
+                TrinoManifestTable(
+                    logical_name="orders",
+                    locator=("catalog", "schema", physical_name),
+                    columns=(TrinoManifestColumn(name="id", type=field_type),),
+                )
+            ),
+        )
+
+    first = compile_variant()
+    changed = compile_variant(
+        physical_name="orders_v2" if change == "locator" else "orders",
+        field_type=DatabaseSerializedFieldType.FLOAT
+        if change == "column_type"
+        else DatabaseSerializedFieldType.INTEGER,
+        value=2 if change == "binding" else 1,
+    )
+    assert first.fingerprint != changed.fingerprint
+    assert first.fingerprint == compile_variant().fingerprint
+
+
 def test_manifest_relation_can_share_the_internal_unnest_function_name() -> None:
     relation = TrinoManifestTable(
         logical_name="__trino_unnest",
@@ -217,6 +254,26 @@ def test_accepts_content_free_filters_and_null_modifiers() -> None:
     )
 
     assert 'FROM "org_catalog"."posthog"."events_production"' in result.sql
+
+
+def test_django_compilation_rejects_external_trino_tables_without_managed_binding() -> None:
+    manifest = _manifest(
+        TrinoManifestTable(
+            logical_name="orders",
+            locator=("other_catalog", "schema", "orders"),
+            columns=(TrinoManifestColumn(name="id", type=DatabaseSerializedFieldType.INTEGER),),
+        )
+    )
+    database, _ = build_trino_manifest_database(manifest)
+    context = HogQLContext(
+        database=database,
+        team_id=7,
+        team=Team(id=7),
+        restricted_properties=set(),
+        modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+    )
+    with pytest.raises(TrinoLoweringError, match="TRINO_UNMANAGED_TABLE_UNSUPPORTED"):
+        compile_trino_query("SELECT id FROM orders", context=context, expansion_mode=TrinoExpansionMode.DJANGO)
 
 
 def test_rejects_tables_absent_from_manifest() -> None:

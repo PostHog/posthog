@@ -107,6 +107,22 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def get_cache_payload(self) -> dict:
         self._validate_direct_connection()
         payload = super().get_cache_payload()
+        if self.query.connectionId or self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:
+            payload["direct_engine"] = self._direct_engine
+            if self._direct_engine == "trino" or self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:
+                from posthog.hogql.transforms.trino.contracts import (
+                    TRINO_COMPILER_VERSION,  # noqa: PLC0415 -- cache identity follows compiler semantics
+                )
+
+                payload["trino_compiler_version"] = TRINO_COMPILER_VERSION
+                from products.managed_warehouse.backend.facade.client import (
+                    is_managed_trino_editor_connection,  # noqa: PLC0415
+                )
+
+                payload["trino_semantic_expansion"] = bool(
+                    self.query.connectionId
+                    and is_managed_trino_editor_connection(self.team.pk, self.query.connectionId)
+                )
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
             payload["managed_warehouse_sql_mode"] = self._managed_warehouse_sql_mode.value
             if self._direct_engine == "trino":
