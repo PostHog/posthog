@@ -9,6 +9,7 @@ import {
 } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
 import { RECENT_PINNED_TAB_DEFINITIONS } from 'lib/components/TaxonomicFilter/recentPinnedTabDefinitions'
 import {
+    type BehavioralCohortVisibility,
     DataWarehousePopoverField,
     SimpleOption,
     TaxonomicDefinitionTypes,
@@ -170,7 +171,7 @@ export interface BuildTaxonomicGroupsContext {
     eventMetadataPropertyDefinitions: PropertyDefinition[]
     personMetadataPropertyDefinitions: PropertyDefinition[]
     maxContextOptions: MaxContextTaxonomicFilterOption[]
-    hideBehavioralCohorts: boolean
+    hideBehavioralCohorts: BehavioralCohortVisibility
     /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
     showCohortFlagTargeting: boolean
     endpointFilters: Record<string, any> | undefined

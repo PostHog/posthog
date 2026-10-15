@@ -105,6 +105,7 @@ const cohortsList = (): ToolBase<ReturnType<typeof CohortsListSchema>, WithPostH
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/`,
                 query: {
+                    allow_realtime_ready_cohorts: params.allow_realtime_ready_cohorts,
                     basic: params.basic,
                     hide_behavioral_cohorts: params.hide_behavioral_cohorts,
                     limit: params.limit,

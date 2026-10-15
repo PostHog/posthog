@@ -10,6 +10,7 @@ import { PropertyFilterRowOperator } from 'lib/components/PropertyFilters/compon
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { isBehavioralPropertyFilter, isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import {
+    type BehavioralCohortVisibility,
     AllowedProperties,
     ExcludedOperators,
     ExcludedProperties,
@@ -63,7 +64,7 @@ export interface PropertyFiltersProps {
     disabledReason?: string
     excludedOperators?: ExcludedOperators
     selectingKeyOnly?: SelectingKeyOnly
-    hideBehavioralCohorts?: boolean
+    hideBehavioralCohorts?: BehavioralCohortVisibility
     /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
     showCohortFlagTargeting?: boolean
     addFilterDocLink?: string

@@ -657,6 +657,10 @@ export type CohortsStaffListParams = {
 
 export type CohortsListParams = {
     /**
+     * With hide_behavioral_cohorts, keep realtime behavioral cohorts that have finished calculating, which batch workflow audiences can use. Cohorts that wrap them stay hidden.
+     */
+    allow_realtime_ready_cohorts?: boolean
+    /**
      * Return a basic payload that omits the `query`, `groups`, `last_error_message`, and `experiment_set` fields (`filters` is kept). Useful for pickers that only need id/name/count.
      */
     basic?: boolean

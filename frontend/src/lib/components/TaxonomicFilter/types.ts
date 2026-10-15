@@ -119,6 +119,13 @@ export function isKeyOnlyForGroup(
     return !!selectingKeyOnly[groupType]
 }
 
+/**
+ * Whether the cohort group hides behavioral cohorts. `'except-realtime-ready'` hides them except
+ * realtime cohorts that have finished calculating, which batch workflow audiences can read. It
+ * still hides a cohort that wraps one, because an audience evaluates the wrapper as a whole.
+ */
+export type BehavioralCohortVisibility = boolean | 'except-realtime-ready'
+
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
@@ -153,7 +160,7 @@ export interface TaxonomicFilterProps {
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties // only return properties in this list, currently only working for EventProperties and PersonProperties
     metadataSource?: AnyDataNode
-    hideBehavioralCohorts?: boolean
+    hideBehavioralCohorts?: BehavioralCohortVisibility
     /**
      * Mark every cohort row with what feature flags can do with it. Set it only where that is the
      * question the picker is asking, which today is a feature flag's release conditions. The same

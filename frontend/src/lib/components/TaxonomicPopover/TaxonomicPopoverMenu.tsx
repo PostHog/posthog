@@ -29,6 +29,7 @@ import { MenuFilterEntry, TaxonomicFilterMenu } from 'lib/components/TaxonomicFi
 import { MenuInputTrigger } from 'lib/components/TaxonomicFilter/menu/InputTrigger'
 import { taxonomicTriggerWrapperClassName } from 'lib/components/TaxonomicFilter/menu/triggerLayout'
 import {
+    type BehavioralCohortVisibility,
     AllowedProperties,
     DataWarehousePopoverField,
     ExcludedProperties,
@@ -85,7 +86,7 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
-    hideBehavioralCohorts?: boolean
+    hideBehavioralCohorts?: BehavioralCohortVisibility
     /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
     showCohortFlagTargeting?: boolean
     endpointFilters?: Record<string, any>

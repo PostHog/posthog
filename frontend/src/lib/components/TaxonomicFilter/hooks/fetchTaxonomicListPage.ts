@@ -8,7 +8,12 @@
 import { combineUrl } from 'kea-router'
 
 import api from 'lib/api'
-import { ListStorage, TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {
+    type BehavioralCohortVisibility,
+    ListStorage,
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+} from 'lib/components/TaxonomicFilter/types'
 
 export interface FetchTaxonomicPageParams {
     group: TaxonomicFilterGroup
@@ -17,7 +22,7 @@ export interface FetchTaxonomicPageParams {
     limit: number
     isExpanded: boolean
     showNumericalPropsOnly?: boolean
-    hideBehavioralCohorts?: boolean
+    hideBehavioralCohorts?: BehavioralCohortVisibility
     /** Exclude event definitions not ingested within the staleness window. Only
      *  applies to the event / custom-event endpoints (mirrors legacy `exclude_stale`). */
     excludeStale?: boolean
@@ -66,6 +71,10 @@ export async function fetchTaxonomicListPage({
     }
     if (hideBehavioralCohorts) {
         baseParams.hide_behavioral_cohorts = 'true'
+        // Mirrors the legacy infiniteListLogic cohort params.
+        if (hideBehavioralCohorts === 'except-realtime-ready') {
+            baseParams.allow_realtime_ready_cohorts = 'true'
+        }
     }
     const isEventGroup =
         group.type === TaxonomicFilterGroupType.Events || group.type === TaxonomicFilterGroupType.CustomEvents

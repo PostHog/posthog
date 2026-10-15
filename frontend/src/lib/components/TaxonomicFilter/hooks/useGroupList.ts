@@ -26,6 +26,7 @@ import { useMemo, useState } from 'react'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import {
+    type BehavioralCohortVisibility,
     isQuickFilterItem,
     ListStorage,
     QuickFilterItem,
@@ -62,7 +63,7 @@ export interface UseGroupListInput {
     /** When true, emits `is_numerical=true` to remote endpoints and filters
      *  numeric-only items locally for DataWarehousePersonProperties. */
     showNumericalPropsOnly?: boolean
-    hideBehavioralCohorts?: boolean
+    hideBehavioralCohorts?: BehavioralCohortVisibility
     /** Exclude event definitions not seen within the staleness window (event /
      *  custom-event endpoints only). Mirrors legacy's default-on `exclude_stale`. */
     excludeStale?: boolean

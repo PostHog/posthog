@@ -17,6 +17,12 @@ export const CohortsListParams = () => zod.object({
 })
 
 export const CohortsListQueryParams = () => zod.object({
+    allow_realtime_ready_cohorts: zod
+        .boolean()
+        .optional()
+        .describe(
+            'With hide_behavioral_cohorts, keep realtime behavioral cohorts that have finished calculating, which batch workflow audiences can use. Cohorts that wrap them stay hidden.'
+        ),
     basic: zod
         .boolean()
         .optional()

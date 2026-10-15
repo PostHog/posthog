@@ -35,6 +35,7 @@ import { taxonomicFilterCategoryLayoutLogic } from 'lib/components/TaxonomicFilt
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomicFilterSurface'
 import {
+    type BehavioralCohortVisibility,
     DataWarehousePopoverField,
     ExcludedProperties,
     ListStorage,
@@ -523,7 +524,7 @@ export interface taxonomicFilterLogicValues {
     anyGroupLoading: boolean
     anyGroupStale: boolean
     cohortGroupOptions: {
-        hideBehavioralCohorts: boolean
+        hideBehavioralCohorts: BehavioralCohortVisibility
         showCohortFlagTargeting: boolean
     }
     currentTabIndex: number
@@ -541,7 +542,7 @@ export interface taxonomicFilterLogicValues {
     groupAnalyticsTaxonomicGroups: TaxonomicFilterGroup[]
     groupType: any
     hadInteraction: boolean
-    hideBehavioralCohorts: boolean
+    hideBehavioralCohorts: BehavioralCohortVisibility
     hogQLExpressionComponentProps: {
         globals?: Record<string, any>
         showBreakdownLabelHint: boolean
@@ -699,13 +700,13 @@ export interface taxonomicFilterLogicMeta {
             propertyAllowList: TaxonomicFilterGroupValueMap | undefined
         }
         allowNonCapturedEvents: (arg: any) => boolean
-        hideBehavioralCohorts: (arg: any) => boolean
+        hideBehavioralCohorts: (arg: any) => BehavioralCohortVisibility
         showCohortFlagTargeting: (arg: any) => boolean
         cohortGroupOptions: (
-            hideBehavioralCohorts: boolean,
+            hideBehavioralCohorts: BehavioralCohortVisibility,
             showCohortFlagTargeting: boolean
         ) => {
-            hideBehavioralCohorts: boolean
+            hideBehavioralCohorts: BehavioralCohortVisibility
             showCohortFlagTargeting: boolean
         }
         hogQLExpressionComponentProps: (
@@ -748,7 +749,7 @@ export interface taxonomicFilterLogicMeta {
             },
             maxContextOptions: any,
             cohortGroupOptions: {
-                hideBehavioralCohorts: boolean
+                hideBehavioralCohorts: BehavioralCohortVisibility
                 showCohortFlagTargeting: boolean
             },
             endpointFilters: Record<string, any>,
@@ -1099,7 +1100,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         hideBehavioralCohorts: [
             () => [(_, props) => props.hideBehavioralCohorts],
-            (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
+            (hideBehavioralCohorts: BehavioralCohortVisibility | undefined) => hideBehavioralCohorts ?? false,
         ],
         showCohortFlagTargeting: [
             () => [(_, props) => props.showCohortFlagTargeting],
@@ -1109,7 +1110,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         // kea's ceiling of 16 selector inputs.
         cohortGroupOptions: [
             (s) => [s.hideBehavioralCohorts, s.showCohortFlagTargeting],
-            (hideBehavioralCohorts: boolean, showCohortFlagTargeting: boolean) => ({
+            (hideBehavioralCohorts: BehavioralCohortVisibility, showCohortFlagTargeting: boolean) => ({
                 hideBehavioralCohorts,
                 showCohortFlagTargeting,
             }),
@@ -1191,7 +1192,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     hideBehavioralCohorts,
                     showCohortFlagTargeting,
                 }: {
-                    hideBehavioralCohorts: boolean
+                    hideBehavioralCohorts: BehavioralCohortVisibility
                     showCohortFlagTargeting: boolean
                 },
                 endpointFilters: Record<string, any> | undefined,

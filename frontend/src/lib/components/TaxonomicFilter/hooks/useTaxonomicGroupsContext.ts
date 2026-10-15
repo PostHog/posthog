@@ -12,6 +12,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import {
+    type BehavioralCohortVisibility,
     AllowedProperties,
     ExcludedProperties,
     SelectedProperties,
@@ -54,7 +55,7 @@ export interface UseTaxonomicGroupsContextInput {
     propertyAllowList?: AllowedProperties
     selectedProperties?: SelectedProperties
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
-    hideBehavioralCohorts?: boolean
+    hideBehavioralCohorts?: BehavioralCohortVisibility
     /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
     showCohortFlagTargeting?: boolean
     endpointFilters?: Record<string, any>

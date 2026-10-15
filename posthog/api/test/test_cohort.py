@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -2325,6 +2325,62 @@ email@example.org,
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         result_ids = {r["id"] for r in response.json()["results"]}
         self.assertIn(static_cohort.id, result_ids)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_list_cohorts_for_audiences_keeps_only_realtime_ready_behavioral_cohorts(self, patch_capture):
+        behavioral_filters = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "behavioral",
+                        "key": "$pageview",
+                        "value": "performed_event",
+                        "event_type": "events",
+                        "time_value": 30,
+                        "time_interval": "day",
+                    }
+                ],
+            }
+        }
+        stamp = datetime(2026, 1, 1, tzinfo=UTC)
+        ready = Cohort.objects.create(
+            team=self.team,
+            name="ready",
+            cohort_type=CohortType.REALTIME,
+            filters=behavioral_filters,
+            last_backfill_events_at=stamp,
+            last_backfill_person_properties_at=stamp,
+        )
+        calculating = Cohort.objects.create(
+            team=self.team, name="calculating", cohort_type=CohortType.REALTIME, filters=behavioral_filters
+        )
+        not_realtime = Cohort.objects.create(team=self.team, name="not realtime", filters=behavioral_filters)
+        # An audience evaluates a wrapper as a whole, so it can't read the realtime membership inside it.
+        wrapper = Cohort.objects.create(
+            team=self.team,
+            name="wrapper",
+            filters={"properties": {"type": "OR", "values": [{"type": "cohort", "key": "id", "value": ready.pk}]}},
+        )
+        person_based = Cohort.objects.create(
+            team=self.team,
+            name="person based",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "person", "key": "email", "value": "a@b.com", "operator": "exact"}],
+                }
+            },
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/cohorts?hide_behavioral_cohorts=true&allow_realtime_ready_cohorts=true"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result_ids = {r["id"] for r in response.json()["results"]}
+        self.assertTrue({ready.pk, person_based.pk} <= result_ids)
+        self.assertFalse({calculating.pk, not_realtime.pk, wrapper.pk} & result_ids)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_dynamic_cohort_referencing_static_behavioral_cohort_not_excluded(self, patch_capture):

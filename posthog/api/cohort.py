@@ -96,7 +96,10 @@ from products.cohorts.backend.models.cohort import (
     CohortType,
     Group,
 )
-from products.cohorts.backend.models.dependencies import get_flag_excluded_behavioral_cohort_ids
+from products.cohorts.backend.models.dependencies import (
+    get_audience_excluded_behavioral_cohort_ids,
+    get_flag_excluded_behavioral_cohort_ids,
+)
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
     cohort_filters_have_values,
@@ -1837,6 +1840,15 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
                 description="Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.",
             ),
             OpenApiParameter(
+                name="allow_realtime_ready_cohorts",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "With hide_behavioral_cohorts, keep realtime behavioral cohorts that have finished "
+                    "calculating, which batch workflow audiences can use. Cohorts that wrap them stay hidden."
+                ),
+            ),
+            OpenApiParameter(
                 name="basic",
                 type=bool,
                 location=OpenApiParameter.QUERY,
@@ -1912,13 +1924,16 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # When realtime cohort flag targeting is enabled, realtime cohorts that have been
             # backfilled are allowed through.
             if self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true":
-                allow_realtime_backfilled = is_realtime_cohort_flag_targeting_enabled(self.request, team=self.team)
-                # The flag's cohort typeahead hits this endpoint on every keystroke, so the
-                # behavioral set is computed once per team and cached (invalidated on cohort
-                # writes); see get_flag_excluded_behavioral_cohort_ids.
-                behavioral_cohort_ids = get_flag_excluded_behavioral_cohort_ids(
-                    self.team_id, allow_realtime_backfilled=allow_realtime_backfilled
-                )
+                if self.request.query_params.get("allow_realtime_ready_cohorts", "false").lower() == "true":
+                    behavioral_cohort_ids = get_audience_excluded_behavioral_cohort_ids(self.team_id)
+                else:
+                    allow_realtime_backfilled = is_realtime_cohort_flag_targeting_enabled(self.request, team=self.team)
+                    # The flag's cohort typeahead hits this endpoint on every keystroke, so the
+                    # behavioral set is computed once per team and cached (invalidated on cohort
+                    # writes); see get_flag_excluded_behavioral_cohort_ids.
+                    behavioral_cohort_ids = get_flag_excluded_behavioral_cohort_ids(
+                        self.team_id, allow_realtime_backfilled=allow_realtime_backfilled
+                    )
                 queryset = queryset.exclude(id__in=behavioral_cohort_ids)
 
             # add additional filters provided by the client

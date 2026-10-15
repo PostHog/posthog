@@ -30,6 +30,7 @@ import {
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import {
+    type BehavioralCohortVisibility,
     AllowedProperties,
     ExcludedOperators,
     ExcludedProperties,
@@ -83,7 +84,7 @@ export interface UseTaxonomicFilterOptions {
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
-    hideBehavioralCohorts?: boolean
+    hideBehavioralCohorts?: BehavioralCohortVisibility
     /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
     showCohortFlagTargeting?: boolean
     endpointFilters?: Record<string, any>

@@ -231,6 +231,26 @@ def get_flag_excluded_behavioral_cohort_ids(team_id: int, *, allow_realtime_back
     return behavioral_cohort_ids
 
 
+def get_audience_excluded_behavioral_cohort_ids(team_id: int) -> set[int]:
+    """Behavioral cohort ids that a batch or scheduled workflow audience can't use.
+
+    An audience reads realtime membership only for a realtime cohort that it references directly,
+    so only a realtime cohort that has finished calculating is let through. Unlike flag targeting,
+    a cohort that wraps one stays excluded, because the audience evaluates the wrapper as a whole.
+    """
+    excluded = get_flag_excluded_behavioral_cohort_ids(team_id, allow_realtime_backfilled=False)
+    if not excluded:
+        return excluded
+    realtime_ready = {
+        cohort.pk
+        for cohort in Cohort.objects.filter(
+            team_id=team_id, pk__in=excluded, cohort_type=CohortType.REALTIME, deleted=False
+        )
+        if cohort.is_flag_compatible
+    }
+    return excluded - realtime_ready
+
+
 def _invalidate_team_behavioral_cohort_cache(team_id: int) -> None:
     cache.delete_many(
         [
