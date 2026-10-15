@@ -9,7 +9,7 @@ import dataclasses
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -32,6 +32,7 @@ with workflow.unsafe.imports_passed_through():
         PlatformAlertSignal,
         notified_alerts_for_platform,
     )
+    from products.logs.backend.temporal.batch_slot import LogsBatchAdmission, LogsBatchSlot
 
 WORKFLOW_NAME = "logs-alert-evaluate"
 
@@ -50,9 +51,21 @@ EVALUATE_SCHEDULE_TO_CLOSE = EVALUATE_START_TO_CLOSE + EVALUATE_QUEUE_TOLERANCE
 # the next tick reaches it anyway, and holding the key meanwhile blocks its own re-dispatch.
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
-# What the source needs from its binding's `evaluation_timeout`, which has to hold both
-# activities and still leave room to start the delivery and signal children.
-EVALUATION_BUDGET = EVALUATE_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE
+# A batch the pool turns away waits on a workflow timer and tries again, so it runs inside its own
+# tick instead of the next. The timer holds no worker slot, which a wait inside the sync activity
+# would. A batch still without a slot after the budget keeps its checks due for a later tick.
+SLOT_WAIT_BUDGET = dt.timedelta(seconds=30)
+SLOT_POLL_INTERVAL = dt.timedelta(seconds=2)
+TAKE_SLOT_START_TO_CLOSE = dt.timedelta(seconds=5)
+TAKE_SLOT_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=10)
+# What the source needs from its binding's `evaluation_timeout`, which has to hold the wait, both
+# activities, and still leave room to start the delivery and signal children. The wait can run one
+# try past its budget, because the last try starts before the budget ends.
+EVALUATION_BUDGET = (
+    SLOT_WAIT_BUDGET + 2 * TAKE_SLOT_SCHEDULE_TO_CLOSE + EVALUATE_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE
+)
+# Workflows started before the wait replay the single try inside the evaluation activity.
+WAIT_FOR_SLOT_PATCH = "logs-alert-evaluate-wait-for-slot"
 
 SIGNALS_WORKFLOW_NAME = "logs-alert-platform-signals"
 # A child workflow with its own budget, so a large batch of signals never competes with the
@@ -67,6 +80,19 @@ _SIGNAL_ACTIONS: dict[AlertEventKind, AlertSignalAction] = {
     AlertEventKind.FIRING: "firing",
     AlertEventKind.BROKEN: "broken",
 }
+
+
+@dataclasses.dataclass(frozen=True)
+class TakeLogsBatchSlotInputs:
+    evaluation: SourceEvaluationInputs
+    member: str
+    final: bool
+
+
+@dataclasses.dataclass(frozen=True)
+class HeldLogsBatchInputs:
+    evaluation: SourceEvaluationInputs
+    slot: LogsBatchSlot
 
 
 @dataclasses.dataclass(frozen=True)
@@ -126,6 +152,33 @@ def evaluate_logs_alerts_activity(inputs: SourceEvaluationInputs) -> SourceBatch
 
 
 @activity.defn
+@close_db_connections
+def take_logs_batch_slot_activity(inputs: TakeLogsBatchSlotInputs) -> LogsBatchAdmission:
+    from products.logs.backend.alert_source_cycle import take_logs_batch_slot
+
+    key = inputs.evaluation.batch_key
+    return take_logs_batch_slot(
+        key.team_id,
+        key.slot,
+        dt.datetime.fromisoformat(inputs.evaluation.cutoff),
+        member=inputs.member,
+        final=inputs.final,
+    )
+
+
+@activity.defn
+@close_db_connections
+def evaluate_held_logs_batch_activity(inputs: HeldLogsBatchInputs) -> SourceBatchEvaluation:
+    """Sync for the same reason as `evaluate_logs_alerts_activity`."""
+    from products.logs.backend.alert_source_cycle import evaluate_held_logs_batch
+
+    key = inputs.evaluation.batch_key
+    return evaluate_held_logs_batch(
+        key.team_id, key.slot, dt.datetime.fromisoformat(inputs.evaluation.cutoff), inputs.slot
+    )
+
+
+@activity.defn
 async def emit_platform_alert_signals_activity(inputs: PlatformSignalInputs) -> int:
     """Emits the Self-driving signals for alerts the platform owns. Never raises."""
     # In the body, like the import above, because the workflow's sandbox refuses Django models.
@@ -165,13 +218,25 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
     async def run(self, inputs: SourceEvaluationInputs) -> int:
         # The evaluation writes nothing, so a lost attempt costs its queries and the retry reads
         # the same still-due batch. Its result reaches history before the write below runs.
-        evaluation = await workflow.execute_activity(
-            evaluate_logs_alerts_activity,
-            inputs,
-            start_to_close_timeout=EVALUATE_START_TO_CLOSE,
-            schedule_to_close_timeout=EVALUATE_SCHEDULE_TO_CLOSE,
-            retry_policy=RetryPolicy(maximum_attempts=1),
-        )
+        if workflow.patched(WAIT_FOR_SLOT_PATCH):
+            held = await self._wait_for_slot(inputs)
+            if held is None:
+                return 0
+            evaluation = await workflow.execute_activity(
+                evaluate_held_logs_batch_activity,
+                HeldLogsBatchInputs(evaluation=inputs, slot=held),
+                start_to_close_timeout=EVALUATE_START_TO_CLOSE,
+                schedule_to_close_timeout=EVALUATE_SCHEDULE_TO_CLOSE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        else:
+            evaluation = await workflow.execute_activity(
+                evaluate_logs_alerts_activity,
+                inputs,
+                start_to_close_timeout=EVALUATE_START_TO_CLOSE,
+                schedule_to_close_timeout=EVALUATE_SCHEDULE_TO_CLOSE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
 
         if evaluation.outcomes:
             await workflow.execute_activity(
@@ -207,9 +272,40 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
 
         return started
 
+    async def _wait_for_slot(self, inputs: SourceEvaluationInputs) -> LogsBatchSlot | None:
+        """Tries for a pool slot until one frees or the wait budget ends. None when the batch has
+        nothing left to evaluate, or when it still has no slot, which leaves its checks due."""
+        # From the workflow, so it is the same on replay and on every retry of a try.
+        member = f"{inputs.batch_key.team_id}:{inputs.batch_key.slot}:{workflow.uuid4().hex}"
+        deadline = workflow.now() + SLOT_WAIT_BUDGET
+        while True:
+            final = workflow.now() >= deadline
+            try:
+                admission = await workflow.execute_activity(
+                    take_logs_batch_slot_activity,
+                    TakeLogsBatchSlotInputs(evaluation=inputs, member=member, final=final),
+                    start_to_close_timeout=TAKE_SLOT_START_TO_CLOSE,
+                    schedule_to_close_timeout=TAKE_SLOT_SCHEDULE_TO_CLOSE,
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            except ActivityError:
+                # A failed try is a try without a slot. The next one asks again.
+                admission = LogsBatchAdmission(due=True)
+            if not admission.due:
+                return None
+            if admission.slot is not None:
+                return admission.slot
+            if final:
+                return None
+            await workflow.sleep(SLOT_POLL_INTERVAL)
+
 
 SOURCE_EVALUATION_WORKFLOWS = [LogsAlertEvaluateWorkflow]
-SOURCE_EVALUATION_ACTIVITIES = [evaluate_logs_alerts_activity]
+SOURCE_EVALUATION_ACTIVITIES = [
+    evaluate_logs_alerts_activity,
+    take_logs_batch_slot_activity,
+    evaluate_held_logs_batch_activity,
+]
 # Registered on the platform delivery queue, beside the deliveries the evaluation starts.
 PLATFORM_SIGNAL_WORKFLOWS = [LogsPlatformAlertSignalsWorkflow]
 PLATFORM_SIGNAL_ACTIVITIES = [emit_platform_alert_signals_activity]

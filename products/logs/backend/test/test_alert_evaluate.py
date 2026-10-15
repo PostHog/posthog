@@ -44,10 +44,13 @@ from products.logs.backend.alert_check_query import (
 from products.logs.backend.alert_signal_emitter import PlatformAlertSignal, notified_alerts_for_platform
 from products.logs.backend.alert_source_cycle import (
     BATCH_QUERY_BUDGET_SECONDS,
+    BATCH_SLOT_LEASE_SECONDS,
     INFLIGHT_KEY,
     MAX_QUERY_SECONDS,
+    evaluate_held_logs_batch,
     evaluate_logs_batch,
     grouping_key_of,
+    take_logs_batch_slot,
 )
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import backfill_platform_alert_configurations
@@ -55,8 +58,10 @@ from products.logs.backend.temporal.alert_evaluate import (
     EVALUATE_SCHEDULE_TO_CLOSE,
     EVALUATE_START_TO_CLOSE,
     EVALUATION_BUDGET,
+    TAKE_SLOT_START_TO_CLOSE,
     platform_signals,
 )
+from products.logs.backend.temporal.batch_slot import LogsBatchSlot
 
 _MODULE = "products.logs.backend.alert_source_cycle"
 CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
@@ -105,6 +110,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         query_error: Exception | None = None,
         now: datetime | None = None,
         count: int = 500,
+        held: LogsBatchSlot | None = None,
     ) -> tuple[SourceBatchEvaluation, MagicMock]:
         now = now or self.cutoff
         breaching = {str(c.id): [BucketedCount(timestamp=now, count=count)] for c in configurations}
@@ -119,6 +125,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
                     per_alert=breaching, query_duration_ms=1
                 )
             slot = slot_of(configurations[0].next_check_at, now)
+            if held is not None:
+                return evaluate_held_logs_batch(self.team.id, slot, now, held), query
             return evaluate_logs_batch(self.team.id, slot, now), query
 
     def _add_incident_destination(self, configuration: PlatformConfigurationSnapshot) -> None:
@@ -538,6 +546,25 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         assert [len(first.outcomes), len(second.outcomes)] == [1, 1]
 
+    def test_a_slot_taken_ahead_of_the_evaluation_bounds_the_pool_and_is_freed_by_it(self) -> None:
+        configuration = self._configuration()
+        slot = self._slot()
+
+        with override_settings(ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES=1):
+            first = take_logs_batch_slot(self.team.id, slot, self.cutoff, member="first", final=False)
+            turned_away = take_logs_batch_slot(self.team.id, slot, self.cutoff, member="second", final=False)
+            # A retried try names the same member, so it finds its slot instead of taking another.
+            retried = take_logs_batch_slot(self.team.id, slot, self.cutoff, member="first", final=False)
+            assert first.slot is not None and retried.slot is not None
+            assert (turned_away.due, turned_away.slot) == (True, None)
+
+            evaluation, _ = self._run(configuration, held=retried.slot)
+            after = take_logs_batch_slot(self.team.id, slot, self.cutoff, member="second", final=False)
+
+        assert len(evaluation.outcomes) == 1
+        # The evaluation gave the slot back, or a pool of one would still turn the second batch away.
+        assert after.slot is not None
+
     def test_a_logs_alert_with_unreadable_filters_breaks_alone(self) -> None:
         unreadable, healthy = self._configuration(), self._configuration()
         LogsAlertConfiguration.objects.filter(id=self._legacy_ids[unreadable.id]).update(filters=[])
@@ -617,6 +644,9 @@ class TestEvaluationTimeoutLadder(SimpleTestCase):
         assert (EVALUATE_SCHEDULE_TO_CLOSE - EVALUATE_START_TO_CLOSE).total_seconds() >= BATCH_QUERY_BUDGET_SECONDS / 2
         # The platform's own timeout holds both activities and still leaves room for the deliveries.
         assert source_evaluation_timeout(SourceKind.LOGS) > EVALUATION_BUDGET
+        # The workflow takes the slot before the evaluation queues, so the lease must outlast the
+        # rest of the take, the queue and the run, or a second batch starts while this one queries.
+        assert BATCH_SLOT_LEASE_SECONDS > (TAKE_SLOT_START_TO_CLOSE + EVALUATE_SCHEDULE_TO_CLOSE).total_seconds()
 
 
 def _outcome(kind: AlertEventKind, *, notified: bool = True) -> PlatformAlertOutcome:
