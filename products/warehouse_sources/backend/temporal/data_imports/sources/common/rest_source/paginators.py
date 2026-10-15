@@ -12,14 +12,29 @@ logger = logging.getLogger(__name__)
 
 # Where a paginator writes its pagination fields. "query" (default) mutates request.params;
 # "json" mutates the POST body — for APIs that carry page/cursor/limit inside the JSON payload.
+# A dotted "json" name is a path into nested objects, e.g. "variables.offset" for GraphQL.
 ParamLocation = Literal["query", "json"]
+PARAM_LOCATIONS: frozenset[str] = frozenset({"query", "json"})
+
+
+def set_json_param(body: dict[str, Any], name: str, value: Any) -> None:
+    *parents, leaf = name.split(".")
+    target = body
+    for key in parents:
+        child = target.get(key)
+        if child is None:
+            child = target[key] = {}
+        elif not isinstance(child, dict):
+            raise ValueError(f"Can't set JSON body param {name!r}: {key!r} is not an object")
+        target = child
+    target[leaf] = value
 
 
 def _inject_param(request: Request, location: ParamLocation, name: str, value: Any) -> None:
     if location == "json":
         if request.json is None:
             request.json = {}
-        request.json[name] = value
+        set_json_param(request.json, name, value)
     else:
         if request.params is None:
             request.params = {}

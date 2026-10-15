@@ -105,8 +105,9 @@ def _assert_requester_still_has_access(change_request: ChangeRequest, context: d
     this, someone who loses edit access between asking and approval still gets their change
     landed, and approval becomes a way to outlive your own permissions.
 
-    The request is marked invalid rather than failed. The periodic validation task clears that
-    mark once access returns, so the request becomes applicable again on its own.
+    The request keeps invalid validation metadata for diagnosis, but the failed apply is terminal.
+    The periodic validation task only checks pending and approved requests, so restoring access does
+    not retry it. The requester must submit a new request after access is restored.
     """
     if requester_still_has_access(change_request, context):
         return
@@ -136,67 +137,67 @@ def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
     6. Emit events
     """
 
-    action_class = get_action(change_request.action_key)
-    if not action_class:
-        raise ApplyFailed(f"Action {change_request.action_key} not found in registry")
-
-    # Create minimal request context for serializers that need it
-    # All data comes from ChangeRequest - nothing stored separately!
-    request_context = RequestContext(
-        method=change_request.intent.get("http_method", "PATCH"),  # Stored in intent JSON
-        user=change_request.created_by,  # Already in ChangeRequest
-        data=change_request.intent.get("gated_changes", change_request.intent),  # Already in ChangeRequest
-        skip_opportunistic_filter_cleanup=bool(change_request.intent.get("skip_opportunistic_filter_cleanup")),
-    )
-
-    # Build base context with common metadata
-    base_context = {
-        "team": change_request.team,
-        "team_id": change_request.team_id,
-        "project_id": change_request.team.project_id,
-        "organization": change_request.organization,
-        "request": request_context,
-    }
-
-    # Let the action prepare its own context (e.g., fetch instance)
-    validation_context = action_class.prepare_context(change_request, base_context)
-
-    _assert_requester_still_has_access(change_request, validation_context)
-
-    current_owner_kind = action_class.derive_owner_kind(
-        change_request.team, change_request.resource_id, change_request.intent
-    )
-    if owner_kind_changed(change_request.owner_kind, current_owner_kind):
-        # The approvers reviewed this change against one owner, and a different product owns the
-        # resource now. Which policy applies is keyed on that owner, so applying would land a
-        # change nobody with the current owner's policy ever saw.
-        OWNERSHIP_MISMATCH_COUNTER.labels(
-            action=change_request.action_key,
-            recorded=change_request.owner_kind,
-            current=current_owner_kind,
-        ).inc()
-        change_request.state = ChangeRequestState.FAILED
-        change_request.apply_error = (
-            f"Ownership changed since this request was created: {change_request.owner_kind} -> {current_owner_kind}"
-        )
-        change_request.save()
-        raise PreconditionFailed(
-            "This resource now belongs to a different product than when the change was requested. "
-            "Request the change again so the right approvers review it."
-        )
-
-    is_valid, errors = action_class.validate_intent(
-        change_request.intent,
-        context=validation_context,
-    )
-
-    if not is_valid:
-        change_request.state = ChangeRequestState.FAILED
-        change_request.apply_error = f"Validation failed: {errors}"
-        change_request.save()
-        raise ApplyFailed(f"Intent no longer valid: {errors}")
-
     try:
+        action_class = get_action(change_request.action_key)
+        if not action_class:
+            raise ApplyFailed(f"Action {change_request.action_key} not found in registry")
+
+        # Create minimal request context for serializers that need it
+        # All data comes from ChangeRequest - nothing stored separately!
+        request_context = RequestContext(
+            method=change_request.intent.get("http_method", "PATCH"),  # Stored in intent JSON
+            user=change_request.created_by,  # Already in ChangeRequest
+            data=change_request.intent.get("gated_changes", change_request.intent),  # Already in ChangeRequest
+            skip_opportunistic_filter_cleanup=bool(change_request.intent.get("skip_opportunistic_filter_cleanup")),
+        )
+
+        # Build base context with common metadata
+        base_context = {
+            "team": change_request.team,
+            "team_id": change_request.team_id,
+            "project_id": change_request.team.project_id,
+            "organization": change_request.organization,
+            "request": request_context,
+        }
+
+        # Let the action prepare its own context (e.g., fetch instance)
+        validation_context = action_class.prepare_context(change_request, base_context)
+
+        _assert_requester_still_has_access(change_request, validation_context)
+
+        current_owner_kind = action_class.derive_owner_kind(
+            change_request.team, change_request.resource_id, change_request.intent
+        )
+        if owner_kind_changed(change_request.owner_kind, current_owner_kind):
+            # The approvers reviewed this change against one owner, and a different product owns the
+            # resource now. Which policy applies is keyed on that owner, so applying would land a
+            # change nobody with the current owner's policy ever saw.
+            OWNERSHIP_MISMATCH_COUNTER.labels(
+                action=change_request.action_key,
+                recorded=change_request.owner_kind,
+                current=current_owner_kind,
+            ).inc()
+            change_request.state = ChangeRequestState.FAILED
+            change_request.apply_error = (
+                f"Ownership changed since this request was created: {change_request.owner_kind} -> {current_owner_kind}"
+            )
+            change_request.save()
+            raise PreconditionFailed(
+                "This resource now belongs to a different product than when the change was requested. "
+                "Request the change again so the right approvers review it."
+            )
+
+        is_valid, errors = action_class.validate_intent(
+            change_request.intent,
+            context=validation_context,
+        )
+
+        if not is_valid:
+            change_request.state = ChangeRequestState.FAILED
+            change_request.apply_error = f"Validation failed: {errors}"
+            change_request.save()
+            raise ApplyFailed(f"Intent no longer valid: {errors}")
+
         with transaction.atomic():
             # Let the action prepare its own apply context
             apply_context = action_class.prepare_context(change_request, base_context)
@@ -241,9 +242,10 @@ def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
         return result
 
     except PreconditionFailed as e:
-        change_request.state = ChangeRequestState.FAILED
-        change_request.apply_error = f"Precondition failed: {str(e)}"
-        change_request.save()
+        if change_request.state != ChangeRequestState.FAILED:
+            change_request.state = ChangeRequestState.FAILED
+            change_request.apply_error = f"Precondition failed: {str(e)}"
+            change_request.save(update_fields=["state", "apply_error", "updated_at"])
 
         logger.warning(
             "Failed to apply ChangeRequest: precondition failed",
@@ -254,10 +256,26 @@ def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
         )
         raise
 
+    except ApplyFailed as e:
+        if change_request.state != ChangeRequestState.FAILED:
+            change_request.state = ChangeRequestState.FAILED
+            change_request.apply_error = str(e)
+            change_request.save(update_fields=["state", "apply_error", "updated_at"])
+
+        logger.warning(
+            "Failed to apply ChangeRequest",
+            extra={
+                "change_request_id": str(change_request.id),
+                "error": str(e),
+            },
+        )
+        raise
+
     except Exception as e:
-        change_request.state = ChangeRequestState.FAILED
-        change_request.apply_error = str(e)
-        change_request.save()
+        if change_request.state != ChangeRequestState.FAILED:
+            change_request.state = ChangeRequestState.FAILED
+            change_request.apply_error = str(e)
+            change_request.save(update_fields=["state", "apply_error", "updated_at"])
 
         logger.error(
             "Failed to apply ChangeRequest",

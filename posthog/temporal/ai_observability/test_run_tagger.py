@@ -636,7 +636,7 @@ class TestRunTaggerWorkflow:
 
 def make_hog_tagger_dict(team_id: int, source: str, tags: list[dict] | None = None) -> dict:
     """Build the tagger payload that the workflow passes to the Hog activity."""
-    from posthog.cdp.validation import compile_hog
+    from products.cdp.backend.validation import compile_hog
 
     bytecode = compile_hog(source, "tagger")
     return {
@@ -661,7 +661,7 @@ class TestRunHogTagger:
         return create_mock_event_data(team_id=1)
 
     def test_returns_list_of_strings(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return ['billing']", "tagger")
 
@@ -671,7 +671,7 @@ class TestRunHogTagger:
         assert result["error"] is None
 
     def test_filters_unknown_tags_against_whitelist(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return ['billing', 'unknown', 'analytics']", "tagger")
 
@@ -685,7 +685,7 @@ class TestRunHogTagger:
         """When tagger_config['tags'] is empty (Hog-only freeform), the source's
         return value is taken at face value — this is the documented behavior
         for Hog taggers without a tag whitelist."""
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return ['anything', 'goes']", "tagger")
 
@@ -695,7 +695,7 @@ class TestRunHogTagger:
         assert result["error"] is None
 
     def test_string_return_is_promoted_to_single_tag_list(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return 'billing'", "tagger")
 
@@ -705,7 +705,7 @@ class TestRunHogTagger:
         assert result["error"] is None
 
     def test_non_list_return_type_surfaces_error(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return 42", "tagger")
 
@@ -716,7 +716,7 @@ class TestRunHogTagger:
         assert "Must return a list of tag names" in result["error"]
 
     def test_null_return_yields_empty_tags_no_error(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("return null", "tagger")
 
@@ -726,7 +726,7 @@ class TestRunHogTagger:
         assert result["error"] is None
 
     def test_print_output_captured_as_reasoning(self):
-        from posthog.cdp.validation import compile_hog
+        from products.cdp.backend.validation import compile_hog
 
         bytecode = compile_hog("print('inspecting input'); return ['billing']", "tagger")
 

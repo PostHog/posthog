@@ -11,6 +11,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.settings import (
     SNAPCHAT_ADS_CONFIG,
     EndpointType,
@@ -328,8 +333,6 @@ class TestNonRetryableErrors:
 
 
 class TestListAdAccounts:
-    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.utils"
-
     def test_flattens_accounts_and_pairs_with_organization_name(self) -> None:
         body = {
             "organizations": [
@@ -347,22 +350,20 @@ class TestListAdAccounts:
                 {"sub_request_status": "ERROR", "organization": {"name": "Broken", "ad_accounts": [{"id": "x"}]}},
             ]
         }
-        response = MagicMock()
-        response.json.return_value = body
-        session = MagicMock()
-        session.get.return_value = response
 
-        with patch(f"{self._MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(json=body)]) as network:
             result = list_ad_accounts("token")
 
         assert [(account["id"], org_name) for account, org_name in result] == [
             ("acc-1", "PostHog"),
             ("acc-2", "PostHog"),
         ]
-        assert session.get.call_args.kwargs["params"] == {
-            "with_ad_accounts": "true",
-            "limit": AD_ACCOUNTS_PAGE_LIMIT,
+        assert network.requests_log[0].path == "/v1/me/organizations"
+        assert network.requests_log[0].query == {
+            "with_ad_accounts": ("true",),
+            "limit": (str(AD_ACCOUNTS_PAGE_LIMIT),),
         }
+        assert network.requests_log[0].headers["authorization"] == "Bearer token"
 
     @staticmethod
     def _organizations_page(name: str, account_id: str, next_link: str | None = None) -> dict:
@@ -379,61 +380,50 @@ class TestListAdAccounts:
             page["paging"] = {"next_link": next_link}
         return page
 
-    def _session_returning(self, *bodies: dict) -> MagicMock:
-        responses = []
-        for body in bodies:
-            response = MagicMock()
-            response.json.return_value = body
-            responses.append(response)
-        session = MagicMock()
-        session.get.side_effect = responses
-        return session
-
     def test_in_body_failure_raises_actionable_error(self) -> None:
         # A 200 whose body reports failure would otherwise fall through to an empty picker.
-        session = self._session_returning(
-            {"request_status": "ERROR", "debug_message": "Invalid scope", "display_message": "Something went wrong"}
-        )
+        script = [
+            ScriptedResponse(
+                json={
+                    "request_status": "ERROR",
+                    "debug_message": "Invalid scope",
+                    "display_message": "Something went wrong",
+                }
+            )
+        ]
 
-        with (
-            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
-            pytest.raises(IntegrationAccountListingError, match="Invalid scope"),
-        ):
+        with scripted_network(script), pytest.raises(IntegrationAccountListingError, match="Invalid scope"):
             list_ad_accounts("token")
 
     def test_all_organizations_failing_raises_instead_of_returning_empty(self) -> None:
-        session = self._session_returning(
-            {
-                "request_status": "SUCCESS",
-                "organizations": [
-                    {"sub_request_status": "ERROR", "organization": {"name": "Broken", "ad_accounts": []}}
-                ],
-            }
-        )
+        script = [
+            ScriptedResponse(
+                json={
+                    "request_status": "SUCCESS",
+                    "organizations": [
+                        {"sub_request_status": "ERROR", "organization": {"name": "Broken", "ad_accounts": []}}
+                    ],
+                }
+            )
+        ]
 
-        with (
-            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
-            pytest.raises(IntegrationAccountListingError),
-        ):
+        with scripted_network(script), pytest.raises(IntegrationAccountListingError):
             list_ad_accounts("token")
 
     def test_page_cap_raises_instead_of_returning_partial(self) -> None:
         # A looping/oversized next_link must fail closed rather than return the accounts collected so
         # far as if complete — that would silently present a truncated (or cursor-duplicated) picker.
-        response = MagicMock()
-        response.json.return_value = self._organizations_page(
+        page = self._organizations_page(
             "PostHog", "acc-1", next_link="https://adsapi.snapchat.com/v1/me/organizations?cursor=loop"
         )
-        session = MagicMock()
-        session.get.return_value = response
 
         with (
-            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
+            scripted_network(always(ScriptedResponse(json=page))) as network,
             pytest.raises(IntegrationAccountListingError, match="too many pages"),
         ):
             list_ad_accounts("token")
 
-        assert session.get.call_count == MAX_AD_ACCOUNT_PAGES
+        assert len(network.requests_log) == MAX_AD_ACCOUNT_PAGES
 
     @parameterized.expand(
         [
@@ -447,19 +437,16 @@ class TestListAdAccounts:
     def test_rejects_untrusted_pagination_link_without_following_it(self, _name: str, next_link: str) -> None:
         # The bearer token rides on each pagination request, so a next_link off Snapchat's HTTPS API
         # host must be rejected before we re-attach the token to it.
-        session = self._session_returning(
-            self._organizations_page("PostHog", "acc-1", next_link=next_link),
-            self._organizations_page("Agency", "acc-2"),
-        )
+        script = [
+            ScriptedResponse(json=self._organizations_page("PostHog", "acc-1", next_link=next_link)),
+            ScriptedResponse(json=self._organizations_page("Agency", "acc-2")),
+        ]
 
-        with (
-            patch(f"{self._MODULE}.make_tracked_session", return_value=session),
-            pytest.raises(IntegrationAccountListingError),
-        ):
+        with scripted_network(script) as network, pytest.raises(IntegrationAccountListingError):
             list_ad_accounts("token")
 
         # The token-bearing request to the untrusted host is never made.
-        assert session.get.call_count == 1
+        assert len(network.requests_log) == 1
 
 
 def _breakdown_page(entity_id: str, breakdown_key: str, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:

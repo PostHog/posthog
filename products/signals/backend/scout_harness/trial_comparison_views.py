@@ -62,6 +62,7 @@ class ScoutTrialComparisonMixin:
             if result.archived:
                 raise ScoutTrialLaunchError("Restore this trial before resuming it.")
             if result.status != "completed":
+                service.assert_current_judge(plan)
                 start_trial_comparison(config.team_id, plan.comparison_id)
         except ScoutTrialLaunchError as error:
             raise exceptions.ValidationError({"detail": str(error)}) from error
@@ -102,6 +103,7 @@ class ScoutTrialComparisonMixin:
             if result.archived:
                 raise ScoutTrialLaunchError("Restore this trial before resuming it.")
             if result.status != "completed":
+                service.assert_current_judge(plan)
                 service.assert_can_start(
                     launch_ids=[launch_id for variant in plan.request.variants for launch_id in variant.launch_ids]
                 )

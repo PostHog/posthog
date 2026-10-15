@@ -425,34 +425,41 @@ class TestTakeOverStaleRunningJob:
         assert self._run() is True
         mock_update.assert_called_once()
 
+    # A live loader keeps the lock past the max hold: a takeover lets the new run's batch 0
+    # overwrite the table while the old loader is still merging and then publishing it.
+    @pytest.mark.parametrize(
+        "is_stale,hold_hours,expect_takeover",
+        [
+            pytest.param(False, 1, False, id="live_holder_within_max_hold"),
+            pytest.param(False, 25, False, id="live_holder_past_max_hold"),
+            pytest.param(True, 1, True, id="stale_holder_within_max_hold"),
+            pytest.param(True, 25, True, id="stale_holder_past_max_hold"),
+        ],
+    )
+    @time_machine.travel("2026-01-15 12:00:00+00:00", tick=False)
     @patch(f"{MODULE}._release_and_acquire", return_value=True)
     @patch(f"{MODULE}.update_external_job_status")
     @patch(f"{MODULE}.BatchQueue")
     @patch(f"{MODULE}.psycopg.Connection")
-    def test_takes_over_when_stale_batches(
+    def test_takes_over_only_a_stale_holder_with_pending_batches(
         self,
         mock_conn_cls: MagicMock,
         mock_queue: MagicMock,
         mock_update: MagicMock,
         mock_release: MagicMock,
+        is_stale: bool,
+        hold_hours: int,
+        expect_takeover: bool,
     ) -> None:
         mock_queue.get_run_activity_summary.return_value = RunActivitySummary(
-            has_batches=True, has_non_terminal=True, is_stale=True
+            has_batches=True, has_non_terminal=True, is_stale=is_stale
         )
-        assert self._run() is True
-        mock_update.assert_called_once()
 
-    @patch(f"{MODULE}.BatchQueue")
-    @patch(f"{MODULE}.psycopg.Connection")
-    def test_fails_closed_when_active_consumer(
-        self,
-        mock_conn_cls: MagicMock,
-        mock_queue: MagicMock,
-    ) -> None:
-        mock_queue.get_run_activity_summary.return_value = RunActivitySummary(
-            has_batches=True, has_non_terminal=True, is_stale=False
-        )
-        assert self._run() is False
+        assert self._run(holder_created_at=datetime.now(UTC) - timedelta(hours=hold_hours)) is expect_takeover
+
+        assert mock_queue.fail_batches_for_job_sync.called is expect_takeover
+        assert mock_update.called is expect_takeover
+        assert mock_release.called is expect_takeover
 
     @patch(f"{MODULE}.capture_exception")
     @patch(f"{MODULE}.psycopg.Connection")
@@ -463,26 +470,6 @@ class TestTakeOverStaleRunningJob:
     ) -> None:
         mock_conn_cls.connect.side_effect = RuntimeError("connection refused")
         assert self._run() is False
-
-    @time_machine.travel("2026-01-01T12:00:00Z", tick=False)
-    @patch(f"{MODULE}._release_and_acquire", return_value=True)
-    @patch(f"{MODULE}.update_external_job_status")
-    @patch(f"{MODULE}.BatchQueue")
-    @patch(f"{MODULE}.psycopg.Connection")
-    def test_max_hold_exceeded_takes_over_despite_active_consumer(
-        self,
-        mock_conn_cls: MagicMock,
-        mock_queue: MagicMock,
-        mock_update: MagicMock,
-        mock_release: MagicMock,
-    ) -> None:
-        # Without the max-hold backstop, a fooled staleness heuristic can block
-        # takeover forever.
-        mock_queue.get_run_activity_summary.return_value = RunActivitySummary(
-            has_batches=True, has_non_terminal=True, is_stale=False
-        )
-        assert self._run(holder_created_at=datetime.now(UTC) - timedelta(hours=25)) is True
-        mock_update.assert_called_once()
 
     @patch(f"{MODULE}._release_and_acquire", return_value=True)
     @patch(f"{MODULE}.update_external_job_status")

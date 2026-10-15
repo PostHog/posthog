@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 import type { ReviewRepositoryOverviewEntryApi } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { MyChoiceValue, describeReason, myChoiceOptions, myChoiceValue, projectName } from './repositoryChoices'
+import { MyChoiceValue, myChoiceNote, myChoiceOptions, myChoiceValue, projectName } from './repositoryChoices'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 import { YouMark } from './YouMark'
 
@@ -41,10 +41,9 @@ export function RepositoryMyCell({
             </span>
         )
     } else if (!entry.in_project) {
-        content = <span className="text-xs text-secondary">No automatic Flash. Not part of this project.</span>
+        content = <span className="text-xs text-secondary">No automatic review. Not part of this project.</span>
     } else {
-        const withoutChoice = entry.inherited_result.flash ? 'automatic Flash' : 'no automatic Flash'
-        const choiceMatchesInherited = (entry.my_choice === 'flash') === entry.inherited_result.flash
+        const note = myChoiceNote(entry)
         content = (
             <div className="flex min-w-0 flex-col items-start gap-1">
                 <LemonSelect<MyChoiceValue>
@@ -56,13 +55,7 @@ export function RepositoryMyCell({
                     disabledReason={busyReason}
                     data-attr="review-hog-my-choice"
                 />
-                <span className="text-xs text-secondary">
-                    {!hasChoice
-                        ? describeReason(entry.inherited_result)
-                        : choiceMatchesInherited
-                          ? `Your choice. Without it you also get ${withoutChoice}.`
-                          : `Your choice. Without it: ${withoutChoice}`}
-                </span>
+                {note && <span className="text-xs text-secondary">{note}</span>}
             </div>
         )
     }
@@ -73,7 +66,7 @@ export function RepositoryMyCell({
                 My choice
             </span>
             <div className="flex items-start gap-1">
-                {/* Lines the mark up with the select, not with the reason text under it. */}
+                {/* Lines the mark up with the select, not with the note under it. */}
                 <span className="pt-1.5">
                     <YouMark shown={hasChoice} />
                 </span>

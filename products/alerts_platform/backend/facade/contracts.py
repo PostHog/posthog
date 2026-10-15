@@ -17,6 +17,8 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
+
 if TYPE_CHECKING:
     # facade.lifecycle imports this module, so the policy type stays off the runtime import path.
     from products.alerts_platform.backend.facade.lifecycle import AlertPolicy
@@ -125,6 +127,7 @@ class PlatformAlertCheckInput:
     last_notified_at: datetime | None
     snooze_until: datetime | None
     firing_started_at: datetime | None = None
+    owned_by_platform: bool = False
 
     @property
     def filters(self) -> dict[str, Any]:
@@ -155,6 +158,20 @@ class PlatformAlertUpsert:
     snooze_until: datetime | None
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+
+
+@frozen
+class PlatformOwnershipHandover:
+    """A source alert handed to the platform, with the runtime state the platform carries on from."""
+
+    legacy_configuration_id: UUID
+    team_id: int
+    state: PlatformAlertState
+    last_notified_at: datetime | None
+    consecutive_failures: int
+    # The platform checks no earlier than a minute after the handover, whatever this says.
+    next_check_at: datetime
+    at: datetime
 
 
 class SkipReason(StrEnum):
@@ -242,6 +259,9 @@ class PlatformAlertOutcome:
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
+    # A team's checks with the same group are due in one slot, so a source that answers them with
+    # one query can do so. None spreads the configuration by its own id.
+    schedule_group: str | None = None
 
 
 @frozen
@@ -287,6 +307,8 @@ class AnnouncedTransition:
     error_message: str | None
     # A resolve states this as the time its firing ended.
     occurred_at: datetime
+    # The evaluation this transition came from, so a source can read back what it put in the key.
+    evaluation_key: str = ""
 
 
 @frozen
@@ -328,6 +350,10 @@ class AlertDeliveryRequest:
     actions, so its rows reach no message destination even when their kind has an event id.
     `event_ids_by_incident_action` maps each action onto the event id an incident manager
     destination filters on, the way `event_ids_by_kind` does for a message.
+
+    `owned_by_platform` is the owner when the check was read, not when the delivery runs. The
+    source decided its own send for that check from the same owner, so a retry across a cutover
+    or a rollback still has exactly one stack sending.
     """
 
     source: SourceKind
@@ -339,6 +365,9 @@ class AlertDeliveryRequest:
     incident_actions: dict[str, IncidentAction] = field(default_factory=dict)
     sends_messages: bool = True
     event_ids_by_incident_action: dict[str, str] = field(default_factory=dict)
+    # The alert's page in the source's own product. Without one a message links to the platform's page.
+    source_alert_url: str | None = None
+    owned_by_platform: bool = False
 
 
 @frozen
@@ -368,6 +397,7 @@ class PlatformConfigurationSnapshot:
     id: UUID
     next_check_at: datetime | None
     consecutive_failures: int
+    owner: str
 
 
 @frozen
@@ -466,6 +496,7 @@ class DestinationType(LabeledStrEnum):
     TEAMS = "teams", "Microsoft Teams"
     PAGERDUTY = "pagerduty", "PagerDuty"
     EMAIL = "email", "Email"
+    IN_APP = "in_app", "In-app notification"
 
 
 class PagerDutySeverity(StrEnum):
@@ -498,10 +529,19 @@ class AlertDestinationData(TypedDict):
     slack_channel_id: NotRequired[str]
     slack_channel_name: NotRequired[str]
     webhook_url: NotRequired[str]
+    # Request headers a user added to a webhook, such as an auth token, as sorted (name, value)
+    # pairs so a destination stays hashable. Secret-bearing, so never shown in a read response.
+    webhook_headers: NotRequired[dict[str, str]]
     pagerduty_routing_key: NotRequired[str]
     pagerduty_severity: NotRequired[str]
     pagerduty_region: NotRequired[str]
     email_addresses: NotRequired[list[str]]
+    in_app_user_ids: NotRequired[list[int]]
+    # What an in-app notification is about, so the inbox applies its access rules for that resource.
+    in_app_resource_type: NotRequired[str]
+    in_app_resource_id: NotRequired[str]
+    # A path in the app, because the inbox opens it with the client-side router.
+    in_app_url: NotRequired[str]
 
 
 class AlertDestinationValidationError(Exception):
@@ -636,6 +676,24 @@ class SourceDescriber(Protocol):
     """
 
     def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
+
+
+class LegacyWebhookBody(Protocol):
+    """The webhook body a source's own stack sent, for teams whose receivers still parse it.
+
+    Runs on the send path like a describer, so it builds the body from its arguments and does no
+    I/O. `alert_id` is the id the source's destinations match on.
+    """
+
+    def __call__(
+        self,
+        *,
+        project_id: int,
+        alert_id: str,
+        alert_name: str,
+        consecutive_failures: int,
+        transition: AnnouncedTransition,
+    ) -> dict[str, Any]: ...
 
 
 # Comparison against a source's own stack.

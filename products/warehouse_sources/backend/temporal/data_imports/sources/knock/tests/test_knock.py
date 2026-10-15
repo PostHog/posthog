@@ -1,37 +1,29 @@
-import json
-from collections.abc import Iterable
 from datetime import datetime
-from typing import Any, Optional, cast
-
-import pytest
-from unittest.mock import MagicMock, patch
+from typing import Any, cast
 
 from parameterized import parameterized
-from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.knock import KnockSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.knock.knock import (
+    NO_AUDIENCE_KEYS_ERROR,
     NO_OBJECT_COLLECTIONS_ERROR,
     KnockResumeConfig,
     get_resource,
-    knock_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.knock.settings import ENDPOINTS_CONFIG
+from products.warehouse_sources.backend.temporal.data_imports.sources.knock.source import KnockSource
 
 
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
-
-def _page(endpoint: str, rows: list[dict[str, Any]], after: str | None) -> Response:
+def _page(endpoint: str, rows: list[dict[str, Any]], after: str | None) -> ScriptedResponse:
     selector = ENDPOINTS_CONFIG[endpoint].data_selector
-    return _make_http_response({selector: rows, "page_info": {"after": after, "before": None, "page_size": 50}})
+    return ScriptedResponse(json={selector: rows, "page_info": {"after": after, "before": None, "page_size": 50}})
 
 
 class TestGetResource:
@@ -57,47 +49,12 @@ class TestGetResource:
 
 
 class TestKnockSourceTransport:
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Optional[Any] = None,
-        object_collections: Optional[str] = None,
-        sent_urls: Optional[list[str]] = None,
-    ) -> tuple[SourceResponse, list[dict[str, Any]], list[dict[str, Any]]]:
-        # Capture shallow copies of request.params at send-time: the Request object is
-        # mutated in place by the paginator between pages.
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            if sent_urls is not None:
-                sent_urls.append(request.url)
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            source_response = knock_source(
-                api_key="sk_test",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-                should_use_incremental_field=should_use_incremental_field,
-                object_collections=object_collections,
-            )
-            rows = [row for chunk in cast(Iterable[Any], source_response.items()) for row in chunk]
-            return source_response, sent_params, rows
+    @staticmethod
+    def _driver(object_collections: str | None = None, audience_keys: str | None = None) -> SourceDriver:
+        return SourceDriver(
+            KnockSource(),
+            KnockSourceConfig(api_key="sk_test", object_collections=object_collections, audience_keys=audience_keys),
+        )
 
     @parameterized.expand(
         [
@@ -108,57 +65,48 @@ class TestKnockSourceTransport:
         ]
     )
     def test_rows_extracted_from_endpoint_envelope(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(endpoint, [_page(endpoint, [{"id": "a"}, {"id": "b"}], after=None)])
 
-        responses = [_page(endpoint, [{"id": "a"}, {"id": "b"}], after=None)]
-        _, _, rows = self._drive(endpoint, manager, responses)
-
-        assert [row["id"] for row in rows] == ["a", "b"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a", "b"]
 
     def test_fresh_run_pages_on_after_cursor_and_saves_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "messages",
+            [
+                _page("messages", [{"id": "m1"}], after="cursor-1"),
+                _page("messages", [{"id": "m2"}], after="cursor-2"),
+                _page("messages", [{"id": "m3"}], after=None),
+            ],
+        )
 
-        responses = [
-            _page("messages", [{"id": "m1"}], after="cursor-1"),
-            _page("messages", [{"id": "m2"}], after="cursor-2"),
-            _page("messages", [{"id": "m3"}], after=None),
-        ]
-        _, sent_params, rows = self._drive("messages", manager, responses)
-
-        assert [p.get("after") for p in sent_params] == [None, "cursor-1", "cursor-2"]
+        assert result.raised is None
+        assert result.params("after") == [None, "cursor-1", "cursor-2"]
         # page_size rides along on every request.
-        assert all(p.get("page_size") == 50 for p in sent_params)
-        assert [row["id"] for row in rows] == ["m1", "m2", "m3"]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [KnockResumeConfig(after="cursor-1"), KnockResumeConfig(after="cursor-2")]
+        assert result.params("page_size") == ["50"] * 3
+        assert [row["id"] for row in result.rows] == ["m1", "m2", "m3"]
+        assert result.saved_states == [KnockResumeConfig(after="cursor-1"), KnockResumeConfig(after="cursor-2")]
 
     def test_resume_seeds_paginator_with_saved_cursor(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = KnockResumeConfig(after="cursor-resumed")
+        result = self._driver().run(
+            "messages",
+            [_page("messages", [{"id": "m9"}], after=None)],
+            resume_state=KnockResumeConfig(after="cursor-resumed"),
+        )
 
-        responses = [_page("messages", [{"id": "m9"}], after=None)]
-        _, sent_params, _ = self._drive("messages", manager, responses)
-
-        assert [p.get("after") for p in sent_params] == ["cursor-resumed"]
+        assert result.raised is None
+        assert result.params("after") == ["cursor-resumed"]
 
     def test_incremental_run_sends_watermark_as_iso8601(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_page("messages", [{"id": "m1", "inserted_at": "2026-06-01T00:00:00Z"}], after=None)]
-        _, sent_params, _ = self._drive(
+        result = self._driver().run(
             "messages",
-            manager,
-            responses,
-            should_use_incremental_field=True,
+            [_page("messages", [{"id": "m1", "inserted_at": "2026-06-01T00:00:00Z"}], after=None)],
+            incremental_field="inserted_at",
             db_incremental_field_last_value=datetime(2026, 5, 1, 12, 30),
         )
 
-        assert sent_params[0]["inserted_at[gte]"] == "2026-05-01T12:30:00"
+        assert result.raised is None
+        assert result.requests[0].param("inserted_at[gte]") == "2026-05-01T12:30:00"
 
     @parameterized.expand(
         [
@@ -175,139 +123,215 @@ class TestKnockSourceTransport:
     def test_source_response_partitioning_and_sort_mode(
         self, endpoint: str, partition_keys: list[str] | None, primary_keys: list[str]
     ) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
         fanout = ENDPOINTS_CONFIG[endpoint].fanout
         first_page = _page(fanout.parent_name if fanout else endpoint, [], after=None)
-        source_response, _, _ = self._drive(endpoint, manager, [first_page], object_collections="accounts")
+        result = self._driver(object_collections="accounts").run(endpoint, [first_page])
 
-        assert source_response.primary_keys == primary_keys
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.primary_keys == primary_keys
         # Knock lists return newest-first, so the pipeline must not checkpoint the
         # watermark per batch.
-        assert source_response.sort_mode == "desc"
-        assert source_response.partition_keys == partition_keys
-        assert source_response.partition_mode == ("datetime" if partition_keys else None)
+        assert result.response.sort_mode == "desc"
+        assert result.response.partition_keys == partition_keys
+        assert result.response.partition_mode == ("datetime" if partition_keys else None)
 
     @parameterized.expand(
         [
             ("message_events", "events"),
             ("message_delivery_logs", "delivery_logs"),
+            ("message_activities", "activities"),
         ]
     )
     def test_message_fanout_windows_parent_walk_and_tags_child_rows(self, endpoint: str, child_path: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        sent_urls: list[str] = []
-
-        responses = [
-            _page("messages", [{"id": "m1", "inserted_at": "2026-06-01T00:00:00Z"}], after="cursor-1"),
-            _make_http_response({"items": [{"id": "e1", "inserted_at": "2026-06-01T00:00:05Z"}], "page_info": {}}),
-            _page("messages", [{"id": "m2", "inserted_at": "2026-06-02T00:00:00Z"}], after=None),
-            _make_http_response({"items": [{"id": "e1", "inserted_at": "2026-06-02T00:00:05Z"}], "page_info": {}}),
-        ]
-        _, sent_params, rows = self._drive(
+        result = self._driver().run(
             endpoint,
-            manager,
-            responses,
-            should_use_incremental_field=True,
+            [
+                _page("messages", [{"id": "m1", "inserted_at": "2026-06-01T00:00:00Z"}], after="cursor-1"),
+                ScriptedResponse(
+                    json={"items": [{"id": "e1", "inserted_at": "2026-06-01T00:00:05Z"}], "page_info": {}}
+                ),
+                _page("messages", [{"id": "m2", "inserted_at": "2026-06-02T00:00:00Z"}], after=None),
+                ScriptedResponse(
+                    json={"items": [{"id": "e1", "inserted_at": "2026-06-02T00:00:05Z"}], "page_info": {}}
+                ),
+            ],
+            incremental_field="message_inserted_at",
             db_incremental_field_last_value=datetime(2026, 5, 1, 12, 30),
-            sent_urls=sent_urls,
         )
 
-        assert [url.rsplit("/v1/", 1)[1] for url in sent_urls] == [
-            "messages",
-            f"messages/m1/{child_path}",
-            "messages",
-            f"messages/m2/{child_path}",
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/messages",
+            f"/v1/messages/m1/{child_path}",
+            "/v1/messages",
+            f"/v1/messages/m2/{child_path}",
         ]
         # The child endpoints take no timestamp filter, so the watermark bounds the parent walk.
-        assert sent_params[0]["inserted_at[gte]"] == "2026-05-01T12:30:00"
-        assert sent_params[2]["after"] == "cursor-1"
-        assert all("inserted_at[gte]" not in params for params in sent_params[1::2])
-        assert [(r["message_id"], r["id"], r["message_inserted_at"]) for r in rows] == [
+        assert result.requests[0].param("inserted_at[gte]") == "2026-05-01T12:30:00"
+        assert result.requests[2].param("after") == "cursor-1"
+        assert all(request.param("inserted_at[gte]") is None for request in result.requests[1::2])
+        assert [(r["message_id"], r["id"], r["message_inserted_at"]) for r in result.rows] == [
             ("m1", "e1", "2026-06-01T00:00:00Z"),
             ("m2", "e1", "2026-06-02T00:00:00Z"),
         ]
 
     def test_message_fanout_full_refresh_walks_every_message(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _page("messages", [{"id": "m1", "inserted_at": "2026-06-01T00:00:00Z"}], after=None),
-            _make_http_response({"items": [{"id": "e1"}], "page_info": {}}),
-        ]
-        _, sent_params, _ = self._drive("message_events", manager, responses)
-
-        assert set(sent_params[0]) == {"page_size"}
-
-    def test_schedules_fan_out_over_percent_encoded_user_ids(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        sent_urls: list[str] = []
-
-        responses = [
-            _page("users", [{"id": "team/jane"}], after=None),
-            _make_http_response({"entries": [{"id": "s1"}], "page_info": {}}),
-        ]
-        _, _, rows = self._drive("schedules", manager, responses, sent_urls=sent_urls)
-
-        assert sent_urls[1].endswith("/v1/users/team%2Fjane/schedules")
-        assert [row["id"] for row in rows] == ["s1"]
-
-    def test_objects_walk_each_configured_collection(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        sent_urls: list[str] = []
-
-        responses = [
-            _page("objects", [{"id": "a1", "collection": "accounts"}], after="cursor-1"),
-            _page("objects", [{"id": "a2", "collection": "accounts"}], after=None),
-            _page("objects", [{"id": "p1", "collection": "projects"}], after=None),
-        ]
-        _, sent_params, rows = self._drive(
-            "objects", manager, responses, object_collections=" accounts, projects,accounts ", sent_urls=sent_urls
+        result = self._driver().run(
+            "message_events",
+            [
+                _page("messages", [{"id": "m1", "inserted_at": "2026-06-01T00:00:00Z"}], after=None),
+                ScriptedResponse(json={"items": [{"id": "e1"}], "page_info": {}}),
+            ],
         )
 
-        assert [url.rsplit("/v1/", 1)[1] for url in sent_urls] == ["objects/accounts"] * 2 + ["objects/projects"]
-        assert [p.get("after") for p in sent_params] == [None, "cursor-1", None]
-        assert [row["id"] for row in rows] == ["a1", "a2", "p1"]
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
+        assert result.raised is None
+        assert set(result.requests[0].query) == {"page_size"}
+
+    def test_schedules_fan_out_over_percent_encoded_user_ids(self) -> None:
+        result = self._driver().run(
+            "schedules",
+            [
+                _page("users", [{"id": "team/jane"}], after=None),
+                ScriptedResponse(json={"entries": [{"id": "s1"}], "page_info": {}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths[1] == "/v1/users/team%2Fjane/schedules"
+        assert [row["id"] for row in result.rows] == ["s1"]
+
+    @parameterized.expand(
+        [
+            (
+                "user_subscriptions",
+                "/v1/users/team%2Fjane/subscriptions",
+                ScriptedResponse(
+                    json={
+                        "entries": [
+                            {
+                                "object": {"collection": "accounts", "id": "acct_1"},
+                                "recipient": {"id": "team/jane"},
+                                "inserted_at": "2026-06-01T00:00:00Z",
+                            }
+                        ],
+                        "page_info": {"after": None},
+                    }
+                ),
+                "50",
+                {"user_id": "team/jane", "object_collection": "accounts", "object_id": "acct_1"},
+            ),
+            # Preferences come back as a bare array with no pagination params documented.
+            (
+                "user_preferences",
+                "/v1/users/team%2Fjane/preferences",
+                ScriptedResponse(json=[{"id": "default", "channel_types": {"email": True}}]),
+                None,
+                {"user_id": "team/jane", "id": "default"},
+            ),
+        ]
+    )
+    def test_user_fanout_tags_rows_with_decoded_user_id(
+        self,
+        endpoint: str,
+        child_path: str,
+        child_response: ScriptedResponse,
+        page_size: str | None,
+        expected: dict[str, Any],
+    ) -> None:
+        result = self._driver().run(endpoint, [_page("users", [{"id": "team/jane"}], after=None), child_response])
+
+        assert result.raised is None
+        assert result.paths == ["/v1/users", child_path]
+        assert [request.param("page_size") for request in result.requests] == [page_size, page_size]
+        assert len(result.rows) == 1
+        assert {key: result.rows[0].get(key) for key in expected} == expected
+
+    def test_audience_members_walk_each_configured_audience(self) -> None:
+        result = self._driver(audience_keys="beta, vip/1").run(
+            "audience_members",
+            [
+                _page("audience_members", [{"user_id": "u1", "tenant": None}], after="cursor-1"),
+                _page("audience_members", [{"user_id": "u2", "tenant": "t1"}], after=None),
+                _page("audience_members", [{"user_id": "u1", "tenant": None}], after=None),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/audiences/beta/members"] * 2 + ["/v1/audiences/vip%2F1/members"]
+        assert result.params("after") == [None, "cursor-1", None]
+        assert result.params("page_size") == [None] * 3
+        assert [(row["audience_key"], row["user_id"]) for row in result.rows] == [
+            ("beta", "u1"),
+            ("beta", "u2"),
+            ("vip/1", "u1"),
+        ]
+
+    def test_audience_members_fails_when_knock_ignores_the_cursor(self) -> None:
+        result = self._driver(audience_keys="beta").run(
+            "audience_members",
+            [
+                _page("audience_members", [{"user_id": "u1"}], after="cursor-1"),
+                _page("audience_members", [{"user_id": "u1"}], after="cursor-1"),
+            ],
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert len(result.requests) == 2
+
+    def test_objects_walk_each_configured_collection(self) -> None:
+        result = self._driver(object_collections=" accounts, projects,accounts ").run(
+            "objects",
+            [
+                _page("objects", [{"id": "a1", "collection": "accounts"}], after="cursor-1"),
+                _page("objects", [{"id": "a2", "collection": "accounts"}], after=None),
+                _page("objects", [{"id": "p1", "collection": "projects"}], after=None),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/objects/accounts"] * 2 + ["/v1/objects/projects"]
+        assert result.params("after") == [None, "cursor-1", None]
+        assert [row["id"] for row in result.rows] == ["a1", "a2", "p1"]
+        assert result.saved_states == [
             KnockResumeConfig(collection="accounts"),
             KnockResumeConfig(after="cursor-1", collection="accounts"),
             KnockResumeConfig(collection="projects"),
         ]
 
     def test_objects_resume_skips_finished_collections(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = KnockResumeConfig(after="cursor-7", collection="projects")
-        sent_urls: list[str] = []
-
-        responses = [_page("objects", [{"id": "p8", "collection": "projects"}], after=None)]
-        _, sent_params, _ = self._drive(
-            "objects", manager, responses, object_collections="accounts,projects", sent_urls=sent_urls
+        result = self._driver(object_collections="accounts,projects").run(
+            "objects",
+            [_page("objects", [{"id": "p8", "collection": "projects"}], after=None)],
+            resume_state=KnockResumeConfig(after="cursor-7", collection="projects"),
         )
 
-        assert [url.rsplit("/v1/", 1)[1] for url in sent_urls] == ["objects/projects"]
-        assert sent_params[0]["after"] == "cursor-7"
+        assert result.raised is None
+        assert result.paths == ["/v1/objects/projects"]
+        assert result.requests[0].param("after") == "cursor-7"
 
-    @parameterized.expand([(None,), ("",), (" , ",)])
-    def test_objects_without_collections_fails_with_actionable_error(self, object_collections: str | None) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
+    @parameterized.expand(
+        [
+            ("objects", None, NO_OBJECT_COLLECTIONS_ERROR),
+            ("objects", "", NO_OBJECT_COLLECTIONS_ERROR),
+            ("objects", " , ", NO_OBJECT_COLLECTIONS_ERROR),
+            ("audience_members", None, NO_AUDIENCE_KEYS_ERROR),
+            ("audience_members", " , ", NO_AUDIENCE_KEYS_ERROR),
+        ]
+    )
+    def test_keyed_table_without_keys_fails_with_actionable_error(
+        self, endpoint: str, keys: str | None, expected_error: str
+    ) -> None:
+        # Each table reads its own field, so the other field's keys must not stand in for it.
+        driver = (
+            self._driver(object_collections=keys, audience_keys="beta")
+            if endpoint == "objects"
+            else self._driver(object_collections="accounts", audience_keys=keys)
+        )
+        result = driver.run(endpoint, [])
 
-        with pytest.raises(ValueError, match=NO_OBJECT_COLLECTIONS_ERROR):
-            knock_source(
-                api_key="sk_test",
-                endpoint="objects",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=None,
-                object_collections=object_collections,
-            )
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == expected_error
 
 
 class TestValidateCredentials:
@@ -327,8 +351,7 @@ class TestValidateCredentials:
     def test_status_mapping(
         self, _name: str, status_code: int, body: dict[str, Any], expected: tuple[bool, str | None]
     ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.knock.knock.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.return_value = _make_http_response(body, status_code)
+        with scripted_network(always(ScriptedResponse(status=status_code, json=body))) as network:
             assert validate_credentials("sk_test") == expected
+        assert network.requests_log[0].path == "/v1/users"
+        assert network.requests_log[0].param("page_size") == "1"

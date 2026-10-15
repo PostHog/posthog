@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.db import DatabaseError
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 from django.utils.timezone import now
 
@@ -2383,7 +2383,7 @@ _PERIOD = ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")
-class TestIdentifyRefreshCandidates(BaseTest):
+class TestIdentifyRefreshCandidates(SimpleTestCase):
     """Isolated unit coverage for `_identify_refresh_candidates`. The cron-loop
     integration tests above also exercise this function but conflate it with the rest
     of the run; these cases cover each candidate-selection branch in isolation."""

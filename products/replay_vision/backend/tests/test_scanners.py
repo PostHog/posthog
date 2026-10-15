@@ -1090,7 +1090,7 @@ class TestExperimentScanner:
         assert "watch the checkout change" in instruction
         assert "(t " in instruction
 
-    def test_core_step_carries_injected_experiment_context_and_variant(self) -> None:
+    def test_core_step_carries_injected_experiment_context_but_never_a_variant_key(self) -> None:
         scanner = self._scanner().model_copy(
             update={
                 "experiment_context": {
@@ -1103,14 +1103,15 @@ class TestExperimentScanner:
                     ],
                     "primary_metric_names": ["Purchases"],
                 },
-                "session_variant": "test",
             }
         )
         instruction = scanner.core_steps()[0].instruction
         assert "Checkout CTA copy" in instruction
         assert "checkout-cta" in instruction
         assert "Purchases" in instruction
-        assert "`test` variant" in instruction
+        assert "One-click" in instruction
+        assert "`control`" not in instruction
+        assert "`test`" not in instruction
 
     def test_output_round_trip_keeps_the_summarizer_shape(self) -> None:
         out = ExperimentOutput(title="Faster checkout", summary="They breezed through.", confidence=0.9)

@@ -1,10 +1,15 @@
 from typing import Any, Optional
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mux import MuxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.source import MuxSource
@@ -48,10 +53,13 @@ class TestMuxValidateCredentials:
     def test_validate_credentials(
         self, _name: str, status: Optional[int], schema_name: Optional[str], expected_ok: bool
     ) -> None:
-        # patch (not the monkeypatch fixture) because parameterized.expand can't inject pytest fixtures.
-        with patch.object(source_module, "get_validation_status", return_value=status):
+        script = always(ConnectionError("reset")) if status is None else [ScriptedResponse(status=status)]
+        with scripted_network(script) as network:
             ok, _msg = MuxSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
+
         assert ok is expected_ok
+        assert {request.path for request in network.requests_log} == {"/video/v1/assets"}
+        assert {request.param("limit") for request in network.requests_log} == {"1"}
 
 
 class TestMuxNonRetryableErrors:
@@ -66,6 +74,10 @@ class TestMuxNonRetryableErrors:
                 "invalid_timeframe",
                 "400 Client Error: Bad Request for url: https://api.mux.com/data/v1/errors | api error: code=invalid_timeframe",
             ),
+            (
+                "max_request_latency_bad_request",
+                "400 Client Error: Bad Request for url: https://api.mux.com/data/v1/metrics/max_request_latency/timeseries?timeframe%5B%5D=1784040390&timeframe%5B%5D=1791816390&group_by=day | api error: code=bad_request",
+            ),
         ]
     )
     def test_deterministic_client_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
@@ -76,6 +88,12 @@ class TestMuxNonRetryableErrors:
         [
             ("server_error", "500 Server Error: Internal Server Error for url: https://api.mux.com/video/v1/assets"),
             ("read_timeout", "HTTPSConnectionPool(host='api.mux.com', port=443): Read timed out."),
+            # A transient 5xx/timeout for this same metric+endpoint carries no query string (see
+            # `_safe_url` in rest_client), so it must not collide with the bad_request entry above.
+            (
+                "max_request_latency_server_error",
+                "HTTP 500 for https://api.mux.com/data/v1/metrics/max_request_latency/timeseries",
+            ),
         ]
     )
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:

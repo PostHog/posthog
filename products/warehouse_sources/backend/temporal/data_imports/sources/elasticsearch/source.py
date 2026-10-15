@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,42 @@ def _auth_from_config(config: ElasticsearchSourceConfig) -> ElasticsearchAuth:
 
 @SourceRegistry.register
 class ElasticsearchSource(SimpleSource[ElasticsearchSourceConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^ELASTICSEARCH_", "^ELASTIC_CLOUD_ID$", "^ELASTIC_API_KEY$"),
+        npm=("@elastic/elasticsearch",),
+        pypi=("elasticsearch", "elasticsearch-dsl"),
+        cargo=("elasticsearch",),
+        composer=("elasticsearch/elasticsearch",),
+        go=(
+            "github.com/elastic/go-elasticsearch",
+            "github.com/elastic/elasticsearch-k8s-metrics-adapter",
+            "github.com/elastic/xk6-output-elasticsearch",
+        ),
+        maven=("co.elastic.clients:elasticsearch-java", "co.elastic.clients:elasticsearch-rest5-client"),
+        rubygems=(
+            "elasticsearch",
+            "elasticsearch-api",
+            "elasticsearch-dsl",
+            "elasticsearch-extensions",
+            "elasticsearch-model",
+            "elasticsearch-persistence",
+            "elasticsearch-rails",
+            "elasticsearch-transport",
+            "elasticsearch-watcher",
+            "elasticsearch-xpack",
+            "logstash-filter-elasticsearch",
+            "logstash-input-elasticsearch",
+            "logstash-output-elasticsearch",
+            "logstash-output-elasticsearch-ec2",
+            "logstash-output-elasticsearch-license",
+            "logstash-output-elasticsearch-shield",
+            "logstash-output-elasticsearch_http",
+            "logstash-output-elasticsearch_java",
+            "logstash-output-elasticsearch_java-shield",
+            "logstash-output-elasticsearch_java_shield",
+        ),
+    )
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ELASTICSEARCH

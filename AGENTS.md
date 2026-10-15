@@ -142,11 +142,14 @@ Examples:
 
 ## Security
 
-Route security-related changes by merge status and disclosure risk: fix problems introduced by an open public PR in that PR, keep fixes that would disclose an existing exploitable weakness private until deployment, and make safe, non-secret fixes in `PostHog/posthog`. See [Routing security fixes](.agents/security.md#routing-security-fixes).
-**Every other change lands in `PostHog/posthog`, also when the session starts in a `PostHog/posthog-private` checkout.**
+**Every change lands in `PostHog/posthog`, security fixes included, also when the session starts in a `PostHog/posthog-private` checkout.**
+The only exception is a severe vulnerability that team-security agrees needs an embargo, because an embargo pauses the private sync and the merge queue.
+Never open anything in `posthog-private` without the user's confirmation in the current conversation.
+Hardening, validation, and low-impact access fixes go public with a neutral description.
+Read [Routing security fixes](.agents/security.md#routing-security-fixes) before you open a PR for any security fix: it defines "severe" and says what to leave out of a public PR.
 The private mirror carries this file, and its `origin` points at the private repo, so a default push or `gh pr create` opens the PR there.
 Before the first push of a branch, run `git remote get-url origin`.
-If it names `posthog-private` and the change is not a security fix, open the PR from a `PostHog/posthog` checkout.
+If it names `posthog-private` and the change is not an embargoed fix, open the PR from a `PostHog/posthog` checkout.
 Do not add new `INTERNAL_API_SECRET` callers.
 Read [.agents/security.md](.agents/security.md) before touching auth, secrets, service-to-service calls, raw SQL, or HogQL string building — it covers least privilege, the injection rules, and how to respond when semgrep flags your code.
 `.semgrep/rules/security/` is the enforced set; run `semgrep --config .semgrep/rules/security/ .` to check a change locally.

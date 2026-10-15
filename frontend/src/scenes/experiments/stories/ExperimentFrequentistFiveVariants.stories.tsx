@@ -7,14 +7,19 @@ import EXPERIMENT_FREQUENTIST_FIVE_VARIANTS from '~/mocks/fixtures/api/experimen
 import FUNNEL_METRIC_RESULT from '~/mocks/fixtures/api/experiments/experiment_frequentist_five_variants_funnel_metric_result.json'
 import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/experiment_frequentist_five_variants_mean_metric_result.json'
 import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
-import {
-    ExperimentMetric,
-    NodeKind,
-    isExperimentFunnelMetric,
-    isExperimentMeanMetric,
-} from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { App } from '~/scenes/App'
 import { urls } from '~/scenes/urls'
+
+import { recalculationMocks, resultsByMetricType } from './recalculationMocks'
+
+const RECALCULATION = recalculationMocks(
+    EXPERIMENT_FREQUENTIST_FIVE_VARIANTS,
+    resultsByMetricType(EXPERIMENT_FREQUENTIST_FIVE_VARIANTS, {
+        mean: MEAN_METRIC_RESULT,
+        funnel: FUNNEL_METRIC_RESULT,
+    })
+)
 
 const meta: Meta = {
     component: App,
@@ -28,6 +33,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                ...RECALCULATION.get,
                 [`/api/projects/:team_id/experiments/${EXPERIMENT_FREQUENTIST_FIVE_VARIANTS.id}/`]:
                     EXPERIMENT_FREQUENTIST_FIVE_VARIANTS,
                 [`/api/projects/:team_id/experiment_holdouts`]: [],
@@ -38,18 +44,11 @@ const meta: Meta = {
                 [`/api/environments/:team_id/default_release_conditions/`]: [],
             },
             post: {
+                ...RECALCULATION.post,
+                // Exposures still load through experimentLogic; metric results come from the recalculation run.
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
-
-                    if (body.query.kind === NodeKind.ExperimentExposureQuery) {
-                        return [200, EXPOSURE_QUERY_RESULT]
-                    }
-
-                    if (isExperimentFunnelMetric(body.query.metric as ExperimentMetric)) {
-                        return [200, FUNNEL_METRIC_RESULT]
-                    } else if (isExperimentMeanMetric(body.query.metric as ExperimentMetric)) {
-                        return [200, MEAN_METRIC_RESULT]
-                    }
+                    return body.query.kind === NodeKind.ExperimentExposureQuery ? [200, EXPOSURE_QUERY_RESULT] : [404]
                 },
             },
         }),

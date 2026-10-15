@@ -163,6 +163,11 @@ class ScoutTrialComparisons:
         service._assert_access(plan)
         return service
 
+    def assert_current_judge(self, plan: TrialComparisonPlan) -> None:
+        # A plan frozen with an older judge can never be scored, so starting its runs only spends budget.
+        if plan.judge_prompt_version != JUDGE_PROMPT_VERSION:
+            raise TrialEvaluationError("This evaluation uses an obsolete judge. Start a new trial to assess it.")
+
     def assert_can_start(self, *, launch_ids: Sequence[UUID] = ()) -> None:
         assert_trial_environment_ready()
         assert_trial_work_enabled(self.config.team)
@@ -445,6 +450,7 @@ class _ScoutTrialRunner:
 
     def prepare(self) -> Sequence[UUID]:
         plan = self.service.read(self.comparison_id)
+        self.service.assert_current_judge(plan)
         launch_ids = [launch_id for variant in plan.request.variants for launch_id in variant.launch_ids]
         self.service.assert_can_start(launch_ids=launch_ids)
         save_comparison_progress(plan.team_id, self.comparison_id, TrialComparisonProgress(status="running"))

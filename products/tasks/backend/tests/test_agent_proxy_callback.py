@@ -362,7 +362,9 @@ class TestAgentProxyCallback(TestCase):
             response = self._post(self._body(kind="turn_failed", agent_active=False), token=self._token())
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["dispatched"])
-        signal_workflow_completion.assert_called_once_with(str(self.task_run.id), "failed", PI_RUNTIME_ERROR_MESSAGE)
+        signal_workflow_completion.assert_called_once_with(
+            str(self.task_run.id), "failed", PI_RUNTIME_ERROR_MESSAGE, "pi_runtime_error"
+        )
 
     @parameterized.expand(
         [
