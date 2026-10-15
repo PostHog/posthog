@@ -8,20 +8,28 @@ import { urls } from 'scenes/urls'
 import { analyticsShareLogic } from './analyticsShareLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 
-/** Picks the space an analysis is shared into. Lives in the Lemon scene headers, so it is a Lemon modal. */
+/** Picks the space an item is shared into, or moved to. Lives in the Lemon scene headers, so it is a Lemon modal. */
 export function ShareToSpaceModal(): JSX.Element {
-    const { target, spaces, spacesLoading, sharing } = useValues(analyticsShareLogic)
+    const { target, spaces, spacesLoading, sharing, currentSpace, entryLoading } = useValues(analyticsShareLogic)
     const { closeShareToSpace, shareToSpace } = useActions(analyticsShareLogic)
+    const moving = !!currentSpace
+    const loading = (spacesLoading && !spaces.length) || entryLoading
 
     return (
         <LemonModal
             isOpen={!!target}
             onClose={closeShareToSpace}
-            title="Share into a space"
-            description={target ? `Everyone in the space you pick will find "${target.name}" in Analytics.` : undefined}
+            title={moving ? 'Move to a space' : 'Share into a space'}
+            description={
+                target
+                    ? moving
+                        ? `"${target.name}" is in ${currentSpace}. Pick where it goes next.`
+                        : `Everyone in the space you pick will find "${target.name}" in Analytics.`
+                    : undefined
+            }
             width={480}
         >
-            {spacesLoading && !spaces.length ? (
+            {loading ? (
                 <div className="flex flex-col gap-2">
                     <LemonSkeleton className="h-10" />
                     <LemonSkeleton className="h-10" />
@@ -35,25 +43,48 @@ export function ShareToSpaceModal(): JSX.Element {
                 </div>
             ) : (
                 <div className="flex flex-col gap-1">
-                    {spaces.map((space) => (
+                    {spaces.map((space) => {
+                        const isCurrent = space.name === currentSpace
+                        return (
+                            <LemonButton
+                                key={space.path}
+                                type="tertiary"
+                                fullWidth
+                                icon={<AnalyticsSpaceGlyph name={space.name} size="md" />}
+                                loading={sharing}
+                                disabledReason={isCurrent ? 'Already here' : sharing ? 'Working…' : undefined}
+                                onClick={() => shareToSpace(space)}
+                                data-attr="analytics-share-to-space"
+                            >
+                                <span className="flex flex-col items-start">
+                                    <span>{space.name}</span>
+                                    <span className="text-xs text-secondary">
+                                        {isCurrent
+                                            ? 'Current space'
+                                            : space.total === 0
+                                              ? 'Empty'
+                                              : `${space.total} shared`}
+                                    </span>
+                                </span>
+                            </LemonButton>
+                        )
+                    })}
+                    {moving && (
                         <LemonButton
-                            key={space.path}
                             type="tertiary"
                             fullWidth
-                            icon={<AnalyticsSpaceGlyph name={space.name} size="md" />}
                             loading={sharing}
-                            disabledReason={sharing ? 'Sharing…' : undefined}
-                            onClick={() => shareToSpace(space)}
-                            data-attr="analytics-share-to-space"
+                            onClick={() => shareToSpace(null)}
+                            data-attr="analytics-share-make-personal"
                         >
                             <span className="flex flex-col items-start">
-                                <span>{space.name}</span>
+                                <span>Make it personal</span>
                                 <span className="text-xs text-secondary">
-                                    {space.total === 0 ? 'Empty' : `${space.total} shared`}
+                                    Take it out of every space; only you will see it in Analytics.
                                 </span>
                             </span>
                         </LemonButton>
-                    ))}
+                    )}
                 </div>
             )}
         </LemonModal>

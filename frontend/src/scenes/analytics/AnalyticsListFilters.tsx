@@ -61,6 +61,7 @@ export function AnalyticsListFilters(): JSX.Element {
             </InputGroup>
             <ToggleGroup
                 size="lg"
+                variant="default"
                 aria-label="Filter by type"
                 className="h-8"
                 value={[filters.type]}
@@ -124,7 +125,7 @@ export function AnalyticsListFilters(): JSX.Element {
                     data-attr="analytics-list-toggle-personal"
                 >
                     {showPersonal ? <IconHide /> : <IconEye />}
-                    {showPersonal ? 'Hide personal analytics' : 'Show personal analytics'}
+                    {showPersonal ? 'Hide unfiled' : 'Show unfiled'}
                 </Button>
             )}
             {filtersActive && (

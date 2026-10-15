@@ -60,7 +60,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                     />
                     <TodayPaneRow
                         value="browse:mine"
-                        label="My analytics"
+                        label="My analyses"
                         icon={<IconPerson />}
                         to={urls.analyticsMine()}
                         active={path === urls.analyticsMine()}

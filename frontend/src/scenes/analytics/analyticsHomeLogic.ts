@@ -11,7 +11,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { AnalyticsItem, fileSystemEntryToAnalytics } from './analyticsUtils'
 
-export const ANALYTICS_HOME_RECENT_LIMIT = 5
+export const ANALYTICS_HOME_RECENT_LIMIT = 8
 // The view log also records every page visit as a `scene` row and the API excludes one type at a
 // time, so the page asks for a wide window and keeps the analytics rows itself.
 const RECENTS_FETCH_LIMIT = 50
@@ -22,6 +22,7 @@ export interface analyticsHomeLogicValues {
     recentAnalytics: AnalyticsItem[]
     recentEntries: FileSystemEntry[] | null
     recentEntriesLoading: boolean
+    recentJumpEntries: FileSystemEntry[]
     recentsFailed: boolean
 }
 
@@ -48,6 +49,7 @@ export interface analyticsHomeLogicActions {
 export interface analyticsHomeLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         recentAnalytics: (recentEntries: FileSystemEntry[] | null) => AnalyticsItem[]
+        recentJumpEntries: (recentEntries: FileSystemEntry[] | null) => FileSystemEntry[]
     }
 }
 
@@ -98,6 +100,14 @@ export const analyticsHomeLogic = kea<analyticsHomeLogicType>([
                         const item = fileSystemEntryToAnalytics(entry)
                         return item ? [item] : []
                     })
+                    .slice(0, ANALYTICS_HOME_RECENT_LIMIT),
+        ],
+        // The same rows as file system entries, for the Jump back in rows that preview from the entry.
+        recentJumpEntries: [
+            (s) => [s.recentEntries],
+            (recentEntries: FileSystemEntry[] | null): FileSystemEntry[] =>
+                (recentEntries ?? [])
+                    .filter((entry) => fileSystemEntryToAnalytics(entry) !== null)
                     .slice(0, ANALYTICS_HOME_RECENT_LIMIT),
         ],
     }),

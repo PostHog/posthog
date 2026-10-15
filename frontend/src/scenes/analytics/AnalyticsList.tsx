@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
 
-import { IconFolder, IconPlus, IconSearch, IconTrends } from '@posthog/icons'
+import { IconFolder, IconFolderPlus, IconPlus, IconSearch, IconTrends } from '@posthog/icons'
 import {
     Button,
     DataTable,
@@ -18,6 +18,7 @@ import {
     ItemMedia,
     ItemTitle,
     Skeleton,
+    Spinner,
     Text,
 } from '@posthog/quill'
 
@@ -29,6 +30,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
+import { TodayAnalyticsNewFolderDialog } from '~/layout/today/TodayAnalyticsNewFolderDialog'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
 import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
@@ -76,8 +79,10 @@ function AnalyticsListContent(): JSX.Element {
         feedStale,
         mode,
         scope,
+        loadedCount,
     } = useValues(analyticsListLogic)
     const { clearFilters, loadList, loadMore } = useActions(analyticsListLogic)
+    const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
     const { ref: endRef, inView: endInView } = useInView({
         root: document.getElementById('main-content'),
         rootMargin: SCROLL_PREFETCH_MARGIN,
@@ -94,7 +99,7 @@ function AnalyticsListContent(): JSX.Element {
         if (endInView && hasMore) {
             loadMore()
         }
-    }, [endInView, hasMore, items.length, loadMore])
+    }, [endInView, hasMore, loadedCount, loadMore])
 
     const newButton = (
         <NewAnalyticsMenu source="list" trigger={<Button variant="primary" size="sm" data-attr="analytics-list-new" />}>
@@ -233,16 +238,11 @@ function AnalyticsListContent(): JSX.Element {
                     />
                 )}
                 {hasMore && (
-                    <div className="flex justify-center py-3">
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            loading={loading}
-                            onClick={() => loadMore()}
-                            data-attr="analytics-list-load-more"
-                        >
-                            Show more
-                        </Button>
+                    <div className="flex items-center justify-center gap-2 py-3" aria-busy>
+                        <Spinner />
+                        <Text size="xs" variant="muted">
+                            Loading more…
+                        </Text>
                     </div>
                 )}
             </div>
@@ -252,7 +252,7 @@ function AnalyticsListContent(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={spaceName ?? (scope === 'mine' ? 'My analytics' : 'Analytics')}
+                name={spaceName ?? (scope === 'mine' ? 'My analyses' : 'Analytics')}
                 description={
                     mode === 'folder'
                         ? null
@@ -264,7 +264,22 @@ function AnalyticsListContent(): JSX.Element {
                     type: 'analytics',
                     forceIcon: spaceName ? <AnalyticsSpaceGlyph name={spaceName} /> : <IconTrends />,
                 }}
-                actions={<div data-quill>{newButton}</div>}
+                actions={
+                    <div data-quill className="flex items-center gap-2">
+                        {mode === 'folder' && filters.folder && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setNewFolderDialogOpen(true, filters.folder)}
+                                data-attr="analytics-list-new-folder"
+                            >
+                                <IconFolderPlus />
+                                New folder
+                            </Button>
+                        )}
+                        {newButton}
+                    </div>
+                }
             />
             <div data-quill className="@container/analytics flex flex-col gap-3">
                 {mode === 'folder' && <AnalyticsFolderBreadcrumbs crumbs={folderBreadcrumbs} />}
@@ -292,6 +307,7 @@ function AnalyticsListContent(): JSX.Element {
             </div>
             <AnalyticsCreateModals />
             <ShareToSpaceModal />
+            <TodayAnalyticsNewFolderDialog />
         </SceneContent>
     )
 }
