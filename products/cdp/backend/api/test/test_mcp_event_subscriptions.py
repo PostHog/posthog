@@ -131,9 +131,13 @@ class TestMCPEventPropertyMasking(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                {"$groups": {"organization": "hidden", "project": "visible"}},
+                {
+                    "$groups": {"organization": "hidden", "project": "visible"},
+                    "$group_0": "hidden",
+                    "$group_1": "visible",
+                },
                 {"$groups.organization"},
-                {"$groups": {"project": "visible"}},
+                {"$groups": {"project": "visible"}, "$group_1": "visible"},
             ),
             (
                 {"$groups.organization": "hidden", "$groups%2Eorganization": "hidden", "plan": "visible"},
@@ -149,6 +153,30 @@ class TestMCPEventPropertyMasking(SimpleTestCase):
                 },
                 {"customer"},
                 {"customer_name": "visible"},
+            ),
+            (
+                {
+                    "$groups": {"organization": "hidden", "project": "visible"},
+                    "$group_0": "hidden",
+                    "$group_1": "visible",
+                },
+                {"$group_0"},
+                {"$groups": {"project": "visible"}, "$group_1": "visible"},
+            ),
+            (
+                {"$groups": {"organization": "hidden"}, "$group_0": "hidden", "$group_4": "hidden", "plan": "visible"},
+                {"$groups"},
+                {"plan": "visible"},
+            ),
+            (
+                {"$groups": {"organization": "hidden"}, "$group_4": "hidden", "plan": "visible"},
+                {"$group_4"},
+                {"plan": "visible"},
+            ),
+            (
+                {"$groups%2Eorganization": "hidden", "$group_0": "hidden", "$group_4": "hidden", "$group_1": "visible"},
+                {"$groups%2Eorganization"},
+                {"$group_1": "visible"},
             ),
             (
                 {"customer%2Eprofile": {"ssn": "hidden", "public": "visible"}, "customer.profile.ssn.child": "hidden"},
@@ -175,6 +203,14 @@ class TestMCPEventPropertyMasking(SimpleTestCase):
         self, properties: dict[str, JsonValue], restrictions: set[str], expected: dict[str, JsonValue]
     ) -> None:
         original = json.loads(json.dumps(properties))
+        with patch(
+            "products.cdp.backend.mcp_event_properties.get_group_types_for_project",
+            return_value=[
+                {"group_type_index": 0, "group_type": "organization"},
+                {"group_type_index": 1, "group_type": "project"},
+            ],
+        ):
+            restrictions = MCPEventPropertyAccess.with_group_aliases(restrictions, team=Team(project_id=1))
         self.assertEqual(MCPEventPropertyAccess.redact(properties, restrictions), expected)
         self.assertEqual(properties, original)
 
@@ -244,12 +280,17 @@ class MCPEventSubscriptionTestCase(APIBaseTest):
         subscription: MCPEventSubscription,
         generation: object | None = None,
         filter_bytecode: list[JsonValue] | None = None,
+        properties: dict[str, JsonValue] | None = None,
     ) -> "_MonkeyPatchedResponse":
         body = {
             "eventId": "a5524ac5-d7c5-43b6-862c-f5971da694c8",
             "name": "posthog.event_captured",
             "timestamp": timezone.now().isoformat(),
-            "data": {"event": "example_event", "distinct_id": "sample-user", "properties": {"plan": "enterprise"}},
+            "data": {
+                "event": "example_event",
+                "distinct_id": "sample-user",
+                "properties": properties if properties is not None else {"plan": "enterprise"},
+            },
             "cursor": None,
         }
         assert subscription.hog_function is not None
@@ -509,7 +550,7 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
         self, _name: str, property_type: int, property_filter: dict[str, JsonValue], property_name: str = "plan"
     ) -> None:
         group_types = patch(
-            "products.cdp.backend.mcp_event_filters.get_group_types_for_project",
+            "products.cdp.backend.mcp_event_properties.get_group_types_for_project",
             return_value=[{"group_type_index": 0, "group_type": "organization"}],
         )
         group_types.start()
@@ -531,11 +572,16 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
             team=self.team, name=property_name, property_type="String", type=property_type
         )
         PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
-        response = self.authorize(subscription)
+        properties: dict[str, JsonValue] = {"plan": "enterprise"}
+        if property_name == "$groups.organization":
+            properties.update({"$groups": {"organization": "hidden"}, "$group_0": "hidden"})
+        response = self.authorize(subscription, properties=properties)
         self.assertEqual(response.status_code, 200, response.json())
-        expected = (
+        expected: dict[str, JsonValue] = (
             {} if property_type == PropertyDefinition.Type.EVENT and property_name == "plan" else {"plan": "enterprise"}
         )
+        if property_name == "$groups.organization":
+            expected["$groups"] = {}
         self.assertEqual(json.loads(response.json()["body"])["data"]["properties"], expected)
         forbidden = self.authorize(filtered_subscription)
         self.assertEqual(forbidden.status_code, 403, forbidden.json())
@@ -788,10 +834,17 @@ class TestMCPEventPreview(ClickhouseTestMixin, MCPEventSubscriptionTestCase):
             {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
         self.organization.save()
-        definition = PropertyDefinition.objects.create(
-            team=self.team, name="plan", property_type="String", type=PropertyDefinition.Type.EVENT
+        for name in ("plan", "$groups.organization"):
+            definition = PropertyDefinition.objects.create(
+                team=self.team, name=name, property_type="String", type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
+        self.enterContext(
+            patch(
+                "products.cdp.backend.mcp_event_properties.get_group_types_for_project",
+                return_value=[{"group_type_index": 0, "group_type": "organization"}],
+            )
         )
-        PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
         matching_id = UUID("a5524ac5-d7c5-43b6-862c-f5971da694c8")
         for event_uuid, event, rating in [
             (matching_id, "example_event", 2),
@@ -804,7 +857,12 @@ class TestMCPEventPreview(ClickhouseTestMixin, MCPEventSubscriptionTestCase):
                 team=self.team,
                 distinct_id="sample-user",
                 timestamp=timezone.now(),
-                properties={"rating": rating, "plan": "enterprise"},
+                properties={
+                    "rating": rating,
+                    "plan": "enterprise",
+                    "$groups": {"organization": "hidden"},
+                    "$group_0": "hidden",
+                },
             )
         with (
             tags_context(product=None, feature=None),
@@ -826,6 +884,6 @@ class TestMCPEventPreview(ClickhouseTestMixin, MCPEventSubscriptionTestCase):
         examples = response.json()["examples"]
         self.assertEqual(len(examples), 1)
         self.assertEqual(examples[0]["eventId"], str(matching_id))
-        self.assertEqual(examples[0]["data"]["properties"], {"rating": 2})
+        self.assertEqual(examples[0]["data"]["properties"], {"rating": 2, "$groups": {}})
         self.assertIsNone(examples[0]["cursor"])
         self.assertFalse(MCPEventSubscription.objects.for_team(self.team.pk).exists())
