@@ -199,7 +199,15 @@ UNTAGGED_FOLLOWUP_ACTION_DISMISS = "posthog_code_untagged_followup_dismiss"
 UNTAGGED_FOLLOWUP_CONTEXT_KIND = "untagged_followup"
 
 _MAX_GITHUB_REPOS = 500
-REPO_LIST_CACHE_TTL_SECONDS = 300
+# Every save of the user's GitHub row clears this key early, and the background snapshot refresh is
+# such a save. The installation webhook marks snapshots stale with a bulk update that saves no row,
+# so this TTL is the longest time a repo access change can take to reach Slack.
+REPO_LIST_CACHE_TTL_SECONDS = 60 * 60
+# A mention serves an older snapshot as it is and refreshes it in the background, so this interval
+# sets how often GitHub is listed, not how long a mention waits. The installation webhook already
+# marks a snapshot stale when repo access changes, so the interval only bounds renames and missed
+# webhooks.
+REPO_SNAPSHOT_REFRESH_INTERVAL_SECONDS = 6 * 60 * 60
 PENDING_REPO_PICKER_TTL_SECONDS = PICKER_TOKEN_MAX_AGE_SECONDS
 
 
@@ -1074,7 +1082,7 @@ def _post_repo_picker_message(
     try:
         _get_full_repo_names(integration, user_id=user_id)
     except Exception:
-        logger.warning("repo_list_prewarm_failed", user_id=user_id, exc_info=True)
+        logger.warning("slack_app_repo_list_prewarm_failed", user_id=user_id, exc_info=True)
 
 
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
@@ -1104,7 +1112,14 @@ def _schedule_user_repo_cache_refresh(user_integration_id: str) -> None:
         refresh_user_github_repository_cache.delay(user_integration_id=user_integration_id)
     except Exception:
         # The stale snapshot still answers this mention, and the next mention schedules the refresh again.
-        logger.warning("github_repo_cache_refresh_dispatch_failed", user_integration_id=user_integration_id)
+        logger.warning("slack_app_github_repo_cache_refresh_dispatch_failed", user_integration_id=user_integration_id)
+
+
+def _repo_snapshot_needs_refresh(record: UserIntegration) -> bool:
+    updated_at = record.repository_cache_updated_at
+    if updated_at is None:
+        return True
+    return (timezone.now() - updated_at).total_seconds() >= REPO_SNAPSHOT_REFRESH_INTERVAL_SECONDS
 
 
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
@@ -1129,17 +1144,21 @@ def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> li
     for record in user_records:
         github = UserGitHubIntegration(record, source="slack_app_repo_selection", priority=Priority.NORMAL)
         # A live listing of a large install takes seconds, and a person waits on this in Slack.
-        # Only an install with no snapshot at all lists inline; a stale snapshot is served as is
-        # and refreshed in the background for the next mention.
-        has_snapshot = record.repository_cache_updated_at is not None
-        if has_snapshot and github.repository_cache_is_stale():
+        # A snapshot that holds repos is served as it is, and an old one is refreshed in the
+        # background for the next mention. An empty snapshot has nothing to serve, so the
+        # mention lists GitHub now, unless GitHub returned that empty list within the shared
+        # repository cache TTL.
+        has_cached_repos = bool(record.repository_cache)
+        if has_cached_repos and _repo_snapshot_needs_refresh(record):
             _schedule_user_repo_cache_refresh(str(record.id))
-        repo_entries = github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS, allow_refresh=not has_snapshot)
+        repo_entries = github.list_all_cached_repositories(
+            max_repos=_MAX_GITHUB_REPOS, allow_refresh=not has_cached_repos
+        )
         for repo in repo_entries:
             all_repos.add(repo["full_name"])
             if len(all_repos) >= _MAX_GITHUB_REPOS:
                 logger.warning(
-                    "github_repo_list_capped",
+                    "slack_app_github_repo_list_capped",
                     user_id=user_id,
                     team_id=integration.team_id,
                     cap=_MAX_GITHUB_REPOS,
