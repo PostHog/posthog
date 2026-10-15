@@ -11,6 +11,8 @@ Design notes:
   attempt should fail fast).
 """
 
+import ipaddress
+
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -142,6 +144,26 @@ class TestFetchUrl(SimpleTestCase):
             url_fetch.fetch_url("https://example.com/x")
         # SSRF check was re-run on the redirect target.
         assert mock_ssrf.call_count == 2
+
+    @patch("products.business_knowledge.backend.url_fetch.requests.Session")
+    @patch("products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips")
+    def test_pins_ipv4_when_aaaa_is_also_validated(self, mock_ssrf: MagicMock, mock_session_cls: MagicMock) -> None:
+        class _Ipv6First(set):
+            def __iter__(self):
+                items = list(super().__iter__())
+                items.sort(key=lambda ip: (ip.version != 6, int(ip)))
+                return iter(items)
+
+        ipv4 = ipaddress.ip_address("93.184.216.34")
+        ipv6 = ipaddress.ip_address("2600:1f18::1")
+        mock_ssrf.return_value = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=_Ipv6First({ipv4, ipv6}))
+        session = mock_session_cls.return_value
+        session.get.return_value = _mock_response(body=b"<html>hi</html>")
+
+        url_fetch.fetch_url("https://example.com/x")
+
+        adapter = session.mount.call_args_list[0].args[1]
+        assert adapter._pin_map["example.com"] == str(ipv4)
 
     @patch(
         "products.business_knowledge.backend.url_fetch.validate_url_and_pin_ips",
