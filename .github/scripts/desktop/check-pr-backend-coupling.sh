@@ -31,6 +31,8 @@ is_backend_path() {
 
 is_desktop_path() {
     case "$1" in
+        # Backend CI regenerates this file from the schema and replaces any hand edit. New endpoints in it stay unused until a desktop call site uses them, and call sites stay gated.
+        products/desktop/packages/api-client/src/generated.ts) return 1 ;;
         products/desktop/*) return 0 ;;
         # The desktop app bundles these packages, so they ship on its release schedule.
         packages/agent/packages/*) return 0 ;;

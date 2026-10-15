@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_glue_d
     CONTENT_TYPE,
     ENDPOINTS,
     ERROR_MESSAGES,
+    PARENT_ENDPOINTS,
     REQUEST_TIMEOUT_SECONDS,
     TARGET_PREFIXES,
     GlueEndpoint,
@@ -80,6 +81,15 @@ def error_for_response(response: requests.Response) -> AwsGlueError:
     # The transport handles HTTP retries. Only body-coded HTTP 400 failures need a separate retry.
     error_class = AwsGlueRetryableError if response.status_code == 400 and code in BODY_RETRY_CODES else AwsGlueError
     return error_class(code, message)
+
+
+def page_items(endpoint: GlueEndpoint, body: dict[str, Any]) -> list[dict[str, Any]]:
+    items = body.get(endpoint.result_key, [])
+    if endpoint.names_only and isinstance(items, list) and all(isinstance(item, str) for item in items):
+        items = [{"Name": item} for item in items]
+    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+        raise ValueError("AWS Glue returned an invalid list response.")
+    return items
 
 
 class AwsGlueClient:
@@ -148,9 +158,7 @@ class AwsGlueClient:
             if token:
                 params["NextToken"] = token
             body = self.request(endpoint.operation, params)
-            items = body[endpoint.result_key]
-            if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
-                raise ValueError("AWS Glue returned an invalid list response.")
+            items = page_items(endpoint, body)
             next_token = body.get("NextToken") or None
             if next_token is not None and not isinstance(next_token, str):
                 raise ValueError("AWS Glue returned an invalid pagination token.")
@@ -162,14 +170,18 @@ class AwsGlueClient:
             token = next_token
 
 
+def endpoint_spec(endpoint: str) -> GlueEndpoint:
+    return ENDPOINTS[endpoint] if endpoint in ENDPOINTS else PARENT_ENDPOINTS[endpoint]
+
+
 def normalize_row(endpoint: str, item: dict[str, Any], region: str, parent_payload: dict[str, Any]) -> dict[str, Any]:
     row = {_CAMEL_BOUNDARY.sub("_", key).lower(): value for key, value in item.items()}
     row["region"] = region
-    for column in ENDPOINTS[endpoint].timestamp_columns:
+    for column in endpoint_spec(endpoint).timestamp_columns:
         value = row.get(column)
         if isinstance(value, int | float) and not isinstance(value, bool):
             row[column] = datetime.fromtimestamp(value, tz=UTC)
-    for key in ("DatabaseName", "TableName", "JobName", "CatalogId"):
+    for key in ("DatabaseName", "TableName", "JobName", "CrawlerName", "CatalogId"):
         if key in parent_payload:
             row[_CAMEL_BOUNDARY.sub("_", key).lower()] = parent_payload[key]
     if endpoint == "partitions":
@@ -181,10 +193,14 @@ def normalize_row(endpoint: str, item: dict[str, Any], region: str, parent_paylo
 def parent_payload(endpoint: str, parent: dict[str, Any]) -> dict[str, Any]:
     if endpoint == "job_runs":
         return {"JobName": parent["name"]}
+    if endpoint == "crawls":
+        return {"CrawlerName": parent["name"]}
+    if endpoint == "workflow_runs":
+        return {"Name": parent["name"], "IncludeGraph": False}
     payload = {"DatabaseName": parent["name"] if endpoint == "tables" else parent["database_name"]}
     if parent.get("catalog_id"):
         payload["CatalogId"] = parent["catalog_id"]
-    if endpoint == "partitions":
+    if endpoint in ("partitions", "table_versions"):
         payload["TableName"] = parent["name"]
     return payload
 
@@ -195,7 +211,7 @@ def walk_rows(
     manager: ResumableSourceManager[AwsGlueDataCatalogResumeConfig],
     checkpoint: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
-    spec = ENDPOINTS[endpoint]
+    spec = endpoint_spec(endpoint)
     if spec.parent:
         for parents in walk_rows(client, spec.parent, manager):
             for parent in parents:
@@ -250,7 +266,7 @@ def aws_glue_data_catalog_source(
 
 
 def probe_endpoint(client: AwsGlueClient, endpoint: str) -> dict[str, Any] | None:
-    spec = ENDPOINTS[endpoint]
+    spec = endpoint_spec(endpoint)
     payload: dict[str, Any] = {}
     if spec.parent:
         parent = probe_endpoint(client, spec.parent)
@@ -258,7 +274,7 @@ def probe_endpoint(client: AwsGlueClient, endpoint: str) -> dict[str, Any] | Non
             return None
         payload = parent_payload(endpoint, parent)
     body = client.request(spec.operation, {**payload, "MaxResults": 1})
-    items = body.get(spec.result_key) or []
+    items = page_items(spec, body)
     return normalize_row(endpoint, items[0], client.region, payload) if items else None
 
 

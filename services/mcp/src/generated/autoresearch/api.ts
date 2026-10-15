@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 23 enabled ops
+ * PostHog API - MCP 24 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -145,6 +145,12 @@ export const AutoresearchCreateBody = () => zod.object({
         .optional()
         .describe(
             "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines."
+        ),
+    write_person_property: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored."
         ),
 })
 
@@ -516,6 +522,12 @@ export const AutoresearchTrainingRunsCompleteCreateBody = () => zod
             .max(autoresearchTrainingRunsCompleteCreateBodyReaderSummaryMax)
             .nullish()
             .describe('One or two plain sentences for people on what this run learned. Max 600 characters.'),
+        headline: zod
+            .string()
+            .nullish()
+            .describe(
+                'A short title for people, at most 60 characters, on what this run learned. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.'
+            ),
         next_steps: zod
             .array(zod.string().max(autoresearchTrainingRunsCompleteCreateBodyNextStepsItemMax))
             .max(autoresearchTrainingRunsCompleteCreateBodyNextStepsMax)
@@ -626,6 +638,12 @@ export const AutoresearchTrainingRunsIterationsCreateBody = () => zod
             .describe(
                 'One plain sentence for people on what this experiment tried and what happened. Max 300 characters.'
             ),
+        headline: zod
+            .string()
+            .nullish()
+            .describe(
+                'A short title for people, at most 60 characters, on what this experiment tried. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.'
+            ),
         agent_confidence: zod
             .number()
             .min(autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin)
@@ -703,6 +721,133 @@ export const AutoresearchRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Manage autoresearch prediction pipelines.
+ *
+ * A pipeline defines a target event, population, and horizon. The autoresearch
+ * training loop finds the best predictive recipe; the inference workflow scores
+ * users daily and emits autoresearch_prediction events.
+ */
+export const AutoresearchPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this autoresearch pipeline.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const autoresearchPartialUpdateBodyNameMax = 255
+
+export const autoresearchPartialUpdateBodyTargetEventMax = 255
+
+export const autoresearchPartialUpdateBodyHorizonDaysMax = 365
+
+export const autoresearchPartialUpdateBodyTrainingLookbackDaysMin = 7
+export const autoresearchPartialUpdateBodyTrainingLookbackDaysMax = 730
+
+export const autoresearchPartialUpdateBodyCadenceDaysMax = 365
+
+export const autoresearchPartialUpdateBodyIterationBudgetMax = 500
+
+export const autoresearchPartialUpdateBodySuccessAucMin = 0
+export const autoresearchPartialUpdateBodySuccessAucMax = 1
+
+export const autoresearchPartialUpdateBodyPlateauIterationsMax = 2147483647
+
+export const autoresearchPartialUpdateBodyOutputPersonPropertyMax = 255
+
+export const AutoresearchPartialUpdateBody = () => zod.object({
+    name: zod.string().max(autoresearchPartialUpdateBodyNameMax).optional().describe('Display name for the pipeline.'),
+    description: zod.string().optional().describe('Optional free-text description.'),
+    target_event: zod
+        .string()
+        .max(autoresearchPartialUpdateBodyTargetEventMax)
+        .optional()
+        .describe(
+            "PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead)."
+        ),
+    target_definition: zod
+        .union([
+            zod
+                .object({
+                    type: zod.enum(['event']),
+                })
+                .describe('Predict target_event. The default when target_definition is omitted.'),
+            zod
+                .object({
+                    type: zod.enum(['action']),
+                    action_id: zod.number().min(1).describe('ID of the action to predict.'),
+                })
+                .describe('Predict a PostHog action in this project.'),
+        ])
+        .optional()
+        .describe(
+            'Omit (or pass {\"type\": \"event\"}) to predict target_event; pass {\"type\": \"action\", \"action_id\": N} to predict a PostHog action. No other shapes are accepted.'
+        ),
+    horizon_days: zod
+        .number()
+        .min(1)
+        .max(autoresearchPartialUpdateBodyHorizonDaysMax)
+        .optional()
+        .describe(
+            'Prediction horizon in days (1-365). The model predicts whether the target event occurs within this window.'
+        ),
+    training_lookback_days: zod
+        .number()
+        .min(autoresearchPartialUpdateBodyTrainingLookbackDaysMin)
+        .max(autoresearchPartialUpdateBodyTrainingLookbackDaysMax)
+        .optional()
+        .describe(
+            'How far back to look for training examples (7-730 days). Larger windows give more data but may include stale behavior. Default: 180.'
+        ),
+    training_population: zod
+        .looseObject({})
+        .optional()
+        .describe('Training population filter. Use {} for all identified users.'),
+    inference_population: zod
+        .looseObject({})
+        .optional()
+        .describe('Inference population filter. Defaults to training_population if not set.'),
+    cadence_days: zod
+        .number()
+        .min(1)
+        .max(autoresearchPartialUpdateBodyCadenceDaysMax)
+        .optional()
+        .describe('Re-score the inference population every N days (1-365). Default: 1.'),
+    iteration_budget: zod
+        .number()
+        .min(1)
+        .max(autoresearchPartialUpdateBodyIterationBudgetMax)
+        .optional()
+        .describe('Total training iterations allowed for the autoresearch loop (1-500). Default: 50.'),
+    success_auc: zod
+        .number()
+        .min(autoresearchPartialUpdateBodySuccessAucMin)
+        .max(autoresearchPartialUpdateBodySuccessAucMax)
+        .nullish()
+        .describe('Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.'),
+    plateau_iterations: zod
+        .number()
+        .min(1)
+        .max(autoresearchPartialUpdateBodyPlateauIterationsMax)
+        .optional()
+        .describe('Stop training if no improvement in this many consecutive iterations (at least 1). Default: 10.'),
+    output_person_property: zod
+        .string()
+        .max(autoresearchPartialUpdateBodyOutputPersonPropertyMax)
+        .optional()
+        .describe(
+            "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines."
+        ),
+    write_person_property: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored."
         ),
 })
 

@@ -97,6 +97,10 @@ class TestResolveSandboxAiProduct:
         assert resolve_sandbox_ai_product("review_hog", "validation-c1") == "posthog_code"
         assert resolve_sandbox_ai_product("review_hog", None, internal=False) == "posthog_code"
 
+    def test_account_audit_requires_the_server_stamped_internal_flag(self):
+        assert resolve_sandbox_ai_product("account_audit", None, internal=True) == "account_audit"
+        assert resolve_sandbox_ai_product("account_audit", None, internal=False) == "posthog_code"
+
     def test_unmapped_internal_is_background_agents(self):
         assert resolve_sandbox_ai_product("image_builder", None, internal=True) == "background_agents"
 
@@ -287,7 +291,7 @@ class TestMintScopedToken:
         assert body["product"] == "review_hog"
         assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["review_hog"]
 
-    @pytest.mark.parametrize("product", ["posthog_ai", "review_hog", "slack_app", "workflows"])
+    @pytest.mark.parametrize("product", ["posthog_ai", "account_audit", "review_hog", "slack_app", "workflows"])
     def test_model_pin_follows_the_catalog(self, product):
         from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
         from products.tasks.backend.logic.services.gateway_model_pin import SDK_IMPLICIT_MODELS
@@ -297,8 +301,10 @@ class TestMintScopedToken:
         )
         pin = _PRODUCT_ALLOWED_MODELS[product]
         assert len(pin) == len(set(pin))
-        assert set(pin) == {model for model in registry if "/" not in model} | set(SDK_IMPLICIT_MODELS)
-        assert any("/" in model for model in registry), "the catalog no longer offers a gateway-served model"
+        expected = {model for model in registry if not model.startswith("@cf/")} | set(SDK_IMPLICIT_MODELS)
+        if product != "review_hog":
+            expected -= {"deepseek-ai/deepseek-v4-flash-0731", "zai-org/glm-5.3", "zai-org/glm-5.3-flash"}
+        assert set(pin) == expected
 
     def test_limit_tier_is_sent_only_when_given(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
@@ -1041,14 +1047,14 @@ class TestSlackAppMint:
         mint.assert_not_called()
 
     @pytest.mark.parametrize(
-        "model", ["zai-org/glm-5.3", "@cf/zai-org/glm-5.2", "moonshotai/kimi-k3", "deepseek-ai/deepseek-v4-flash-0731"]
+        "model", ["claude-opus-3", "@cf/zai-org/glm-5.2", "zai-org/glm-5.3", "deepseek-ai/deepseek-v4-flash-0731"]
     )
     def test_model_outside_the_pin_does_not_mint(self, mint_settings, model):
         env, mint = self._env(mint_settings, model=model)
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
 
-    @pytest.mark.parametrize("model", [None, "anthropic/claude-opus-5", "gpt-5.6-terra"])
+    @pytest.mark.parametrize("model", [None, "anthropic/claude-opus-5", "gpt-5.6-terra", "moonshotai/kimi-k3"])
     def test_unset_or_pinned_model_mints(self, mint_settings, model):
         env, mint = self._env(mint_settings, model=model)
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
@@ -1110,7 +1116,7 @@ class TestSlackAppMint:
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
 
-    @pytest.mark.parametrize("overrides", [{"runtime": "pi"}, {"model": "zai-org/glm-5.3"}])
+    @pytest.mark.parametrize("overrides", [{"runtime": "pi"}, {"model": "claude-opus-3"}])
     def test_other_gates_still_refuse_an_internal_helper_run(self, mint_settings, overrides):
         env, mint = self._env(mint_settings, state={"ai_stage": "repo_selection"}, internal=True, **overrides)
         assert "AI_GATEWAY_TOKEN" not in env
@@ -1197,9 +1203,11 @@ class TestSlackAppMint:
         assert body["product"] == "slack_app"
         assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["slack_app"]
 
-    def test_pin_covers_every_first_party_catalog_model(self):
-        first_party = {entry.id for entry in model_catalog.MODELS if "/" not in entry.id}
-        missing = first_party - set(_PRODUCT_ALLOWED_MODELS["slack_app"])
+    def test_pin_covers_every_routed_catalog_model(self):
+        routed = {entry.id for entry in model_catalog.MODELS if not entry.id.startswith("@cf/")}
+        reserved = {"deepseek-ai/deepseek-v4-flash-0731", "zai-org/glm-5.3", "zai-org/glm-5.3-flash"}
+        assert reserved <= set(_PRODUCT_ALLOWED_MODELS["review_hog"])
+        missing = routed - reserved - set(_PRODUCT_ALLOWED_MODELS["slack_app"])
         assert not missing, f"catalog models absent from the slack_app pin: {sorted(missing)}"
 
     def test_ttl_covers_the_sandbox_lifetime(self, mint_settings):
@@ -1258,13 +1266,13 @@ class TestMintRefusalScope:
         with patch(_CREDIT_LOOKUP, return_value=None):
             assert mint_refusal(product, team_id=2, state=None, model=None, runtime="acp") is None
 
-    @pytest.mark.parametrize("product", ["workflows", "review_hog", "signals_scout"])
-    def test_pi_runs_never_mint(self, product):
+    @pytest.mark.parametrize("product", ["workflows", "review_hog", "signals_scout", "posthog_ai"])
+    def test_pi_runs_of_other_products_never_mint(self, product):
         assert mint_refusal(product, team_id=2, state=None, model=None, runtime="pi") == "pi_runtime"
 
     @pytest.mark.parametrize("product", ["posthog_ai", "workflows", "review_hog"])
     def test_pinned_products_refuse_an_off_pin_model(self, product):
-        refusal = mint_refusal(product, team_id=2, state=None, model="zai-org/glm-5.3", runtime="acp")
+        refusal = mint_refusal(product, team_id=2, state=None, model="claude-opus-3", runtime="acp")
         assert refusal == "model_outside_pin"
 
     def test_unpinned_products_take_any_model(self):
@@ -1308,11 +1316,16 @@ class TestWorkflowsMint:
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
 
-    @pytest.mark.parametrize("model", ["zai-org/glm-5.3", "moonshotai/kimi-k3"])
+    @pytest.mark.parametrize("model", ["claude-opus-3", "@cf/zai-org/glm-5.2", "zai-org/glm-5.3"])
     def test_model_outside_the_pin_does_not_mint(self, mint_settings, model):
         env, mint = self._env(mint_settings, model=model)
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
+
+    def test_served_model_mints(self, mint_settings):
+        env, mint = self._env(mint_settings, model="moonshotai/kimi-k3")
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        mint.assert_called_once()
 
     def test_team_out_of_ai_credits_does_not_mint(self, mint_settings):
         env, mint = self._env(mint_settings, over_quota=True)
@@ -1376,11 +1389,16 @@ class TestPosthogAiMint:
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
 
-    @pytest.mark.parametrize("model", ["zai-org/glm-5.3", "moonshotai/kimi-k3"])
+    @pytest.mark.parametrize("model", ["claude-opus-3", "@cf/zai-org/glm-5.2", "zai-org/glm-5.3"])
     def test_model_outside_the_pin_does_not_mint(self, mint_settings, model):
         env, mint = self._env(mint_settings, model=model)
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
+
+    def test_served_model_mints(self, mint_settings):
+        env, mint = self._env(mint_settings, model="moonshotai/kimi-k3")
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        mint.assert_called_once()
 
     def test_team_out_of_ai_credits_does_not_mint(self, mint_settings):
         env, mint = self._env(mint_settings, over_quota=True)
@@ -1404,6 +1422,30 @@ class TestPosthogAiMint:
             post.return_value = response
             mint_scoped_token(ai_product="posthog_ai", team_id=2)
         assert post.call_args.kwargs["json"]["ttl_seconds"] == MAX_SANDBOX_TTL_SECONDS + 3600
+
+
+@pytest.mark.parametrize(
+    "origin,internal,mints",
+    [
+        ("account_audit", True, True),
+        ("account_audit", False, False),
+        ("onboarding", False, False),
+        ("onboarding", True, False),
+    ],
+)
+def test_account_audit_cost_routing_requires_server_provenance(
+    settings: Settings, origin: str, internal: bool, mints: bool
+) -> None:
+    settings.SANDBOX_AI_GATEWAY_URL = "https://ai-gateway.example.com"
+    settings.SANDBOX_AI_GATEWAY_PRODUCTS = "account_audit,onboarding"
+    with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_test") as mint:
+        env = ai_gateway_env_vars(
+            team_id=123, origin_product=origin, internal=internal, model="claude-sonnet-5", runtime="acp"
+        )
+    assert ("AI_GATEWAY_TOKEN" in env) is mints
+    assert mint.called is mints
+    if mints:
+        mint.assert_called_once_with(ai_product="account_audit", team_id=123, user=None)
 
 
 class TestPosthogCodeSandboxMint:
@@ -1430,6 +1472,10 @@ class TestPosthogCodeSandboxMint:
         assert {entry.id for entry in model_catalog.MODELS} <= set(pin)
         assert set(SDK_IMPLICIT_MODELS) <= set(pin)
         assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini"} <= set(pin)
+
+    def test_pin_carries_the_go_spelling_of_every_cf_id(self):
+        pin = set(_PRODUCT_ALLOWED_MODELS["posthog_code"])
+        assert {entry.removeprefix("@cf/") for entry in pin if entry.startswith("@cf/")} <= pin
         assert any("/" in model for model in pin)
 
     def test_free_pin_is_the_legacy_free_tier_in_both_glm_spellings(self):
@@ -1535,6 +1581,18 @@ class TestPosthogCodeSandboxMint:
             assert mint_refusal("posthog_code", team_id=team.id, state=None, model=None, runtime="acp") == (
                 "not_rolled_out"
             )
+
+    @pytest.mark.django_db
+    def test_a_rolled_out_pi_run_mints(self):
+        team = self._team(paid=True)
+        with (
+            patch(
+                "products.tasks.backend.logic.services.desktop_gateway_token.feature_enabled_or_false",
+                return_value=True,
+            ),
+            patch(_CREDIT_LOOKUP, return_value=None),
+        ):
+            assert mint_refusal("posthog_code", team_id=team.id, state=None, model=None, runtime="pi") is None
 
     @pytest.mark.django_db
     def test_flag_is_evaluated_for_the_team_org(self):

@@ -133,6 +133,11 @@ keeps the live sandbox. The event relay stays active until startup finishes, and
 an abandoned handoff with new activity requests a fresh snapshot.
 Directory resume snapshots cover `/tmp/workspace`, including nested Git worktrees
 and agent state. Paths outside that directory are not included.
+Cloud launches set `POSTHOG_AGENT_STATE_DIR=/tmp/workspace/.posthog/agent-state`.
+The agent server links Claude's projects, session environment, plans and todos, and
+Codex's sessions and shell snapshots into that directory before starting a session.
+Authentication and platform configuration stay outside these mappings. Pi restores
+its session history through the task-session API.
 
 ## Running via the UI
 
@@ -222,6 +227,15 @@ worker mints, it also injects `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE`, na
 the product the token is pinned to, and the agent routes on those in preference to
 what it derives itself. Both are reserved keys: a sandbox environment cannot set them.
 
+Account audit runs use the reserved `account_audit` origin and AI product, and must
+carry the server-set `internal` flag before they can mint a token. Add
+`account_audit` to `SANDBOX_AI_GATEWAY_PRODUCTS` to route them to the Go gateway.
+Their Python gateway fallback uses `background_agents`. Signup onboarding stays
+on `onboarding` and cannot mint these cost-tracking tokens. A periodic completion task
+waits three minutes for cost accounting before reporting the audit result. Audits use an
+internal `CUSTOM` sandbox environment with no extra allowed domains. Each new
+audit reasserts this policy; only the platform service allowlist stays reachable.
+
 When a run lands on the Python gateway unexpectedly, check those two variables first.
 Their absence means no token was minted, so the agent falls back to deriving the
 product from the task run it fetches at boot, which is the path that fails quietly.
@@ -273,6 +287,11 @@ Automatic Flash uses your existing severity threshold and never resolves comment
 The switch sets your `default_review_mode` preference to `flash` or `follow` through `PATCH /api/projects/<project_id>/review_hog/settings/`.
 Project admins choose which repositories the project reviews, and who gets automatic Flash there, through the `review_hog/project_settings`, `review_hog/installation_claims`, and `review_hog/repositories` endpoints.
 
+The Code review settings page calls automatic reviews **Standard** and requested reviews **Deep**.
+Project defaults appear beside personal preferences. Personal repository choices take priority over personal defaults and project rules.
+**Commit fixes to my pull requests** allows Deep reviews to push fixes only with the author's own opt-in.
+The control's help explains when fixes are paused. Review skill descriptions summarize each check; editing skill text changes it for the whole project.
+
 To run Flash locally, use `run_review --review-mode flash` from the repository root:
 
 ```bash
@@ -313,6 +332,13 @@ The agent-server exports run/turn/tool lifecycle metadata (never message content
 Telemetry stays off when either of the first two vars is unset.
 For local Docker sandboxes the localhost URLs are rewritten to `host.docker.internal` automatically; local ingestion requires the `capture-logs` service to be running.
 
+The trace id of a run is its run UUID without dashes, so `/tracing?trace=<run UUID without dashes>` in the telemetry project opens the run.
+The agent-server spans, the mirrored run logs and the `process-task` Temporal workflow spans all carry that trace id.
+The workflow spans carry it only when the run has the telemetry flag on.
+Those runs are also marked as sampled, so a parent-based sampler on the worker keeps every one of them.
+They show up in the same trace only if the Temporal worker's collector forwards to the telemetry project.
+The workflow and the agent-server share a trace id but no parent span, so the workflow spans sit under a `<parent span missing>` row beside `task_run`.
+
 ### MCP server `.env`
 
 `MODAL_DOCKER` (and the local Docker provider) both depend on the MCP server running at `localhost:8787`. The server reads its config from `services/mcp/.env` — without it, things like `POSTHOG_API_BASE_URL`, the UI-apps token, and analytics keys are missing and the server will either refuse to start or return broken responses to the sandbox.
@@ -326,6 +352,8 @@ Then fill in the secrets. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY
 ### Memory pressure during agent validation
 
 The memory watchdog stops tool process trees before the sandbox reaches its memory limit. A process stop, including SIGKILL escalation, does not mean the task run died.
+
+A run whose whole sandbox stops usually still ends as completed, with `termination_reason` set to `sandbox_gone`. The `error_message` property on `task_run_completed` carries the sandbox exit reason. Exit code 137 there usually means the sandbox ran out of memory.
 
 Cloud Claude and Codex sessions deliver each watchdog warning separately to subagents and their parent. Codex uses native MCP tool hooks for shell calls, including the final result of an `exec_command` completed through `write_stdin`. Claude shell results with exit codes 137, 143, or 144 wait briefly for the watchdog's delayed record; an exit code alone is not treated as proof of an OOM. Codex hook payloads carry the command output without its exit status, so a Codex command counts as stopped when a kill record lands between its start and shortly after its end. A quick rerun of a long Codex command waits for that record before it starts.
 

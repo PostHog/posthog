@@ -13,6 +13,7 @@ from rest_framework import status
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.test.authentication_checks import covers_authentication
 
 from products.ml_inference.backend.facade.contracts import (
     DEFAULT_DECISION_MODEL,
@@ -25,6 +26,7 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
+from products.workflows.backend.presentation.views.workflow_classifications import WorkflowClassifyJWTAuthentication
 
 SECRET = "test-workflow-classify-jwt"
 _DECIDE = "products.ml_inference.backend.facade.api.decide_when_available"
@@ -89,6 +91,7 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
             ("jev", {"model": "jev"}, DEFAULT_DECISION_MODEL),
         ]
     )
+    @covers_authentication(WorkflowClassifyJWTAuthentication)
     def test_returns_the_chosen_category(self, _name: str, body: dict, expected_model: str) -> None:
         answer = ChoiceAnswer(choice="spam", confidence=0.9, probabilities={"spam": 0.9, "support": 0.1})
         with patch(_DECIDE, return_value=_result(answer)) as decide:

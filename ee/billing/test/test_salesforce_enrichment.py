@@ -12,6 +12,7 @@ from django.test import SimpleTestCase
 
 import fakeredis
 from parameterized import parameterized
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from ee.billing.salesforce_enrichment.constants import (
     ACCOUNT_FILL_FIELDS,
@@ -33,6 +34,7 @@ from ee.billing.salesforce_enrichment.enrichment import (
     query_salesforce_accounts_chunk_async,
     transform_harmonic_data,
 )
+from ee.billing.salesforce_enrichment.redis_cache import get_accounts_from_redis, store_accounts_in_redis
 
 
 @contextmanager
@@ -689,12 +691,29 @@ class TestSalesforceAccountQuery(SimpleTestCase):
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
-            return_value=fakeredis.FakeAsyncRedis(),
+            return_value=fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer()),
         ):
             pages = [await query_salesforce_accounts_chunk_async(sf, offset, 3) for offset in (0, 3, 6, 9)]
 
         assert pages == [accounts[0:3], accounts[3:6], accounts[6:7], []]
         sf.query_all.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_chunk_read_error_preserves_cached_accounts(self) -> None:
+        accounts = [{"Id": f"001SYN{i:03d}", "Website": f"https://company{i}.example.com"} for i in range(3)]
+        cached_accounts = list(reversed(accounts))
+        sf = MagicMock()
+        sf.query_all.return_value = {"records": accounts}
+        redis_client = fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer())
+
+        with patch("ee.billing.salesforce_enrichment.redis_cache.get_async_client", return_value=redis_client):
+            await store_accounts_in_redis(cached_accounts)
+            with patch.object(redis_client, "lrange", side_effect=RedisConnectionError("Synthetic read failure")):
+                page = await query_salesforce_accounts_chunk_async(sf, 0, 2)
+            remaining_accounts = await get_accounts_from_redis(0, 3)
+
+        assert page == accounts[:2]
+        assert remaining_accounts == cached_accounts
 
 
 class TestSpecificDomainEnrichment(SimpleTestCase):

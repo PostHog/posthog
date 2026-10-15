@@ -49,6 +49,7 @@ def _listing(
     channel_id: str | None,
     kind: str | None,
     search: str | None,
+    created_by: str | None,
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
 ) -> QuerySet[Canvas]:
@@ -69,6 +70,12 @@ def _listing(
         queryset = queryset.filter(kind=kind)
     if search:
         queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
+    if created_by:
+        try:
+            created_by = str(UUID(created_by))
+        except ValueError:
+            return queryset.none()
+        queryset = queryset.filter(created_by__uuid=created_by)
     return queryset
 
 
@@ -78,6 +85,7 @@ def count_canvases(
     channel_id: str | None,
     kind: str | None,
     search: str | None,
+    created_by: str | None = None,
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
 ) -> int:
@@ -86,6 +94,7 @@ def count_canvases(
         channel_id=channel_id,
         kind=kind,
         search=search,
+        created_by=created_by,
         user_access_control=user_access_control,
         include_all_if_admin=include_all_if_admin,
     ).count()
@@ -97,6 +106,7 @@ def list_canvases(
     channel_id: str | None,
     kind: str | None,
     search: str | None,
+    created_by: str | None = None,
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
     offset: int,
@@ -109,6 +119,7 @@ def list_canvases(
         channel_id=channel_id,
         kind=kind,
         search=search,
+        created_by=created_by,
         user_access_control=user_access_control,
         include_all_if_admin=include_all_if_admin,
     ).select_related(*_RECORD_RELATIONS)

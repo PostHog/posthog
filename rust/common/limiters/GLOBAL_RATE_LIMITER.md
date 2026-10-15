@@ -208,6 +208,9 @@ The background task uses `tokio::select!` over two sources:
 ```
 
 The channel is not read while a tick runs, so updates wait in it until the tick ends.
+The loop takes updates in batches of up to `UPDATE_DRAIN_BATCH` (256) per receive. Tokio's cooperative budget allows a task 128 budgeted operations per poll, and each receive is one, so one update per receive lets a CPU-starved pod drain slower than events arrive.
+Each tick first takes every update already queued. A tick that runs longer than `tick_interval` leaves the next tick ready at once, and without this drain the random `select!` could pick the tick again before the channel.
+A full channel drops the update and increments `global_rate_limiter_error_total` with `cause=channel_full`. It writes no log line.
 
 Each tick, per Redis instance:
 
@@ -334,7 +337,7 @@ Where the two read different env vars, both are listed.
 | `max_concurrent_commands` | 4 | `GLOBAL_RATE_LIMIT_MAX_CONCURRENT_COMMANDS` | Commands in flight at once per instance |
 | `max_write_batch_entries` | 200,000 | `GLOBAL_RATE_LIMIT_MAX_WRITE_BATCH_ENTRIES` | Buffered `(key, epoch)` entries. At the cap, updates for new keys drop and are counted |
 | `max_pending_sync_entries` | 200,000 | `GLOBAL_RATE_LIMIT_MAX_PENDING_SYNC_ENTRIES` | Queued syncs. At the cap, new sync requests drop and re-queue on the key's next request |
-| `channel_capacity` | 1,000,000 | — | mpsc channel buffer for async update requests |
+| `channel_capacity` | 1,000,000 | — | mpsc channel buffer for async update requests. A full channel drops the update |
 
 #### Local cache (Moka)
 
@@ -368,7 +371,7 @@ Without `GLOBAL_RATE_LIMIT_REDIS_URL`, both limiters share capture's main Redis 
 
 - An entry idles out only when no request touches it for `local_cache_idle_timeout`, so a key's sync cadence never evicts an active key.
 - Under high key cardinality with cold-skewed traffic, a shorter idle timeout reclaims slots faster.
-- **`min_sync_floor` gates reads only.** It never drops a count; it only suppresses the `MGET` for keys too far under their threshold to be limited. Counts can still be lost to a full channel, the write-batch cap, or a failed write.
+- **`min_sync_floor` gates reads only.** It never drops a count; it only suppresses the `MGET` for keys too far under their threshold to be limited. Counts can still be lost to a full channel, the write-batch cap, a failed write, or the stale-epoch purge.
 - Writes are bounded separately. `absorb_update` merges updates by `(key, epoch)` between ticks, so write volume scales with distinct active keys, not event rate.
 
 ## Request Flow
@@ -483,6 +486,7 @@ hashes. Two things to know before that changes.
 | `global_rate_limiter_pending_sync_size` | Gauge | Keys read this tick, capped at `max_sync_keys_per_tick`. For the backlog, use `sync_deferred_size` |
 | `global_rate_limiter_sync_deferred_size` | Gauge | Keys still queued for sync after a tick took its slice |
 | `global_rate_limiter_write_deferred_size` | Gauge | `(key, epoch)` entries still batched after a tick took its slice |
+| `global_rate_limiter_update_channel_depth` | Gauge | Updates waiting in the channel when a tick starts. Near zero while the loop keeps up |
 | `global_rate_limiter_sync_skipped_total` | Counter | Syncs not queued because the key is below the floor |
 | `global_rate_limiter_sync_tier_gauge` | Gauge | Entity distribution across tiers (scanned every `TIER_SCAN_INTERVAL_TICKS`) |
 | `global_rate_limiter_tier_transitions_total` | Counter | Tier changes, counted when a read lands |

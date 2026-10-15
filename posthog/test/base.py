@@ -73,11 +73,16 @@ from posthog.clickhouse.preaggregation.sql import (
 )
 from posthog.clickhouse.query_log_archive import (
     DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    DISTRIBUTED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
     QUERY_LOG_ARCHIVE_OPS_MV,
     QUERY_LOG_ARCHIVE_OPS_MV_SQL,
+    QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL,
+    QUERY_LOG_ARCHIVE_V3_MV_SQL,
     SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
     WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
     WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
+    WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
@@ -696,6 +701,11 @@ class PostHogTestCase(SimpleTestCase):
         if self.organization is None:
             raise ValueError("Test organization must be set before creating a user")
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
+
+    def create_sibling_environment(self, name: str = "Sibling env") -> Team:
+        # Same row shape as an environment added through the API: same project, no parent_team.
+        # It skips create_with_data, so the environment has no default dashboards or insights.
+        return Team.objects.create(organization=self.organization, project=self.project, name=name)
 
     @classmethod
     def setUpTestData(cls):
@@ -1803,7 +1813,7 @@ def _create_flag_evaluations(
     distinct_id: str = "evaluator",
     person_id: uuid.UUID | str | None = None,
     response: str | bool = True,
-    properties: dict[str, str] | None = None,
+    properties: dict[str, Any] | None = None,
 ) -> None:
     """Insert `count` $feature_flag_called rows for flag_key into flag_evaluations. Unlike _create_event, it writes
     the rows immediately. Each row gets a new random person_id unless the caller passes one."""
@@ -2160,6 +2170,8 @@ def reset_clickhouse_database() -> None:
             WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
             SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
+            SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
+            QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(),
             COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
             PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
@@ -2184,6 +2196,8 @@ def reset_clickhouse_database() -> None:
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
+            DISTRIBUTED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
+            WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
             COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
             KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
@@ -2215,6 +2229,7 @@ def reset_clickhouse_database() -> None:
             QUERY_LOG_ARCHIVE_OPS_MV_SQL(
                 view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE
             ),
+            QUERY_LOG_ARCHIVE_V3_MV_SQL(),
         ]
     )
 

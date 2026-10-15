@@ -587,6 +587,12 @@ export interface ReviewRepositoryOverviewApi {
      * @nullable
      */
     next_offset: number | null
+    /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception and no own choice. 0 otherwise. */
+    folded: number
+    /** With view 'differs', or 'all' without a search: the names of the first left-out repositories, at most 3. Empty otherwise. */
+    folded_preview: string[]
+    /** With view 'differs', or 'all' without a search: what the requesting user's own pull requests get in every left-out repository, which is the same for all of them. Null otherwise, or when nothing is left out. */
+    folded_result: AutomaticReviewDecisionApi | null
     /** How many of the requesting user's own repository choices in this project give something other than their default. Counts every installation, so the search, the view, and the page do not change it. */
     my_choices_unlike_default: number
 }
@@ -681,6 +687,11 @@ export interface ReviewProgressApi {
      * @nullable
      */
     total: number | null
+    /** What the in-flight turn runs: 'full' (Deep) or 'flash' (Standard). The row's `review_mode` describes the last completed turn, which can differ. Null until the turn records its mode, shortly before its review sessions start.
+     *
+     * * `full` - Deep
+     * * `flash` - Standard */
+    review_mode: ReviewTriggerReviewModeEnumApi | null
 }
 
 /**
@@ -1005,6 +1016,7 @@ export const ReviewDroppedFindingPriorityEnumApi = {
  * * `dedup_anchor` - Same spot as another finding
  * * `dedup_sibling` - Repeat of a finding
  * * `cap` - Over the limit
+ * * `budget` - Over the pull request limit
  */
 export type ReviewDropDispositionEnumApi =
     (typeof ReviewDropDispositionEnumApi)[keyof typeof ReviewDropDispositionEnumApi]
@@ -1016,6 +1028,7 @@ export const ReviewDropDispositionEnumApi = {
     DedupAnchor: 'dedup_anchor',
     DedupSibling: 'dedup_sibling',
     Cap: 'cap',
+    Budget: 'budget',
 } as const
 
 export interface ReviewDroppedFindingApi {
@@ -1040,14 +1053,15 @@ export interface ReviewDroppedFindingApi {
      * @nullable
      */
     source_perspective: string | null
-    /** Why the turn did not post the finding. `old_code`: a follow-up turn's P3 finding on code that did not change since the last reviewed head (turns before reviewhog-flash-2-3 dropped P2 findings this way too). `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
+    /** Why the turn did not post the finding. `old_code`: a follow-up turn's finding on code that did not change since the last reviewed head. An automatic follow-up (run 2 and later) drops P2 and P3 findings this way, a requested review drops only P3, and a first review drops none. `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
      *
      * * `old_code` - On unchanged code
      * * `dedup_prior` - Repeat of an earlier review
      * * `dedup_comment` - Already in a PR comment
      * * `dedup_anchor` - Same spot as another finding
      * * `dedup_sibling` - Repeat of a finding
-     * * `cap` - Over the limit */
+     * * `cap` - Over the limit
+     * * `budget` - Over the pull request limit */
     disposition: ReviewDropDispositionEnumApi
     /**
      * For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment. Null for other dispositions.
@@ -1637,12 +1651,13 @@ export type ReviewHogRepositoryOverviewRetrieveParams = {
      */
     search?: string
     /**
-     * 'all' repositories, 'in_project' (reviewed by this project), 'exceptions' (with a repository exception), or 'mine' (with the requesting user's own choice).
+     * 'all' repositories, 'in_project' (reviewed by this project), 'exceptions' (with a repository exception), 'mine' (with the requesting user's own choice), or 'differs' (every repository except the ones this project reviews with no exception and no own choice, which the response counts as 'folded').
      *
      * * `all` - All repositories
      * * `in_project` - In this project
      * * `exceptions` - With exceptions
      * * `mine` - My choices
+     * * `differs` - Different from the project
      * @minLength 1
      */
     view?: ReviewHogRepositoryOverviewRetrieveView
@@ -1656,6 +1671,7 @@ export const ReviewHogRepositoryOverviewRetrieveView = {
     InProject: 'in_project',
     Exceptions: 'exceptions',
     Mine: 'mine',
+    Differs: 'differs',
 } as const
 
 export type ReviewHogReviewsListParams = {

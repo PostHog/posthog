@@ -45,7 +45,7 @@ logger = structlog.get_logger(__name__)
 
 ONBOARDING_SESSION_TITLE = "Getting set up"
 ONBOARDING_SESSION_PAID_MODEL = "claude-opus-4-8"
-ONBOARDING_SESSION_FREE_MODEL = "@cf/zai-org/glm-5.2"
+ONBOARDING_SESSION_FREE_MODEL = "zai-org/glm-5.3-flash"
 ONBOARDING_SESSION_EFFORT = "medium"
 ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write"]
 

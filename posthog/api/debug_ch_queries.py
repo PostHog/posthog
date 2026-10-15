@@ -663,10 +663,10 @@ class DebugCHQueries(viewsets.ViewSet):
         # metric_type and funnel_order_type are tagged before the precompute builds run, so the build
         # sub-queries carry them too and stay grouped with their parent read under these filters.
         if metric_type_filter is not None:
-            extra_filters += " AND toString(log_comment.experiment_metric_type) = %(metric_type)s"
+            extra_filters += " AND lc_experiment_metric_type = %(metric_type)s"
             params["metric_type"] = metric_type_filter
         if funnel_order_type_filter is not None:
-            extra_filters += " AND toString(log_comment.experiment_funnel_order_type) = %(funnel_order_type)s"
+            extra_filters += " AND lc_experiment_funnel_order_type = %(funnel_order_type)s"
             params["funnel_order_type"] = funnel_order_type_filter
 
         # Filter at the group level (a group's terminal exception_code, resolved per query_id in per_query):
@@ -681,9 +681,8 @@ class DebugCHQueries(viewsets.ViewSet):
         # We rank groups by total duration (build + read — the user waited for both, synchronously) and
         # return every row of the top 100 groups; Python then nests the builds under their parent read.
         # Rows with no group id (legacy / non-runner queries) fall back to a group of one via `grp`.
-        # Reads query_log_archive (not system.query_log, which retains only hours): log_comment is a
-        # typed JSON column there, so tags are dot-accessed; ifNull(toString(...), '') preserves the
-        # ''-when-missing semantics JSONExtractString gave us on the raw column.
+        # Reads query_log_archive (not system.query_log, which retains only hours): the log_comment tags
+        # are typed lc_* columns there, with '' when the tag is missing.
         # nosemgrep: clickhouse-fstring-param-audit - extra_filters is built from hardcoded SQL fragments; user values flow through params
         sql_query = f"""
             WITH per_query AS (
@@ -700,27 +699,33 @@ class DebugCHQueries(viewsets.ViewSet):
                     max(type) AS status,
                     argMax(team_id, type) AS team_id,
                     argMax(lc_query_type, type) AS query_type,
-                    argMax(ifNull(toString(log_comment.experiment_name), ''), type) AS experiment_name,
-                    argMax(ifNull(toString(log_comment.experiment_metric_name), ''), type) AS experiment_metric_name,
-                    argMax(ifNull(toString(log_comment.experiment_execution_path), ''), type) AS experiment_execution_path,
-                    argMax(ifNull(toString(log_comment.experiment_metric_type), ''), type) AS experiment_metric_type,
-                    argMax(ifNull(toString(log_comment.experiment_funnel_order_type), ''), type) AS experiment_funnel_order_type,
+                    argMax(lc_experiment_name, type) AS experiment_name,
+                    argMax(lc_experiment_metric_name, type) AS experiment_metric_name,
+                    argMax(lc_experiment_execution_path, type) AS experiment_execution_path,
+                    argMax(lc_experiment_metric_type, type) AS experiment_metric_type,
+                    argMax(lc_experiment_funnel_order_type, type) AS experiment_funnel_order_type,
                     argMax(lc_experiment_id, type) AS experiment_id,
-                    argMax(ifNull(toString(log_comment.experiment_exposures_path), ''), type) AS experiment_exposures_path,
-                    argMax(ifNull(toString(log_comment.experiment_metric_events_path), ''), type) AS experiment_metric_events_path,
-                    argMax(ifNull(toString(log_comment.experiment_query_surface), ''), type) AS experiment_query_surface,
-                    argMax(ifNull(toString(log_comment.experiment_precompute_table), ''), type) AS experiment_precompute_table,
-                    argMax(ifNull(toString(log_comment.experiment_query_group_id), ''), type) AS experiment_query_group_id,
-                    argMax(ifNull(toString(log_comment.experiment_precompute_skip_reason), ''), type) AS experiment_precompute_skip_reason,
-                    argMax(ifNull(toString(log_comment.experiment_scan_date_from), ''), type) AS experiment_scan_date_from,
-                    argMax(ifNull(toString(log_comment.experiment_scan_date_to), ''), type) AS experiment_scan_date_to,
-                    argMax(ifNull(toString(log_comment.precompute_window_start), ''), type) AS precompute_window_start,
-                    argMax(ifNull(toString(log_comment.precompute_window_end), ''), type) AS precompute_window_end
+                    argMax(lc_experiment_exposures_path, type) AS experiment_exposures_path,
+                    argMax(lc_experiment_metric_events_path, type) AS experiment_metric_events_path,
+                    argMax(lc_experiment_query_surface, type) AS experiment_query_surface,
+                    argMax(lc_experiment_precompute_table, type) AS experiment_precompute_table,
+                    argMax(lc_experiment_query_group_id, type) AS experiment_query_group_id,
+                    argMax(lc_experiment_precompute_skip_reason, type) AS experiment_precompute_skip_reason,
+                    argMax(lc_experiment_scan_date_from, type) AS experiment_scan_date_from,
+                    argMax(lc_experiment_scan_date_to, type) AS experiment_scan_date_to,
+                    argMax(lc_precompute_window_start, type) AS precompute_window_start,
+                    argMax(lc_precompute_window_end, type) AS precompute_window_end
                 FROM (
                     SELECT
                         query_id, query, query_start_time, query_duration_ms, exception,
                         read_bytes, read_rows, exception_code, memory_usage,
-                        toInt8(type) AS type, log_comment, team_id, lc_query_type, lc_experiment_id
+                        toInt8(type) AS type, team_id, lc_query_type, lc_experiment_id,
+                        lc_experiment_name, lc_experiment_metric_name, lc_experiment_execution_path,
+                        lc_experiment_metric_type, lc_experiment_funnel_order_type, lc_experiment_exposures_path,
+                        lc_experiment_metric_events_path, lc_experiment_query_surface, lc_experiment_precompute_table,
+                        lc_experiment_query_group_id, lc_experiment_precompute_skip_reason,
+                        lc_experiment_scan_date_from, lc_experiment_scan_date_to,
+                        lc_precompute_window_start, lc_precompute_window_end
                     FROM query_log_archive
                     WHERE
                         event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
@@ -852,9 +857,8 @@ class DebugCHQueries(viewsets.ViewSet):
         # One terminal query_log row per query (toInt8(type) > 1 excludes QueryStart), so plain
         # counts are per-query without the GROUP BY query_id dedup the slowest_queries endpoint needs.
         # Duration/bytes stats only cover successful reads — failed ones have truncated durations.
-        # Reads query_log_archive (not system.query_log, which retains only hours): log_comment is a
-        # typed JSON column there, so tags are dot-accessed; ifNull(toString(...), '') preserves the
-        # ''-when-missing semantics JSONExtractString gave us on the raw column.
+        # Reads query_log_archive (not system.query_log, which retains only hours): the log_comment tags
+        # are typed lc_* columns there, with '' when the tag is missing.
         # nosemgrep: clickhouse-fstring-param-audit - skip_reason_counts is built from the PrecomputeSkipReason enum
         reads_sql = f"""
             SELECT
@@ -862,8 +866,8 @@ class DebugCHQueries(viewsets.ViewSet):
                 -- cover the merged population. Merging groups after the fact can only sum counts,
                 -- not recombine percentiles.
                 coalesce(
-                    nullIf(toString(log_comment.experiment_exposures_path), ''),
-                    nullIf(toString(log_comment.experiment_execution_path), ''),
+                    nullIf(lc_experiment_exposures_path, ''),
+                    nullIf(lc_experiment_execution_path, ''),
                     'direct_scan'
                 ) AS exposures_path,
                 count() AS reads,
@@ -880,15 +884,16 @@ class DebugCHQueries(viewsets.ViewSet):
                 sum(read_bytes) AS total_read_bytes
             FROM (
                 SELECT
-                    query_duration_ms, exception_code, read_bytes, log_comment,
-                    ifNull(toString(log_comment.experiment_precompute_skip_reason), '') AS skip_reason,
-                    ifNull(toString(log_comment.experiment_metric_events_path), '') AS metric_events_path
+                    query_duration_ms, exception_code, read_bytes,
+                    lc_experiment_exposures_path, lc_experiment_execution_path,
+                    lc_experiment_precompute_skip_reason AS skip_reason,
+                    lc_experiment_metric_events_path AS metric_events_path
                 FROM query_log_archive
                 WHERE
                     event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
                     AND event_time > now() - INTERVAL %(hours)s HOUR
                     AND lc_product = 'experiments'
-                    AND toString(log_comment.experiment_query_surface) = 'metric'
+                    AND lc_experiment_query_surface = 'metric'
                     AND is_initial_query
                     AND toInt8(type) > 1
                     AND query NOT LIKE %(not_query)s
@@ -957,7 +962,7 @@ class DebugCHQueries(viewsets.ViewSet):
 
         builds_sql = """
             SELECT
-                ifNull(toString(log_comment.experiment_precompute_table), '') AS build_table,
+                lc_experiment_precompute_table AS build_table,
                 exception_code,
                 count() AS builds,
                 sum(query_duration_ms) AS total_duration_ms,
@@ -967,7 +972,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
                 AND event_time > now() - INTERVAL %(hours)s HOUR
                 AND lc_product = 'experiments'
-                AND toString(log_comment.experiment_query_surface) = 'precompute_build'
+                AND lc_experiment_query_surface = 'precompute_build'
                 AND is_initial_query
                 AND toInt8(type) > 1
                 AND query NOT LIKE %(not_query)s
@@ -1108,17 +1113,17 @@ class DebugCHQueries(viewsets.ViewSet):
                     read_bytes,
                     exception_code,
                     coalesce(
-                        nullIf(toString(log_comment.experiment_exposures_path), ''),
-                        ifNull(toString(log_comment.experiment_execution_path), '')
+                        nullIf(lc_experiment_exposures_path, ''),
+                        lc_experiment_execution_path
                     ) AS exposures_path,
-                    ifNull(toString(log_comment.experiment_metric_events_path), '') AS metric_events_path,
-                    ifNull(toString(log_comment.experiment_precompute_skip_reason), '') AS skip_reason
+                    lc_experiment_metric_events_path AS metric_events_path,
+                    lc_experiment_precompute_skip_reason AS skip_reason
                 FROM query_log_archive
                 WHERE
                     event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
                     AND event_time > now() - INTERVAL %(hours)s HOUR
                     AND lc_product = 'experiments'
-                    AND toString(log_comment.experiment_query_surface) = 'metric'
+                    AND lc_experiment_query_surface = 'metric'
                     AND is_initial_query
                     AND toInt8(type) > 1
                     AND query NOT LIKE %(not_query)s
@@ -1138,7 +1143,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
                 AND event_time > now() - INTERVAL %(hours)s HOUR
                 AND lc_product = 'experiments'
-                AND toString(log_comment.experiment_query_surface) = 'precompute_build'
+                AND lc_experiment_query_surface = 'precompute_build'
                 AND is_initial_query
                 AND toInt8(type) > 1
                 AND query NOT LIKE %(not_query)s
@@ -1586,7 +1591,7 @@ class DebugCHQueries(viewsets.ViewSet):
         growth_sql = f"""
             SELECT
                 formatDateTime({bucket_fn}(event_time, 'UTC'), '%%Y-%%m-%%dT%%H:%%i:%%SZ', 'UTC') AS bucket,
-                ifNull(toString(log_comment.experiment_precompute_table), '') AS build_table,
+                lc_experiment_precompute_table AS build_table,
                 sum(written_rows) AS written_rows,
                 sum(written_bytes) AS written_bytes
             FROM query_log_archive
@@ -1594,7 +1599,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
                 AND event_time > now() - INTERVAL %(hours)s HOUR
                 AND lc_product = 'experiments'
-                AND toString(log_comment.experiment_query_surface) = 'precompute_build'
+                AND lc_experiment_query_surface = 'precompute_build'
                 AND is_initial_query
                 AND toInt8(type) > 1
                 AND exception_code = 0
