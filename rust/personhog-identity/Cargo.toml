@@ -20,6 +20,7 @@ axum = { workspace = true }
 chrono = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
+metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
@@ -27,6 +28,7 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true, features = ["rt"] }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

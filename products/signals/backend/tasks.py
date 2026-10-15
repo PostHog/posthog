@@ -2,7 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.core.cache import cache
-from django.db import OperationalError
+from django.db import OperationalError, connections
 from django.db.models import Q
 from django.utils import timezone
 
@@ -23,6 +23,7 @@ from posthog.models.organization import BillingPeriod
 from posthog.models.scoping import with_team_scope
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
 from products.signals.backend.billing import current_billing_period_bounds
 from products.signals.backend.implementation_dispatch_tasks import (
@@ -1018,6 +1019,35 @@ def rebuild_signal_repository_activity(team_id: int, repository: str, force: boo
         cache.delete(lock_key)
 
 
+# Long enough to collapse a burst of reads into one queued build, short enough that a failed
+# build is retried by the next read a few minutes later.
+_PROFILE_BUILD_DEDUPE_SECONDS = 5 * 60
+
+
+def enqueue_project_profile_build(team_id: int) -> None:
+    """Queue one `build_signal_project_profile` per team per dedupe window."""
+    if cache.add(f"signals_project_profile_build/{team_id}", "1", timeout=_PROFILE_BUILD_DEDUPE_SECONDS):
+        build_signal_project_profile.delay(team_id)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.build_signal_project_profile",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def build_signal_project_profile(team_id: int) -> None:
+    """Build the team's project profile off the request path, for a read caller that found none.
+
+    `get_project_profile` returns a fresh row if one landed since the enqueue, and its advisory
+    lock collapses this build with a concurrent scout build.
+    """
+    # The `tools` package imports this module through `slack_delivery_queue`.
+    from products.signals.backend.scout_harness.tools.profile import get_project_profile  # noqa: PLC0415
+
+    get_project_profile(team_id=team_id)
+
+
 @shared_task(
     name="products.signals.backend.tasks.refresh_signal_scout_background_bands",
     ignore_result=True,
@@ -1136,8 +1166,13 @@ def prune_expired_scratchpad_entries_task() -> None:
         # A transient DB blip self-heals — the sweep runs again tomorrow — so don't page on it.
         logger.warning("signals_scout.scratchpad_prune_transient_db_error", error=str(exc))
     except Exception as exc:
-        capture_exception(exc)
-        logger.exception("signals_scout.scratchpad_prune_failed")
+        if is_stale_connection_read_only_error(exc):
+            # The pooled connection outlived a primary failover. Drop it so the next run reconnects to the primary.
+            connections.close_all()
+            logger.warning("signals_scout.scratchpad_prune_transient_db_error", error=str(exc))
+        else:
+            capture_exception(exc)
+            logger.exception("signals_scout.scratchpad_prune_failed")
     logger.info("signals_scout scratchpad prune finished", deleted=deleted)
 
 

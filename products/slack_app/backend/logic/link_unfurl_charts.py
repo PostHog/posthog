@@ -8,7 +8,7 @@ render takes longer. ``SlackAppUnfurlChartsWorkflow`` then renders each insight 
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
@@ -19,16 +19,19 @@ from temporalio.exceptions import ApplicationError
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.temporal.ai.slack_app.types import (
-    SlackAppUnfurlChartsPostInput,
-    SlackAppUnfurlChartsWorkflowInputs,
-    SlackUnfurlChartRequest,
-)
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.api import user_can_view_insight
 from products.slack_app.backend.analytics import capture_slack_event
+
+if TYPE_CHECKING:
+    # Runtime import would load the temporal package, whose activities import this module.
+    from products.slack_app.backend.temporal.types import (
+        SlackAppUnfurlChartsPostInput,
+        SlackAppUnfurlChartsWorkflowInputs,
+        SlackUnfurlChartRequest,
+    )
 
 _MAX_ALT_TEXT_CHARS = 2000
 # A local render has a localhost URL that Slack cannot fetch, and Slack then rejects the whole

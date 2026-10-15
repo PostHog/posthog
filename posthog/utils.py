@@ -597,7 +597,7 @@ def _build_template_context(
         from posthog.api.file_system.user_product_list import UserProductListSerializer
         from posthog.api.project import ProjectSerializer
         from posthog.api.shared import TeamPublicSerializer
-        from posthog.api.team import TeamSerializer
+        from posthog.api.team.team_serializer import TeamSerializer
         from posthog.api.user import UserSerializer
         from posthog.models.file_system.user_product_list import UserProductList
         from posthog.models.user_home_settings import UserHomeSettings
@@ -727,7 +727,7 @@ def _build_template_context(
 
     if posthog_distinct_id:
         groups = {}
-        group_properties = {}
+        group_properties: dict[str, dict[str, str | int]] = {}
         person_properties = {}
         if request.user and request.user.is_authenticated:
             user = cast("User", request.user)
@@ -738,6 +738,13 @@ def _build_template_context(
                 group_properties["organization"] = {
                     "name": user.organization.name,
                     "created_at": user.organization.created_at.isoformat(),
+                }
+            if user.team:
+                groups["project"] = str(user.team.uuid)
+                group_properties["project"] = {
+                    "id": user.team.id,
+                    "uuid": str(user.team.uuid),
+                    "name": user.team.name,
                 }
 
         with tracer.start_as_current_span("template.feature_flag_bootstrap"):

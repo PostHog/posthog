@@ -1,6 +1,7 @@
 import re
 import json
 import logging
+from collections.abc import Iterable
 from typing import Any, Optional
 
 from django.db import models
@@ -732,6 +733,19 @@ class HogFunctionTemplating(models.TextChoices):
     LIQUID = "liquid", "liquid"
 
 
+def _is_templated_choice(schema: dict, value: Any) -> bool:
+    """A choice value that is not one of the declared choices is a Hog template, not a selection.
+
+    A sub-template can prefill a choice input with an expression, for example the PagerDuty
+    `event_action` that sends `resolve` on the issue-resolved event and `trigger` otherwise. The
+    destination then rejects the uncompiled text, so the expression has to become bytecode. A value
+    the user picked from the dropdown is left alone, so it keeps compiling to nothing.
+    """
+    if not isinstance(value, str):
+        return False
+    return value not in {choice.get("value") for choice in schema.get("choices") or []}
+
+
 class InputsItemSerializer(serializers.Serializer):
     value = AnyInputField(required=False)
     templating = serializers.ChoiceField(choices=HogFunctionTemplating.choices, required=False)
@@ -898,17 +912,22 @@ class InputsItemSerializer(serializers.Serializer):
                     pass
                 else:
                     # If we have a value and hog templating is enabled, we need to transpile the value
-                    value_is_transpiled = item_type in [
-                        "string",
-                        "boolean",
-                        "dictionary",
-                        "json",
-                        "email",
-                        "native_email",
-                        "posthog_ticket_tags",
-                        "customer_analytics_account_properties",
-                        "customer_analytics_account_relationships",
-                    ] or (item_type == "boolean" and isinstance(value, str))
+                    value_is_transpiled = (
+                        item_type
+                        in [
+                            "string",
+                            "boolean",
+                            "dictionary",
+                            "json",
+                            "email",
+                            "native_email",
+                            "posthog_ticket_tags",
+                            "customer_analytics_account_properties",
+                            "customer_analytics_account_relationships",
+                        ]
+                        or (item_type == "boolean" and isinstance(value, str))
+                        or (item_type == "choice" and _is_templated_choice(schema, value))
+                    )
                     if value_is_transpiled:
                         if item_type in ("email", "native_email") and isinstance(value, dict):
                             # We want to exclude the "design" property
@@ -1209,11 +1228,9 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         return data
 
     def _validate_realtime_cohorts(self, data: dict, team: Team) -> set[int]:
-        """A cohort without maintained cohort_membership rows would evaluate everyone as a non-member.
+        """Validate every cohort these filters reference, including inside referenced Actions.
 
         Returns the validated ids so the compiler can reject any IN COHORT operand outside them.
-        Error messages carry the id rather than the name: they surface to callers holding only
-        workflow scopes, and a name would hand them a cohort-metadata oracle.
         """
         collected = set(filter_cohort_ids(data))
         action_ids = filter_action_ids(data)
@@ -1222,25 +1239,33 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             for action in Action.objects.filter(id__in=action_ids, team__project_id=team.project_id, deleted=False):
                 for step in action.steps:
                     collected |= collect_property_cohort_ids(step.properties or [])
-        cohort_ids = sorted(collected)
-        if not cohort_ids:
-            return set()
+        validate_realtime_cohorts(collected, team)
+        return collected
 
-        cohorts = {cohort.pk: cohort for cohort in Cohort.objects.filter(pk__in=cohort_ids, team=team, deleted=False)}
-        for cohort_id in cohort_ids:
-            cohort = cohorts.get(cohort_id)
-            if cohort is None:
-                raise serializers.ValidationError(f"Cohort {cohort_id} doesn't exist in this environment.")
-            if cohort.is_static:
-                raise serializers.ValidationError(
-                    f"Cohort {cohort_id} is a static cohort. Conditions can only use realtime cohorts."
-                )
-            if not cohort.is_flag_compatible:
-                raise serializers.ValidationError(
-                    f"Cohort {cohort_id} isn't ready for realtime evaluation. "
-                    f"Conditions can only use realtime cohorts that have finished calculating."
-                )
-        return set(cohort_ids)
+
+def validate_realtime_cohorts(cohort_ids: Iterable[int], team: Team) -> None:
+    """Reject any cohort without maintained cohort_membership rows, which would treat everyone as a non-member.
+
+    Error messages carry the id rather than the name: they surface to callers holding only workflow
+    scopes, and a name would hand them a cohort-metadata oracle.
+    """
+    ids = sorted(set(cohort_ids))
+    if not ids:
+        return
+    cohorts = {cohort.pk: cohort for cohort in Cohort.objects.filter(pk__in=ids, team=team, deleted=False)}
+    for cohort_id in ids:
+        cohort = cohorts.get(cohort_id)
+        if cohort is None:
+            raise serializers.ValidationError(f"Cohort {cohort_id} doesn't exist in this environment.")
+        if cohort.is_static:
+            raise serializers.ValidationError(
+                f"Cohort {cohort_id} is a static cohort. Workflows can only use realtime cohorts."
+            )
+        if not cohort.is_flag_compatible:
+            raise serializers.ValidationError(
+                f"Cohort {cohort_id} isn't ready for realtime evaluation. "
+                f"Workflows can only use realtime cohorts that have finished calculating."
+            )
 
 
 class FunctionInputsSerializer(serializers.Serializer):
