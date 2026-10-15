@@ -192,6 +192,7 @@ class TestInboxOnboarding(APIBaseTest):
         assert first.status_code == 200, first.json()
         assert first.json() == second.json()
         config = SignalTeamConfig.objects.get(team=self.team)
+        assert config.onboarding is not None
         if variant == "quick":
             assert config.onboarding["jobs"] == {"scout": "pending", "recommendations": "pending"}
             assert {call.args for call in launch.call_args_list} == {
@@ -202,7 +203,6 @@ class TestInboxOnboarding(APIBaseTest):
             launch.assert_not_called()
         assert config.autostart_enabled is False
         assert config.default_autostart_priority == "P1"
-        assert config.onboarding is not None
         assert config.onboarding["activated_by"] == self.user.id
         assert capture.call_args.kwargs["properties"]["variant"] == variant
         assert (
@@ -464,12 +464,14 @@ class TestInboxOnboardingActivation(BaseTest):
             dispatch = client.start_workflow.call_args.kwargs
             assert dispatch["id_reuse_policy"] == WorkflowIDReusePolicy.REJECT_DUPLICATE
             config.refresh_from_db()
+            assert config.onboarding is not None
             assert config.onboarding["jobs"][job] == "started"
             config.onboarding["jobs"][job] = "pending"
             config.save()
             client.start_workflow.side_effect = WorkflowAlreadyStartedError(dispatch["id"], "workflow")
             activation.run(job)
         config.refresh_from_db()
+        assert config.onboarding is not None
         assert config.onboarding["jobs"][job] == "started"
         assert client.start_workflow.call_args.kwargs["id"] == dispatch["id"]
 
@@ -489,4 +491,5 @@ class TestInboxOnboardingActivation(BaseTest):
             InboxOnboardingActivation(self.team.id).run(job)
         connect.assert_not_called()
         config.refresh_from_db()
+        assert config.onboarding is not None
         assert config.onboarding["jobs"][job] == "skipped"

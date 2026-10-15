@@ -45,8 +45,9 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
                         {generalScout?.enabled && <LemonTag type="success">General scout</LemonTag>}
                     </div>
                     <p className="m-0 text-sm text-secondary">
-                        Sources find issues as they appear. Scouts explore your code and data to uncover issues and
-                        connect patterns across sources. Reports arrive with evidence and next steps.
+                        Sources alert agents to issues as they appear, so they can investigate right away. Scouts
+                        explore your code and all your data to uncover issues and connect patterns. Reports arrive with
+                        evidence and next steps.
                     </p>
                     {!hasReports && (
                         <p className="m-0 text-sm" aria-live="polite">
@@ -119,6 +120,13 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
                     <Link to={urls.inbox('scouts')}>Explore scouts</Link> to choose what to investigate.
                 </p>
             ) : null}
+            <p className="m-0 border-t border-primary pt-3 text-xs text-secondary">
+                Create or configure scouts with PostHog AI, the PostHog Slack Bot, or an agent connected through{' '}
+                <Link to="https://posthog.com/docs/model-context-protocol" target="_blank">
+                    MCP
+                </Link>
+                .
+            </p>
         </LemonCard>
     )
 }
