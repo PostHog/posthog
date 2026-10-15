@@ -44,8 +44,9 @@ import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT: number = 500
 
-// Rounds a dollar amount to the cent, as the card shows it.
-const roundToCents = (amount: number): number => Math.round(amount * 100) / 100
+// Rounds a dollar amount to the cent the same way humanFriendlyCurrency displays it.
+const roundToCents = (amount: number): number =>
+    parseFloat(amount.toLocaleString('en-US', { maximumFractionDigits: 2, useGrouping: false }))
 
 type UnsubscribeReason = {
     reason: string

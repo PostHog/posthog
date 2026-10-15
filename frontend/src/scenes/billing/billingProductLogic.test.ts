@@ -196,8 +196,8 @@ describe('billingProductLogic', () => {
             await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
         }
 
-        const mountLogs = (): ReturnType<typeof billingProductLogic.build> => {
-            const logic = billingProductLogic({ product: logs })
+        const mountLogs = (product: BillingProductV2Type = logs): ReturnType<typeof billingProductLogic.build> => {
+            const logic = billingProductLogic({ product })
             logic.mount()
             mounted.push(logic)
             return logic
@@ -226,6 +226,25 @@ describe('billingProductLogic', () => {
 
             expect(logic.values.combinedMonetaryData).toMatchObject({ currentTotal: 90, projectedTotal: 180 })
             expect(logic.values.totalsIncludingCompanions).toEqual({ currentTotal: 99, projectedTotal: 198 })
+        })
+
+        it('rounds a half-cent header amount the way the card displays it', async () => {
+            const halfCentLogs = { ...logs, current_amount_usd: '2.01', projected_amount_usd_with_limit: '2.01' }
+            await seedProducts(
+                [
+                    halfCentLogs,
+                    {
+                        ...companion('logs_retention_custom', 'logs', true),
+                        current_amount_usd: '1.00',
+                        projected_amount_usd: '1.00',
+                    },
+                ],
+                50
+            )
+            const logic = mountLogs(halfCentLogs)
+
+            // The header shows $1.01 for $1.005, so the total must be $1.01 + $0.50.
+            expect(logic.values.totalsIncludingCompanions).toEqual({ currentTotal: 1.51, projectedTotal: 1.51 })
         })
 
         it('leaves a held companion that can have its own billing limit out of the amounts and the total', async () => {
