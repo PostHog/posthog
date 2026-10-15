@@ -78,7 +78,7 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
             return { backgroundTask: Promise.resolve(), invocations: [] }
         }
 
-        const invocations = await this.hogFlowPipeline.buildInvocations(invocationGlobals, {
+        const { invocations, release } = await this.hogFlowPipeline.buildInvocationsWithRelease(invocationGlobals, {
             eligibilityFn: isMatchingCohortTrigger,
         })
 
@@ -88,8 +88,20 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
 
         return {
             backgroundTask: Promise.all([
-                instrumentFn({ key: 'cdp.background_task.queue_hogflow_invocations', sendException: false }, () =>
-                    this.hogflowQueue.queueInvocations(invocations)
+                instrumentFn(
+                    { key: 'cdp.background_task.queue_hogflow_invocations', sendException: false },
+                    async () => {
+                        try {
+                            await this.hogflowQueue.queueInvocations(invocations)
+                        } catch (err) {
+                            // The batch is retried, and the retry would find these runs masked by their own claims.
+                            await release()
+                            this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor(
+                                invocations.map((invocation) => invocation.id)
+                            )
+                            throw err
+                        }
+                    }
                 ),
                 instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
                     try {

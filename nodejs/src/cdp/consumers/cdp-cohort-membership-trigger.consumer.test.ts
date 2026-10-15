@@ -88,6 +88,21 @@ describe('CdpCohortMembershipTriggerConsumer', () => {
         ).toEqual([other.person_id])
     })
 
+    it('starts the run on redelivery when queueing the masked run failed', async () => {
+        const flow = cohortFlow(42, 'entered')
+        flow.trigger_masking = HOG_FLOW_MASK_EXAMPLES.onceEver.trigger_masking
+        await insertHogFlow(hub.postgres, flow)
+        const change = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
+        mockQueueInvocations.mockRejectedValueOnce(new Error('queue unavailable'))
+
+        const failed = await processor.processBatch(await processor._parseKafkaBatch([createKafkaMessage(change)]))
+        await expect(failed.backgroundTask).rejects.toThrow('queue unavailable')
+        const redelivered = await processor.processBatch(await processor._parseKafkaBatch([createKafkaMessage(change)]))
+        await redelivered.backgroundTask
+
+        expect(redelivered.invocations).toHaveLength(1)
+    })
+
     it('fails the batch when loading workflows fails, so the change is retried', async () => {
         jest.spyOn(processor['hogFlowManager'], 'getHogFlowsForTeam').mockRejectedValue(
             new Error('canceling statement due to conflict with recovery')
