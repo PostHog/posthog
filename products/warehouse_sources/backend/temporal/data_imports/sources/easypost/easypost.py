@@ -27,6 +27,10 @@ class EasypostResumeConfig:
     # `before_id` of the page we last yielded. EasyPost paginates newest-first, so advancing the
     # cursor means asking for records created *before* this id. `None` resumes from the first page.
     before_id: str | None = None
+    # Same, for endpoints that page oldest-first via `after_id`.
+    after_id: str | None = None
+    # Path value (e.g. report type) the cursor belongs to, for endpoints walked once per value.
+    path_value: str | None = None
 
 
 def _ensure_utc(value: datetime) -> datetime:
@@ -106,13 +110,13 @@ def get_rows(
 
     session = make_tracked_session(redact_values=(api_key,))
     session.auth = (api_key, "")
-    url = f"{EASYPOST_BASE_URL}{config.path}"
+    collection_key = config.response_key or config.name
 
     if not config.paginated:
         # Lookup endpoints answer with the whole collection in one response — no cursor and no
         # `has_more`, so there is nothing to resume from or to watermark against.
-        data = _fetch_page(session, url, {}, logger)
-        collection = data if config.returns_bare_list else data.get(config.name, [])
+        data = _fetch_page(session, f"{EASYPOST_BASE_URL}{config.path}", {}, logger)
+        collection = data if config.returns_bare_list else data.get(collection_key, [])
         if collection:
             yield _redact(collection, config.redacted_fields)
         return
@@ -128,45 +132,61 @@ def get_rows(
         if last_value_dt is not None and config.supports_start_datetime:
             start_datetime = _format_datetime(last_value_dt)
 
+    path_values: tuple[str | None, ...] = config.path_values or (None,)
+    cursor_param = "after_id" if config.ascending else "before_id"
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    before_id = resume.before_id if resume else None
-    if before_id:
-        logger.debug(f"EasyPost: resuming {endpoint} from before_id={before_id}")
+    start_index = 0
+    cursor_id: str | None = None
+    if resume and resume.path_value in path_values:
+        start_index = path_values.index(resume.path_value)
+        cursor_id = resume.after_id if config.ascending else resume.before_id
+    if cursor_id:
+        logger.debug(f"EasyPost: resuming {endpoint} from {cursor_param}={cursor_id}")
 
-    while True:
-        params: dict[str, Any] = {"page_size": PAGE_SIZE}
-        if before_id:
-            params["before_id"] = before_id
-        if start_datetime:
-            params["start_datetime"] = start_datetime
+    for path_value in path_values[start_index:]:
+        url = f"{EASYPOST_BASE_URL}{config.path.format(path_value) if path_value else config.path}"
 
-        data = _fetch_page(session, url, params, logger)
-        items = data.get(config.name, [])
-        if not items:
-            break
+        while True:
+            params: dict[str, Any] = {"page_size": PAGE_SIZE}
+            if cursor_id:
+                params[cursor_param] = cursor_id
+            if start_datetime:
+                params["start_datetime"] = start_datetime
 
-        has_more = bool(data.get("has_more", False))
+            data = _fetch_page(session, url, params, logger)
+            items = data.get(collection_key, [])
+            if not items:
+                break
 
-        reached_watermark = False
-        rows: list[dict[str, Any]] = []
-        for item in items:
-            if last_value_dt is not None:
-                created = _parse_datetime(item.get(incremental_field_name))
-                if created is not None and created <= last_value_dt:
-                    reached_watermark = True
-                    break
-            rows.append(item)
+            has_more = bool(data.get("has_more", False))
 
-        if rows:
-            yield _redact(rows, config.redacted_fields)
-            # Save the cursor for the page we just yielded (not the next one) so a crash re-fetches
-            # and re-yields this page — merge dedupes on the `id` primary key — rather than skipping it.
-            resumable_source_manager.save_state(EasypostResumeConfig(before_id=before_id))
+            reached_watermark = False
+            rows: list[dict[str, Any]] = []
+            for item in items:
+                if last_value_dt is not None:
+                    created = _parse_datetime(item.get(incremental_field_name))
+                    if created is not None and created <= last_value_dt:
+                        reached_watermark = True
+                        break
+                rows.append(item)
 
-        if reached_watermark or not has_more:
-            break
+            if rows:
+                yield _redact(rows, config.redacted_fields)
+                # Save the cursor for the page we just yielded (not the next one) so a crash re-fetches
+                # and re-yields this page — merge dedupes on the `id` primary key — rather than skipping it.
+                if config.ascending:
+                    resumable_source_manager.save_state(EasypostResumeConfig(after_id=cursor_id, path_value=path_value))
+                else:
+                    resumable_source_manager.save_state(
+                        EasypostResumeConfig(before_id=cursor_id, path_value=path_value)
+                    )
 
-        before_id = items[-1]["id"]
+            if reached_watermark or not has_more:
+                break
+
+            cursor_id = items[-1]["id"]
+
+        cursor_id = None
 
 
 def easypost_source(
@@ -192,8 +212,9 @@ def easypost_source(
             incremental_field=incremental_field,
         ),
         primary_keys=config.primary_keys,
-        # EasyPost list endpoints return records newest-first (descending creation time).
-        sort_mode="desc",
+        # EasyPost list endpoints return records newest-first (descending creation time), except
+        # the ones that page forward with `after_id`.
+        sort_mode="asc" if config.ascending else "desc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
