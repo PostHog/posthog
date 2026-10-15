@@ -556,7 +556,13 @@ def sync_execute(
         ch_user = ClickHouseUser.MAX_AI
     elif tags.product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS
-    elif tags.product == Product.BILLING:
+    elif tags.product == Product.BILLING and tags.feature in (
+        Feature.BILLING_ETL,
+        Feature.USAGE_REPORT,
+        Feature.QUOTA_LIMITING,
+    ):
+        # Product and scene tags can come from a query request. Only server-set billing features
+        # may select the operational user that bypasses admission; explicit ch_user is preserved.
         ch_user = ClickHouseUser.BILLING
     elif tags.product == Product.LLM_ANALYTICS and tags.kind == "temporal" and ch_user == ClickHouseUser.DEFAULT:
         # Temporal only, because the interactive AI observability API shares this product tag and
