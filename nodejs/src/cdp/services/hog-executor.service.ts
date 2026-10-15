@@ -146,8 +146,13 @@ export class HogExecutorService {
             })
             if (match) {
                 merged = { ...(merged ?? {}), ...mapping.inputs }
-                for (const schema of mapping.inputs_schema ?? []) {
-                    mergedSchema.set(schema.key, schema)
+                for (const key of Object.keys(mapping.inputs)) {
+                    const schema = mapping.inputs_schema?.find((candidate) => candidate.key === key)
+                    if (schema) {
+                        mergedSchema.set(key, schema)
+                    } else {
+                        mergedSchema.delete(key)
+                    }
                 }
             }
         }
