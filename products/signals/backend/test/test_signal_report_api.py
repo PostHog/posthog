@@ -1377,11 +1377,12 @@ class TestSignalReportListAPI(APIBaseTest):
         [
             ("flag_off", {"return_value": None}),
             ("control", {"return_value": "control"}),
-            ("unknown_variant", {"return_value": "test-2"}),
+            ("unknown_variant", {"return_value": "test"}),
+            ("non_recommended_head", {"return_value": "discuss"}),
             ("flag_error", {"side_effect": RuntimeError("flags down")}),
         ]
     )
-    def test_recommended_sort_uses_priority_order_unless_the_flag_serves_test(self, _name, flag_result):
+    def test_recommended_sort_uses_priority_order_unless_the_flag_serves_a_head(self, _name, flag_result):
         p2 = self._create_report(title="P2")
         p0 = self._create_report(title="P0")
         no_priority = self._create_report(title="No priority")
@@ -1401,7 +1402,8 @@ class TestSignalReportListAPI(APIBaseTest):
             (str(no_priority.id), 65),
         ]
 
-    def test_recommended_sort_test_variant_ranks_by_fixed_head_without_showing_scores_to_non_staff(self):
+    @parameterized.expand([("open",), ("action",), ("fixed",)])
+    def test_recommended_sort_head_variant_ranks_by_that_head_without_showing_scores_to_non_staff(self, head):
         self.user.is_staff = False
         self.user.save()
         low_p0 = self._create_report(title="Low P0")
@@ -1417,10 +1419,17 @@ class TestSignalReportListAPI(APIBaseTest):
             (stale_p0, "P0"),
         ):
             self._priority_artefact(report, priority=priority)
-        self._ranking_score_artefact(low_p0, scores={"fixed": 0.1234})
-        self._ranking_score_artefact(high_p3, scores={"fixed": 0.8765})
-        self._ranking_score_artefact(same_decile_p0, scores={"fixed": 0.8123})
-        self._ranking_score_artefact(stale_p0, scores={"fixed": 0.9876})
+        other_heads = [h for h in ("open", "action", "fixed") if h != head]
+        # The other heads score in reverse, so an order from the wrong head fails the assertion.
+        for report, score in (
+            (low_p0, 0.1234),
+            (high_p3, 0.8765),
+            (same_decile_p0, 0.8123),
+            (stale_p0, 0.9876),
+        ):
+            self._ranking_score_artefact(
+                report, scores={head: score, **{other: round(1 - score, 4) for other in other_heads}}
+            )
         SignalReportArtefact.objects.create(
             team=self.team,
             report=stale_p0,
@@ -1429,14 +1438,14 @@ class TestSignalReportListAPI(APIBaseTest):
         )
 
         with patch(
-            "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value="test"
+            "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value=head
         ) as get_flag:
             response = self.client.get(self._list_url(status="ready", sort="recommended"))
 
         assert response.status_code == status.HTTP_200_OK
         assert get_flag.call_args.args[1] == self.user.distinct_id
         body = response.json()
-        assert body["ranker"] == "fixed"
+        assert body["ranker"] == head
         assert [(r["id"], r["inbox_merge_key"]) for r in body["results"]] == [
             (str(same_decile_p0.id), 6),
             (str(high_p3.id), 9),
@@ -1611,6 +1620,32 @@ class TestSignalReportListAPI(APIBaseTest):
         assert with_unowned.json()["count"] == 2
         assert [row["id"] for row in without_unowned.json()["results"]] == [str(mine.id)]
         assert without_unowned.json()["count"] == 1
+
+    def test_for_you_pages_the_ranked_list_without_the_excluded_reports(self):
+        by_priority: dict[str | None, str] = {}
+        for priority in ["P3", None, "P1", "P2"]:
+            report = self._create_report(title=f"Priority {priority}")
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
+            )
+            self._priority_artefact(report, priority=priority)
+            by_priority[priority] = str(report.id)
+
+        def for_you(**query: object) -> dict:
+            response = self.client.get(f"{self._list_url()}for_you/?{urlencode(query)}")
+            assert response.status_code == status.HTTP_200_OK
+            return response.json()
+
+        everything = for_you(limit=20)
+        page = for_you(limit=1, offset=1, exclude=f"{by_priority['P1']},{by_priority['P2']}")
+
+        assert [row["id"] for row in everything["results"]] == [by_priority[p] for p in ["P1", "P2", "P3", None]]
+        assert everything["count"] == 4
+        assert [row["id"] for row in page["results"]] == [by_priority[None]]
+        assert page["count"] == 2
 
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
         # suggested_reviewers is append-only: an older row listing the user must not keep them

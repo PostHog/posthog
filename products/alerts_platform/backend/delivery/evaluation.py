@@ -4,6 +4,7 @@ The layer that knows a transport exists. `dispatch.deliver` handles one destinat
 is what decides which destinations there are and which transport each one takes.
 """
 
+import json
 from collections.abc import Callable
 from dataclasses import replace
 from typing import Any, Final
@@ -40,10 +41,10 @@ from products.alerts_platform.backend.logic.platform_alert_events import announc
 
 logger = structlog.get_logger(__name__)
 
-# Whether the platform may contact a team's destinations. Only the platform reads it: the
-# production logs path keeps delivering regardless, so a team with this on receives the legacy
-# message and the native one. Flipping a team from one deliverer to the other is the cutover,
-# and it is not this.
+# Whether the platform may contact a team's destinations for an alert its source still owns. Only
+# the platform reads it: the source keeps delivering regardless, so a team with this on receives
+# the legacy message and the native one. An alert the platform owns never reads it, because the
+# source sends nothing for that alert and a flag-eval failure would silence it.
 LIVE_DELIVERY_FLAG: Final = "alert-platform-live-delivery"
 
 # A destination type with no entry here has no native transport, and delivery skips it. Make a
@@ -160,7 +161,7 @@ class _WebhookTransports:
 def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     """Sends what one evaluation decided, to every destination configured for it."""
     team = Team.objects.filter(id=request.team_id).first()
-    if team is None or not destinations_are_live(team):
+    if team is None or not (request.owned_by_platform or destinations_are_live(team)):
         return DeliveryOutcome(live=False, sent=0, skipped_without_transport=0)
 
     announced = announcement(
@@ -186,8 +187,16 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         event_id: IncidentAction(action) for action, event_id in request.event_ids_by_incident_action.items()
     }
     webhook_transports = _WebhookTransports(team, request, announced)
+    message_event_ids = set(request.event_ids_by_kind.values())
+    # Destinations already told about the overflow, so each hears it once, on its first message.
+    noticed: set[str] = set()
     for event_id, transitions in _by_subscription(request, announced).items():
         for target in _destinations(request, event_id):
+            overflowed = 0
+            destination = json.dumps(target, sort_keys=True)
+            if request.overflowed and event_id in message_event_ids and destination not in noticed:
+                overflowed = request.overflowed
+                noticed.add(destination)
             transport_class = _TRANSPORTS.get(target["type"])
             if transport_class is None:
                 skipped += 1
@@ -214,8 +223,9 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     configuration_id=request.configuration_id,
                     evaluation_key=request.evaluation_key,
                     target=target,
-                    announcement=replace(announced, transitions=transitions),
+                    announcement=replace(announced, transitions=transitions, overflowed=overflowed),
                     incident_action=action_by_event_id.get(event_id),
+                    source_alert_url=request.source_alert_url,
                 )
             except ThreadBusy as error:
                 busy.append(str(error))

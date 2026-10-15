@@ -1,6 +1,6 @@
 """Which day a briefing belongs to, and when the scheduler starts it."""
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from posthog.models import Team
@@ -25,6 +25,10 @@ def resolve_timezone(name: str | None, team: Team) -> str:
 def briefing_day(now: datetime, timezone_name: str) -> date:
     local = now.astimezone(ZoneInfo(timezone_name))
     return (local - timedelta(hours=DAY_START_HOUR)).date()
+
+
+def day_start(day: date, timezone_name: str) -> datetime:
+    return datetime.combine(day, time(DAY_START_HOUR), ZoneInfo(timezone_name))
 
 
 def due_day(now: datetime, timezone_name: str, window_minutes: int) -> date | None:

@@ -26,6 +26,7 @@ use personhog_coordination::store::PersonhogStore;
 use personhog_identity::config::Config;
 use personhog_identity::leader::LifecycleLeader;
 use personhog_identity::lifecycle::delete::DeleteDriver;
+use personhog_identity::lifecycle::detach::DetachedDrives;
 use personhog_identity::lifecycle::engine::Engine;
 use personhog_identity::lifecycle::merge::{MergeDriver, MergeOpExecutor};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
@@ -333,6 +334,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    let detached_drives = DetachedDrives::new(config.lifecycle_detached_drive_limit);
     // Separate proto service co-served on the same server so lifecycle
     // callers are insulated from any future split.
     let merge_entrance = MergeEntrance::new(
@@ -346,6 +348,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.tables(),
                 config.lifecycle_leader_call_concurrency,
             ),
+            detached_drives.clone(),
         ),
     );
     let lifecycle_service = PersonHogLifecycleService::new(
@@ -424,6 +427,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));
         }
+        tracing::info!(
+            in_flight = detached_drives.in_flight(),
+            "waiting for detached merge drives before exit"
+        );
+        detached_drives.shutdown().await;
     });
 
     monitor.wait().await?;

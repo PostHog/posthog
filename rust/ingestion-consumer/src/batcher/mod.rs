@@ -44,7 +44,7 @@ use self::worker_pool::WorkerPoolSource;
 use crate::dispatcher::{Dispatcher, KeyOffset, SubBatch, Submission};
 use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
 use crate::order_sentinel::KeyOrderSentinel;
-use crate::transport::SendError;
+use crate::transport::{SendError, SendOutcome};
 use crate::types::Accumulator;
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;
@@ -482,7 +482,13 @@ async fn await_settled(
     } = sub_batch;
 
     match pending.wait().await {
-        Ok(accepted) => {
+        // The dispatcher sends no budget, and the transport refuses a partial
+        // ack for an unbudgeted sub-batch.
+        Ok(SendOutcome::Partial { .. }) => {
+            inner.report_error("partial ack for a pin_stash send".to_string());
+            0
+        }
+        Ok(SendOutcome::Accepted(accepted)) => {
             // Advance ACK high-water marks before the settle, which
             // may evict the keys' sentinel state.
             inner.dispatcher.on_sub_batch_acked(&key_offsets);
