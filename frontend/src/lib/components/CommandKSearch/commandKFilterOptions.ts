@@ -1,8 +1,10 @@
+import { SearchItem } from 'lib/components/Search/searchItems'
+
 import { fileSystemTypes } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { OrganizationMemberType, UserType } from '~/types'
 
-import { FilterOptions, ValueOption } from './commandKQuery'
+import { FilterOptions, QueryChip, ValueOption } from './commandKQuery'
 
 /** Short words people type for a type, on top of its name and key. */
 const TYPE_ALIASES: Record<string, string[]> = {
@@ -65,5 +67,37 @@ export function buildFilterOptions(
         createdBy: userOptions(members, user),
         in: (folders ?? []).map((folder) => ({ value: folder.path, label: folder.path })),
         name: [],
+    }
+}
+
+/** List pages for types whose manifest registers no `listHref`. */
+const LIST_HREF_FALLBACKS: Record<string, string> = {
+    dashboard: '/dashboard',
+    notebook: '/notebooks',
+}
+
+const pluralize = (name: string): string => (name.endsWith('s') ? name : `${name}s`)
+
+/** The "View all" row for the type an `is:` chip names, or null when no list page exists for it. */
+export function viewAllItem(chips: QueryChip[]): SearchItem | null {
+    const chip = chips.find((candidate) => candidate.key === 'is' && !candidate.negated)
+    if (!chip) {
+        return null
+    }
+    const definition = Object.hasOwn(fileSystemTypes, chip.value)
+        ? (fileSystemTypes as Record<string, { name?: string; listHref?: () => string }>)[chip.value]
+        : null
+    const href = definition?.listHref?.() ?? LIST_HREF_FALLBACKS[chip.value]
+    if (!href) {
+        return null
+    }
+    const name = `View all ${pluralize(chip.label.toLowerCase())}`
+    return {
+        id: `view-all-${chip.value}`,
+        name,
+        displayName: name,
+        category: 'results',
+        href,
+        record: { type: chip.value, ref: 'view-all' },
     }
 }

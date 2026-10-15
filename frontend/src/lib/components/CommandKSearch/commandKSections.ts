@@ -195,10 +195,21 @@ export interface SectionsInput {
     /** Leads the Settings section when the query asks about the theme. */
     themeItem: SearchItem | null
     askAiQuestion: string
+    /** Opens the list page of the type an `is:` filter names. Leads the Results section. */
+    viewAll?: SearchItem | null
 }
 
 const filterLocal = (source: LocalSource, items: SearchItem[], query: string): SearchItem[] =>
     source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)
+
+/** The "View all" row always leads Results, so it stays put while results load and swap. */
+function withViewAll(results: CommandKSection | null, item: SearchItem | null | undefined): CommandKSection | null {
+    if (!item) {
+        return results
+    }
+    const row: CommandKRow = { kind: 'item', key: `results/${item.id}`, item, section: 'results' }
+    return results ? { ...results, rows: [row, ...results.rows] } : readySection('results', [row])
+}
 
 export function buildSections(input: SectionsInput): CommandKSection[] {
     const { mode, context, local, remote, remoteQueries, localQuery } = input
@@ -235,7 +246,7 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
             )
         )
     }
-    sections.push(input.suggestions, remoteSectionFor('results'))
+    sections.push(input.suggestions, withViewAll(remoteSectionFor('results'), input.viewAll))
     if (mode !== 'value' && localQuery) {
         for (const source of LOCAL_SOURCES) {
             const filtered = filterLocal(source, local[source], localQuery)

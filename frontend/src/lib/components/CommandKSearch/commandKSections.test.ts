@@ -71,4 +71,20 @@ describe('buildSections', () => {
         expect(new Set(keys).size).toBe(limit)
         expect(keys[0]).toBe(`${sectionKey}/dashboard:1`)
     })
+
+    test('leads Results with the View all row, before and after results load', () => {
+        const viewAll: SearchItem = {
+            id: 'view-all-feature_flag',
+            name: 'View all feature flags',
+            category: 'results',
+            href: '/feature_flags',
+            record: { type: 'feature_flag', ref: 'view-all' },
+        }
+        const loading = buildSections(input('search', { remoteQueries: { results: 'x' }, viewAll }))
+        const loaded = buildSections(input('search', { ...remoteResults([dashboard('a', '1')]), viewAll }))
+        const rowKeys = (sections: ReturnType<typeof buildSections>): string[] =>
+            sections.find((section) => section.key === 'results')?.rows.map((row) => row.key) ?? []
+        expect(rowKeys(loading)).toEqual(['results/view-all-feature_flag'])
+        expect(rowKeys(loaded)).toEqual(['results/view-all-feature_flag', 'results/dashboard:1'])
+    })
 })

@@ -97,6 +97,7 @@ The input is always in exactly one mode, decided from the token under the cursor
   3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag), **Support tickets** (3+ characters or a ticket number), **Persons**, **Groups**.
   4. **Ask PostHog AI**.
 - With any filter (a chip, or a valid `key:value` still being typed), only **Results** and **Ask PostHog AI** show, because filters apply only to objects.
+- With an `is:` chip (not negated), the first row of **Results** is **View all <types>** (`View all feature flags`). It opens the list page of that type and stays in place while results load. It shows only for types with a list page.
 
 ## Smart filters
 
