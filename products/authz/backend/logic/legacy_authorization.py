@@ -132,35 +132,6 @@ class LegacyAuthorization:
 
             insight = next(iter(authorization_insights(access.team.id, (int(resource.id),))), None)
             return insight is not None and self.check_insight(access, action, insight)
-        if resource.type == ResourceType.WAREHOUSE_TABLE:
-            if not access.has_project_access:
-                return False
-            assert resource.project_id is not None
-            from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415 -- defer warehouse models
-                allowed_table_ids,
-            )
-
-            return UUID(resource.id) in allowed_table_ids(
-                resource.project_id, access, required_level=level, ids=[UUID(resource.id)]
-            )
-        if resource.type == ResourceType.EXTERNAL_DATA_SOURCE:
-            if not access.has_project_access:
-                return False
-            assert resource.project_id is not None
-            from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415 -- defer warehouse models
-                authorization_sources,
-            )
-
-            sources = authorization_sources(resource.project_id, [UUID(resource.id)])
-            return bool(sources) and access.check_access_level_for_ref(
-                ObjectAccessRef(
-                    resource="external_data_source",
-                    id=resource.id,
-                    team_id=resource.project_id,
-                    created_by_id=sources[0].created_by_id,
-                ),
-                level,
-            )
         return self.dashboard_access(access).check(resource.id, level)
 
     def list_resources(
@@ -194,43 +165,6 @@ class LegacyAuthorization:
 
         if not access.has_project_access:
             return ResourceIds(ids=frozenset(), complete=True)
-        if resource.type == ResourceType.EXTERNAL_DATA_SOURCE and level != "viewer":
-            assert resource.project_id is not None
-            from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415 -- defer warehouse models
-                authorization_sources,
-            )
-
-            allowed_sources = {
-                str(source.id)
-                for source in authorization_sources(resource.project_id)
-                if access.check_access_level_for_ref(
-                    ObjectAccessRef(
-                        resource="external_data_source",
-                        id=str(source.id),
-                        team_id=resource.project_id,
-                        created_by_id=source.created_by_id,
-                    ),
-                    level,
-                )
-            }
-            return (
-                ResourceIds(ids=frozenset(allowed_sources), complete=True)
-                if len(allowed_sources) <= cap
-                else ResourceIds(ids=frozenset(), complete=False)
-            )
-        if resource.type == ResourceType.WAREHOUSE_TABLE:
-            from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415 -- avoid loading warehouse models at SDK import time
-                allowed_table_ids,
-                queryable_table_ids,
-            )
-
-            allowed_tables = allowed_table_ids(resource.project_id, access, required_level=level)
-            denied_tables = queryable_table_ids(resource.project_id) - allowed_tables
-            excluded = len(denied_tables) < len(allowed_tables)
-            ids = frozenset(str(id) for id in (denied_tables if excluded else allowed_tables))
-            if len(ids) > cap:
-                return ResourceIds(ids=frozenset(), complete=False)
-            return ResourceIds(ids=ids, complete=True, excluded=excluded)
         if resource.type == ResourceType.DASHBOARD and level != "viewer":
             dashboard_ids = self.dashboard_access(access).ids(level, cap)
             return ResourceIds(ids=dashboard_ids or frozenset(), complete=dashboard_ids is not None)

@@ -2006,7 +2006,7 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
             restricted = self._runner(self.user, AnalyticsQueryRunner).get_cache_key()
             list_resources.return_value = ResourceIds(ids=frozenset(), complete=False)
             incomplete = self._runner(self.user, AnalyticsQueryRunner).get_cache_key()
-        assert len({unrestricted, restricted, incomplete}) == 3
+        assert len({unrestricted, restricted, incomplete}) == (3 if scope == "dashboard" else 1)
 
     @parameterized.expand(RUNNER_BASES)
     def test_resource_grant_changes_cache_key(self, _name, base):

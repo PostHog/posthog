@@ -249,17 +249,13 @@ API queries and authorization listings omit deleted dashboards.
 Legacy dashboard collaborator privileges also trigger reconciliation.
 Rolled-back transactions enqueue nothing.
 The worker retries failed reconciliations and reads current database state, so a delayed event does not replay an obsolete grant.
-The mirror covers project rules and supported resource and object rules.
-Source relationships, creator changes, tenant moves, and soft deletion also trigger reconciliation.
-Routine ingestion metadata updates do not trigger reconciliation.
+The mirror covers project rules and dashboard and insight resource and object rules.
 
 The worker uses organization- and project-qualified tuple IDs and a per-organization lock.
 It deletes obsolete grants before writing replacements.
 Redis tracks a reconciliation revision: OpenFGA checks deny while a revision is pending or missing, and OpenFGA listings return an empty, incomplete result.
 A revision change during a check also invalidates that result.
 Legacy checks do not depend on these readiness keys.
-A ready revision from an older projection version does not authorize the new SDK routes.
-Restart the web and worker processes and rerun `sync_openfga` after updating projection coverage.
 If retries run out, bulk writes bypass model signals, or Redis loses the readiness keys, run `sync_openfga` again.
 `QuerySet.update()`, `bulk_create()`, and `bulk_update()` do not emit Django model signals.
 
@@ -285,8 +281,7 @@ Missing, disabled, boolean, or unknown flag values use `v1`.
 The flag evaluates locally with the organization ID as its distinct ID and organization group key.
 Only the organization's `id` property is supplied, so use organization-ID targeting for the pilot.
 Only resource types in `V2_RESOURCES` in `products/authz/backend/logic/rollout.py` can use OpenFGA, including shadow comparisons.
-The allowlist contains dashboards, insights, warehouse tables, and external data sources.
-Project, organization, role, and warehouse view checks for users remain on `v1`.
+The allowlist contains dashboards and insights; project, organization, and role checks for users always use `v1`.
 Share-link subjects always use OpenFGA, without a legacy fallback or shadow comparison.
 Each organization and resource type in a batch gets its own routing decision; results retain the input order.
 Create the flag with these variant keys before testing a rollout.

@@ -18,9 +18,7 @@ ROLLOUT_FLAG = "authz-rebac"
 RolloutMode = Literal["v1", "v1-shadow-log", "v2"]
 
 
-V2_RESOURCES = frozenset(
-    {ResourceType.DASHBOARD, ResourceType.INSIGHT, ResourceType.WAREHOUSE_TABLE, ResourceType.EXTERNAL_DATA_SOURCE}
-)
+V2_RESOURCES = frozenset({ResourceType.DASHBOARD, ResourceType.INSIGHT})
 
 
 def mode(organization_id: UUID, resource_type: ResourceType) -> RolloutMode:

@@ -307,16 +307,3 @@ class GitHubSourceCredential:
 
     integration_id: int | None = None
     personal_access_token: str | None = field(default=None, repr=False)
-
-
-@dataclass(frozen=True)
-class AuthorizationSource:
-    id: UUID
-    created_by_id: int | None
-
-
-@dataclass(frozen=True)
-class AuthorizationTable:
-    id: UUID
-    created_by_id: int | None
-    external_data_source_id: UUID | None

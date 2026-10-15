@@ -145,19 +145,8 @@ class TestAuthorizationRollout(SimpleTestCase):
         ):
             assert api.permissions(resource=self.resource, subject=self.subject) == frozenset({Action.VIEW})
 
-    @parameterized.expand(
-        [
-            (f"{resource_type}_{variant}", variant, resource_type)
-            for resource_type in (
-                ResourceType.DASHBOARD,
-                ResourceType.WAREHOUSE_TABLE,
-                ResourceType.EXTERNAL_DATA_SOURCE,
-            )
-            for variant in ("v1", "v1-shadow-log", "v2")
-        ]
-    )
-    def test_lists_use_the_same_rollout_mode(self, _name: str, variant: str, resource_type: ResourceType) -> None:
-        self.resource = Resource(type=resource_type, project_id=1, organization_id=self.resource.organization_id)
+    @parameterized.expand([("v1", "v1"), ("shadow", "v1-shadow-log"), ("v2", "v2")])
+    def test_lists_use_the_same_rollout_mode(self, _name: str, variant: str) -> None:
         v1 = ResourceIds(ids=frozenset({"1"}), complete=True)
         v2 = ResourceIds(ids=frozenset(), complete=False)
         with (
@@ -168,7 +157,6 @@ class TestAuthorizationRollout(SimpleTestCase):
             ) as openfga,
             capture_logs() as logs,
         ):
-            assert api.uses_openfga(self.resource) is (variant == "v2")
             assert api.list_resources(resource=self.resource, action=Action.VIEW, subject=self.subject) == (
                 v2 if variant == "v2" else v1
             )

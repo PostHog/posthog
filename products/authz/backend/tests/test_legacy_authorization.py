@@ -7,7 +7,6 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 
 from products.access_control.backend.facade import testing as access_testing
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.authz.backend.facade import api
 from products.authz.backend.facade.contracts import CheckRequest, Resource, Subject
 from products.authz.backend.facade.enums import Action, ResourceType
@@ -15,7 +14,6 @@ from products.dashboards.backend.facade import testing as dashboard_testing
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 
 class TestLegacyAuthorization(BaseTest):
@@ -190,36 +188,3 @@ class TestLegacyAuthorization(BaseTest):
             subject=self.subject,
         )
         assert not result.allows("1")
-
-    @parameterized.expand([("source_denial", None, False), ("table_grant", "viewer", True)])
-    def test_warehouse_lists_preserve_most_specific_source_fallback(
-        self, _name: str, table_level: str | None, allowed: bool
-    ) -> None:
-        self.organization.uses_most_specific_access_resolution = True
-        self.organization.save()
-        source = ExternalDataSource.objects.create(
-            team=self.team, source_id="src", connection_id="conn", destination_id="dest", source_type="Zendesk"
-        )
-        table = DataWarehouseTable.objects.create(
-            team=self.team, name="tickets", format="Parquet", columns={}, external_data_source=source
-        )
-        standalone = DataWarehouseTable.objects.create(team=self.team, name="uploads", format="Parquet", columns={})
-        DataWarehouseTable.objects.create(team=self.team, name="other_uploads", format="Parquet", columns={})
-        access_testing.create_access_control(
-            team_id=self.team.id, resource="external_data_source", resource_id=str(source.id), access_level="none"
-        )
-        if table_level is not None:
-            access_testing.create_access_control(
-                team_id=self.team.id, resource="warehouse_table", resource_id=str(table.id), access_level=table_level
-            )
-        access = UserAccessControl(self.reader, self.team)
-        result = api.list_resources(
-            resource=Resource(type=ResourceType.WAREHOUSE_TABLE, project_id=self.team.id),
-            action=Action.QUERY,
-            subject=self.subject,
-            user_access_control=access,
-            limit=1,
-        )
-        assert result.complete
-        assert result.allows(str(table.id)) is allowed
-        assert result.allows(str(standalone.id))
