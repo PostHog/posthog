@@ -264,16 +264,16 @@ def test_bucket_fan_out_walks_buckets_and_child_pages(driver: SourceDriver) -> N
     assert result.requests[3].query == {"resourceArn": (BUCKET_B,), "maxResults": ("25",)}
     assert result.requests[4].json()["nextToken"] == "b2"
     assert [
-        (state.bucket_page_token, state.bucket_offset, state.next_token, state.completed)
+        (tuple(state.bucket_arns), state.bucket_offset, state.bucket_page_token, state.next_token, state.completed)
         for state in result.saved_states
     ] == [
-        (None, 0, None, False),
-        (None, 0, "d2", False),
-        (None, 1, None, False),
-        ("b2", 0, None, False),
-        ("b2", 0, None, False),
-        (None, 0, None, True),
-        (None, 0, None, True),
+        ((), 0, None, None, False),
+        ((BUCKET_A, BUCKET_B), 0, "b2", "d2", False),
+        ((BUCKET_A, BUCKET_B), 1, "b2", None, False),
+        ((), 0, "b2", None, False),
+        ((), 0, "b2", None, False),
+        ((), 0, None, None, True),
+        ((), 0, None, None, True),
     ]
     assert result.final_state is not None and result.final_state.completed
 
@@ -293,20 +293,16 @@ def test_bucket_fan_out_walks_buckets_and_child_pages(driver: SourceDriver) -> N
         ),
     ],
 )
-def test_bucket_fan_out_resumes_mid_page(
+def test_bucket_fan_out_resumes_from_saved_bucket_page(
     driver: SourceDriver, endpoint: str, body: dict[str, Any], expected: dict[str, Any]
 ) -> None:
     result = driver.run(
         endpoint,
-        [
-            ScriptedResponse(json={"buckets": [{"bucketArn": BUCKET_A}, {"bucketArn": BUCKET_B}]}),
-            ScriptedResponse(json=body),
-        ],
-        resume_state=AwsMacieResumeConfig(bucket_page_token="b2", bucket_offset=1),
+        [ScriptedResponse(json=body)],
+        resume_state=AwsMacieResumeConfig(bucket_arns=(BUCKET_A, BUCKET_B), bucket_offset=1),
     )
     assert result.raised is None
-    assert result.requests[0].json()["nextToken"] == "b2"
-    assert result.requests[1].query == {"resourceArn": (BUCKET_B,)}
+    assert [request.query for request in result.requests] == [{"resourceArn": (BUCKET_B,)}]
     assert result.rows == [{**expected, "bucket_arn": BUCKET_B, "region": "eu-west-1"}]
     assert result.final_state is not None and result.final_state.completed
 

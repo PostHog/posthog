@@ -38,8 +38,10 @@ class AwsMacieResumeConfig:
     next_token: str | None = None
     since_ms: int | None = None
     completed: bool = False
-    bucket_page_token: str | None = None
+    # The bucket ARNs of the page in progress, so a resume does not re-fetch a page that changed.
+    bucket_arns: tuple[str, ...] = ()
     bucket_offset: int = 0
+    bucket_page_token: str | None = None
 
 
 class AwsMacieError(Exception):
@@ -144,7 +146,6 @@ def list_payload(endpoint: str, since_ms: int | None, page_size: int | None) -> 
 
 
 def bucket_page_payload(page_token: str | None, page_size: int = BUCKET_PAGE_SIZE) -> dict[str, Any]:
-    # A fixed sort keeps the saved bucket offset pointing at the same bucket on resume.
     payload: dict[str, Any] = {
         "maxResults": page_size,
         "sortCriteria": {"attributeName": "bucketName", "orderBy": "ASC"},
@@ -177,20 +178,27 @@ def get_bucket_rows(
     region: str,
 ) -> Iterator[list[dict[str, Any]]]:
     setting = MACIE_ENDPOINTS[endpoint]
-    page_token, offset, child_token = state.bucket_page_token, state.bucket_offset, state.next_token
+    bucket_arns = list(state.bucket_arns)
+    offset, child_token = state.bucket_offset, state.next_token
+    # With saved bucket ARNs this is the token after that page, otherwise the token of the page to fetch.
+    page_token = state.bucket_page_token
+    page_loaded = bool(bucket_arns)
     while True:
-        manager.save_state(
-            AwsMacieResumeConfig(next_token=child_token, bucket_page_token=page_token, bucket_offset=offset)
-        )
-        manager.safe_point()
-        page = client.request("DescribeBuckets", bucket_page_payload(page_token))
-        next_page_token = page.get("nextToken") or None
-        if next_page_token and next_page_token == page_token:
-            raise AwsMacieError("RepeatedPaginationToken", "AWS returned the same page token twice.")
-        buckets = page.get("buckets") or []
-        for index in range(offset, len(buckets)):
-            bucket_arn = buckets[index].get("bucketArn")
-            while bucket_arn:
+        if page_loaded:
+            next_page_token = page_token
+        else:
+            manager.save_state(AwsMacieResumeConfig(bucket_page_token=page_token))
+            manager.safe_point()
+            page = client.request("DescribeBuckets", bucket_page_payload(page_token))
+            next_page_token = page.get("nextToken") or None
+            if next_page_token and next_page_token == page_token:
+                raise AwsMacieError("RepeatedPaginationToken", "AWS returned the same page token twice.")
+            bucket_arns = [bucket["bucketArn"] for bucket in page.get("buckets") or [] if bucket.get("bucketArn")]
+            offset, child_token = 0, None
+        page_loaded = False
+        for index in range(offset, len(bucket_arns)):
+            bucket_arn = bucket_arns[index]
+            while True:
                 response = request_bucket_profile(client, endpoint, bucket_arn, child_token, setting.page_size)
                 if setting.result_key:
                     items = response.get(setting.result_key) or []
@@ -200,12 +208,13 @@ def get_bucket_rows(
                 if next_token and next_token == child_token:
                     raise AwsMacieError("RepeatedPaginationToken", "AWS returned the same page token twice.")
                 rows = [{**normalize_row(endpoint, item, region), "bucket_arn": bucket_arn} for item in items]
-                if next_token:
+                if next_token or index + 1 < len(bucket_arns):
                     resume = AwsMacieResumeConfig(
-                        next_token=next_token, bucket_page_token=page_token, bucket_offset=index
+                        next_token=next_token,
+                        bucket_arns=tuple(bucket_arns),
+                        bucket_offset=index if next_token else index + 1,
+                        bucket_page_token=next_page_token,
                     )
-                elif index + 1 < len(buckets):
-                    resume = AwsMacieResumeConfig(bucket_page_token=page_token, bucket_offset=index + 1)
                 elif next_page_token:
                     resume = AwsMacieResumeConfig(bucket_page_token=next_page_token)
                 else:
@@ -219,7 +228,7 @@ def get_bucket_rows(
                     break
         if next_page_token is None:
             break
-        page_token, offset = next_page_token, 0
+        page_token = next_page_token
     manager.save_state(AwsMacieResumeConfig(completed=True))
     manager.safe_point()
 
