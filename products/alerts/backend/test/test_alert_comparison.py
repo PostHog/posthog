@@ -247,15 +247,42 @@ class TestInsightCorrespondence(BaseTest):
 
         assert self._verdict(check).coverage is SourceCoverage.UNKNOWN
 
+    def _row(self, state: InsightAlertState, offset: timedelta, alert: AlertConfiguration | None = None) -> None:
+        """A production row with no value and no error, the shape of both a snooze row and a healthy
+        breakdown evaluation."""
+        row = AlertCheck.objects.create(alert_configuration=alert or self.alert, state=state.value)
+        AlertCheck.objects.filter(id=row.id).update(created_at=SLOT + offset)
+
     def test_a_snooze_row_is_not_paired_as_an_evaluation(self) -> None:
-        AlertCheck.objects.filter(
-            id=AlertCheck.objects.create(alert_configuration=self.alert, state=InsightAlertState.NOT_FIRING.value).id
-        ).update(created_at=SLOT + timedelta(minutes=5))
+        self._row(InsightAlertState.SNOOZED, timedelta(minutes=5))
         self._production((InsightAlertState.FIRING, timedelta(minutes=37)))
 
         verdict = self._verdict(self._check())
 
         assert (verdict.coverage, verdict.state) == (SourceCoverage.EVALUATED, "firing")
+
+    def test_a_healthy_breakdown_evaluation_without_a_value_is_paired(self) -> None:
+        self._row(InsightAlertState.NOT_FIRING, timedelta(minutes=37))
+
+        verdict = self._verdict(self._check(state="not_firing"))
+
+        assert (verdict.coverage, verdict.state) == (SourceCoverage.EVALUATED, "not_firing")
+
+    def test_alerts_read_across_several_history_queries_are_all_paired(self) -> None:
+        other = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=self.alert.insight,
+            name="other",
+            calculation_interval=self.alert.calculation_interval,
+        )
+        self._row(InsightAlertState.FIRING, timedelta(minutes=37))
+        self._row(InsightAlertState.FIRING, timedelta(minutes=37), alert=other)
+        checks = [self._check(), self._check(legacy_configuration_id=other.id)]
+
+        with patch(f"{InsightCorrespondence.__module__}.ALERTS_PER_QUERY", 1):
+            verdicts = InsightCorrespondence().verdicts_for(checks)
+
+        assert [verdicts[check.ref].coverage for check in checks] == [SourceCoverage.EVALUATED] * 2
 
     def test_a_skipped_production_check_is_not_catching_up(self) -> None:
         self._production((InsightAlertState.FIRING, timedelta(minutes=37)))

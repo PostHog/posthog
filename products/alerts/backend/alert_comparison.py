@@ -28,7 +28,10 @@ import structlog
 from dateutil.relativedelta import relativedelta
 
 from posthog.dataclasses import frozen
-from posthog.schema_enums import AlertCalculationInterval
+from posthog.schema_enums import (
+    AlertCalculationInterval,
+    AlertState as InsightAlertState,
+)
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
 
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, platform_state_of
@@ -51,6 +54,8 @@ logger = structlog.get_logger(__name__)
 
 # The bound the retention does not give: an hourly alert holds 336 rows, and alerts add up.
 MAX_CHECKS_PER_BATCH = 100_000
+# Alerts per history query, so one statement never carries a condition per alert of a large team.
+ALERTS_PER_QUERY = 500
 
 # Sub-day periods take their boundaries from the scheduler production uses, which finds them on the
 # local wall clock and so follows a 30-minute daylight-saving change.
@@ -192,23 +197,31 @@ def _team_verdicts(team_id: int, pairings: list[_Pairing]) -> dict[CheckRef, Sou
             known = bounds.get(pairing.alert_id, period)
             bounds[pairing.alert_id] = _Period(start=min(known.start, period.start), end=max(known.end, period.end))
 
-    rows = []
-    if bounds:
+    rows: list[tuple[UUID, UUID, datetime, str, dict | None]] = []
+    alert_bounds = list(bounds.items())
+    for chunk_start in range(0, len(alert_bounds), ALERTS_PER_QUERY):
         # Each alert over its own periods, so one old slot does not widen every alert's read.
-        since = Q()
-        for alert_id, bound in bounds.items():
-            since |= Q(
-                alert_configuration_id=alert_id,
-                created_at__gte=bound.start,
-                created_at__lt=bound.end + CATCH_UP_HORIZON,
-            )
-        rows = list(
+        # Built in one step, because growing a Q with |= copies its children on every alert.
+        since = Q(
+            *(
+                Q(
+                    alert_configuration_id=alert_id,
+                    created_at__gte=bound.start,
+                    created_at__lt=bound.end + CATCH_UP_HORIZON,
+                )
+                for alert_id, bound in alert_bounds[chunk_start : chunk_start + ALERTS_PER_QUERY]
+            ),
+            _connector=Q.OR,
+        )
+        rows.extend(
             AlertCheck.objects.filter(since, alert_configuration__team_id=team_id)
             .order_by("alert_configuration_id", "created_at")
-            .values_list(
-                "alert_configuration_id", "id", "created_at", "state", "triggered_metadata", "calculated_value", "error"
-            )[: MAX_CHECKS_PER_BATCH + 1]
+            .values_list("alert_configuration_id", "id", "created_at", "state", "triggered_metadata")[
+                : MAX_CHECKS_PER_BATCH + 1 - len(rows)
+            ]
         )
+        if len(rows) > MAX_CHECKS_PER_BATCH:
+            break
     if len(rows) > MAX_CHECKS_PER_BATCH:
         logger.warning("Insight alert comparison could not read every check it needs", team_id=team_id)
         return {
@@ -216,12 +229,12 @@ def _team_verdicts(team_id: int, pairings: list[_Pairing]) -> dict[CheckRef, Sou
         }
 
     checks: dict[UUID, list[_ProductionCheck]] = defaultdict(list)
-    for alert_id, check_id, created_at, state, metadata, value, error in rows:
-        skipped = bool((metadata or {}).get("skipped_reason"))
-        if value is None and error is None and not skipped:
-            # A snooze or unsnooze writes a row carrying the new state and no evaluation. An evaluated
-            # check has a value, or an error when its query failed.
+    for alert_id, check_id, created_at, state, metadata in rows:
+        if state == InsightAlertState.SNOOZED:
+            # Snoozing writes a row carrying the snoozed state, which no evaluation produces. An unsnooze
+            # row looks like a healthy breakdown evaluation (no value, no error), so it stays.
             continue
+        skipped = bool((metadata or {}).get("skipped_reason"))
         checks[alert_id].append(
             _ProductionCheck(
                 id=check_id,
