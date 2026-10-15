@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { capReducers, flattenSeriesRows, MetricsSeriesRow } from './metricsReduce'
-import { safeColorToken, thresholdColor } from './metricsThresholds'
+import { safeColorToken, thresholdColor, worseDirection } from './metricsThresholds'
 import { metricValuesFormatter } from './metricsUnits'
 import type { MetricsPanelProps } from './registry'
 import { resolveReducer } from './registry'
@@ -58,23 +58,35 @@ export function TablePanel({ series, display, fallbackName }: MetricsPanelProps)
             title: r,
             key: `reducer-${r}`,
             align: 'right' as const,
+            sorter: (a: MetricsSeriesRow, b: MetricsSeriesRow) => {
+                const left = a.values[r] ?? -Infinity
+                const right = b.values[r] ?? -Infinity
+                return left === right ? 0 : left < right ? -1 : 1
+            },
             render: (_: unknown, row: MetricsSeriesRow) => {
                 const value = row.values[r] ?? null
                 const color = safeColorToken(thresholdColor(value, display.thresholds, FALLBACK_COLOR), FALLBACK_COLOR)
                 return value === null ? (
                     <span className="text-secondary">—</span>
                 ) : (
-                    <span className={`text-(--${color})`}>{formatValue(value)}</span>
+                    // Tailwind cannot see a class built at runtime, so the color goes in as a variable.
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <span style={{ color: `var(--${color})` }}>{formatValue(value)}</span>
                 )
             },
         })),
     ]
+
+    const worse = worseDirection(display.thresholds)
+    const defaultSorting =
+        worse === null ? null : { columnKey: `reducer-${reducers[0]}`, order: worse === 'up' ? (-1 as const) : 1 }
 
     return (
         <div className="h-full w-full overflow-auto">
             <LemonTable
                 columns={columns}
                 dataSource={rows}
+                defaultSorting={defaultSorting}
                 rowKey={(row) => JSON.stringify(row.labels) + (row.metricName ?? '')}
                 emptyState={<span className="text-secondary">No data</span>}
             />

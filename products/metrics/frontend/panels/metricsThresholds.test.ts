@@ -1,4 +1,4 @@
-import { safeColorToken, thresholdColor } from './metricsThresholds'
+import { safeColorToken, thresholdColor, worseDirection } from './metricsThresholds'
 
 const FALLBACK = 'data-color-1'
 
@@ -37,6 +37,39 @@ describe('thresholdColor', () => {
         ]
         expect(thresholdColor(85, t, FALLBACK)).toBe('warning')
         expect(thresholdColor(10, t, FALLBACK)).toBe('green')
+    })
+})
+
+describe('worseDirection', () => {
+    it.each([
+        [
+            'alarm at the top step',
+            [
+                { value: 90, color: 'danger' },
+                { value: 0, color: 'success' },
+            ],
+            'up',
+        ],
+        [
+            'alarm at the base step',
+            [
+                { value: 2, color: 'success' },
+                { value: 0, color: 'red' },
+            ],
+            'down',
+        ],
+        [
+            'no alarm color',
+            [
+                { value: 0, color: 'green' },
+                { value: 10, color: 'warning' },
+            ],
+            null,
+        ],
+        ['a single step', [{ value: 0, color: 'danger' }], null],
+        ['no thresholds', undefined, null],
+    ])('%s', (_, thresholds, expected) => {
+        expect(worseDirection(thresholds)).toBe(expected)
     })
 })
 

@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { seriesLabelText } from '../components/metricsSeries'
 import { combineSeries, flattenSeriesRows } from './metricsReduce'
-import { thresholdColor } from './metricsThresholds'
+import { thresholdColor, worseDirection } from './metricsThresholds'
 import { metricValuesFormatter } from './metricsUnits'
 import type { MetricsPanelProps } from './registry'
 import { resolveReducer } from './registry'
@@ -31,6 +31,8 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
     const rows = flattenSeriesRows(shown, [reducer]).filter((row) => row.values[reducer] !== null)
     // A single card fills the tile, and the tile title already names it. Grouped cards need their labels.
     const single = rows.length === 1
+    // A rise in CPU busy must not show a green pill, so the pill follows the thresholds.
+    const goodDirection = worseDirection(display.thresholds) === 'up' ? 'down' : 'up'
 
     if (rows.length === 0) {
         return <div className="flex h-full w-full items-center justify-center text-secondary text-sm">No data</div>
@@ -60,6 +62,7 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
                 formatValue={formatValue}
                 headlineClassName="whitespace-nowrap text-2xl @min-[13rem]:text-3xl @min-[16rem]:text-4xl"
                 changeInline
+                goodDirection={goodDirection}
                 sparklineFill={single}
                 sparklineHeight={GROUPED_SPARKLINE_HEIGHT}
                 sparklineClassName="mt-2"
