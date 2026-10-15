@@ -1,3 +1,4 @@
+from contextlib import suppress
 from datetime import timedelta
 from decimal import Decimal
 
@@ -1024,10 +1025,24 @@ def rebuild_signal_repository_activity(team_id: int, repository: str, force: boo
 _PROFILE_BUILD_DEDUPE_SECONDS = 5 * 60
 
 
-def enqueue_project_profile_build(team_id: int) -> None:
-    """Queue one `build_signal_project_profile` per team per dedupe window."""
-    if cache.add(f"signals_project_profile_build/{team_id}", "1", timeout=_PROFILE_BUILD_DEDUPE_SECONDS):
-        build_signal_project_profile.delay(team_id)
+def enqueue_project_profile_build(team_id: int, *, dedupe: bool = True) -> None:
+    """Queue one `build_signal_project_profile` per team per dedupe window.
+
+    `dedupe=False` queues the build even inside the window. A read calls this after it has its
+    profile, so a cache or broker failure is reported and does not fail the read. A failed
+    enqueue releases the window, so the next read can queue the build again.
+    """
+    key = f"signals_project_profile_build/{team_id}"
+    claimed = False
+    try:
+        claimed = cache.add(key, "1", timeout=_PROFILE_BUILD_DEDUPE_SECONDS)
+        if claimed or not dedupe:
+            build_signal_project_profile.delay(team_id)
+    except Exception as exc:
+        capture_exception(exc, {"team_id": team_id})
+        if claimed:
+            with suppress(Exception):
+                cache.delete(key)
 
 
 @shared_task(
@@ -1037,15 +1052,15 @@ def enqueue_project_profile_build(team_id: int) -> None:
 )
 @with_team_scope()
 def build_signal_project_profile(team_id: int) -> None:
-    """Build the team's project profile off the request path, for a read caller that found none.
+    """Run the surface queries off the request path, and build the profile if the team has none.
 
-    `get_project_profile` returns a fresh row if one landed since the enqueue, and its advisory
-    lock collapses this build with a concurrent scout build.
+    A read caller that found no profile queues this, and so does a read whose profile has no
+    current surface entries.
     """
     # The `tools` package imports this module through `slack_delivery_queue`.
-    from products.signals.backend.scout_harness.tools.profile import get_project_profile  # noqa: PLC0415
+    from products.signals.backend.scout_harness.tools.profile import refresh_project_profile_surfaces  # noqa: PLC0415
 
-    get_project_profile(team_id=team_id)
+    refresh_project_profile_surfaces(team_id=team_id)
 
 
 @shared_task(
