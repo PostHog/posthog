@@ -12,6 +12,7 @@ import type {
     BusinessKnowledgeDocumentsSearchListParams,
     BusinessKnowledgeDocumentsWindowListParams,
     BusinessKnowledgeGapSuggestionsListParams,
+    BusinessKnowledgePlaygroundChatsListParams,
     BusinessKnowledgeRepositoriesFileRetrieveParams,
     BusinessKnowledgeRepositoriesSearchParams,
     BusinessKnowledgeSettingsApi,
@@ -29,10 +30,10 @@ import type {
     PaginatedKnowledgeGapSuggestionListApi,
     PaginatedKnowledgeSourceDocumentListApi,
     PaginatedKnowledgeSourceListApi,
+    PaginatedPlaygroundChatListListApi,
     PatchedBusinessKnowledgeSettingsUpdateApi,
     PatchedUpdateTextSourceApi,
     PlaygroundChatApi,
-    PlaygroundChatListApi,
     RepositoryConnectApi,
     RepositoryConnectionApi,
     RepositoryFileApi,
@@ -262,8 +263,23 @@ export const businessKnowledgeGapSuggestionsDismissTopicCreate = async (
     })
 }
 
-export const getBusinessKnowledgePlaygroundChatsListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/business_knowledge/playground/chats/`
+export const getBusinessKnowledgePlaygroundChatsListUrl = (
+    projectId: string,
+    params?: BusinessKnowledgePlaygroundChatsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/business_knowledge/playground/chats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/business_knowledge/playground/chats/`
 }
 
 /**
@@ -272,12 +288,16 @@ export const getBusinessKnowledgePlaygroundChatsListUrl = (projectId: string) =>
  */
 export const businessKnowledgePlaygroundChatsList = async (
     projectId: string,
+    params?: BusinessKnowledgePlaygroundChatsListParams,
     options?: RequestInit
-): Promise<PlaygroundChatListApi[]> => {
-    return apiMutator<PlaygroundChatListApi[]>(getBusinessKnowledgePlaygroundChatsListUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<PaginatedPlaygroundChatListListApi> => {
+    return apiMutator<PaginatedPlaygroundChatListListApi>(
+        getBusinessKnowledgePlaygroundChatsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getBusinessKnowledgePlaygroundChatsCreateUrl = (projectId: string) => {

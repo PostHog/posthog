@@ -7,6 +7,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -33,6 +34,11 @@ from .serializers import PlaygroundChatListSerializer, PlaygroundChatSerializer,
 from .settings import CanonicalTeamTokenPermission
 
 
+class PlaygroundChatPagination(LimitOffsetPagination):
+    default_limit = 100
+    max_limit = 100
+
+
 class BusinessKnowledgePlaygroundChatViewSet(
     TeamAndOrgViewSetMixin,
     mixins.DestroyModelMixin,
@@ -42,6 +48,7 @@ class BusinessKnowledgePlaygroundChatViewSet(
     requires_resource_level_access = True
     queryset = PlaygroundChat.objects.unscoped()
     serializer_class = PlaygroundChatSerializer
+    pagination_class = PlaygroundChatPagination
     permission_classes = [
         IsAuthenticated,
         APIScopePermission,
@@ -50,7 +57,6 @@ class BusinessKnowledgePlaygroundChatViewSet(
     ]
     posthog_feature_flag = "product-business-knowledge"
     throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
-    pagination_class = None
     http_method_names = ["get", "post", "delete", "head", "options"]
 
     @cached_property
@@ -79,12 +85,13 @@ class BusinessKnowledgePlaygroundChatViewSet(
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
         # A refused first question leaves an untitled chat behind.
+        page = self.paginate_queryset(self.get_queryset().exclude(title="").order_by("-updated_at"))
         chats = serialize_playground_chat_list(
-            self.get_queryset().exclude(title="").order_by("-updated_at"),
+            page or [],
             team_id=self.team_id,
             user_id=cast(User, request.user).id,
         )
-        return Response(PlaygroundChatListSerializer(chats, many=True).data)
+        return self.get_paginated_response(PlaygroundChatListSerializer(chats, many=True).data)
 
     @extend_schema(
         request=None,
