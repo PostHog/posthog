@@ -21,7 +21,7 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.integration import Integration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.fixtures import create_app_metric2
@@ -7297,10 +7297,15 @@ class TestCreateTaskActionValidation(APIBaseTest):
                 "allowlist_entry_no_installation_reaches",
                 {"template": "{event.properties.repository}", "allowed": ["my-org/api", "other-org/secret"]},
             ),
+            (
+                "allowlist_entry_only_a_broken_installation_reaches",
+                {"template": "{event.properties.repository}", "allowed": ["my-org/api", "broken-org/api"]},
+            ),
         ]
     )
     def test_rejects_a_templated_repository_the_step_cannot_restrict(self, _name, repository):
         self._connect_github(["my-org/api"])
+        self._connect_github(["broken-org/api"], errors=ERROR_TOKEN_REFRESH_FAILED)
 
         response = self._post_flow({"repository": {"value": repository}})
 
@@ -7314,11 +7319,12 @@ class TestCreateTaskActionValidation(APIBaseTest):
             return execute_bytecode(compiled, run_globals).result
         return [self._render(item, run_globals) for item in compiled]
 
-    def _connect_github(self, repositories: list[str]) -> None:
+    def _connect_github(self, repositories: list[str], errors: str = "") -> None:
         Integration.objects.create(
             team=self.team,
             kind="github",
             config={},
+            errors=errors,
             repository_cache=[
                 {"id": index, "name": full_name.split("/")[1], "full_name": full_name}
                 for index, full_name in enumerate(repositories)
