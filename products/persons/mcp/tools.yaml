@@ -114,7 +114,8 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '{id}'
+        # The person scene routes by UUID; a numeric-id link renders "we couldn't load this person".
+        enrich_url: '{uuid}'
         title: Get person
         description: |
             Retrieve a single person by numeric ID or UUID. Returns the person's properties, distinct IDs, and metadata.
