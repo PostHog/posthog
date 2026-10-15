@@ -2896,6 +2896,14 @@ snapshots:
         hash: v1.k794b7964.7e808d1acde79b48d8f6c2d7139a9a11e2c33e0579b69636176f4f3b06f0fd94.4U7X0_N-c7UsfP55hsEDM_-nKHMzZYtNczPj2K5penI
     customer-analytics-task-digest--tasks-modal--light:
         hash: v1.k794b7964.d699105ed3649edc2776b326c0b8417aaf3d6b22573537c1812e5cee2917f13a.yH78vgMSeg2K_yuHa4ej4U_5g6atJd_s4pbbMFhbVlA
+    data-catalog-metric-run-result-cell--long-values-collapse--dark:
+        hash: v1.k794b7964.dc188a898119faa5dc90aabb8b42f172657e8d18604c5cb4dfecd77f33dcca14.OkK0G4Kc9D5flwW3eKJ24FBFZcaNd7oEQUHyqqLXtqY
+    data-catalog-metric-run-result-cell--long-values-collapse--light:
+        hash: v1.k794b7964.3c93d03760586dc6ad29f5bbecc790ae71a32adb73b27b407451aff2d013be47.KGjBSg-Nc6WrGErPGI2lyf8Q9jWaU-TnJr5oBI63hbQ
+    data-catalog-metric-run-result-cell--long-values-collapse-narrow--dark:
+        hash: v1.k794b7964.31b0aad20412006cac1042289e42000bcf9d33eedd04b31660ed76046af9999b.f5qS7fn7tfv7TpUci6SBbLNi_kbaZg1VK0FE22kb5tw
+    data-catalog-metric-run-result-cell--long-values-collapse-narrow--light:
+        hash: v1.k794b7964.9aa8dcef35291699e28da4dddc121a72afe63c58234aacb2bde52bc664ce6eb6.I_bEwyXTBG0uz_Hq0wBLtozTigTmAS6yf0dInWvo6_E
     data-catalog-metric-tests--empty--dark:
         hash: v1.k794b7964.8c5bed6e45ecc0ce83e4fcb37057c6d87aad0a974e8ed035b9fc9e67a8c1dbd9.jNr2vi0P9-nEfiRddJJjwFg4ZekchSpeyXxdxNfAF1E
     data-catalog-metric-tests--empty--light:
@@ -6414,6 +6422,10 @@ snapshots:
         hash: v1.k794b7964.ad71858e2dc5a45e3d81bb38d46ad3bbe2dea9c152b625fbbf93117a27e624ca.Z4AVu3aic8bdKuv98SD1V1ZqQXsxPwGX2mZl3cL31bs
     mcp-apps-workflows--archived--light:
         hash: v1.k794b7964.ef7053f4c964693d5c5e5fdfbd58ff59028e629f0709a08a8e671aec82b5250e.sqIaakT_XJ9sVFNc4OkpgL2trDWUj4L2H_rFZT9c5Gw
+    mcp-apps-workflows--data-suggestions--light:
+        hash: v1.k794b7964.b2ceec3c890e9f432bf8a548bea888ee5ecb4fb943a00e914f265b6e1dde37e4.ITfYs9uRttzjpHJkLrKYopYinde_S2_TnmmxWTWfQ3o
+    mcp-apps-workflows--data-suggestions-built--light:
+        hash: v1.k794b7964.a6a2d5322df9e01bbc25c27899200c465263863b539a328312d45b4c700f3df2.D7UIfg7JMHFk-mo0_Xg3i5H_FtpA_dKVrnUuA0iD-mM
     mcp-apps-workflows--draft-state--light:
         hash: v1.k794b7964.4cbfe20c626f0f7912dbd47b41a152c9c30f92d12a3f599476fb10043d7f7e70.9NI9FaMch59lt8xO3Xhp9ruHKLyDcvupNp20dZrR8_Y
     mcp-apps-workflows--list--light:

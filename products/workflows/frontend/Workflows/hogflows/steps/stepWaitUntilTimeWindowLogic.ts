@@ -192,6 +192,11 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   max_delay_duration?: string | undefined
               }
             | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
+              }
+            | {
                   inputs: Record<
                       string,
                       {
@@ -454,6 +459,11 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       tag_names?: string[] | undefined
                   }
                   type: 'batch'
+              }
+            | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
               }
             | {
                   condition: {

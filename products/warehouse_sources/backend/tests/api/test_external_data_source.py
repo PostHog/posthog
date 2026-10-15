@@ -102,6 +102,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsApiError
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
+    META_TOKEN_REFRESH_ERROR_MESSAGE,
     MetaAdsRateLimitError,
     MetaAdsTokenRefreshError,
 )
@@ -14109,14 +14110,12 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # Meta refusing to refresh the stored token is a customer-side state (revoked access), so it
         # must reach the user as an actionable 400 rather than an unhandled 500.
         integration = self._meta_ads_integration()
-        error = MetaAdsTokenRefreshError(
-            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
-        )
+        error = MetaAdsTokenRefreshError(META_TOKEN_REFRESH_ERROR_MESSAGE)
         with patch(f"{self._META_ADS_MODULE}.get_integration_by_id", side_effect=error):
             response = self.client.get(self._url("MetaAds", integration.id))
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "re-authorize" in str(response.json()).lower()
+        assert META_TOKEN_REFRESH_ERROR_MESSAGE in str(response.json())
 
     def test_meta_ads_rate_limit_returns_actionable_400(self):
         # Meta throttling us is not a bug — it must not page us as a 500. The user just retries.
