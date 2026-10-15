@@ -27,7 +27,7 @@ class Command(BaseCommand):
         team_id = cast(int, options["team_id"])
         if not options["dry_run"]:
             next_run = tasks_facade.normalize_verified_pull_request_urls_batch(
-                team_id=team_id, after=options["run_after"]
+                team_id=team_id, after=cast(UUID | None, options["run_after"])
             )
             if next_run is not None:
                 self.stdout.write(f"Normalized verified pull request URLs. Resume with --run-after {next_run}")
