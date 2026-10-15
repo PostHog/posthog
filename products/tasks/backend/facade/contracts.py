@@ -1070,6 +1070,14 @@ class LivingArtifactVersionContent:
     name: str
     content_type: str
     content: bytes
+    script_sha256: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class LivingArtifactVersionPreview:
+    name: str
+    content_type: str
+    script_sha256: str | None
 
 
 @dataclass(frozen=True, kw_only=True)

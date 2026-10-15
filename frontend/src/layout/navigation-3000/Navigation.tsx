@@ -15,7 +15,8 @@ import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
 import { TodayShell } from '~/layout/today/TodayShell'
-import { todayShellLogic } from '~/layout/today/todayShellLogic'
+import { TODAY_RAIL_WIDTH, todayShellLogic } from '~/layout/today/todayShellLogic'
+import { TodayTopBar } from '~/layout/today/TodayTopBar'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
@@ -142,7 +143,9 @@ export function Navigation({
                             ? 'p-4'
                             : mode === 'embedded'
                               ? '@container/main-content min-h-screen p-4'
-                              : undefined
+                              : mode === 'minimal' && sceneConfig?.layout !== 'plain'
+                                ? '@container/main-content flex flex-col p-4'
+                                : undefined
                     }
                 >
                     {children}
@@ -167,6 +170,7 @@ export function Navigation({
                     'TodayAppLayout scrollbar-thin scrollbar-track-transparent scrollbar-thumb-[var(--color-bg-fill-scroll-thumb)]':
                         todayRail,
                     'TodayAppLayout--phone': todayPhone,
+                    'TodayAppLayout--top-bar': todayFramed,
                     'TodayAppLayout--no-phone-header': todayPhoneHeaderHidden,
                 })}
                 style={
@@ -187,6 +191,7 @@ export function Navigation({
                         // --project-navbar-width. Collapsed/mobile fall back to the base default.
                         '--project-navbar-width':
                             !mobileLayout && !isLayoutNavCollapsed ? `${navbarWidth}px` : undefined,
+                        '--today-rail-width': todayRail ? `${TODAY_RAIL_WIDTH}px` : undefined,
                         '--left-nav-width': todayRail
                             ? `${todayLeftNavWidth}px`
                             : isLayoutNavCollapsed
@@ -196,7 +201,9 @@ export function Navigation({
                 }
             >
                 <ProjectDragAndDropProvider>
+                    {todayFramed && <TodayTopBar />}
                     {todayRail ? <TodayShell className="left-nav" /> : <PanelLayout className="left-nav" />}
+                    {todayFramed && <div aria-hidden className="TodayAppLayout__shadow" />}
                     {todayFramed && (
                         // The chrome token exists only inside a quill scope, so the backdrop that fills the gap above the frame carries data-quill.
                         <div data-quill aria-hidden className="TodayAppLayout__backdrop bg-[var(--chrome)]" />

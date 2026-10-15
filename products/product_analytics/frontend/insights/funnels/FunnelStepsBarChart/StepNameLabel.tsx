@@ -30,7 +30,7 @@ export function StepNameLabel({ step, stepIndex }: StepNameLabelProps): JSX.Elem
 
     const name = (
         <span className="StepNameLabel__name font-semibold leading-5">
-            <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />
+            <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap showSingleName />
             {isOptionalStep ? <span className="ml-1 text-xs font-normal">(optional)</span> : null}
         </span>
     )

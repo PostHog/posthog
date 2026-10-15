@@ -15,12 +15,19 @@ const NOTE_MAX_LENGTH = 4000
 
 export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { feedbackSentiment, feedbackNoteDraft, feedbackNoteSent, feedbackSentNote, feedbackNoteSubmitting } =
-        useValues(logic)
+    const {
+        feedbackSentiment,
+        feedbackNoteDraft,
+        feedbackNoteSent,
+        feedbackSentNote,
+        feedbackNoteSubmitting,
+        feedbackDisabledReason,
+    } = useValues(logic)
     const { rateReport, setFeedbackNoteDraft, submitFeedbackNote } = useActions(logic)
     const { celebrate, celebration } = useReportFeedbackCelebration()
     const isPositive = feedbackSentiment === 'positive'
     const isNegative = feedbackSentiment === 'negative'
+    const [askedHere, setAskedHere] = useState(false)
     const [questionDismissed, setQuestionDismissed] = useState(false)
     const sendNote = (): void => {
         if (feedbackNoteDraft.trim()) {
@@ -52,13 +59,12 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                         size="icon-sm"
                         aria-label="This report was useful"
                         aria-pressed={isPositive}
-                        tooltip="Yes, this was useful"
+                        tooltip={feedbackDisabledReason ?? (isPositive ? 'Remove thumbs up' : 'Yes, this was useful')}
+                        disabled={!!feedbackDisabledReason}
                         onClick={() => {
-                            if (!isPositive) {
-                                rateReport('positive', 'today')
-                                setQuestionDismissed(false)
-                                celebrate()
-                            }
+                            rateReport(isPositive ? null : 'positive', 'today', !isPositive ? celebrate : undefined)
+                            setQuestionDismissed(false)
+                            setAskedHere(true)
                         }}
                         data-attr="today-report-feedback-up"
                     >
@@ -70,12 +76,12 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                     size="icon-sm"
                     aria-label="This report was not useful"
                     aria-pressed={isNegative}
-                    tooltip="No, this wasn't useful"
+                    tooltip={feedbackDisabledReason ?? (isNegative ? 'Remove thumbs down' : "No, this wasn't useful")}
+                    disabled={!!feedbackDisabledReason}
                     onClick={() => {
-                        if (!isNegative) {
-                            rateReport('negative', 'today')
-                            setQuestionDismissed(false)
-                        }
+                        rateReport(isNegative ? null : 'negative', 'today')
+                        setQuestionDismissed(false)
+                        setAskedHere(true)
                     }}
                     data-attr="today-report-feedback-down"
                 >
@@ -104,6 +110,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                     <div className="flex items-end gap-1.5">
                         <Textarea
                             value={feedbackNoteDraft}
+                            disabled={feedbackNoteSubmitting}
                             onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
                                 setFeedbackNoteDraft(event.target.value)
                             }
@@ -117,7 +124,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                             aria-label="Add a note about this report"
                             maxLength={NOTE_MAX_LENGTH}
                             rows={2}
-                            autoFocus
+                            autoFocus={askedHere}
                             className="max-h-48 min-h-14! min-w-0 flex-1 resize-none"
                             data-attr="today-report-feedback-note"
                         />

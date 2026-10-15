@@ -2699,7 +2699,7 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
         )
 
 
-class TestResolveTeamLabels(APIBaseTest):
+class TestResolveTeamLabels(SimpleTestCase):
     """Project names are put into labels on the way out, not sent in with the request.
 
     Billing keys usage by project id. An id-to-name map on every request would be about 16KB
@@ -2825,7 +2825,7 @@ class TestExportGzip(APILicensedTest):
         upstream.close.assert_called_once()
 
 
-class TestExportStreaming(APIBaseTest):
+class TestExportStreaming(SimpleTestCase):
     """Django 5 under ASGI consumes a synchronous streaming body in full before it sends a byte,
     so a large export would arrive all at once at the end. The proxy hands Django an
     asynchronous iterator, so the first chunk goes out before the last is read from billing."""
@@ -2862,7 +2862,7 @@ class TestExportStreaming(APIBaseTest):
         upstream.close.assert_called_once()
 
 
-class TestRewriteCsvLabels(APIBaseTest):
+class TestRewriteCsvLabels(SimpleTestCase):
     """Project names go into an exported CSV as it streams past, in place of ids.
 
     Billing has no names, so its Project column carries the id, and the proxy substitutes the

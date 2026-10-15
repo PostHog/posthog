@@ -18,6 +18,7 @@ from posthog.temporal.oauth import MCP_READ_SCOPES
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.facade.domain_research import DomainResearch
 from products.tasks.backend.facade.onboarding import (
+    ONBOARDING_SESSION_FREE_MODEL,
     _origin_key,
     _session_enabled,
     onboarding_test_tools_enabled,
@@ -25,11 +26,19 @@ from products.tasks.backend.facade.onboarding import (
     start_onboarding_test_session,
 )
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
+from products.tasks.backend.logic.services.gateway_model_pin import FREE_TIER_MODELS
+from products.tasks.backend.model_catalog import is_offered_model
 from products.tasks.backend.models import Task, TaskClientProvenance
 
 MODULE = "products.tasks.backend.facade.onboarding"
 
 NOT_CONFIGURED = DomainResearch(outcome="not_configured", url="https://northwind.example/")
+
+
+def test_the_free_session_model_is_offered_and_in_the_free_pin() -> None:
+    # A free run mints only for models in the free pin.
+    assert is_offered_model(ONBOARDING_SESSION_FREE_MODEL)
+    assert ONBOARDING_SESSION_FREE_MODEL in FREE_TIER_MODELS
 
 
 class TestOnboardingSessionIdempotency(TestCase):
@@ -110,7 +119,7 @@ class TestOnboardingSessionIdempotency(TestCase):
 
     @parameterized.expand(
         [
-            ("free", [], "@cf/zai-org/glm-5.2"),
+            ("free", [], "zai-org/glm-5.3-flash"),
             (
                 "paid",
                 [{"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Desktop usage billing"}],

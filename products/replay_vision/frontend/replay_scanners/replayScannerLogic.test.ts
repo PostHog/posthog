@@ -19,6 +19,7 @@ import { ScannerModelEnumApi } from '../generated/api.schemas'
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
 import {
     buildObservationListParams,
+    goalSpendChoice,
     ObservationStatusValue,
     ObservationTriggeredByValue,
     ObservationVerdictValue,
@@ -228,6 +229,108 @@ describe('replayScannerLogic', () => {
             expect(logic.values.goalDraft?.rationale).toEqual(draft.rationale)
             logic.actions.startFromTemplate(null)
             expect(logic.values.goalDraft).toBeNull()
+        })
+
+        it.each([
+            {
+                flow: 'goal flow, free',
+                variant: 'test',
+                solved: true,
+                freeOnly: true,
+                expectFree: true,
+                creditLimit: null,
+            },
+            {
+                flow: 'goal flow, budget',
+                variant: 'test',
+                solved: true,
+                freeOnly: false,
+                expectFree: false,
+                creditLimit: 4000,
+            },
+            {
+                flow: 'goal flow, free, costing failed',
+                variant: 'test',
+                solved: false,
+                freeOnly: true,
+                expectFree: true,
+                creditLimit: null,
+            },
+            {
+                flow: 'control arm asked for free',
+                variant: 'control',
+                solved: false,
+                freeOnly: true,
+                expectFree: false,
+                creditLimit: 4000,
+            },
+        ])(
+            'applies the spend choice to the drafted scanner: $flow',
+            async ({ variant, solved, freeOnly, expectFree, creditLimit }) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: variant })
+                draftSpy.mockReturnValue([
+                    200,
+                    {
+                        name: 'Overview',
+                        description: 'Summarizes sessions.',
+                        scanner_type: 'summarizer',
+                        scanner_config: { prompt: 'Summarize the session.' },
+                        rationale: '',
+                        query: null,
+                        credit_limit: 4000,
+                        ...(solved ? { sampling_mode: 'balanced', sampling_rate: 0.5 } : {}),
+                    },
+                ])
+                router.actions.push(urls.replayVisionScannerTemplate('new'))
+
+                await expectLogic(logic, () =>
+                    logic.actions.draftScannerFromGoal('what are users doing?', 2500, undefined, freeOnly)
+                ).toFinishAllListeners()
+
+                expect(!!logic.values.scanner?.free_only).toEqual(expectFree)
+                expect(logic.values.scanner?.credit_limit ?? null).toEqual(creditLimit)
+            }
+        )
+
+        it('keeps a free draft free when the goal-flow flag changes while the request runs', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'test' })
+            draftSpy.mockImplementation(() => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: 'control' })
+                return [
+                    200,
+                    {
+                        name: 'Overview',
+                        description: 'Summarizes sessions.',
+                        scanner_type: 'summarizer',
+                        scanner_config: { prompt: 'Summarize the session.' },
+                        rationale: '',
+                        query: null,
+                        credit_limit: 4000,
+                        sampling_mode: 'balanced',
+                        sampling_rate: 0.5,
+                    },
+                ]
+            })
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('what are users doing?', 2500, undefined, true)
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner).toMatchObject({ free_only: true, credit_limit: null })
+        })
+
+        it.each([
+            { case: 'free credits left', mode: 'free' as const, left: 800, expected: { mode: 'free', budget: 2500 } },
+            {
+                case: 'free credits used up',
+                mode: 'free' as const,
+                left: 0,
+                expected: { mode: 'budget', budget: 3000 },
+            },
+            { case: 'budget chosen', mode: 'budget' as const, left: 800, expected: { mode: 'budget', budget: 3000 } },
+        ])('picks the spend for a goal draft: $case', ({ mode, left, expected }) => {
+            expect(goalSpendChoice(mode, 3000, left)).toMatchObject(expected)
         })
 
         it('keeps the default query (every session) when the draft has no session filter', async () => {
@@ -1231,6 +1334,36 @@ describe('replayScannerLogic', () => {
                 updated_at: '2026-09-24T10:00:00Z',
             })
         })
+
+        it('turns off free credits only with a patch of that one field and clears the stopped state', async () => {
+            let patchedBody: any
+            useMocks({
+                patch: {
+                    '/api/projects/:team/vision/scanners/:id/': async ({ request }: { request: Request }) => {
+                        patchedBody = await request.json()
+                        return [
+                            200,
+                            {
+                                ...loadedScanner,
+                                free_only: false,
+                                limit_reached: false,
+                                limit_from_free_credits: false,
+                            },
+                        ]
+                    },
+                },
+            })
+            await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
+            editLogic.actions.setScannerValues({ free_only: true, limit_reached: true, limit_from_free_credits: true })
+            await expectLogic(editLogic, () => editLogic.actions.turnOffFreeOnly()).toDispatchActions([
+                'turnOffFreeOnlySuccess',
+            ])
+            expect(patchedBody).toEqual({ free_only: false })
+            const running = { free_only: false, limit_reached: false, limit_from_free_credits: false }
+            expect(editLogic.values.scanner).toMatchObject(running)
+            expect(editLogic.values.originalScanner).toMatchObject(running)
+            expect(editLogic.values.turningOffFreeOnly).toBe(false)
+        })
     })
 
     describe('buildObservationListParams', () => {
@@ -1776,19 +1909,33 @@ describe('replayScannerLogic', () => {
         })
 
         it.each([
-            ['a typed goal', undefined, null],
-            ['a goal starter', 'dead_end', 'dead_end'],
-        ])('drafting from %s reports the AI path without the goal text', async (_, templateKey, reportedKey) => {
-            const captureSpy = jest.spyOn(posthog, 'capture')
-            await expectLogic(logic, () => {
-                logic.actions.draftScannerFromGoal('  find users who get stuck  ', undefined, templateKey)
-            }).toFinishAllListeners()
-            expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
-                creation_method: 'ai',
-                template_key: reportedKey,
-                goal_length: 'find users who get stuck'.length,
-            })
-        })
+            ['a typed goal', undefined, null, undefined, null],
+            ['a goal starter', 'dead_end', 'dead_end', undefined, null],
+            ['the goal flow with free credits', undefined, null, 'test', 'free'],
+            ['the control arm, which never gets free-only', undefined, null, 'control', null],
+        ])(
+            'drafting from %s reports the AI path without the goal text',
+            async (_, templateKey, reportedKey, goalFlowVariant, spendMode) => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.VISION_GOAL_FLOW_V3]: goalFlowVariant ?? false,
+                })
+                const captureSpy = jest.spyOn(posthog, 'capture')
+                await expectLogic(logic, () => {
+                    logic.actions.draftScannerFromGoal(
+                        '  find users who get stuck  ',
+                        goalFlowVariant ? 2500 : undefined,
+                        templateKey,
+                        true
+                    )
+                }).toFinishAllListeners()
+                expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
+                    creation_method: 'ai',
+                    template_key: reportedKey,
+                    spend_mode: spendMode,
+                    goal_length: 'find users who get stuck'.length,
+                })
+            }
+        )
 
         it('the last path taken is what the save reports', async () => {
             // Each of these replaces the form, so someone who drafts with AI and then picks a

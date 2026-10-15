@@ -680,8 +680,8 @@ export const autoresearchUpdate = async (
     id: string,
     autoresearchPipelineCreateApi: AutoresearchPipelineCreateApi,
     options?: RequestInit
-): Promise<AutoresearchPipelineCreateApi> => {
-    return apiMutator<AutoresearchPipelineCreateApi>(getAutoresearchUpdateUrl(projectId, id), {
+): Promise<AutoresearchPipelineApi> => {
+    return apiMutator<AutoresearchPipelineApi>(getAutoresearchUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -705,8 +705,8 @@ export const autoresearchPartialUpdate = async (
     id: string,
     patchedAutoresearchPipelineCreateApi?: PatchedAutoresearchPipelineCreateApi,
     options?: RequestInit
-): Promise<AutoresearchPipelineCreateApi> => {
-    return apiMutator<AutoresearchPipelineCreateApi>(getAutoresearchPartialUpdateUrl(projectId, id), {
+): Promise<AutoresearchPipelineApi> => {
+    return apiMutator<AutoresearchPipelineApi>(getAutoresearchPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -737,7 +737,7 @@ export const getAutoresearchArchiveCreateUrl = (projectId: string, id: string) =
 }
 
 /**
- * Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved. Refused while a training run is in progress.
+ * Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved. When write_person_property is on, a cleanup run removes output_person_property from the people it scored. Refused while a training run is in progress.
  * @summary Archive a pipeline
  */
 export const autoresearchArchiveCreate = async (

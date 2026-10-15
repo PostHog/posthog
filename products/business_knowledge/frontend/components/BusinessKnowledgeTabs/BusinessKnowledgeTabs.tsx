@@ -12,7 +12,7 @@ export function BusinessKnowledgeTabs({ activeTab }: { activeTab: BusinessKnowle
             tabs={[
                 {
                     key: 'sources',
-                    label: 'Sources',
+                    label: 'Libraries',
                     link: urls.businessKnowledge(),
                     // pinned: autocapture / Playwright key. Do not rename.
                     'data-attr': 'business-knowledge-tab-sources',

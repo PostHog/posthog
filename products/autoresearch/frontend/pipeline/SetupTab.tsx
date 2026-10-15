@@ -7,6 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { AutoresearchPipelineApi } from '../generated/api.schemas'
 import { MetricCard } from './MetricCard'
+import { PersonPropertySetting } from './PersonPropertySetting'
 import { SectionCard } from './SectionCard'
 
 export function SetupTab(): JSX.Element {
@@ -35,6 +36,7 @@ export function SetupTab(): JSX.Element {
                     />
                 </div>
             </div>
+            <PersonPropertySetting source="setup_tab" />
             <div>
                 <DetailRow label="Output person property">
                     <code>{pipeline.output_person_property ?? '—'}</code>

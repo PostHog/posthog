@@ -3,7 +3,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
@@ -296,7 +296,7 @@ class TestForkMenuDispatch(TestCase):
         mock_connect.assert_not_called()
 
 
-class TestForkMenuBlock(TestCase):
+class TestForkMenuBlock(SimpleTestCase):
     def test_menu_is_a_bare_overflow_element_carrying_the_integration(self):
         # Bare, not wrapped in an `actions` block, so it can be the footer's accessory
         # and share its line. The integration in the option value is what lets the

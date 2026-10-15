@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 from posthog.models import Team, User
 
 from products.signals.backend.facade import api as signals
+from products.today.backend.facade import contracts
 from products.today.backend.facade.enums import BriefingStatus, ItemGroup, ItemReason, ItemSource, ItemState
 from products.today.backend.logic import briefings
 from products.today.backend.logic.fact_sheet import FactSheet, FactSheetItem
@@ -20,7 +21,7 @@ MISSING_REPORT = uuid.UUID("00000000-0000-4000-8000-000000000004")
 DELETED_REPORT = uuid.UUID("00000000-0000-4000-8000-000000000005")
 
 
-def _item(report_id: uuid.UUID) -> FactSheetItem:
+def _item(report_id: uuid.UUID, rank: int = 1) -> FactSheetItem:
     return FactSheetItem(
         key=f"report:{report_id}",
         group=ItemGroup.REPORT,
@@ -28,16 +29,18 @@ def _item(report_id: uuid.UUID) -> FactSheetItem:
         reason=ItemReason.WAITING_FOR_YOU,
         title=str(report_id),
         url="/project/1/inbox",
-        rank=1,
+        rank=rank,
         facts={},
     )
 
 
-def _report_details(report_id: uuid.UUID, status: str) -> signals.BriefingReportDetails:
+def _report_details(
+    report_id: uuid.UUID, status: str = "ready", priority: str | None = "P1"
+) -> signals.BriefingReportDetails:
     return signals.BriefingReportDetails(
         report_id=str(report_id),
         status=status,
-        priority="P1",
+        priority=priority,
         summary="Checkout fails for some users",
         pull_request_state="merged",
         pull_request_url="https://github.com/example/app/pull/1",
@@ -60,44 +63,45 @@ def _report_details(report_id: uuid.UUID, status: str) -> signals.BriefingReport
     )
 
 
+def _contract(items: list[FactSheetItem], details: list[signals.BriefingReportDetails]) -> contracts.Briefing:
+    briefing = DailyBriefing(
+        id=uuid.uuid4(),
+        team_id=1,
+        user_id=1,
+        local_day=date(2026, 10, 1),
+        status=BriefingStatus.READY,
+        facts=FactSheet(items=items).model_dump(mode="json"),
+        content={},
+        created_at=datetime(2026, 10, 1, 6, 0, tzinfo=UTC),
+    )
+    with (
+        patch.object(briefings.signals, "report_details", return_value=details),
+        patch.object(
+            briefings.signals,
+            "open_report_counts",
+            return_value=signals.OpenReportCounts(for_person=0, in_project=0),
+        ),
+    ):
+        return briefings.to_contract(briefing, Team(id=1), User(id=1), metric_access=MagicMock())
+
+
 class TestBriefingItemStates(SimpleTestCase):
     def test_items_show_what_was_resolved_or_dismissed_since_the_briefing_was_written(self) -> None:
-        items = [
-            _item(RESOLVED_REPORT),
-            _item(DISMISSED_REPORT),
-            _item(OPEN_REPORT),
-            _item(MISSING_REPORT),
-            _item(DELETED_REPORT),
-        ]
-        briefing = DailyBriefing(
-            id=uuid.uuid4(),
-            team_id=1,
-            user_id=1,
-            local_day=date(2026, 10, 1),
-            status=BriefingStatus.READY,
-            facts=FactSheet(items=items).model_dump(mode="json"),
-            content={},
-            created_at=datetime(2026, 10, 1, 6, 0, tzinfo=UTC),
+        contract = _contract(
+            [
+                _item(RESOLVED_REPORT),
+                _item(DISMISSED_REPORT),
+                _item(OPEN_REPORT),
+                _item(MISSING_REPORT),
+                _item(DELETED_REPORT),
+            ],
+            [
+                _report_details(RESOLVED_REPORT, "resolved"),
+                _report_details(DISMISSED_REPORT, "suppressed"),
+                _report_details(OPEN_REPORT, "ready"),
+                _report_details(DELETED_REPORT, "deleted"),
+            ],
         )
-
-        with (
-            patch.object(
-                briefings.signals,
-                "report_details",
-                return_value=[
-                    _report_details(RESOLVED_REPORT, "resolved"),
-                    _report_details(DISMISSED_REPORT, "suppressed"),
-                    _report_details(OPEN_REPORT, "ready"),
-                    _report_details(DELETED_REPORT, "deleted"),
-                ],
-            ),
-            patch.object(
-                briefings.signals,
-                "open_report_counts",
-                return_value=signals.OpenReportCounts(for_person=0, in_project=0),
-            ),
-        ):
-            contract = briefings.to_contract(briefing, Team(id=1), User(id=1), metric_access=MagicMock())
 
         assert {item.key: item.state for item in contract.items} == {
             f"report:{RESOLVED_REPORT}": ItemState.DONE,
@@ -115,3 +119,15 @@ class TestBriefingItemStates(SimpleTestCase):
         )
         reports_without_details = [item.key for item in contract.items if item.report is None]
         assert reports_without_details == [f"report:{MISSING_REPORT}", f"report:{DELETED_REPORT}"]
+
+    def test_items_follow_the_live_priority_of_their_report_then_the_written_rank(self) -> None:
+        contract = _contract(
+            [_item(MISSING_REPORT, rank=1), _item(OPEN_REPORT, rank=2), _item(RESOLVED_REPORT, rank=3)],
+            [_report_details(OPEN_REPORT, priority="P2"), _report_details(RESOLVED_REPORT, priority="P0")],
+        )
+
+        assert [(item.key, item.rank) for item in contract.items] == [
+            (f"report:{RESOLVED_REPORT}", 1),
+            (f"report:{OPEN_REPORT}", 2),
+            (f"report:{MISSING_REPORT}", 3),
+        ]
