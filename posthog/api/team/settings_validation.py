@@ -333,11 +333,7 @@ def validate_team_session_recording_linked_flag(
     # link would reject the other edits in the same request. Accepting it reveals nothing, because a
     # GET of the team returns the stored link. The key rewrite leaves a flag that the user cannot view
     # as sent, so a match on the id alone would let a request store any key for that flag.
-    # A row saved before ids were normalized can hold a string id, so the raw value can match too.
-    # A stored bool id never matches, because True == 1 in Python.
-    normalized = {**value, "id": flag_id}
-    stored_id = stored.get("id") if isinstance(stored, dict) else None
-    if not isinstance(stored_id, bool) and stored in (value, normalized):
+    if (normalized := {**value, "id": flag_id}) == stored:
         return normalized
 
     # The SDKs treat a flag they cannot resolve as "do not record", so a link to a missing,

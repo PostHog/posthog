@@ -325,6 +325,9 @@ def locked_replay_gate_write(
     On entry, this rewrites `validated_data` in place: every reference that stores a flag id
     moves to the flag's current key. The caller saves the team inside the block.
 
+    A column equal to the stored one stays as sent. A save that does not change a reference then
+    never changes which flag gates recording, including a stale reference that a repair left alone.
+
     `relink_teams` reads a renamed flag's key under the same lock. For a team that referenced the
     flag before the relink selected its teams, whichever write commits second stores the key the
     flag has at that time. A write that adds a new reference during a rename can still store the
@@ -340,9 +343,18 @@ def locked_replay_gate_write(
         return
 
     with transaction.atomic():
-        Team.objects.select_for_update(no_key=True).only("id").get(pk=team.pk)
+        locked = (
+            Team.objects.select_for_update(no_key=True)
+            .only("session_recording_linked_flag", "session_recording_trigger_groups")
+            .get(pk=team.pk)
+        )
+        # Compared with the locked row, not the caller's copy of the team. A client that loaded the
+        # team before a relink sends the old key, which differs from the key the relink stored.
         rewrite = rewrite_to_current_flag_keys(
-            linked_flag, trigger_groups, project_id=team.project_id, user_access_control=user_access_control
+            None if linked_flag == locked.session_recording_linked_flag else linked_flag,
+            None if trigger_groups == locked.session_recording_trigger_groups else trigger_groups,
+            project_id=team.project_id,
+            user_access_control=user_access_control,
         )
         validated_data.update(rewrite.changed_columns())
         yield

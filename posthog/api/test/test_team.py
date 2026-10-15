@@ -1202,14 +1202,16 @@ def team_api_test_factory():
             self._patch_linked_flag_config(None)
             self._assert_linked_flag_config(None)
 
-        @parameterized.expand([["viewable", "current-key"], ["access_denied", "stale-key"]])
+        @parameterized.expand(
+            [["viewable", "current-key"], ["access_denied", "stale-key"], ["unchanged_column", "stale-key"]]
+        )
         def test_moves_a_trigger_group_flag_sent_with_an_id_to_the_flags_current_key(
             self, case: str, expected_key: str
         ) -> None:
             flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="current-key")
             if case == "access_denied":
                 self._deny_flag_access(flag)
-            trigger_groups = {
+            trigger_groups: dict[str, Any] = {
                 "version": 2,
                 "groups": [
                     {
@@ -1219,6 +1221,11 @@ def team_api_test_factory():
                     }
                 ],
             }
+            if case == "unchanged_column":
+                Team.objects.filter(pk=self.team.pk).update(session_recording_trigger_groups=trigger_groups)
+                trigger_groups = self.client.get("/api/environments/@current/").json()[
+                    "session_recording_trigger_groups"
+                ]
 
             response = self.client.patch(
                 "/api/environments/@current/", {"session_recording_trigger_groups": trigger_groups}
@@ -1255,28 +1262,25 @@ def team_api_test_factory():
 
         @parameterized.expand(
             [
-                ["unchanged_soft_deleted", "soft_deleted", int, {}, status.HTTP_200_OK],
-                ["unchanged_string_id_soft_deleted", "soft_deleted", str, {}, status.HTTP_200_OK],
-                ["unchanged_access_denied", "access_denied", int, {}, status.HTTP_200_OK],
-                ["changed_key_access_denied", "access_denied", int, {"key": "other-key"}, status.HTTP_400_BAD_REQUEST],
-                ["added_variant_access_denied", "access_denied", int, {"variant": "x"}, status.HTTP_400_BAD_REQUEST],
+                ["unchanged_soft_deleted", "soft_deleted", {}, status.HTTP_200_OK],
+                ["unchanged_access_denied", "access_denied", {}, status.HTTP_200_OK],
+                ["unchanged_renamed", "renamed", {}, status.HTTP_200_OK],
+                ["changed_key_access_denied", "access_denied", {"key": "other-key"}, status.HTTP_400_BAD_REQUEST],
+                ["added_variant_access_denied", "access_denied", {"variant": "x"}, status.HTTP_400_BAD_REQUEST],
             ]
         )
-        def test_accepts_only_an_unchanged_link_to_a_flag_that_cannot_gate_recording(
-            self,
-            _name: str,
-            case: str,
-            stored_id: Callable[[int], Any],
-            sent_changes: dict[str, str],
-            expected_status: int,
+        def test_keeps_an_unchanged_link_as_stored(
+            self, _name: str, case: str, sent_changes: dict[str, str], expected_status: int
         ) -> None:
             flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate")
-            stored_link = {"id": stored_id(flag.id), "key": "gate"}
-            # Written with the ORM, because the API stores every id as an int.
-            Team.objects.filter(pk=self.team.pk).update(session_recording_linked_flag=stored_link)
+            stored_link = {"id": flag.id, "key": "gate"}
+            self._patch_linked_flag_config(stored_link)
             if case == "soft_deleted":
                 flag.deleted = True
                 flag.save()
+            elif case == "renamed":
+                # update() sends no post_save signal, so no relink moves the team to the new key.
+                FeatureFlag.objects.filter(pk=flag.pk).update(key="renamed")
             else:
                 self._deny_flag_access(flag)
 
@@ -1291,9 +1295,7 @@ def team_api_test_factory():
             assert response.status_code == expected_status, response.json()
             accepted = expected_status == status.HTTP_200_OK
             team = self.client.get("/api/environments/@current/").json()
-            assert team["session_recording_linked_flag"] == (
-                {"id": flag.id, "key": "gate"} if accepted else stored_link
-            )
+            assert team["session_recording_linked_flag"] == stored_link
             assert team["session_recording_minimum_duration_milliseconds"] == (1000 if accepted else None)
 
         def test_can_set_and_unset_session_recording_network_payload_capture_config(self) -> None:
