@@ -12,6 +12,7 @@ from collections.abc import Collection
 
 import structlog
 
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import absolute_uri
@@ -128,10 +129,9 @@ def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
         return CommandOutcome(accepted=True, message="PostHog Review already reviewed the current commit.")
     if outcome.started:
         follow_up = _follow_up(context)
-        if follow_up is not None and outcome.head_sha and outcome.review_mode:
-            key = follow_ups.review_key(
-                pull_request.repository, pull_request.number, outcome.head_sha, outcome.review_mode
-            )
+        if follow_up is not None and outcome.review_mode:
+            project_id = resolve_effective_team_id(member.team_id)
+            key = follow_ups.review_key(project_id, pull_request.repository, pull_request.number, outcome.review_mode)
             follow_ups.remember(key, follow_up)
         return CommandOutcome(accepted=True, message="PostHog Review is reviewing this pull request.")
     # PostHog Review writes its refusals from the repository name, the PR number and fixed text.

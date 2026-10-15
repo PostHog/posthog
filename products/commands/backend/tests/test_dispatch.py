@@ -585,7 +585,6 @@ class TestDispatchCommentCommand(BaseTest):
             report_id="r1",
             repository=REPOSITORY,
             pr_number=7,
-            head_sha="abc123",
             review_mode="flash",
             failed=False,
             findings_count=2,
@@ -596,8 +595,11 @@ class TestDispatchCommentCommand(BaseTest):
             patch(DELIVER_FOLLOW_UP, side_effect=lambda **kwargs: deliver_follow_up(**kwargs)),
             patch(SLACK_POST) as follow_up_post,
         ):
-            # A Deep turn that was already running on the head is not the review this thread asked for.
+            # A Deep turn that was already running is not the review this thread asked for, and neither
+            # is the same review in another project.
             on_review_finished(dataclasses.replace(finished, review_mode="full"))
+            other_project = Team.objects.create(organization=self.organization, name="Other project")
+            on_review_finished(dataclasses.replace(finished, team_id=other_project.id))
             on_review_finished(finished)
             on_review_finished(finished)
         if within_budget and github_reachable:

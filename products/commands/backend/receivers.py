@@ -12,6 +12,7 @@ from typing import Any
 
 from django.db import transaction
 
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.utils import absolute_uri
 
 from products.review_hog.backend.facade.finished_review_hooks import (
@@ -40,7 +41,8 @@ def _deliver(follow_up: follow_ups.FollowUp, message: str) -> None:
 
 
 def on_review_finished(finished: FinishedReview) -> None:
-    key = follow_ups.review_key(finished.repository, finished.pr_number, finished.head_sha, finished.review_mode)
+    project_id = resolve_effective_team_id(finished.team_id)
+    key = follow_ups.review_key(project_id, finished.repository, finished.pr_number, finished.review_mode)
     for follow_up in follow_ups.take(key):
         _deliver(follow_up, results.review_result(finished, follow_up))
 

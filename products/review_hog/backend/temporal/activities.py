@@ -652,9 +652,6 @@ class TrackReviewFailedInput:
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
     review_design: str = REVIEW_DESIGN_PIPELINE
-    # Defaulted so in-flight payloads from before the fields still deserialize. An older payload
-    # has no head, so it tells the finished-review callbacks nothing.
-    head_sha: str = ""
     # The workflow retries a failed turn, and only the last failure is the outcome.
     last_attempt: bool = True
 
@@ -2474,7 +2471,6 @@ def _notify_review_finished(
     team_id: int,
     report_id: str,
     run_index: int,
-    head_sha: str,
     review_mode: str,
     failed: bool,
     published: bool,
@@ -2498,7 +2494,6 @@ def _notify_review_finished(
         report_id=report_id,
         repository=report.repository,
         pr_number=report.pr_number,
-        head_sha=head_sha,
         review_mode=review_mode,
         failed=failed,
         findings_count=findings_count,
@@ -2529,7 +2524,6 @@ async def track_review_completed_activity(input: TrackReviewCompletedInput) -> N
         team_id=input.team_id,
         report_id=input.report_id,
         run_index=input.run_index,
-        head_sha=input.head_sha,
         review_mode=input.review_mode,
         failed=False,
         published=input.published,
@@ -2586,12 +2580,11 @@ async def track_review_failed_activity(input: TrackReviewFailedInput) -> None:
     Best-effort, like the completed event. The finished-review callbacks hear about the last failure too.
     """
     await database_sync_to_async(_track_review_failed_safe, thread_sensitive=False)(input)
-    if input.last_attempt and input.head_sha:
+    if input.last_attempt:
         await database_sync_to_async(_notify_review_finished, thread_sensitive=False)(
             team_id=input.team_id,
             report_id=input.report_id,
             run_index=input.run_index,
-            head_sha=input.head_sha,
             review_mode=input.review_mode,
             failed=True,
             published=False,

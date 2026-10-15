@@ -46,9 +46,10 @@ def stamphog_run_key(run_id: str) -> str:
     return f"commands:follow_up:stamphog_run:{run_id}"
 
 
-def review_key(repository: str, number: int, head_sha: str, review_mode: str) -> str:
-    # A request can wait behind a running turn of another mode or head, so all four name the turn.
-    return f"commands:follow_up:review:{repository.lower()}#{number}@{head_sha}:{review_mode}"
+def review_key(project_id: int, repository: str, number: int, review_mode: str) -> str:
+    # A request can wait behind a running turn of the other mode, and the head can move while it
+    # waits, so the mode names the turn and the head does not. Each project reviews on its own.
+    return f"commands:follow_up:review:{project_id}:{repository.lower()}#{number}:{review_mode}"
 
 
 def task_run_key(run_id: str) -> str:

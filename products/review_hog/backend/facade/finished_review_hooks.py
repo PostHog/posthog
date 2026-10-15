@@ -21,7 +21,6 @@ class FinishedReview:
     report_id: str
     repository: str
     pr_number: int
-    head_sha: str
     # REVIEW_MODE_FULL or REVIEW_MODE_FLASH, as the review request reported it.
     review_mode: str
     failed: bool

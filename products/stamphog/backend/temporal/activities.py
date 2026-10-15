@@ -1845,7 +1845,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     # Right after the save wins: the GitHub steps below can still fail the activity, and the
     # outcome must not wait on them.
-    _notify_finished_review(run, input.team_id)
+    _notify_finished_review(run, input.team_id, ReviewRunStatus(run.status))
 
     # Hand a refused/escalated PR to ReviewHog only AFTER the refusal verdict wins the terminal save
     # above — running it before would trigger ReviewHog for a stale refusal that a superseding delivery
@@ -1897,7 +1897,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     return {"verdict": str(parsed.verdict), "waited_on_external_review": _waited_on_external_review(run)}
 
 
-def _notify_finished_review(run: ReviewRun, team_id: int) -> None:
+def _notify_finished_review(run: ReviewRun, team_id: int, status: ReviewRunStatus) -> None:
     """Tell the registered callbacks the outcome the run just saved. Called after the terminal save."""
     pull_request = run.pull_request
     finished = FinishedReviewRun(
@@ -1905,7 +1905,7 @@ def _notify_finished_review(run: ReviewRun, team_id: int) -> None:
         team_id=team_id,
         repository=pull_request.repo_config.repository,
         pr_number=pull_request.pr_number,
-        status=ReviewRunStatus(run.status),
+        status=status,
         verdict=ReviewVerdict(run.verdict),
     )
     for hook in get_finished_review_hooks():
@@ -1954,6 +1954,10 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
         .exclude(status__in=TERMINAL_STATUSES)
         .update(status=ReviewRunStatus.FAILED, error=first_error_line, completed_at=now, updated_at=now)
     )
+    # Right after the save wins, before the cleanup below can fail the activity: a retry stops at
+    # the terminal guard and would never report.
+    if marked_failed:
+        _notify_finished_review(run, input.team_id, ReviewRunStatus.FAILED)
     # This run is done reviewing (unrecoverably) — clean up its own "review in flight" 👀 too. After
     # the terminal save on purpose: the removal's live-peer check must see this run as terminal, or
     # two concurrently failing runs could each defer to the other and leak the reaction.
@@ -1988,8 +1992,6 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
         )
 
     if marked_failed:
-        run.status = ReviewRunStatus.FAILED
-        _notify_finished_review(run, input.team_id)
         # Last, because this step raises. A retry returns through the terminal guard, which posts the
         # notice and nothing else, so the event above must reach PostHog on this attempt.
         _post_failure_notice(client, run, input.team_id)
