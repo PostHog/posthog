@@ -30,6 +30,13 @@ def due_checks(
     return platform_lifecycle.due_checks(team_id, source_kind, slot, cutoff, configuration_ids=configuration_ids)
 
 
+def due_check_ids(
+    team_id: int, source_kind: str, slot: str, cutoff: datetime, *, exclude: Collection[str] = (), limit: int
+) -> tuple[str, ...]:
+    """The first `limit` due ids of one batch key, skipping `exclude`, without their runtime state."""
+    return platform_lifecycle.due_check_ids(team_id, source_kind, slot, cutoff, exclude=exclude, limit=limit)
+
+
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
     """The platform's only write of state and schedule. Returns how many rows it wrote."""
     return platform_lifecycle.record_outcomes(team_id, outcomes, now)
