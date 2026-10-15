@@ -111,13 +111,13 @@ export interface taxonomicEventMatchLogicValues {
     searchQuery: string // taxonomicFilterLogic
     taxonomicGroupTypes: TaxonomicFilterGroupType[] // taxonomicFilterLogic
     taxonomicGroups: TaxonomicFilterGroup[] // taxonomicFilterLogic
+    canSearchAllCategories: boolean
     currentAnswer: EventMatches | null
     eventMatches: EventMatches | null
+    hint: EventMatchHint | null
     isMatching: boolean
     pendingQuery: string | null
     suggestedEvents: EventMatchApi[]
-    hint: EventMatchHint | null
-    canSearchAllCategories: boolean
     tabShowsSuggestions: boolean
 }
 
@@ -134,21 +134,21 @@ export interface taxonomicEventMatchLogicActions {
         meta: SelectItemMeta | undefined
         value: TaxonomicFilterValue
     } // taxonomicFilterLogic
+    setActiveTab: (activeTab: TaxonomicFilterGroupType) => {
+        activeTab: TaxonomicFilterGroupType
+    } // taxonomicFilterLogic
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
     } // taxonomicFilterLogic
     findEventMatches: (searchQuery: string) => {
         searchQuery: string
     }
-    selectEventMatch: (match: EventMatchApi) => {
-        match: EventMatchApi
-    }
     searchAllCategories: () => {
         value: true
     }
-    setActiveTab: (activeTab: TaxonomicFilterGroupType) => {
-        activeTab: TaxonomicFilterGroupType
-    } // taxonomicFilterLogic
+    selectEventMatch: (match: EventMatchApi) => {
+        match: EventMatchApi
+    }
     setEventMatches: (eventMatches: EventMatches | null) => {
         eventMatches: EventMatches | null
     }
@@ -176,11 +176,11 @@ export interface taxonomicEventMatchLogicMeta {
             activeTab: TaxonomicFilterGroupType,
             taxonomicGroupTypes: TaxonomicFilterGroupType[]
         ) => boolean
-        isMatching: (pendingQuery: string | null, searchQuery: string) => boolean
         suggestedEvents: (
             currentAnswer: EventMatches | null,
             taxonomicGroups: TaxonomicFilterGroup[]
         ) => EventMatchApi[]
+        isMatching: (pendingQuery: string | null, searchQuery: string) => boolean
         tabShowsSuggestions: (activeTab: TaxonomicFilterGroupType) => boolean
     }
 }
