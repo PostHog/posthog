@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -21,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.inflowinventory import (
     INFLOWINVENTORY_API_VERSION_2023_04_01,
     INFLOWINVENTORY_API_VERSION_2026_07_10,
+    INFLOWINVENTORY_API_VERSION_2026_09_29,
     InflowInventoryResumeConfig,
     inflowinventory_source,
     validate_credentials,
@@ -34,10 +36,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InflowinventorySource(ResumableSource[InflowinventorySourceConfig, InflowInventoryResumeConfig]):
+    codebase_detection = detect(env=("^INFLOWINVENTORY_",))
+
     # Oldest → newest. inFlow's version is a request input (the Accept header), so each pin keeps
     # sending its own label; new sources default to the current stable version.
-    supported_versions = (INFLOWINVENTORY_API_VERSION_2023_04_01, INFLOWINVENTORY_API_VERSION_2026_07_10)
-    default_version = INFLOWINVENTORY_API_VERSION_2026_07_10
+    supported_versions = (
+        INFLOWINVENTORY_API_VERSION_2023_04_01,
+        INFLOWINVENTORY_API_VERSION_2026_07_10,
+        INFLOWINVENTORY_API_VERSION_2026_09_29,
+    )
+    default_version = INFLOWINVENTORY_API_VERSION_2026_09_29
     api_docs_url = "https://cloudapi.inflowinventory.com/docs"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

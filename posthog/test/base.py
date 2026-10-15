@@ -73,11 +73,16 @@ from posthog.clickhouse.preaggregation.sql import (
 )
 from posthog.clickhouse.query_log_archive import (
     DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    DISTRIBUTED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
     QUERY_LOG_ARCHIVE_OPS_MV,
     QUERY_LOG_ARCHIVE_OPS_MV_SQL,
+    QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL,
+    QUERY_LOG_ARCHIVE_V3_MV_SQL,
     SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
     WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
     WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
+    WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
@@ -1479,7 +1484,7 @@ class NewEventsSchemaSnapshotExtension(AmberSnapshotExtension):
     keeps each schema mode's snapshots safe from the other mode's update runs.
     """
 
-    _file_extension = "new_events_schema.ambr"
+    file_extension = "new_events_schema.ambr"
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -1794,11 +1799,21 @@ def _create_event(**kwargs):
     return kwargs["event_uuid"]
 
 
-def _create_flag_evaluations(team_id: int, flag_key: str, count: int = 1, timestamp: dt.datetime | None = None) -> None:
+def _create_flag_evaluations(
+    team_id: int,
+    flag_key: str,
+    count: int = 1,
+    timestamp: dt.datetime | None = None,
+    *,
+    distinct_id: str = "evaluator",
+    person_id: uuid.UUID | str | None = None,
+    response: str | bool = True,
+    properties: dict[str, str] | None = None,
+) -> None:
     """Insert `count` $feature_flag_called rows for flag_key into flag_evaluations. Unlike _create_event, it writes
-    the rows immediately."""
+    the rows immediately. Each row gets a new random person_id unless the caller passes one."""
     timestamp = timestamp or dt.datetime.now(dt.UTC)
-    properties = json.dumps({"$feature_flag": flag_key, "$feature_flag_response": True})
+    properties_json = json.dumps({**(properties or {}), "$feature_flag": flag_key, "$feature_flag_response": response})
     # writable_flag_evaluations does not declare flag_key. The shard computes it from properties.$feature_flag.
     sync_execute(
         """
@@ -1810,12 +1825,12 @@ def _create_flag_evaluations(team_id: int, flag_key: str, count: int = 1, timest
             (
                 str(uuid.uuid4()),
                 "$feature_flag_called",
-                properties,
+                properties_json,
                 timestamp,
                 team_id,
-                "evaluator",
+                distinct_id,
                 timestamp,
-                str(uuid.uuid4()),
+                str(person_id or uuid.uuid4()),
             )
             for _ in range(count)
         ],
@@ -2150,6 +2165,8 @@ def reset_clickhouse_database() -> None:
             WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
             SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
+            SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
+            QUERY_LOG_ARCHIVE_V3_BUFFER_TABLE_SQL(),
             COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
             PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL(),
@@ -2174,6 +2191,8 @@ def reset_clickhouse_database() -> None:
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
+            DISTRIBUTED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
+            WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
             COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
             KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
@@ -2205,6 +2224,7 @@ def reset_clickhouse_database() -> None:
             QUERY_LOG_ARCHIVE_OPS_MV_SQL(
                 view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE
             ),
+            QUERY_LOG_ARCHIVE_V3_MV_SQL(),
         ]
     )
 
@@ -2401,7 +2421,7 @@ def snapshot_hogql_queries(fn_or_class):
 class HogQLSnapshotExtension(AmberSnapshotExtension):
     """Custom syrupy extension for HogQL snapshots to use separate files."""
 
-    _file_extension = "hogql.ambr"
+    file_extension = "hogql.ambr"
 
     @classmethod
     def serialize(cls, data, **kwargs):

@@ -32,6 +32,12 @@ def _insert_person(
 
 @pytest.mark.persons_db_direct
 @pytest.mark.django_db(transaction=True)
+def _session_statement_timeout(connection: psycopg2.extensions.connection) -> str:
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW statement_timeout")
+        return cursor.fetchone()["statement_timeout"]
+
+
 def test_compute_shadow_drift_counts_each_category() -> None:
     connection = psycopg2.connect(persons_db_url(writer=True), cursor_factory=psycopg2.extras.RealDictCursor)
     connection.autocommit = True
@@ -78,10 +84,19 @@ def test_compute_shadow_drift_counts_each_category() -> None:
                 (ph_matched, TEAM_ID, ph_matched, TEAM_ID, ph_tombstoned, TEAM_ID),
             )
 
-        reports = {report.category: report for report in compute_shadow_drift(connection, sample_size=10)}
-        property_drift = sample_property_drift(connection, persons_limit=500, detail_limit=10)
+        reports = {
+            report.category: report
+            for report in compute_shadow_drift(connection, sample_size=10, statement_timeout_minutes=239)
+        }
+        compute_timeout = _session_statement_timeout(connection)
+        property_drift = sample_property_drift(
+            connection, persons_limit=500, detail_limit=10, statement_timeout_minutes=241
+        )
+        sample_timeout = _session_statement_timeout(connection)
     finally:
         connection.close()
+
+    assert (compute_timeout, sample_timeout) == ("239min", "241min")
 
     persons = reports["persons"]
     assert (persons.legacy_total, persons.personhog_total) == (3, 3)

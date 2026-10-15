@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product today
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product today
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Today
 feature: today
 url_prefix: /home
@@ -30,9 +28,6 @@ tools:
             Use this to answer "what should I look at today?".
         feature_flag: today-rail-nav
         feature_flag_behavior: enable
-    today-briefing-refresh-create:
-        operation: today_briefing_refresh_create
-        enabled: false
     today-candidates-list:
         operation: today_candidates_retrieve
         enabled: true
@@ -50,15 +45,3 @@ tools:
             urgent first.
         feature_flag: today-rail-nav
         feature_flag_behavior: enable
-    today-excerpt-choice-create:
-        operation: today_excerpt_choice_create
-        enabled: false
-    today-reports-figure-marks-retrieve:
-        operation: today_reports_figure_marks_retrieve
-        enabled: false
-    today-reports-key-clauses-retrieve:
-        operation: today_reports_key_clauses_retrieve
-        enabled: false
-    today-reports-page-retrieve:
-        operation: today_reports_page_retrieve
-        enabled: false

@@ -31,7 +31,8 @@ const defaults: ScoutTrialsViewProps = {
     trialsDisabledReason: null,
     comparisonStates: {},
     comparisonState: { value: null, loading: false, resuming: false, error: null, notStarted: false },
-    comparisonHistory: { results: [], has_more: false },
+    comparisonHistory: { results: [], has_more: false, next_cursor: null },
+    comparisonHistoryCursors: [],
     comparisonHistoryLoading: false,
     comparisonRows: [],
     managedComparison: false,
@@ -43,6 +44,8 @@ const defaults: ScoutTrialsViewProps = {
     loadComparison: noop,
     resumeComparison: noop,
     loadComparisonHistory: noop,
+    nextComparisonHistoryPage: noop,
+    previousComparisonHistoryPage: noop,
     comparisons: [],
     comparisonsForConfig: [],
     selectedComparisonIds: {},
@@ -71,12 +74,15 @@ const defaults: ScoutTrialsViewProps = {
     resultErrors: {},
     submitting: false,
     refreshing: false,
+    refreshingLaunchIds: [],
+    showArchived: false,
+    archiving: [],
+    archiveErrors: {},
     canceling: [],
     cancelErrors: {},
     pageError: null,
     pollError: null,
     formPageError: null,
-    resultPollError: null,
     loadErrors: { configs: null, setup: null, history: null, comparisonHistory: null },
     selectedLaunchId: null,
     rows: [],
@@ -100,6 +106,9 @@ const defaults: ScoutTrialsViewProps = {
     selectResult: noop,
     downloadResults: noop,
     cancelRun: noop,
+    setShowArchived: noop,
+    archiveComparison: noop,
+    retryResult: noop,
 }
 
 const meta: Meta<typeof ScoutTrialsView> = {
@@ -335,5 +344,31 @@ export const MissingSavedRubric: Story = {
     },
 }
 
-export const History: Story = { args: { ...Scored.args, trialView: 'list' } }
+export const History: Story = {
+    args: {
+        ...Scored.args,
+        trialView: 'list',
+        comparisonHistory: { results: [trialFixtureServerComparison], has_more: true, next_cursor: 'older-trials' },
+    },
+}
 export const HistoryNarrow: Story = { ...History, decorators: Narrow.decorators }
+
+export const Archived: Story = {
+    args: {
+        ...History.args,
+        showArchived: true,
+        comparisonStates: {
+            [trialFixtureComparison.id]: {
+                ...Scored.args!.comparisonState!,
+                value: { ...trialFixtureServerComparison, archived: true },
+            },
+        },
+    },
+}
+
+export const RunDetailsUnavailable: Story = {
+    args: {
+        ...Running.args,
+        resultErrors: { [runningRows[0].launchId]: "Couldn't load run details. Try again." },
+    },
+}

@@ -19,6 +19,7 @@ import { PosthogFilesystem } from './posthogFilesystem'
 import { TerminalConfirmation } from './terminalConfirmation'
 import { terminalDockLogic } from './terminalDockLogic'
 import { terminalLogic } from './terminalLogic'
+import { TerminalNetplay } from './terminalNetplay'
 import { TerminalRuntime } from './terminalRuntime'
 import { TerminalSession } from './TerminalSession'
 
@@ -159,7 +160,8 @@ describe('terminal lifecycle', () => {
             expect.anything(),
             expect.anything(),
             expect.any(Function),
-            '/posthog/files/Research'
+            '/posthog/files/Research',
+            expect.any(TerminalNetplay)
         )
         const view = jest.mocked(TerminalSession).mock.results[0].value.view
         view.focus.mockClear()

@@ -2,6 +2,7 @@ from typing import cast
 
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,8 @@ AUTH_ERRORS = {
 
 @SourceRegistry.register
 class TelliSource(ResumableSource[TelliSourceConfig, TelliResumeConfig]):
+    codebase_detection = detect(env=("^TELLI_",))
+
     lists_tables_without_credentials = True
     # Calls and phone numbers remain on v1; telli only provides their list endpoints there.
     supported_versions = ("v2",)

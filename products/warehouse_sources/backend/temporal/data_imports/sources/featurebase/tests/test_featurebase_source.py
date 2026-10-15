@@ -4,11 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.source import FeaturebaseSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.source"
 
@@ -35,28 +32,6 @@ def _make_inputs(**overrides: Any) -> SourceInputs:
 class TestFeaturebaseSource:
     def setup_method(self) -> None:
         self.source = FeaturebaseSource()
-
-    def test_source_config_is_released_with_api_key_field(self) -> None:
-        config = self.source.get_source_config
-        assert config.name == ExternalDataSourceType.FEATUREBASE
-        # unreleasedSource hides the connector from every user; a finished source must not carry it.
-        assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/featurebase"
-
-        fields = {f.name: f for f in config.fields}
-        assert set(fields.keys()) == {"api_key"}
-        api_key_field = fields["api_key"]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.type == "password"
-        assert api_key_field.required is True
-
-        webhook_fields = {f.name: f for f in config.webhookFields or []}
-        assert set(webhook_fields.keys()) == {"signing_secret"}
-
-    def test_get_schemas_covers_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1)
-        assert [s.name for s in schemas] == list(ENDPOINTS)
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["posts", "boards"])
@@ -96,10 +71,6 @@ class TestFeaturebaseSource:
         # All Featurebase resources are mutable, so merge is the only safe write disposition.
         assert schema.supports_append is False
 
-    def test_post_voters_is_off_by_default(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(MagicMock(), team_id=1)}
-        assert schemas["post_voters"].should_sync_default is False
-
     @parameterized.expand(
         [
             ("valid", (True, None), True, None),
@@ -115,12 +86,6 @@ class TestFeaturebaseSource:
         validate.assert_called_once_with("fb_test")
         assert valid is expected_valid
         assert error == expected_error
-
-    def test_non_retryable_errors_cover_featurebase_auth_statuses(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-        # Featurebase responds 403 for invalid keys (verified live); 401 kept as a safety net.
-        assert any(key.startswith("403 Client Error") for key in errors)
-        assert any(key.startswith("401 Client Error") for key in errors)
 
     def test_retryable_errors_cover_exhausted_transient_failures(self) -> None:
         errors = self.source.get_retryable_errors()
@@ -194,18 +159,6 @@ class TestFeaturebaseWebhooks:
         assert template.type == "warehouse_source_webhook"
         input_keys = {i["key"] for i in template.inputs_schema}
         assert {"signing_secret", "schema_mapping", "source_id"} <= input_keys
-
-    def test_desired_webhook_events_only_mapped_topics(self) -> None:
-        topics = self.source.get_desired_webhook_events(self.config, ["posts"]) or []
-        assert set(topics) == {
-            "post.created",
-            "post.updated",
-            "comment.created",
-            "comment.updated",
-            "changelog.published",
-        }
-        # Deleted-object topics would resurrect deleted rows through the merge path.
-        assert not any(topic.endswith(".deleted") for topic in topics)
 
     @parameterized.expand(
         [

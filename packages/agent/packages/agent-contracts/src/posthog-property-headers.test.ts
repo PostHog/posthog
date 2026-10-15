@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAiGatewayReservedHeaders,
   buildPosthogProjectHeaderLines,
   buildPosthogProjectHeaderRecord,
   buildPosthogPropertiesBlob,
@@ -9,6 +10,8 @@ import {
   buildPosthogPropertyHeaderRecord,
   buildPosthogScopedPropertyHeaderLines,
   buildPosthogScopedPropertyHeaderRecord,
+  buildPosthogSessionHeaderLines,
+  buildPosthogSessionHeaderRecord,
   collapsePropertyHeadersForAiGateway,
 } from "./posthog-property-headers";
 
@@ -30,6 +33,24 @@ describe("PostHog project headers", () => {
     expect(
       buildPosthogScopedPropertyHeaderLines({ task_id: "task-1" }, 42),
     ).toBe("x-posthog-property-task_id: task-1\nX-PostHog-Project-Id: 42");
+  });
+});
+
+describe("PostHog session headers", () => {
+  it("builds record and line forms with sanitized values", () => {
+    expect(
+      buildPosthogSessionHeaderRecord("session-1\r\nmalicious: true"),
+    ).toEqual({
+      "X-PostHog-Session-Id": "session-1 malicious: true",
+    });
+    expect(buildPosthogSessionHeaderLines("session-1")).toBe(
+      "X-PostHog-Session-Id: session-1",
+    );
+  });
+
+  it.each([undefined, null, ""])("omits the header for %s", (sessionId) => {
+    expect(buildPosthogSessionHeaderRecord(sessionId)).toEqual({});
+    expect(buildPosthogSessionHeaderLines(sessionId)).toBe("");
   });
 });
 
@@ -429,6 +450,32 @@ describe("collapsePropertyHeadersForAiGateway", () => {
     );
   });
 
+  it("lifts $ai_span_name into the span name header", () => {
+    const out = collapsePropertyHeadersForAiGateway(
+      { "x-posthog-property-$ai_span_name": "commit_message" },
+      { ai_product: "posthog_code", team_id: 7 },
+    );
+    expect(out["X-PostHog-Span-Name"]).toBe("commit_message");
+    expect(JSON.parse(out["X-PostHog-Properties"])).not.toHaveProperty(
+      "$ai_span_name",
+    );
+  });
+
+  it("prefers a dedicated header over the same key sent as a property", () => {
+    const out = collapsePropertyHeadersForAiGateway(
+      {
+        "x-posthog-span-name": "from_header",
+        "x-posthog-property-$ai_span_name": "from_property",
+        "x-posthog-session-id": "s-header",
+        "x-posthog-property-$ai_session_id": "s-property",
+      },
+      { ai_product: "posthog_code", team_id: 7 },
+    );
+    expect(out["X-PostHog-Span-Name"]).toBe("from_header");
+    expect(out["X-PostHog-Session-Id"]).toBe("s-header");
+    expect(out).not.toHaveProperty("x-posthog-span-name");
+  });
+
   it("keeps the trusted keys when the client's values overflow the cap", () => {
     const out = collapsePropertyHeadersForAiGateway(
       {
@@ -485,5 +532,37 @@ describe("collapsePropertyHeadersForAiGateway", () => {
       ai_product: "posthog_code",
       team_id: 7,
     });
+  });
+});
+
+describe("buildAiGatewayReservedHeaders", () => {
+  it("maps the reserved keys to the Go gateway's dedicated headers", () => {
+    expect(
+      buildAiGatewayReservedHeaders({
+        $ai_session_id: "task-1",
+        $ai_span_name: "pr_description",
+        task_id: "ignored",
+      }),
+    ).toEqual({
+      "X-PostHog-Session-Id": "task-1",
+      "X-PostHog-Span-Name": "pr_description",
+    });
+  });
+
+  it("omits empty or missing values", () => {
+    expect(
+      buildAiGatewayReservedHeaders({
+        $ai_session_id: "",
+        $ai_span_name: null,
+      }),
+    ).toEqual({});
+  });
+
+  it("sanitizes values so they cannot inject headers", () => {
+    expect(
+      buildAiGatewayReservedHeaders({ $ai_span_name: "a\r\nX-Evil: 1" })[
+        "X-PostHog-Span-Name"
+      ],
+    ).not.toMatch(/[\r\n]/);
   });
 });

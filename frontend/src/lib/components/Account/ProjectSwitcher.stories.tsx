@@ -13,9 +13,27 @@ type StoryProps = { hasDataFreshness?: boolean }
 // The case this feature exists for: a pile of similarly named leftovers around one product,
 // where only one is real and the names alone can't tell you which.
 const FRESHNESS_TEAMS = [
-    { ...MOCK_DEFAULT_TEAM, id: 1001, project_id: 1001, name: 'MockHog staging' },
-    { ...MOCK_DEFAULT_TEAM, id: 1002, project_id: 1002, name: 'MockHog test' },
-    { ...MOCK_DEFAULT_TEAM, id: 1003, project_id: 1003, name: 'MockHog test 2' },
+    {
+        ...MOCK_DEFAULT_TEAM,
+        id: 1001,
+        project_id: 1001,
+        name: 'MockHog staging',
+        project_group: 'mockhog',
+    },
+    {
+        ...MOCK_DEFAULT_TEAM,
+        id: 1002,
+        project_id: 1002,
+        name: 'MockHog test',
+        project_group: 'mockhog',
+    },
+    {
+        ...MOCK_DEFAULT_TEAM,
+        id: 1003,
+        project_id: 1003,
+        name: 'MockHog test 2',
+        project_group: 'mockhog',
+    },
     { ...MOCK_DEFAULT_TEAM, id: 1004, project_id: 1004, name: 'MockHog dev sandbox' },
     { ...MOCK_DEFAULT_TEAM, id: 1005, project_id: 1005, name: 'MockHog EU' },
     { ...MOCK_DEFAULT_TEAM, id: 1006, project_id: 1006, name: 'MockHog old app' },

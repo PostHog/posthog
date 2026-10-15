@@ -1,3 +1,3 @@
-from .entity import Entity, ExclusionEntity, MathType
+from .entity import Entity, MathType
 
-__all__ = ["Entity", "ExclusionEntity", "MathType"]
+__all__ = ["Entity", "MathType"]

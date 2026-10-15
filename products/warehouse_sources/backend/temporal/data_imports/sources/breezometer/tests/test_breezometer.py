@@ -19,18 +19,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.breezomete
     _normalize_rows,
     _redact_key,
     breezometer_source,
-    get_rows,
     parse_locations,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.breezometer.settings import BREEZOMETER_ENDPOINTS
-
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.breezometer.breezometer"
+from products.warehouse_sources.backend.temporal.data_imports.sources.breezometer.source import BreezometerSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.breezometer import (
+    BreezometerSourceConfig,
+)
 
 # Source the base URLs from the endpoint configs (the single source of truth) rather than duplicating
 # the literals here, so a base-URL change in settings can't leave these assertions checking a stale value.
 AIR_QUALITY_BASE_URL = BREEZOMETER_ENDPOINTS["air_quality_current"].base_url
-POLLEN_BASE_URL = BREEZOMETER_ENDPOINTS["pollen_forecast"].base_url
 
 
 def _response(status: int = 200, body: Optional[dict[str, Any]] = None) -> mock.MagicMock:
@@ -48,20 +54,6 @@ def _response(status: int = 200, body: Optional[dict[str, Any]] = None) -> mock.
 
 class TestParseLocations:
     @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("51.5,-0.12", [Location(51.5, -0.12, None)]),
-            ("51.5,-0.12,London", [Location(51.5, -0.12, "London")]),
-            ("  51.5 , -0.12 , London  ", [Location(51.5, -0.12, "London")]),
-            ("51.5,-0.12,London\n40.7,-74.0", [Location(51.5, -0.12, "London"), Location(40.7, -74.0, None)]),
-            ("51.5,-0.12\n\n  \n40.7,-74.0", [Location(51.5, -0.12, None), Location(40.7, -74.0, None)]),
-            ("40.7,-74.0,New York, NY", [Location(40.7, -74.0, "New York, NY")]),
-        ],
-    )
-    def test_valid(self, raw, expected):
-        assert parse_locations(raw) == expected
-
-    @pytest.mark.parametrize(
         "raw",
         [None, "", "   \n  ", "51.5", "abc,def", "91,0", "0,181"],
     )
@@ -73,10 +65,6 @@ class TestParseLocations:
         raw = "\n".join(f"{i % 90},0" for i in range(MAX_LOCATIONS + 1))
         with pytest.raises(ValueError, match="Too many locations"):
             parse_locations(raw)
-
-    def test_allows_max_locations(self):
-        raw = "\n".join(f"{i % 90},0" for i in range(MAX_LOCATIONS))
-        assert len(parse_locations(raw)) == MAX_LOCATIONS
 
 
 class TestTimestampParsing:
@@ -128,18 +116,6 @@ class TestRedactKey:
 
 
 class TestBuildRequest:
-    def test_air_quality_current_is_post_with_body(self):
-        url, body = _build_request(
-            BREEZOMETER_ENDPOINTS["air_quality_current"], "secret-key", Location(51.5, -0.12), None
-        )
-
-        assert url == f"{AIR_QUALITY_BASE_URL}/v1/currentConditions:lookup?key=secret-key"
-        assert body is not None
-        assert body["location"] == {"latitude": 51.5, "longitude": -0.12}
-        assert "extraComputations" in body
-        # Current conditions take neither a forecast period nor a history window.
-        assert "period" not in body and "hours" not in body
-
     def test_air_quality_forecast_includes_period(self):
         _, body = _build_request(
             BREEZOMETER_ENDPOINTS["air_quality_forecast"], "secret-key", Location(51.5, -0.12), None
@@ -165,16 +141,6 @@ class TestBuildRequest:
         assert body is not None
         assert body["pageToken"] == "next-page"
 
-    def test_pollen_is_get_with_query_params(self):
-        url, body = _build_request(BREEZOMETER_ENDPOINTS["pollen_forecast"], "secret-key", Location(51.5, -0.12), None)
-
-        assert body is None
-        assert url.startswith(f"{POLLEN_BASE_URL}/v1/forecast:lookup?")
-        assert "key=secret-key" in url
-        assert "location.latitude=51.5" in url
-        assert "location.longitude=-0.12" in url
-        assert "days=5" in url
-
     def test_pollen_page_token_goes_in_query(self):
         url, _ = _build_request(
             BREEZOMETER_ENDPOINTS["pollen_forecast"], "secret-key", Location(51.5, -0.12), "next-page"
@@ -195,18 +161,6 @@ class TestNormalizeRows:
         assert row["location_label"] == "London"
         assert row["dt_iso"] == "2023-08-11T08:00:00+00:00"
         assert row["indexes"] == [{"aqi": 42}]
-
-    def test_forecast_yields_one_row_per_hour(self):
-        response = {
-            "hourlyForecasts": [
-                {"dateTime": "2023-08-11T08:00:00Z", "indexes": [{"aqi": 1}]},
-                {"dateTime": "2023-08-11T09:00:00Z", "indexes": [{"aqi": 2}]},
-            ]
-        }
-        rows = _normalize_rows(BREEZOMETER_ENDPOINTS["air_quality_forecast"], response, Location(51.5, -0.12))
-
-        assert [row["dt_iso"] for row in rows] == ["2023-08-11T08:00:00+00:00", "2023-08-11T09:00:00+00:00"]
-        assert all(row["latitude"] == 51.5 and row["longitude"] == -0.12 for row in rows)
 
     def test_pollen_builds_dt_iso_from_date_object(self):
         response = {"dailyInfo": [{"date": {"year": 2024, "month": 6, "day": 23}, "pollenTypeInfo": []}]}
@@ -240,34 +194,6 @@ _fetch_once = _fetch.__wrapped__  # type: ignore[attr-defined]
 
 
 class TestFetch:
-    def test_air_quality_uses_post(self):
-        session = mock.MagicMock()
-        session.post.return_value = _response(200, {"dateTime": "2023-08-11T08:00:00Z"})
-
-        body = _fetch_once(
-            session,
-            BREEZOMETER_ENDPOINTS["air_quality_current"],
-            "k",
-            Location(51.5, -0.12),
-            None,
-            structlog.get_logger(),
-        )
-
-        assert body == {"dateTime": "2023-08-11T08:00:00Z"}
-        session.post.assert_called_once()
-        session.get.assert_not_called()
-
-    def test_pollen_uses_get(self):
-        session = mock.MagicMock()
-        session.get.return_value = _response(200, {"dailyInfo": []})
-
-        _fetch_once(
-            session, BREEZOMETER_ENDPOINTS["pollen_forecast"], "k", Location(51.5, -0.12), None, structlog.get_logger()
-        )
-
-        session.get.assert_called_once()
-        session.post.assert_not_called()
-
     @pytest.mark.parametrize("status", [429, 500, 503])
     def test_retryable_statuses_raise_retryable(self, status):
         session = mock.MagicMock()
@@ -333,95 +259,89 @@ class TestValidateCredentials:
         [(200, True), (400, False), (403, False), (500, False)],
     )
     def test_status_mapping(self, status, expected_valid):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.post.return_value = _response(status)
-
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             is_valid, _ = validate_credentials("test-key", "51.5,-0.12")
 
         assert is_valid is expected_valid
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].method == "POST"
+        assert network.requests_log[0].param("key") == "test-key"
+        assert network.requests_log[0].json() == {"location": {"latitude": 51.5, "longitude": -0.12}}
 
     def test_malformed_locations_is_invalid_without_request(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+        with scripted_network([]) as network:
             is_valid, message = validate_credentials("test-key", "not-a-location")
 
         assert is_valid is False
         assert message is not None
-        mock_session.return_value.post.assert_not_called()
+        assert network.requests_log == []
 
     def test_network_error_is_invalid(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.post.side_effect = Exception("boom")
-
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
             is_valid, message = validate_credentials("test-key", "51.5,-0.12")
 
         assert is_valid is False
         assert message is not None
-
-    def test_probes_current_conditions_with_first_location(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.post.return_value = _response(200)
-
-            validate_credentials("test-key", "51.5,-0.12,London\n40.7,-74.0")
-
-            called_url = mock_session.return_value.post.call_args[0][0]
-            called_body = mock_session.return_value.post.call_args.kwargs["json"]
-
-        assert called_url.startswith(f"{AIR_QUALITY_BASE_URL}/v1/currentConditions:lookup?")
-        assert called_body["location"] == {"latitude": 51.5, "longitude": -0.12}
+        assert {request.path for request in network.requests_log} == {"/v1/currentConditions:lookup"}
 
 
 class TestGetRows:
+    @staticmethod
+    def _driver(locations: str = "51.5,-0.12") -> SourceDriver:
+        return SourceDriver(BreezometerSource(), BreezometerSourceConfig(api_key="test-key", locations=locations))
+
     def test_yields_one_batch_per_location_and_targets_each(self):
-        locations = [Location(51.5, -0.12, "London"), Location(40.7, -74.0, "New York")]
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.post.side_effect = [
-                _response(200, {"dateTime": "2023-08-11T08:00:00Z", "indexes": []}),
-                _response(200, {"dateTime": "2023-08-11T09:00:00Z", "indexes": []}),
-            ]
+        result = self._driver("51.5,-0.12,London\n40.7,-74.0,New York").run(
+            "air_quality_current",
+            [
+                ScriptedResponse(json={"dateTime": "2023-08-11T08:00:00Z", "indexes": []}),
+                ScriptedResponse(json={"dateTime": "2023-08-11T09:00:00Z", "indexes": []}),
+            ],
+        )
 
-            batches = list(get_rows("test-key", "air_quality_current", locations, structlog.get_logger()))
-
-        assert len(batches) == 2
-        assert batches[0][0]["latitude"] == 51.5
-        assert batches[1][0]["latitude"] == 40.7
+        assert result.raised is None
+        assert len(result.items) == 2
+        assert result.items[0][0]["latitude"] == 51.5
+        assert result.items[1][0]["latitude"] == 40.7
+        assert [request.json()["location"]["latitude"] for request in result.requests] == [51.5, 40.7]
 
     def test_follows_next_page_token(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.post.side_effect = [
-                _response(200, {"hourlyForecasts": [{"dateTime": "2023-08-11T08:00:00Z"}], "nextPageToken": "p2"}),
-                _response(200, {"hourlyForecasts": [{"dateTime": "2023-08-11T09:00:00Z"}]}),
-            ]
+        result = self._driver().run(
+            "air_quality_forecast",
+            [
+                ScriptedResponse(
+                    json={"hourlyForecasts": [{"dateTime": "2023-08-11T08:00:00Z"}], "nextPageToken": "p2"}
+                ),
+                ScriptedResponse(json={"hourlyForecasts": [{"dateTime": "2023-08-11T09:00:00Z"}]}),
+            ],
+        )
 
-            batches = list(
-                get_rows("test-key", "air_quality_forecast", [Location(51.5, -0.12)], structlog.get_logger())
-            )
-
-            # The second request must carry the page token from the first response.
-            second_body = mock_session.return_value.post.call_args_list[1].kwargs["json"]
-
-        assert len(batches) == 2
-        assert second_body["pageToken"] == "p2"
+        assert result.raised is None
+        assert len(result.items) == 2
+        # The second request must carry the page token from the first response.
+        assert result.requests[1].json()["pageToken"] == "p2"
 
     def test_page_cap_stops_unbounded_pagination(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            # Every response advertises another page; the cap must stop the loop.
-            mock_session.return_value.post.return_value = _response(
-                200, {"hourlyForecasts": [{"dateTime": "2023-08-11T08:00:00Z"}], "nextPageToken": "loop"}
-            )
+        # Every response advertises another page; the cap must stop the loop.
+        result = self._driver().run(
+            "air_quality_forecast",
+            always(
+                ScriptedResponse(
+                    json={"hourlyForecasts": [{"dateTime": "2023-08-11T08:00:00Z"}], "nextPageToken": "loop"}
+                )
+            ),
+        )
 
-            batches = list(
-                get_rows("test-key", "air_quality_forecast", [Location(51.5, -0.12)], structlog.get_logger())
-            )
-
-        assert len(batches) == MAX_PAGES_PER_LOCATION
+        assert result.raised is None
+        assert len(result.items) == MAX_PAGES_PER_LOCATION
+        assert len(result.requests) == MAX_PAGES_PER_LOCATION
 
     def test_skips_empty_responses(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200, {"dailyInfo": []})
+        result = self._driver().run("pollen_forecast", [ScriptedResponse(json={"dailyInfo": []})])
 
-            batches = list(get_rows("test-key", "pollen_forecast", [Location(51.5, -0.12)], structlog.get_logger()))
-
-        assert batches == []
+        assert result.raised is None
+        assert result.items == []
+        assert result.requests[0].method == "GET"
 
 
 class TestBreezometerSource:

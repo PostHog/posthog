@@ -344,9 +344,8 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                             "authenticates follows from the fields above: a confidential client with a "
                             "jwks_uri signs an assertion with its own key (preferred), a confidential client "
                             "without one presents a client secret, and a public client is identified by "
-                            "client_id and relies on PKCE. The GitHub grant endpoints additionally require a "
-                            "confidential client. Use the 'Generate a new client secret' action to issue a "
-                            "secret. Leave a rate limit blank to use the endpoint's default."
+                            "client_id and relies on PKCE. Use the 'Generate a new client secret' action to "
+                            "issue a secret. Leave a rate limit blank to use the endpoint's default."
                         ),
                         "fields": tuple(provisioning_fields),
                     },

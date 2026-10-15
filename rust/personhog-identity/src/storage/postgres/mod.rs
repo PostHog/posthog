@@ -89,6 +89,15 @@ impl IdentityStorage for PostgresIdentityStorage {
         resolve::resolve_distinct_ids(&self.pools, &self.tables, keys).await
     }
 
+    async fn resolve_person_ids(
+        &self,
+        keys: &[(i64, String)],
+    ) -> StorageResult<HashMap<(i64, String), i64>> {
+        let labels = Self::query_labels("resolve_person_ids", Lane::Fast);
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+        resolve::resolve_person_ids(&self.pools, &self.tables, keys).await
+    }
+
     async fn get_distinct_ids_for_persons(
         &self,
         team_id: i64,

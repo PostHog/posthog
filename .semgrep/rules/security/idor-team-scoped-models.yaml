@@ -56,6 +56,7 @@ rules:
                           (?x)(
                               AccessControl
                               |Account
+                              |AccountAuditAdmission
                               |AccountChannelSummary
                               |AccountRelationship
                               |AccountRelationshipControl
@@ -63,6 +64,7 @@ rules:
                               |AccountTrackRuleRun
                               |AccountView
                               |Action
+                              |ActionSelectorMatchChange
                               |AEOCitationCheck
                               |AEOPrompt
                               |AgentApplication
@@ -140,6 +142,7 @@ rules:
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
+                              |TeamHomeTabDashboardConfig
                               |DataColorTheme
                               |DataModelingJob
                               |DataQualityCheck
@@ -185,6 +188,7 @@ rules:
                               |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
+                              |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
@@ -288,6 +292,8 @@ rules:
                               |MessageSuppression
                               |MessageTemplate
                               |Metric
+                              |MetricsDashboardDiscovery
+                              |MetricsDashboardSuggestion
                               |RelationshipProposal
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
@@ -322,10 +328,12 @@ rules:
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
                               |PullRequestAudience
+                              |PurgedTicketThread
                               |QuarantineLiftRequest
                               |QuarantinedIdentifier
                               |QueryTabState
                               |QueueJob
+                              |RevokedTeamSecretToken
                               |QueueSchedulerDecision
                               |QueueSchedulerState
                               |QuickFilter
@@ -333,6 +341,7 @@ rules:
                               |ReplayObservation
                               |ReplayObservationLabel
                               |ReplayObservationMedia
+                              |ReplayObservationRequest
                               |ReplayObservationUsage
                               |ReplayObservationView
                               |ReplayScanner
@@ -340,10 +349,15 @@ rules:
                               |ReplayVisionLearnedRuleset
                               |Repo
                               |RepoRoutingRule
+                              |ReviewInstallationClaim
+                              |ReviewProjectSettings
                               |ReviewReport
                               |ReviewReportArtefact
+                              |ReviewRepository
+                              |ReviewRepositoryPerson
                               |ReviewSkillConfig
                               |ReviewUserSettings
+                              |ReviewUserRepositoryChoice
                               |SandboxCustomImage
                               |SandboxEnvironment
                               |SandboxSession
@@ -351,6 +365,8 @@ rules:
                               |ScoreDefinition
                               |SavedHeatmap
                               |HeatmapCaptureConfigVersion
+                              |HeatmapCaptureRequest
+                              |HeatmapScreenshotHistory
                               |ScheduledChange
                               |SessionGroupSummary
                               |SessionRecording
@@ -439,12 +455,15 @@ rules:
                               |WikiPageProposal
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
+                              |WarehouseSuggestion
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
                               |WebAnalyticsVisit
+                              |WizardDetectedTool
                               |WizardRun
                               |WizardRunArtifact
+                              |WizardScan
                               |WizardSession
                               |WizardWorker
                               |WorkflowProposal
@@ -505,6 +524,7 @@ rules:
                     (?x)(
                         AccessControl
                         |Account
+                        |AccountAuditAdmission
                         |AccountChannelSummary
                         |AccountRelationship
                         |AccountRelationshipControl
@@ -512,6 +532,7 @@ rules:
                         |AccountTrackRuleRun
                         |AccountView
                         |Action
+                        |ActionSelectorMatchChange
                         |AgentApplication
                         |AgentArtifact
                         |AgentIdentityCredential
@@ -587,6 +608,7 @@ rules:
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
+                        |TeamHomeTabDashboardConfig
                         |DataColorTheme
                         |DataModelingJob
                         |DataQualityCheck
@@ -632,6 +654,7 @@ rules:
                         |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
+                        |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
@@ -727,6 +750,8 @@ rules:
                         |MessageSuppression
                         |MessageTemplate
                         |Metric
+                        |MetricsDashboardDiscovery
+                        |MetricsDashboardSuggestion
                         |RelationshipProposal
                         |MCPAuditEvent
                         |MCPGatewayServer
@@ -759,10 +784,12 @@ rules:
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
                         |PullRequestAudience
+                        |PurgedTicketThread
                         |QuarantineLiftRequest
                         |QuarantinedIdentifier
                         |QueryTabState
                         |QueueJob
+                        |RevokedTeamSecretToken
                         |QueueSchedulerDecision
                         |QueueSchedulerState
                         |QuickFilter
@@ -770,6 +797,7 @@ rules:
                         |ReplayObservation
                         |ReplayObservationLabel
                         |ReplayObservationMedia
+                        |ReplayObservationRequest
                         |ReplayObservationUsage
                         |ReplayObservationView
                         |ReplayScanner
@@ -777,10 +805,15 @@ rules:
                         |ReplayVisionLearnedRuleset
                         |Repo
                         |RepoRoutingRule
+                        |ReviewInstallationClaim
+                        |ReviewProjectSettings
                         |ReviewReport
                         |ReviewReportArtefact
+                        |ReviewRepository
+                        |ReviewRepositoryPerson
                         |ReviewSkillConfig
                         |ReviewUserSettings
+                        |ReviewUserRepositoryChoice
                         |SandboxCustomImage
                         |SandboxEnvironment
                         |SandboxSession
@@ -788,6 +821,8 @@ rules:
                         |ScoreDefinition
                         |SavedHeatmap
                         |HeatmapCaptureConfigVersion
+                        |HeatmapCaptureRequest
+                        |HeatmapScreenshotHistory
                         |ScheduledChange
                         |SessionGroupSummary
                         |SessionRecording
@@ -875,12 +910,15 @@ rules:
                         |WikiPageProposal
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
+                        |WarehouseSuggestion
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction
                         |WebAnalyticsVisit
+                        |WizardDetectedTool
                         |WizardRun
                         |WizardRunArtifact
+                        |WizardScan
                         |WizardSession
                         |WizardWorker
                         |WorkflowProposal
@@ -936,6 +974,7 @@ rules:
           IDOR: User input flows to organization-scoped model lookup without organization filter.
           Fix: Add organization=organization or organization_id=organization_id to the query.
           For RoleMembership, use role__organization= or role__organization_id=.
+          For IdJagIdentity, use identity_provider_config= or identity_provider_config_id=.
       pattern-sources:
           - patterns:
                 - pattern-either:
@@ -980,6 +1019,7 @@ rules:
                               |CrossProjectDashboard
                               |CrossProjectDashboardTile
                               |DesktopBetaTermsAcceptance
+                              |IdJagIdentity
                               |IdentityProviderConfig
                               |LegalDocument
                               |ManagedWarehouseSourceLifecycle
@@ -987,13 +1027,14 @@ rules:
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
+                              |OrganizationEventsRetentionConfig
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
                               |Plugin
                               |Project
                               |ProxyRecord
-                              |ReplayQuotaGrant
+                              |ReplayVisionOrgAdmissionBudget
                               |Role
                               |RoleExternalReference
                               |RoleMembership
@@ -1005,6 +1046,8 @@ rules:
           - pattern: $M.objects. ... .$METHOD(..., organization__id=$O, ...)
           - pattern: $M.objects. ... .$METHOD(..., role__organization=$O, ...)
           - pattern: $M.objects. ... .$METHOD(..., role__organization_id=$O, ...)
+          - pattern: $M.objects. ... .$METHOD(..., identity_provider_config=$C, ...)
+          - pattern: $M.objects. ... .$METHOD(..., identity_provider_config_id=$C, ...)
           # get_object_or_404
           - pattern: get_object_or_404($M, ..., organization=$O, ...)
           - pattern: get_object_or_404($M, ..., organization_id=$O, ...)
@@ -1059,6 +1102,7 @@ rules:
                         |CrossProjectDashboard
                         |CrossProjectDashboardTile
                         |DesktopBetaTermsAcceptance
+                        |IdJagIdentity
                         |IdentityProviderConfig
                         |LegalDocument
                         |ManagedWarehouseSourceLifecycle
@@ -1066,13 +1110,14 @@ rules:
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
+                        |OrganizationEventsRetentionConfig
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite
                         |Plugin
                         |Project
                         |ProxyRecord
-                        |ReplayQuotaGrant
+                        |ReplayVisionOrgAdmissionBudget
                         |Role
                         |RoleExternalReference
                         |RoleMembership
@@ -1082,6 +1127,8 @@ rules:
           - pattern-not: $M.objects. ... .$METHOD2(..., organization__id=$O, ...)
           - pattern-not: $M.objects. ... .$METHOD2(..., role__organization=$O, ...)
           - pattern-not: $M.objects. ... .$METHOD2(..., role__organization_id=$O, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., identity_provider_config=$C, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., identity_provider_config_id=$C, ...)
           # get_object_or_404
           - pattern-not: get_object_or_404($M, ..., organization=$O, ...)
           - pattern-not: get_object_or_404($M, ..., organization_id=$O, ...)
@@ -1097,6 +1144,7 @@ rules:
           IDOR risk: Lookup on organization-scoped model without organization filter.
           Fix: Add organization_id=organization_id or organization=organization to the query.
           For RoleMembership, use role__organization= or role__organization_id=.
+          For IdJagIdentity, use identity_provider_config= or identity_provider_config_id=.
       languages: [python]
       severity: WARNING
       metadata:
@@ -1163,7 +1211,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              CommunitySkillVote
+                              AccountAuditCredential
+                              |CommunitySkillVote
                               |DashboardPrivilege
                               |GitHubInstallRequest
                               |PersonalAPIKey
@@ -1220,7 +1269,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        CommunitySkillVote
+                        AccountAuditCredential
+                        |CommunitySkillVote
                         |DashboardPrivilege
                         |GitHubInstallRequest
                         |PersonalAPIKey

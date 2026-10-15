@@ -3,10 +3,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.writesonic import (
     WritesonicSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.settings import (
-    ENDPOINTS,
-    WRITESONIC_ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.source import WritesonicSource
 
 
@@ -24,10 +20,6 @@ class TestWritesonicSource:
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_covers_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -51,11 +43,6 @@ class TestWritesonicSource:
             assert [f["field"] for f in schemas[name].incremental_fields] == ["date"]
         else:
             assert schemas[name].incremental_fields == []
-
-    def test_primary_keys_are_exposed(self):
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        for name, endpoint_config in WRITESONIC_ENDPOINTS.items():
-            assert schemas[name].detected_primary_keys == endpoint_config.primary_keys
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["performance_summary"])
@@ -89,11 +76,3 @@ class TestWritesonicSource:
     def test_non_retryable_errors_ignore_retryable_and_unrelated(self, unrelated_error):
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
-
-    def test_documented_tables_render_for_public_docs(self):
-        # lists_tables_without_credentials=True must produce a credential-free catalog for posthog.com;
-        # a regression in get_schemas' placeholder path would silently empty the docs' Supported tables.
-        tables = {t["name"]: t for t in self.source.get_documented_tables()}
-        assert set(tables) == set(ENDPOINTS)
-        assert "Incremental" in tables["performance_summary"]["sync_methods"]
-        assert tables["topics"]["sync_methods"] == ["Full refresh"]

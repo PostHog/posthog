@@ -446,8 +446,11 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
         try:
             parsed = parse_select(query_str)
             if isinstance(parsed, ast.SelectQuery):
+                output_names = [column["name"] for column in self.version.columns or []]
                 columns = (
-                    transform_select_for_materialized_table(list(parsed.select), self.team) if parsed.select else None
+                    transform_select_for_materialized_table(list(parsed.select), output_names)
+                    if parsed.select
+                    else None
                 )
                 limit = parsed.limit.value if isinstance(parsed.limit, ast.Constant) else None
                 has_group_by = bool(parsed.group_by)
@@ -500,12 +503,12 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
                             )
                         )
                     else:
-                        reagg_select.append(col.expr)
+                        reagg_select.append(col.labeled_expr)
                         if not col.is_aggregate:
                             group_by_columns.append(col.expr)
                 select_columns = reagg_select
             else:
-                select_columns = [col.expr for col in original_select]
+                select_columns = [col.labeled_expr for col in original_select]
 
         select_query = ast.SelectQuery(
             select=select_columns,

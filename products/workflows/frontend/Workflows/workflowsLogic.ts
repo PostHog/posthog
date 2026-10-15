@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, kea, key, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { LemonDialog, PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
@@ -199,6 +200,9 @@ export interface workflowsLogicActions {
     selectAllArchivedWorkflows: (ids: string[]) => {
         ids: string[]
     }
+    selectTypeTab: (type: WorkflowTypeFilter) => {
+        type: WorkflowTypeFilter
+    }
     setFilters: (
         filters: Partial<WorkflowsFilters>,
         replace?: boolean
@@ -262,6 +266,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
         deleteSelectedWorkflows: true,
         loadWorkflows: () => ({}),
         setFilters: (filters: Partial<WorkflowsFilters>, replace?: boolean) => ({ filters, replace }),
+        selectTypeTab: (type: WorkflowTypeFilter) => ({ type }),
         toggleArchivedWorkflowSelection: (id: string) => ({ id }),
         selectAllArchivedWorkflows: (ids: string[]) => ({ ids }),
         clearArchivedWorkflowSelection: true,
@@ -456,6 +461,11 @@ export const workflowsLogic = kea<workflowsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        selectTypeTab: ({ type }) => {
+            actions.setFilters({ type })
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('workflows type tab selected', { type })
+        },
         setFilters: async (_, breakpoint) => {
             // Debounce so typing in the search box doesn't fire a request per keystroke.
             await breakpoint(300)

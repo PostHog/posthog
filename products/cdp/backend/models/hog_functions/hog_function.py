@@ -263,23 +263,24 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
 
         return self.status
 
-    def move_secret_inputs(self):
+    def move_secret_inputs(self) -> None:
         # Moves any secret inputs to the encrypted_inputs var
         raw_inputs = self.inputs or {}
         raw_encrypted_inputs = self.encrypted_inputs or {}
 
         final_inputs = {}
         final_encrypted_inputs = {}
+        secret_keys = {schema["key"] for schema in self.inputs_schema or [] if schema.get("secret")}
 
         for schema in self.inputs_schema or []:
             value = raw_inputs.get(schema["key"])
             encrypted_value = raw_encrypted_inputs.get(schema["key"])
 
-            if not schema.get("secret"):
-                final_inputs[schema["key"]] = value
-            else:
+            if schema["key"] in secret_keys:
                 # We either store the incoming value if given or the encrypted value
                 final_encrypted_inputs[schema["key"]] = value or encrypted_value
+            elif schema["key"] not in raw_encrypted_inputs:
+                final_inputs[schema["key"]] = value
 
         self.inputs = final_inputs
         self.encrypted_inputs = final_encrypted_inputs
@@ -289,7 +290,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         return absolute_uri(f"/project/{self.team_id}/pipeline/destinations/hog-{str(self.id)}")
 
     def _compile_filters(self) -> dict:
-        from posthog.cdp.filters import compile_filters_bytecode
+        from products.cdp.backend.filters import compile_filters_bytecode
 
         compiled = compile_filters_bytecode(self.filters, self.team)
         if not compiled.get("bytecode_error"):
@@ -421,11 +422,11 @@ def team_inject_web_apps_changd(sender, instance, created=None, **kwargs):
 
 @receiver(models.signals.post_save, sender=Team)
 def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: bool, **kwargs):
-    from posthog.cdp.templates.hog_function_template import sync_template_to_db
     from posthog.plugins.plugin_server_api import get_hog_function_templates
 
     from products.cdp.backend.api.hog_function import HogFunctionSerializer
     from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+    from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 
     if settings.DISABLE_MMDB or not created:
         return
