@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, kea, key, path, props } from 'kea'
+import { MakeLogicType, afterMount, kea, key, path, props, propsChanged } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { performQuery } from '~/queries/query'
@@ -34,10 +34,10 @@ export interface excludedProductsLogicActions {
         errorObject?: any
     }
     loadProductsSuccess: (
-        products: StripeProduct[] | null,
+        products: StripeProduct[],
         payload?: any
     ) => {
-        products: StripeProduct[] | null
+        products: StripeProduct[]
         payload?: any
     }
 }
@@ -63,7 +63,7 @@ export const excludedProductsLogic = kea<excludedProductsLogicType>([
         products: [
             null as StripeProduct[] | null,
             {
-                loadProducts: async () => {
+                loadProducts: async (): Promise<StripeProduct[]> => {
                     const viewName = escapeDottedHogQLIdentifier(revenueViewName(props.source, 'product_revenue_view'))
                     try {
                         const query: HogQLQuery = {
@@ -83,7 +83,14 @@ export const excludedProductsLogic = kea<excludedProductsLogicType>([
         ],
     })),
 
-    afterMount(({ actions }) => {
-        actions.loadProducts()
+    afterMount(({ actions, props }) => {
+        if (props.source.revenue_analytics_config.enabled) {
+            actions.loadProducts()
+        }
+    }),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.source.revenue_analytics_config.enabled && !oldProps.source.revenue_analytics_config.enabled) {
+            actions.loadProducts()
+        }
     }),
 ])

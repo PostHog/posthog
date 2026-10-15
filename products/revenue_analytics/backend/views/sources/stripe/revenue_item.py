@@ -91,7 +91,7 @@ def _invoice_item_where(excluded_product_ids: tuple[str, ...]) -> ast.Expr:
     )
 
 
-def build(handle: SourceHandle) -> BuiltQuery:
+def build(handle: SourceHandle, *, apply_product_exclusions: bool = True) -> BuiltQuery:
     """
     Revenue Analytics Revenue Item View with Revenue Recognition Support
 
@@ -388,7 +388,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
                         ),
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=[invoice_table.name])),
-                    where=_invoice_item_where(source.excluded_product_ids),
+                    where=_invoice_item_where(source.excluded_product_ids if apply_product_exclusions else ()),
                 ),
             ),
         )
