@@ -331,6 +331,44 @@ describe('useGroupList', () => {
             rerender({ q: 'needle' })
             await waitFor(() => expect(result.current.items.map((i: any) => i.name)).toEqual(['Needle cohort']))
         })
+
+        it('surfaces an error (not an empty result) when the server search fails, and refetch retries it', async () => {
+            const firstPage = Array.from({ length: 100 }, (_, i) => ({ name: `Cohort ${i + 1}` }))
+            apiGet.mockImplementation((url: string) => {
+                if (url.includes('search=needle')) {
+                    return Promise.reject(new Error('search unavailable'))
+                }
+                // Empty-query first page: 100 of 150 total.
+                return Promise.resolve({ results: firstPage, count: 150 })
+            })
+            const group = makeGroup({
+                type: TaxonomicFilterGroupType.Cohorts,
+                endpoint: 'api/projects/1/cohorts/',
+                clientFilterFirstPage: true,
+            })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: '' },
+            })
+            await waitFor(() => expect(result.current.totalResultCount).toBe(150))
+            // "needle" matches nothing in the cached first page, so only the (failing)
+            // server search could tell us whether it exists elsewhere in the other 50 rows.
+            rerender({ q: 'needle' })
+            await waitFor(() => expect(result.current.showErrorState).toBe(true))
+            expect(result.current.error).toBeInstanceOf(Error)
+            expect(result.current.showEmptyState).toBe(false)
+            expect(result.current.items).toEqual([])
+
+            apiGet.mockImplementation((url: string) =>
+                url.includes('search=needle')
+                    ? Promise.resolve({ results: [{ name: 'Needle cohort' }], count: 1 })
+                    : Promise.resolve({ results: firstPage, count: 150 })
+            )
+            await act(async () => {
+                await result.current.refetch()
+            })
+            expect(result.current.items.map((i: any) => i.name)).toEqual(['Needle cohort'])
+            expect(result.current.showErrorState).toBe(false)
+        })
     })
 
     describe('keyword shortcuts', () => {

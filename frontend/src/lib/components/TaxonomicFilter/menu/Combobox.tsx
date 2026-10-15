@@ -238,9 +238,13 @@ export function MenuFilterCombobox({
     // `loadingByType` which is `loading && no-items-yet`). Drives the reveal
     // barrier so kept-previous-data refetches still hold the list.
     const [fetchingByType, setFetchingByType] = useState<Record<string, { query?: string; fetching: boolean }>>({})
-    // Per-group "failed with nothing to fall back on" flag, reported by `Fetcher`. Drives the
-    // error state (instead of "No results") and gates which groups `handleRetry` re-fetches.
-    const [errorByType, setErrorByType] = useState<Record<string, boolean>>({})
+    // Per-group "failed with nothing to fall back on" flag, reported by `Fetcher`, tagged with
+    // the query it belongs to. Drives the error state (instead of "No results") and gates which
+    // groups `handleRetry` re-fetches. The query tag matters because a group reports its error
+    // asynchronously: typing a new query can change `searchQuery` before the previous query's
+    // failed report clears, and an error reported for a stale query must not read as a failure
+    // of the current one.
+    const [errorByType, setErrorByType] = useState<Record<string, { query?: string; hasError: boolean }>>({})
     // Latest retry function per group, kept out of state since identity changes every render
     // and it's only read imperatively from `handleRetry`.
     const retryFnsRef = useRef<Record<string, () => Promise<unknown>>>({})
@@ -301,10 +305,17 @@ export function MenuFilterCombobox({
         )
     }, [])
 
-    const reportError = useCallback((type: string, hasError: boolean, retry: () => Promise<unknown>): void => {
-        retryFnsRef.current[type] = retry
-        setErrorByType((prev) => (prev[type] === hasError ? prev : { ...prev, [type]: hasError }))
-    }, [])
+    const reportError = useCallback(
+        (type: string, hasError: boolean, retry: () => Promise<unknown>, query?: string): void => {
+            retryFnsRef.current[type] = retry
+            setErrorByType((prev) =>
+                prev[type]?.hasError === hasError && prev[type]?.query === query
+                    ? prev
+                    : { ...prev, [type]: { query, hasError } }
+            )
+        },
+        []
+    )
 
     // Chips show only when `drillTo='all'` — drilled scopes lock to one
     // category and hide the chip row per spec.
@@ -692,23 +703,27 @@ export function MenuFilterCombobox({
 
     // True when a visible group's request failed with nothing to fall back on — takes over
     // from the empty state (below) so a dead backend doesn't read as "no matching results".
+    // Only counts a report tagged with the *current* query — a stale report for a query the
+    // user has already moved on from must not read as a failure of what's on screen now.
     const anyError = useMemo(() => {
         if (drillItems) {
             return false
         }
-        return targetGroups.some((g) => errorByType[g.type])
-    }, [drillItems, targetGroups, errorByType])
+        return targetGroups.some((g) => errorByType[g.type]?.hasError && errorByType[g.type]?.query === searchQuery)
+    }, [drillItems, targetGroups, errorByType, searchQuery])
 
     const handleRetry = useCallback(async (): Promise<void> => {
         setRetrying(true)
         try {
             await Promise.all(
-                targetGroups.filter((g) => errorByType[g.type]).map((g) => retryFnsRef.current[g.type]?.())
+                targetGroups
+                    .filter((g) => errorByType[g.type]?.hasError && errorByType[g.type]?.query === searchQuery)
+                    .map((g) => retryFnsRef.current[g.type]?.())
             )
         } finally {
             setRetrying(false)
         }
-    }, [targetGroups, errorByType])
+    }, [targetGroups, errorByType, searchQuery])
 
     // ---- Reveal barrier ----------------------------------------------------
     // Close synchronously the instant the query changes (React "adjust state
@@ -1499,8 +1514,9 @@ function Fetcher({
      *  parent's reveal barrier holds the list until every group settles. */
     onFetchingChange: (type: string, fetching: boolean, query?: string) => void
     /** Reports whether this group's request failed with nothing to fall back on, plus a
-     *  retry function the parent can call from the error state's "Try again" button. */
-    onErrorChange: (type: string, hasError: boolean, retry: () => Promise<unknown>) => void
+     *  retry function the parent can call from the error state's "Try again" button, and
+     *  the query the report belongs to (so the parent can ignore a stale report). */
+    onErrorChange: (type: string, hasError: boolean, retry: () => Promise<unknown>, query?: string) => void
 }): null {
     const { getGroupListInput } = useTaxonomicFilterContext()
     const input = getGroupListInput(group)
@@ -1519,9 +1535,9 @@ function Fetcher({
     const refetchRef = useRef(list.refetch)
     refetchRef.current = list.refetch
     useEffect(() => {
-        onErrorChange(group.type, list.showErrorState, () => refetchRef.current())
+        onErrorChange(group.type, list.showErrorState, () => refetchRef.current(), input.searchQuery)
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- refetchRef always holds the latest fn
-    }, [group.type, list.showErrorState, onErrorChange])
+    }, [group.type, list.showErrorState, input.searchQuery, onErrorChange])
     // Make sure we flip back to "not loading"/"not fetching"/"not errored" when this group
     // unmounts — otherwise a stale `true` from a previously-active chip would keep the
     // skeleton (or the reveal barrier, or the error state) stuck after we switch scope.

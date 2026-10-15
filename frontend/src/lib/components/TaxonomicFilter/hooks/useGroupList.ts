@@ -491,8 +491,11 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     }, [allowNonCapturedEvents, group.type, group.excludedProperties, trimmedSearch, isLoading, items])
 
     // A fetch that failed for the *current* query with nothing usable to fall back on.
-    // Mirrors legacy infiniteListLogic's `showErrorState`.
-    const error = remote.error
+    // Mirrors legacy infiniteListLogic's `showErrorState`. When the server search is the
+    // active source (dataset bigger than one cached page), its failure is what must
+    // surface — the cached first page already succeeded, so `remote.error` stays unset
+    // and a failed search would otherwise read as "no results".
+    const error = serverSearchEnabled ? serverSearch.error : remote.error
     const showErrorState = remoteEnabled && !!error && items.length === 0 && !isLoading
 
     // Empty / loading state checks read array length, not the API-reported
@@ -554,6 +557,9 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         expand,
         refetch: () => {
             const pending = [remote.refetch()]
+            if (serverSearchEnabled) {
+                pending.push(serverSearch.refetch())
+            }
             if (remoteEnabled && group.scopedEndpoint && !isExpanded) {
                 pending.push(expandedCount.refetch())
             }

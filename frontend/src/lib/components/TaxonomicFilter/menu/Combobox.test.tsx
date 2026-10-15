@@ -223,6 +223,48 @@ describe('MenuFilterCombobox', () => {
         expect(screen.getAllByText('Internal team').length).toBeGreaterThan(0)
     })
 
+    it('does not capture a stale `taxonomic filter fetch failed` or show the error block after a failed query is followed by a new one that succeeds', async () => {
+        apiGet.mockImplementation((url: string) =>
+            url.includes('search=fail') ? Promise.reject(new Error('network error')) : emptyPaginated()
+        )
+        const tree = (q: string): JSX.Element => (
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    onChange={jest.fn()}
+                    searchQuery={q}
+                >
+                    <MenuFilterCombobox
+                        drillTo={TaxonomicFilterGroupType.Events}
+                        onCommit={jest.fn()}
+                        onBack={jest.fn()}
+                    />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+
+        const { rerender } = render(tree('fail'))
+        await waitFor(() => expect(screen.getByTestId('menu-filter-error')).toBeInTheDocument())
+        expect(
+            captureMock.mock.calls.filter(([event]: [string]) => event === 'taxonomic filter fetch failed')
+        ).toHaveLength(1)
+
+        apiGet.mockImplementation((url: string) =>
+            url.includes('search=fail')
+                ? Promise.reject(new Error('network error'))
+                : Promise.resolve({ results: [{ name: 'ok_event' }], count: 1 })
+        )
+        rerender(tree('ok'))
+
+        await waitFor(() => expect(screen.getAllByText('ok_event').length).toBeGreaterThan(0))
+        expect(screen.queryByTestId('menu-filter-error')).not.toBeInTheDocument()
+        // The new query's own fetch never failed, so the dedup count must stay at the one
+        // genuine failure — a stale report for "fail" must not recapture under "ok".
+        expect(
+            captureMock.mock.calls.filter(([event]: [string]) => event === 'taxonomic filter fetch failed')
+        ).toHaveLength(1)
+    })
+
     it('dedups a synthetic selected entry against the real remote entry (no double checkmark)', async () => {
         apiGet.mockResolvedValue({
             results: [
