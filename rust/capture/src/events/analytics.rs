@@ -34,7 +34,7 @@ use crate::{
     router,
     utils::uuid_v7_from_datetime,
     v0_request::{
-        exceeds_max_ai_event_bytes, DataType, OverflowReason, ProcessedEvent,
+        exceeds_max_ai_event_bytes, DataType, OverflowBudget, OverflowReason, ProcessedEvent,
         ProcessedEventMetadata, ProcessingContext,
     },
 };
@@ -139,7 +139,7 @@ pub fn process_single_event(
     Span::current().record("request_id", &context.request_id);
 
     let data_type = DataType::from_event_name(&event.event, context.historical_migration);
-    if context.capture_mode == crate::config::CaptureMode::Ai && data_type != DataType::AiEvents {
+    if context.capture_mode == crate::config::CaptureMode::Ai && !data_type.is_ai() {
         return Err(CaptureError::NonAiEventOnAiLane(event.event.clone()));
     }
 
@@ -202,13 +202,15 @@ pub fn process_single_event(
         distinct_id_truncated_from: extracted_distinct_id.truncated_from_chars,
     };
 
-    if historical_cfg.should_reroute(metadata.data_type, parsed_timestamp.timestamp) {
-        metrics::counter!(
-            "capture_events_rerouted_historical",
-            &[("reason", "timestamp")]
-        )
-        .increment(1);
-        metadata.data_type = DataType::AnalyticsHistorical;
+    if let Some(historical) = metadata.data_type.to_historical() {
+        if historical_cfg.should_reroute(parsed_timestamp.timestamp) {
+            metrics::counter!(
+                "capture_events_rerouted_historical",
+                &[("reason", "timestamp")]
+            )
+            .increment(1);
+            metadata.data_type = historical;
+        }
     }
 
     let event = CapturedEvent {
@@ -230,7 +232,7 @@ pub fn process_single_event(
         is_cookieless_mode: event
             .extract_is_cookieless_mode()
             .ok_or(CaptureError::InvalidCookielessMode)?,
-        historical_migration: metadata.data_type == DataType::AnalyticsHistorical,
+        historical_migration: metadata.data_type.is_historical(),
     };
 
     Ok(ProcessedEvent { metadata, event })
@@ -402,7 +404,7 @@ async fn process_events_inner(
     // get the one `process_single_event` minted, which identifies nothing they
     // can look up.
     if let Some(offender) = events.iter().find(|e| {
-        e.metadata.data_type == DataType::AiEvents
+        e.metadata.data_type.is_ai()
             && exceeds_max_ai_event_bytes(e.event.data.len(), context.ai_max_event_bytes)
     }) {
         return Err(CaptureError::AiEventTooBig(format!(
@@ -531,11 +533,12 @@ async fn process_events_inner(
 
                 if limited {
                     event.metadata.skip_person_processing = true;
-                    // Reroute the hot key to overflow. AnalyticsMain only: historical
-                    // never overflows, the AI lane keeps its dedicated topic (v1
-                    // gates the same way on Destination::AnalyticsMain), and only
-                    // AnalyticsMain acts on overflow_reason.
-                    if event.metadata.data_type == DataType::AnalyticsMain {
+                    // Reroute the hot key to overflow. Analytics main only:
+                    // historical never overflows, and the AI lane keeps its
+                    // dedicated topic (v1 gates the same way on
+                    // Destination::AnalyticsMain).
+                    if event.metadata.data_type.overflow_budget() == Some(OverflowBudget::Analytics)
+                    {
                         event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
                     }
                     limited_distinct_ids.insert(&event.event.distinct_id);

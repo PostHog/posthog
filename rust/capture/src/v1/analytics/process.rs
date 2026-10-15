@@ -762,7 +762,7 @@ fn apply_historical_rerouting(
 
         // Timestamp-based: reroute old events when the feature is enabled
         if let Some(ts) = event.adjusted_timestamp {
-            if cfg.should_reroute(crate::v0_request::DataType::AnalyticsMain, ts) {
+            if cfg.should_reroute(ts) {
                 event.destination = Destination::AnalyticsHistorical;
                 metrics::counter!(
                     CAPTURE_V1_EVENTS_REROUTED_HISTORICAL,

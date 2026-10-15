@@ -33,7 +33,7 @@ use std::sync::Arc;
 
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::prometheus::report_dropped_events;
-use crate::v0_request::{DataType, ProcessedEvent};
+use crate::v0_request::ProcessedEvent;
 
 /// Flat allowance for the `CapturedEvent` envelope fields not in `data`.
 const ENVELOPE_WEIGHT_BYTES: usize = 512;
@@ -81,7 +81,7 @@ pub async fn drop_ai_byte_limited(
 
     for read in 0..events.len() {
         let event = &events[read];
-        let over_budget = event.metadata.data_type == DataType::AiEvents
+        let over_budget = event.metadata.data_type.is_ai()
             && charge_ai_bytes(limiter, &event.event.token, event.event.data.len()).await;
         if over_budget {
             dropped += 1;

@@ -21,7 +21,7 @@ use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::registry::{Destination, OutputTable};
 use crate::sinks::sink::{fold_results, Outcome, PreparedPayload, PublishPayloads, SinkResult};
-use crate::v0_request::{DataType, ProcessedEvent};
+use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
 use bytes::Bytes;
 use common_types::CapturedEventHeaders;
@@ -257,8 +257,10 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         // DLQ or a custom topic keeps the envelope, with its content-encoding
         // header travelling along. See `crate::serialization` for the formats,
         // the envelope byte layout, and the coexistence story.
-        let serializer = match (metadata.data_type, self.replay_envelope_compression) {
-            (DataType::SnapshotMain, EnvelopeCompression::Lz4) => Serializer::JSON_LZ4,
+        let serializer = match self.replay_envelope_compression {
+            EnvelopeCompression::Lz4 if metadata.data_type.is_session_replay() => {
+                Serializer::JSON_LZ4
+            }
             _ => Serializer::JSON,
         };
         let payload = serializer.serialize(&event).map_err(|e| {
