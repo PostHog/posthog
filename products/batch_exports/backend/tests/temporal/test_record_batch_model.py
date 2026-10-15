@@ -28,7 +28,12 @@ from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
     validate_hogql_query_for_batch_export,
 )
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    BatchExportEventsCustomModel,
+    BatchExportHogQLModel,
+    BatchExportModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.temporal.batch_exports import iter_records
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.record_batch_model import (
@@ -529,13 +534,13 @@ class TestHogQLQueryRecordBatchModel:
             HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query)
 
     async def test_resolve_batch_exports_model_returns_hogql_model(self):
-        batch_export_model = BatchExportModel(
-            name="hogql",
-            schema=None,
-            hogql_query=(
+        batch_export_model = BatchExportHogQLModel(
+            query=(
                 "SELECT event AS event, timestamp AS timestamp FROM events "
                 "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
             ),
+            user_id=1,
+            modifiers={},
         )
 
         _, record_batch_model, model_name, _, _, _ = resolve_batch_exports_model(
@@ -544,7 +549,7 @@ class TestHogQLQueryRecordBatchModel:
 
         assert isinstance(record_batch_model, HogQLQueryRecordBatchModel)
         assert model_name == "hogql"
-        assert record_batch_model.hogql_query == batch_export_model.hogql_query
+        assert record_batch_model.hogql_query == batch_export_model.query
         assert record_batch_model.wait_for_data_interval_end is True
 
     @pytest.mark.parametrize(
@@ -562,12 +567,10 @@ class TestHogQLQueryRecordBatchModel:
     ):
         ateam.modifiers = team_modifiers
         await ateam.asave()
-        batch_export_model = BatchExportModel(
-            name="hogql",
-            schema=None,
-            hogql_query="SELECT event AS event, timestamp AS timestamp FROM events",
+        batch_export_model = BatchExportHogQLModel(
+            query="SELECT event AS event, timestamp AS timestamp FROM events",
             user_id=auser.pk,
-            hogql_modifiers=hogql_modifiers,
+            modifiers=hogql_modifiers or {},
         )
 
         _, record_batch_model, _, _, _, _ = resolve_batch_exports_model(
@@ -589,7 +592,7 @@ class TestHogQLQueryRecordBatchModel:
     ) -> None:
         query = "SELECT event AS event FROM events"
         await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
-        payload = BatchExportModel(name="hogql", schema=None, hogql_query=query, user_id=auser.pk)
+        payload = BatchExportHogQLModel(query=query, user_id=auser.pk, modifiers={})
         _, model, _, _, _, _ = resolve_batch_exports_model(ateam.pk, payload)
         await model.as_query_with_parameters(None, None)
 
@@ -639,7 +642,7 @@ class TestHogQLQueryRecordBatchModel:
         with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
             await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
             _, model, _, _, _, _ = resolve_batch_exports_model(
-                ateam.pk, BatchExportModel(name="hogql", schema=None, hogql_query=query, user_id=auser.pk)
+                ateam.pk, BatchExportHogQLModel(query=query, user_id=auser.pk, modifiers={})
             )
             before, _ = await model.as_query_with_parameters(None, None)
             assert "NULL AS secret" not in before
@@ -674,7 +677,7 @@ class TestHogQLQueryRecordBatchModel:
         with patch("posthog.hogql.database.database.feature_enabled_or_false", return_value=True):
             await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
             _, model, _, _, _, _ = resolve_batch_exports_model(
-                ateam.pk, BatchExportModel(name="hogql", schema=None, hogql_query=query, user_id=auser.pk)
+                ateam.pk, BatchExportHogQLModel(query=query, user_id=auser.pk, modifiers={})
             )
             await model.as_query_with_parameters(None, None)
             membership = await OrganizationMembership.objects.aget(user=auser, organization=aorganization)
@@ -702,7 +705,7 @@ async def test_custom_export_recompilation_preserves_column_names(ateam, use_new
     }
     with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
         _, _, _, fields, _, values = await database_sync_to_async(resolve_batch_exports_model)(
-            team_id=ateam.pk, batch_export_model=BatchExportModel(name="events", schema=schema)
+            team_id=ateam.pk, batch_export_model=BatchExportEventsCustomModel(schema=schema)
         )
 
     assert fields is not None
@@ -770,7 +773,7 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 "values": {"unused_old_parameter": "stale"},
             }
             _, _, _, fields, _, values = await database_sync_to_async(resolve_batch_exports_model)(
-                team_id=ateam.pk, batch_export_model=BatchExportModel(name="events", schema=schema)
+                team_id=ateam.pk, batch_export_model=BatchExportEventsCustomModel(schema=schema)
             )
             assert fields is not None
             assert "unused_old_parameter" not in values
