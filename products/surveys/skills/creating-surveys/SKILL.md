@@ -25,11 +25,32 @@ information that changes who receives the survey or how it is delivered.
 | A shareable hosted form                 | `external_survey` | A hosted survey link; no in-app targeting            |
 | A custom form built in application code | `api`             | The app renders questions and captures survey events |
 
-Prefer one to three questions unless the user requests more. Use a rating plus
-an optional open question for NPS/CSAT, or choice questions with at least two
-choices. Inspect the current tool schema for question types, scales, branching,
+Inspect the current tool schema for question types, scales, branching,
 and translations instead of guessing their JSON shapes. Minimal starting points
 are in [examples](references/examples.md).
+
+### Design for responses
+
+These choices change how many people answer an in-app survey. Apply them by
+default, and name the tradeoff when the user asks for something else. The
+evidence and its limits are in [response rates](references/response-rates.md).
+
+- **Trigger on the moment you are asking about.** Show the survey after the
+  event that marks it, such as a completed checkout or a used feature, through
+  `conditions.events`. Event-triggered surveys get about twice the responses of
+  page-based ones. A URL condition alone performs about the same as showing the
+  survey on every page. Confirm the event exists in the project before using it.
+- **Make the first question one click.** Start with a single choice or a short
+  rating. An open-text first question gets about a fifth of the responses.
+  Ask "why" in an optional open question after it.
+- **Keep it to one to three questions.** Each question after the first loses
+  about half of the people who started.
+- **Leave partial responses on** so the first answer is kept when someone stops.
+- **Target the people who did the thing.** A survey with a person or cohort
+  audience gets more responses than one shown to everyone.
+- **Keep any popup delay under 15 seconds.** Longer delays lose responses.
+- **Use a short scale for satisfaction.** A 3- or 5-point scale is enough. Use
+  the 0–10 scale when the user asks for NPS by name.
 
 Survey names, questions, and appearance text are public content. Do not copy
 private customer details into them without making that visibility clear first.
