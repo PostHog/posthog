@@ -6770,6 +6770,14 @@ snapshots:
         hash: v1.k794b7964.84cc0e5ededef8d70ec2afb262cc42d39b3db123a564f1e0663fcb8149793855.yV6x8wpb8M-X_eOhoABzLqsbreU-JcxiG0uERMmVt_k
     products-business-intelligence-worksheet-exploration--narrow--light:
         hash: v1.k794b7964.0fee0f5823ffe92065e82cbb68cf41af052ef0686f4af6983f002e14b6b7cc72.VIRLrujj_vgA_1g5UdicDqQ1qqGE4uomAIV93eW7YIk
+    products-business-intelligence-worksheet-exploration--nested-panes--dark:
+        hash: v1.k794b7964.8b976259bd009567aa8be4e1cf6711e2ce919cc6ec194807903244cce9404427.yJPP8SPhDBl7W-YDJerfEoGLjOUqDzeTS5UbETJ9lKc
+    products-business-intelligence-worksheet-exploration--nested-panes--light:
+        hash: v1.k794b7964.c573b9a2886f85df69ed4c504735905d25c012cf7a1d85c4f17555e18960f629.ERFpvh78Di7sfHfh2G_kVRBo-NFoNnaolzM2l4YfdIA
+    products-business-intelligence-worksheet-exploration--nested-panes-narrow--dark:
+        hash: v1.k794b7964.74913ccac0ee56d53b0a5c2ab584cca435bd9447c7f1551ae77ff9e0ed39e90e.oUguaMSK83b4Fc-m1ZyuY2p5wZQ9Ud-J34x_vqOaB-0
+    products-business-intelligence-worksheet-exploration--nested-panes-narrow--light:
+        hash: v1.k794b7964.b933b747bae31348b79bb46e3b366320df2ab93262cd94323e1bd17edd2dbfeb.PkIIilA5-sY8GvvW9t-bWPsfJU-wpZ485ztFTf1WFNE
     products-business-intelligence-worksheet-exploration--scatter-selection--dark:
         hash: v1.k794b7964.16b94e8d73a8d564096dc3c3600cccf22d4d1d123605ad499d6a3e0ccd8dfe11.Q5QHE8jnCZ_xX7p1RXGnV3BafVmnqUoYxwBoWBxyqyg
     products-business-intelligence-worksheet-exploration--scatter-selection--light:
