@@ -125,10 +125,12 @@ steps:
     - await: { visible: { id: view-tile-fullscreen-8 } }
     - await: { idle: true }
 
-    - echo: Scroll to the retention grid. Tap a cell. Expect the callout under the grid
+    # A drag that starts outside a selected chart clears its selection, so scroll before the tap, not after it.
+    - echo: Scroll to the card under the retention grid. Tap a cell. Expect the callout under the grid
+    - scroll-to: { target: { id: view-tile-6 } }
     - scroll-to: { target: { id: chart-demo-tile-9-cell-3-2 } }
     - tap: { id: chart-demo-tile-9-cell-3-2 }
-    - scroll-to: { target: { id: chart-demo-tile-9-callout } }
+    - await: { visible: { id: chart-demo-tile-9-callout } }
     - assert: { text: { in: { id: chart-demo-tile-9-callout }, contains: Sep 13 cohort } }
     - await: { idle: true }
 
