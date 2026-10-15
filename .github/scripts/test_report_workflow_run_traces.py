@@ -414,76 +414,17 @@ class TestScan:
         assert "event=push" in opener.calls[0]
 
 
-def _depot_log_line(step_key: str, step_name: str, offset: float) -> str:
-    return json.dumps(
-        {"type": "line", "timestamp": _iso(offset), "step_key": step_key, "step_name": step_name, "body": "output"}
-    )
-
-
 class TestDepotTraces:
-    @pytest.mark.parametrize(
-        "log_lines,expected",
-        [
-            (
-                [
-                    _depot_log_line("a", "Install", 10),
-                    _depot_log_line("a", "Install", 12),
-                    _depot_log_line("b", "Test", 30),
-                    _depot_log_line("b", "Test", 40),
-                ],
-                [("Install", 10, 30), ("Test", 30, 40)],
-            ),
-            (
-                [
-                    _depot_log_line("a", "Lint", 10),
-                    _depot_log_line("b", "Typecheck", 11),
-                    _depot_log_line("a", "Lint", 25),
-                    _depot_log_line("b", "Typecheck", 20),
-                ],
-                [("Lint", 10, 25), ("Typecheck", 11, 20)],
-            ),
-            (
-                [_depot_log_line("setup", "", 1), _depot_log_line("sync", "", 2), _depot_log_line("sync_post", "", 5)],
-                [("Set up job", 1, 2), ("output", 2, 5), ("Post output", 5, 5)],
-            ),
-        ],
-        ids=["sequential", "parallel", "unnamed"],
-    )
-    def test_rebuilds_step_spans_from_logs(self, log_lines: list[str], expected: list[tuple[str, int, int]]) -> None:
-        steps = reporter.depot_steps_from_logs(log_lines)
-
-        assert [
-            (
-                step["name"],
-                (reporter.parse_iso_utc(step["started_at"]) - RUN_START).total_seconds(),
-                (reporter.parse_iso_utc(step["completed_at"]) - RUN_START).total_seconds(),
-            )
-            for step in steps
-        ] == expected
-
     @pytest.mark.parametrize("workflow_path", ["ci-backend.yml", ".depot/workflows/ci-backend.yml"])
     @pytest.mark.parametrize(
         "status,conclusion", [("finished", "success"), ("failed", "failure"), ("cancelled", "cancelled")]
     )
-    @pytest.mark.parametrize("trigger,expected_steps", [("schedule", 0), ("push", 1)])
     def test_reads_the_completed_workflow_and_job_timestamps(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        status: str,
-        conclusion: str,
-        workflow_path: str,
-        trigger: str,
-        expected_steps: int,
+        self, monkeypatch: pytest.MonkeyPatch, status: str, conclusion: str, workflow_path: str
     ) -> None:
         shown = {
             "org_id": "org",
-            "run": {
-                "run_id": "run",
-                "repo": "PostHog/posthog",
-                "sha": "abc",
-                "trigger": trigger,
-                "ref": "refs/heads/master",
-            },
+            "run": {"run_id": "run", "repo": "PostHog/posthog", "sha": "abc", "trigger": "schedule"},
             "workflow": {
                 "workflow_id": "wf",
                 "workflow_path": workflow_path,
@@ -500,7 +441,6 @@ class TestDepotTraces:
                     "status": status,
                     "started_at": _iso(10),
                     "finished_at": _iso(60),
-                    "attempts": [{"attempt_id": "old-attempt", "attempt": 1}, {"attempt_id": "attempt", "attempt": 2}],
                 }
             ],
         }
@@ -516,9 +456,7 @@ class TestDepotTraces:
 
         monkeypatch.setattr(reporter.depot_backend_runs, "master_workflows", list_workflows)
 
-        def depot_response(*args: str, timeout: int = 0) -> str:
-            if args[:2] == ("logs", "attempt"):
-                return _depot_log_line("setup", "Set up job", 12)
+        def depot_response(*args: str) -> str:
             if args[2] == "old":
                 return json.dumps({**shown, "workflow": {**shown["workflow"], "finished_at": _iso(-1)}})
             return json.dumps(shown)
@@ -534,10 +472,10 @@ class TestDepotTraces:
         assert (run.id, run.attempt, run.provider, run.conclusion) == ("depot:run", 2, "depot", conclusion)
         assert run.path == ".depot/workflows/ci-backend.yml"
         assert run.end == RUN_START + timedelta(seconds=120)
-        assert (run.jobs[0].id, run.jobs[0].duration_seconds, run.step_count) == ("job", 50, expected_steps)
+        assert (run.jobs[0].id, run.jobs[0].duration_seconds, run.step_count) == ("job", 50, 0)
         exporter = InMemorySpanExporter()
         reporter.emit_trace(run, "https://example.com", "token", exporter=exporter)
-        assert len(exporter.get_finished_spans()) == 2 + expected_steps
+        assert len(exporter.get_finished_spans()) == 2
         assert reporter.run_resource_attributes(run)["ci.provider"] == "depot"
 
     def test_failed_depot_reads_hold_the_watermark(self, monkeypatch: pytest.MonkeyPatch) -> None:

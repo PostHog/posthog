@@ -54,7 +54,7 @@ import argparse
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -365,11 +365,6 @@ class DepotRun(TypedDict):
     trigger: str
 
 
-class DepotAttempt(TypedDict):
-    attempt_id: str
-    attempt: int
-
-
 class DepotJob(TypedDict, total=False):
     job_id: str
     job_key: str
@@ -377,7 +372,6 @@ class DepotJob(TypedDict, total=False):
     status: str
     started_at: str
     finished_at: str
-    attempts: list[DepotAttempt]
 
 
 class DepotExecution(TypedDict):
@@ -526,52 +520,7 @@ def parse_run(raw: Mapping[str, Any], raw_jobs: list[dict]) -> WorkflowRun | Non
     )
 
 
-def depot_steps_from_logs(log_lines: Iterable[str]) -> list[dict[str, Any]]:
-    """GitHub-shaped steps rebuilt from a Depot job's JSON log lines.
-
-    Depot reports no step timestamps, but it tags each log line with its step. A step starts at
-    its first line and ends at the first line of the next step, which covers output-free work at
-    its tail. A step inside a `parallel:` block keeps its own last line when that is later.
-    A step that logs nothing gets no span.
-    """
-    first: dict[str, datetime] = {}
-    last: dict[str, datetime] = {}
-    names: dict[str, str] = {}
-    for line in log_lines:
-        event = json.loads(line)
-        key = event.get("step_key")
-        timestamp = parse_iso_utc(event.get("timestamp") or "")
-        if not key or timestamp is None:
-            continue
-        first.setdefault(key, timestamp)
-        last[key] = timestamp
-        names.setdefault(key, event.get("step_name") or str(event.get("body") or "")[:80])
-    # Steps that Depot adds itself carry no name: job setup, the repository sync, and its post step.
-    names["setup"] = "Set up job"
-    for key in names:
-        base = key.removesuffix("_post")
-        if base != key and base in names:
-            names[key] = f"Post {names[base]}"
-    keys = list(first)
-    steps = []
-    for number, key in enumerate(keys, start=1):
-        next_start = first[keys[number]] if number < len(keys) else last[key]
-        steps.append(
-            {
-                "number": number,
-                "name": names[key],
-                "status": "completed",
-                "conclusion": "",
-                "started_at": first[key].isoformat(),
-                "completed_at": max(last[key], next_start).isoformat(),
-            }
-        )
-    return steps
-
-
-def parse_depot_run(
-    shown: DepotShownWorkflow, steps_by_job: Mapping[str, list[dict[str, Any]]] | None = None
-) -> WorkflowRun | None:
+def parse_depot_run(shown: DepotShownWorkflow) -> WorkflowRun | None:
     context, workflow = shown["run"], shown["workflow"]
     url = f"https://depot.dev/orgs/{shown['org_id']}/workflows/{workflow['workflow_id']}"
     jobs = [
@@ -585,7 +534,6 @@ def parse_depot_run(
             "started_at": job.get("started_at"),
             "completed_at": job.get("finished_at"),
             "runner_name": "depot-ci",
-            "steps": (steps_by_job or {}).get(job["job_id"], []),
         }
         for job in shown["jobs"]
         if not job["job_key"].endswith(":_dynamicMatrix")
@@ -618,12 +566,13 @@ def parse_depot_run(
     return replace(run, provider="depot", end=max(run.end, finished))
 
 
-# How far behind `since` a listing walks: a run that finished after `since` was created after this
-# bound, which covers a push run's job timeouts plus queueing. The hourly listing keeps the one-day
-# slack the GitHub scan uses. The Depot CLI lists at most 200 workflows, and a master push burst
-# can exceed that inside a long window, so the push bound stays short.
+# How far behind `since` a listing walks. A run created before this bound is not listed, so a push
+# run created more than 3 hours before `since` that finishes after it gets no trace. Across 1,000
+# Backend CI master push runs on GitHub Actions from 2026-10-12 to 2026-10-15, the slowest went
+# from creation to completion in 2,264 seconds. The hourly listing keeps the one-day slack the
+# GitHub scan uses. The Depot CLI lists at most 200 workflows, and a master push burst can exceed
+# that inside a long window, which marks every tick incomplete, so the push bound stays short.
 DEPOT_LISTING_SLACK = {"push": timedelta(hours=3), "schedule": timedelta(days=1)}
-DEPOT_LOGS_TIMEOUT_SECONDS = 60
 
 
 def _depot_workflows_since(
@@ -653,18 +602,7 @@ def _read_depot_run(workflow: depot_backend_runs.ListedWorkflow, since: datetime
         raise ValueError("Completed Depot workflow has no finish timestamp")
     if finished < since:
         return None
-    # Steps come from one log download per job. A push run has a few jobs with short logs, while
-    # each test shard of the hourly run logs tens of megabytes, so the hourly run stops at jobs.
-    steps_by_job: dict[str, list[dict[str, Any]]] = {}
-    if shown["run"]["trigger"] == "push":
-        for job in shown["jobs"]:
-            if job.get("started_at") and job.get("attempts"):
-                latest = max(job["attempts"], key=lambda attempt: attempt["attempt"])
-                logs = depot_backend_runs.depot(
-                    "logs", latest["attempt_id"], "--output", "json", timeout=DEPOT_LOGS_TIMEOUT_SECONDS
-                )
-                steps_by_job[job["job_id"]] = depot_steps_from_logs(logs.splitlines())
-    run = parse_depot_run(shown, steps_by_job)
+    run = parse_depot_run(shown)
     if run is None:
         raise ValueError("Completed Depot workflow has no start timestamp")
     return run
