@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, isBreakpoint, kea, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -530,6 +530,11 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                                 }
                             },
                             onError: (err) => {
+                                // fetch-event-source re-sends the request when onerror returns, so a
+                                // superseded run must throw to stop it.
+                                if (isBreakpoint(err)) {
+                                    throw err
+                                }
                                 if (abortController.signal.aborted) {
                                     return
                                 }
@@ -561,6 +566,9 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
 
                         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunAiPlayground)
                     } catch (error) {
+                        if (error instanceof Error && isBreakpoint(error)) {
+                            throw error
+                        }
                         if (abortController.signal.aborted) {
                             responseText += `${responseText ? '\n\n' : ''}*Generation stopped.*`
                         } else if (error instanceof RateLimitError) {

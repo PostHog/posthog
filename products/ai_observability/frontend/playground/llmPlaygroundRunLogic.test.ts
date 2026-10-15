@@ -326,6 +326,52 @@ describe('llmPlaygroundRunLogic', () => {
         captureExceptionSpy.mockRestore()
     })
 
+    it('stops a superseded run instead of letting the stream retry it', async () => {
+        let releaseFirstStream: () => void = () => {}
+        const firstStreamGate = new Promise<void>((resolve) => {
+            releaseFirstStream = resolve
+        })
+        const retriedAfterError = jest.fn()
+        const streamSpy = jest
+            .spyOn(api, 'stream')
+            .mockImplementationOnce(async (_url, options: any) => {
+                await firstStreamGate
+                // Same contract as fetch-event-source: an onmessage throw goes to onerror, and the
+                // request is sent again unless onerror throws.
+                try {
+                    options.onMessage({ data: JSON.stringify({ type: 'text', text: 'stale' }) })
+                } catch (error) {
+                    options.onError(error)
+                    retriedAfterError()
+                }
+            })
+            .mockImplementation(async () => {})
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        releaseFirstStream()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(streamSpy).toHaveBeenCalledTimes(2)
+        expect(retriedAfterError).not.toHaveBeenCalled()
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
+        expect(toastSpy).not.toHaveBeenCalled()
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        captureExceptionSpy.mockRestore()
+        toastSpy.mockRestore()
+    })
+
     it('captures exceptions thrown before the stream opens', async () => {
         const thrownError = new ApiError('fallback message', 400, undefined, {
             error: 'Invalid provider key configuration',
