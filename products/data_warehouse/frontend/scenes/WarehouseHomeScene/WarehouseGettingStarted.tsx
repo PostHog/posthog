@@ -20,7 +20,6 @@ import { urls } from 'scenes/urls'
 
 import { warehouseHomeLogic, WarehouseStepState } from './warehouseHomeLogic'
 import { WarehouseMcpSetup } from './WarehouseMcpSetup'
-import { WAREHOUSE_QUESTIONS_SECTION_ID } from './warehouseQuestionsContent'
 
 type WarehouseStep = 'connect_source' | 'answer_question' | 'save_insight'
 
@@ -30,7 +29,7 @@ type WarehouseStep = 'connect_source' | 'answer_question' | 'save_insight'
 const POPULAR_SOURCES = [
     { label: 'Stripe', kind: 'Stripe' },
     { label: 'HubSpot', kind: 'Hubspot' },
-    { label: 'Salesforce', kind: 'Salesforce' },
+    { label: 'Supabase', kind: 'Supabase' },
     { label: 'Zendesk', kind: 'Zendesk' },
     { label: 'Postgres', kind: 'Postgres' },
     { label: 'Google Ads', kind: 'GoogleAds' },
@@ -88,7 +87,7 @@ export function WarehouseGettingStarted(): JSX.Element {
                         index={1}
                         state={sourceStep}
                         title="Connect a source"
-                        description="Bring in data from the tools your business runs on. Payments, CRMs, support desks, ad platforms and databases sync into your warehouse on a schedule, next to your PostHog events."
+                        description="Bring in data from your payments tool, CRM, support desk, ad platforms and databases. Sync into your warehouse on a schedule, next to your PostHog events."
                         actions={
                             <Button
                                 size="sm"
@@ -122,24 +121,12 @@ export function WarehouseGettingStarted(): JSX.Element {
                         index={2}
                         state={viewStep}
                         title="Answer a question"
-                        description="Join your PostHog data with what you've connected. Start from a question below, ask PostHog AI, or write the SQL yourself."
+                        description="Query your PostHog and business data together. Start from a question below and run the skill, ask PostHog AI in plain English, or write the SQL yourself."
                         actions={
                             <>
                                 <Button
                                     size="sm"
                                     variant="primary"
-                                    data-attr="warehouse-home-choose-question"
-                                    onClick={() => {
-                                        captureStepClick('answer_question', 'choose_question', viewStep)
-                                        document
-                                            .getElementById(WAREHOUSE_QUESTIONS_SECTION_ID)
-                                            ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                                    }}
-                                >
-                                    Choose a question
-                                </Button>
-                                <Button
-                                    size="sm"
                                     nativeButton={false}
                                     render={<LinkPrimitive to={urls.ai()} />}
                                     data-attr="warehouse-home-ask-ai"
@@ -162,7 +149,7 @@ export function WarehouseGettingStarted(): JSX.Element {
                     <StepCard
                         index={3}
                         title="Save it as an insight"
-                        description="Save your answer as an insight so it refreshes on a schedule. Add it to a dashboard, share it with your team, or send the results to your CRM."
+                        description="Save your answer as an insight so it refreshes on a schedule and you can keep going back to it. Add it to a dashboard, share it with your team, or send the results to your CRM."
                         actions={
                             <>
                                 <Button

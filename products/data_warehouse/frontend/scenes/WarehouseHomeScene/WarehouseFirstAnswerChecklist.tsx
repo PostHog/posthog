@@ -31,18 +31,18 @@ export function WarehouseFirstAnswerChecklist(): JSX.Element {
     // Only steps the app can detect are listed, so the progress bar can reach the end.
     const steps: ChecklistStep[] = [
         {
-            title: 'PostHog data in your warehouse',
-            description: 'Events, persons and groups are ready to query.',
+            title: 'Collect event data using PostHog',
+            description: 'Use product analytics, session replay, logs, and more.',
             state: 'done',
         },
         {
-            title: 'Connect a source',
+            title: 'Connect an external source',
             description: 'Stripe, HubSpot, Zendesk, or one of hundreds more.',
             state: sourceStep,
         },
         {
             title: 'Answer a question',
-            description: 'Save a view from the SQL editor or PostHog AI.',
+            description: 'Query your PostHog and business data together.',
             state: viewStep,
         },
     ]

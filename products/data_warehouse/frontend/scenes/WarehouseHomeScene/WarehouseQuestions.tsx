@@ -15,8 +15,8 @@ export function WarehouseQuestions(): JSX.Element {
                     Start with a question
                 </Heading>
                 <Text size="sm" variant="muted">
-                    Each one pairs your PostHog data with one of your business tools. PostHog AI can answer it for you,
-                    or the guide walks you through it.
+                    Your warehouse already holds all your PostHog data. Add an external source and you can answer
+                    questions neither could answer alone.
                 </Text>
             </div>
             <div className="grid gap-4 @2xl/warehouse-home:grid-cols-2 @5xl/warehouse-home:grid-cols-3">

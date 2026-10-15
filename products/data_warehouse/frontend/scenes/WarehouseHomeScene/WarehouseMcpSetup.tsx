@@ -11,11 +11,10 @@ export function WarehouseMcpSetup(): JSX.Element {
     return (
         <Card size="sm">
             <CardHeader>
-                <CardTitle>Keep setting up from your editor</CardTitle>
+                <CardTitle>Continue setting up with the MCP</CardTitle>
                 <CardDescription>
-                    Add the PostHog MCP server to Claude Code, Cursor or VS Code, and your coding agent can do the rest
-                    of the setup for you. Ask it to connect a source, write the SQL that joins it to your PostHog data,
-                    and save the result as a view or an insight.
+                    Ask the PostHog MCP to connect a source, write the SQL that joins it to your PostHog data, and save
+                    the result as a view or an insight.
                 </CardDescription>
             </CardHeader>
             <CardFooter className="flex-wrap gap-2">

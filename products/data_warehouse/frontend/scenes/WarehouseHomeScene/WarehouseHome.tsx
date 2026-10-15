@@ -47,8 +47,8 @@ export function WarehouseHome(): JSX.Element {
                             </Heading>
                             <Text variant="muted">
                                 The data stack brings your business and PostHog data together. Once the data is in, you
-                                shape it with views and materialized views, chart it in insights, and reach it from your
-                                editor over MCP.
+                                shape it with views and materialized views, query it with PostHog AI or the SQL editor,
+                                chart it in insights, and reach it from your editor over MCP.
                             </Text>
                             <div className="flex flex-wrap gap-2">
                                 <Button
