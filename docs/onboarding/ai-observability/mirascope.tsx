@@ -1,7 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
-import { getOtelSessionIdStep } from './_snippets/otel-session-id'
+import { getOtelRequestContextStep } from './_snippets/otel-request-context'
 
 export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -131,7 +131,7 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
                 </>
             ),
         },
-        getOtelSessionIdStep(ctx, { languages: ['Python'] }),
+        getOtelRequestContextStep(ctx, { languages: ['Python'] }),
     ]
 }
 
