@@ -225,7 +225,7 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if response.status_code != status.HTTP_201_CREATED:
             reason = _refusal_reason(response)
             record_gateway_token_refusal("desktop", reason, ai_product=POSTHOG_CODE_PRODUCT)
-            logger.info("desktop gateway token refused (team_id=%s reason=%s)", self.team_id, reason)
+            logger.info("desktop gateway mint refused (team_id=%s reason=%s)", self.team_id, reason)
         return response
 
     def _gateway_token(self, request: Request) -> Response:

@@ -1684,7 +1684,7 @@ def posthog_code_token_unavailable(reason: str, team_id: int | None) -> ProcessT
         )
     message = _POSTHOG_CODE_REFUSAL_MESSAGES.get(reason, f"PostHog AI refused this run (reason: {reason}).")
     if reason == "not_configured":
-        logger.error("ai_gateway_token: posthog_code run with no gateway configured (team_id=%s)", team_id)
+        logger.error("ai_gateway: posthog_code run with no gateway configured (team_id=%s)", team_id)
     return GatewayTokenUnavailableError(message, context)
 
 
