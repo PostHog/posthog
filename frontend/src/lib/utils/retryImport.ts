@@ -10,6 +10,10 @@ function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
     return name === 'TypeError' && typeof message === 'string' && /^[A-Za-z_$] is not a function$/.test(message)
 }
 
+function isSyntaxError(error: unknown): boolean {
+    return !!error && typeof error === 'object' && (error as { name?: string }).name === 'SyntaxError'
+}
+
 /**
  * Re-attempts a dynamic `import()` on a transient chunk-load failure before giving up.
  *
@@ -27,6 +31,12 @@ export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs 
     try {
         return await factory()
     } catch (error) {
+        // A truncated or corrupted chunk fails to parse. The browser caches the failed module per URL,
+        // so a retry gets the same error. Only a page reload fetches the chunk again.
+        if (isSyntaxError(error)) {
+            markAsChunkLoadError(error)
+            throw error
+        }
         if (!isChunkLoadError(error) && !isGenericNetworkTypeError(error)) {
             throw error
         }

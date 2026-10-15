@@ -1,6 +1,7 @@
 from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Final, Literal
+from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
@@ -17,15 +18,16 @@ from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 from posthog.schema_enums import ProductKey
 from posthog.tasks.email import send_workflow_email_sending_paused, send_workflow_email_sending_warning
 
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-from products.workflows.backend.services.email_sending_attribution import (
+from products.workflows.backend.facade.contracts import (
     COMPLAINT_METRIC,
     EMAIL_HEALTH_METRIC_NAMES,
     HARD_BOUNCE_METRIC,
     SENT_METRIC,
     EmailSendingCounts,
-    fold_email_totals_by_flow,
+    StaffPausedError,
 )
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.services.email_sending_attribution import fold_email_totals_by_flow
 
 logger = structlog.get_logger(__name__)
 
@@ -33,10 +35,6 @@ APP_SOURCE: Final[str] = "hog_flow"
 
 PAUSED_BY_AUTO: Final[str] = "auto"
 PAUSED_BY_STAFF: Final[str] = "staff"
-
-
-class StaffPausedError(Exception):
-    """A customer tried to resume a pause only staff may clear."""
 
 
 def pause_requires_staff(*, paused_at: datetime | None, paused_by: str, resumed_at: datetime | None) -> bool:
@@ -585,8 +583,10 @@ def _decision_log_fields(decision: PauseDecision) -> dict[str, str | int | float
     }
 
 
-def resume_workflow_email_sending(flow: HogFlow, *, actor: str = "customer", now: datetime | None = None) -> bool:
-    """Clear a workflow's pause. Returns False when it was not paused.
+def resume_email_sending(
+    *, team_id: int, hog_flow_id: UUID, actor: str = "customer", now: datetime | None = None
+) -> datetime | None:
+    """Clear a workflow's pause. Returns the resume time, or None when it was not paused.
 
     A staff pause exists because the automatic thresholds could not see the problem, so a customer
     must not be able to clear it: only `actor="staff"` may. Raises StaffPausedError so the API can
@@ -602,12 +602,12 @@ def resume_workflow_email_sending(flow: HogFlow, *, actor: str = "customer", now
     with transaction.atomic():
         locked = (
             HogFlow.objects.select_for_update()
-            .filter(id=flow.id, team_id=flow.team_id)
+            .filter(id=hog_flow_id, team_id=team_id)
             .only("id", "team_id", "email_sending_paused_at", "email_sending_paused_by", "email_sending_resumed_at")
             .first()
         )
         if locked is None or locked.email_sending_paused_at is None:
-            return False
+            return None
         if actor != PAUSED_BY_STAFF and pause_requires_staff(
             paused_at=locked.email_sending_paused_at,
             paused_by=locked.email_sending_paused_by,
@@ -616,18 +616,26 @@ def resume_workflow_email_sending(flow: HogFlow, *, actor: str = "customer", now
             raise StaffPausedError("Only PostHog staff can resume this pause.")
         # Queryset update for the same reason as the pause writer: the reload must publish only
         # once the resume is committed.
-        HogFlow.objects.filter(id=flow.id, team_id=flow.team_id).update(
+        HogFlow.objects.filter(id=hog_flow_id, team_id=team_id).update(
             email_sending_paused_at=None,
             email_sending_paused_reason="",
             email_sending_paused_by="",
             email_sending_resumed_at=now,
         )
         transaction.on_commit(
-            lambda: reload_hog_flows_on_workers(team_id=flow.team_id, hog_flow_ids=[str(flow.id)]), robust=True
+            lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[str(hog_flow_id)]), robust=True
         )
+    return now
+
+
+def resume_workflow_email_sending(flow: HogFlow, *, actor: str = "customer", now: datetime | None = None) -> bool:
+    """Clear a workflow's pause and mirror the write onto `flow`. Returns False when it was not paused."""
+    resumed_at = resume_email_sending(team_id=flow.team_id, hog_flow_id=flow.id, actor=actor, now=now)
+    if resumed_at is None:
+        return False
     # The caller serializes these back to the customer, so mirror what was written.
     flow.email_sending_paused_at = None
     flow.email_sending_paused_reason = ""
     flow.email_sending_paused_by = ""
-    flow.email_sending_resumed_at = now
+    flow.email_sending_resumed_at = resumed_at
     return True

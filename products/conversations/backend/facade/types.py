@@ -23,6 +23,14 @@ class SupportChannel:
 
 
 @dataclass(frozen=True)
+class SupportSlackSender:
+    """The Slack profile a SupportHog message can be posted under."""
+
+    name: str
+    icon_url: str
+
+
+@dataclass(frozen=True)
 class ConversationMessageSender:
     name: str
     email: str | None

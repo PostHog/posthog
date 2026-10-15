@@ -564,3 +564,11 @@ export function formatDerivedToastPrompt(prompt: string): string {
     const trimmed = prompt.trim().replace(/^["']|["']$/g, '')
     return `"${trimmed}"`
 }
+
+/**
+ * Turns a displayed example into the prompt an external agent receives. The agent may not have the
+ * PostHog MCP server yet, so the prompt tells it to ask for the install instead of guessing.
+ */
+export function stripDisplayQuotes(example: string): string {
+    return example.trim().replace(/^["']|["']$/g, '')
+}

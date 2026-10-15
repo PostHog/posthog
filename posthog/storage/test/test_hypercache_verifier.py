@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, call, patch
 
 from django.db import InterfaceError, OperationalError
 from django.db.models import QuerySet
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 
 import zstd
 import redis.exceptions
@@ -44,7 +44,7 @@ from posthog.storage.hypercache_verifier import (
 from posthog.storage.object_storage import ObjectStorageError
 
 
-class TestVerificationResult(TestCase):
+class TestVerificationResult(SimpleTestCase):
     """Test VerificationResult dataclass functionality."""
 
     def test_default_values(self):

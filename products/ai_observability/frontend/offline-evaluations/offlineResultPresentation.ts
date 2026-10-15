@@ -7,6 +7,7 @@ import type {
     OfflineScorerVersionReadApi,
 } from '../generated/api.schemas'
 import { getBooleanConfig, getCategoricalConfig } from '../scoreDefinitions/scoreDefinitionConfigUtils'
+import { offlineNumericPassingRule } from './offlineScoreInterpretation'
 import { formatOfflineNumericScore } from './offlineScoreTrends'
 
 export function offlineResultLabel(
@@ -17,7 +18,7 @@ export function offlineResultLabel(
         return { error: 'Error', skipped: 'Skipped', not_applicable: 'Not applicable' }[result.status]
     }
     if (typeof result.value === 'number') {
-        return formatOfflineNumericScore(result.value)
+        return formatOfflineNumericScore(result.value, offlineNumericPassingRule(scorer))
     }
     if (typeof result.value === 'boolean') {
         const config = getBooleanConfig(scorer.config)

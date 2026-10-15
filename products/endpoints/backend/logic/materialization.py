@@ -413,6 +413,18 @@ class EndpointMaterializationService:
         bucket_overrides: dict[str, str] | None = None,
     ) -> MaterializationPreview:
         """Preview the materialization transform without enabling it."""
+        try:
+            return self._build_preview(endpoint, version, bucket_overrides)
+        except (ExposedHogQLError, MaterializationNotSupportedError) as e:
+            # A bad user query, not a system fault, so report it as unmaterializable.
+            return MaterializationPreview.cant_materialize(str(e))
+
+    def _build_preview(
+        self,
+        endpoint: Endpoint,
+        version: EndpointVersion,
+        bucket_overrides: dict[str, str] | None,
+    ) -> MaterializationPreview:
         can_mat, reason = version.can_materialize()
         if not can_mat:
             return MaterializationPreview.cant_materialize(reason)
@@ -528,7 +540,11 @@ class EndpointMaterializationService:
             # frontend uses execution_query only as a presence flag and renders the display variant.
             if version.is_materialized:
                 execution_query_str = to_printed_hogql(
-                    _build_exec_preview(version.materialized_view_name), team=self.team
+                    _build_exec_preview(version.materialized_view_name),
+                    team=self.team,
+                    # Display-only text for the endpoint's own materialized view, and no rows are read.
+                    # Without the bypass, the userless database denies the view and the print fails.
+                    bypass_warehouse_access_control=True,
                 )
             else:
                 execution_query_str = print_prepared_ast(

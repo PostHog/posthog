@@ -1,6 +1,9 @@
+import threading
+
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from google.genai.types import FinishReason
@@ -49,7 +52,9 @@ from products.replay_vision.backend.scanner_draft import (
     _MatchedExperiment,
     _MatchedSurvey,
     _measured_events,
+    _run_concurrently,
     _solve_budget,
+    _start_in_background,
     _v2_query,
     draft_scanner_from_goal,
     draft_scanner_from_goal_v2,
@@ -470,15 +475,20 @@ class TestGenerate:
         generate.side_effect = side_effect
         return generate
 
+    @parameterized.expand([("quick_blip", 0.5, 2), ("slow_timeout", 60.0, 1)])
     @patch("products.replay_vision.backend.scanner_draft.genai.Client")
-    def test_retries_once_on_a_transient_provider_failure(self, mock_client_cls):
+    def test_retries_only_a_quick_failure(self, _name, failure_seconds, expected_calls, mock_client_cls):
         response = MagicMock(text=_draft().model_dump_json())
         generate = self._mock_client(mock_client_cls, [RuntimeError("blip"), response])
 
-        result = _generate(user_content="goal", team_id=1, distinct_id="u")
+        with patch(f"{_MODULE}.time.monotonic", side_effect=[0.0, failure_seconds]):
+            if expected_calls == 1:
+                with pytest.raises(DraftError):
+                    _generate(user_content="goal", team_id=1, distinct_id="u")
+            else:
+                assert _generate(user_content="goal", team_id=1, distinct_id="u").name == "Checkout abandonment"
 
-        assert result.name == "Checkout abandonment"
-        assert generate.call_count == 2
+        assert generate.call_count == expected_calls
 
     @patch("products.replay_vision.backend.scanner_draft.genai.Client")
     def test_gives_up_after_the_second_failure(self, mock_client_cls):
@@ -497,6 +507,16 @@ class TestGenerate:
         _generate(user_content="goal", team_id=1, distinct_id="u")
 
         assert generate.call_args.kwargs["config"].max_output_tokens == _MAX_OUTPUT_TOKENS
+        assert generate.call_args.kwargs["config"].thinking_config is None
+
+    @patch("products.replay_vision.backend.scanner_draft.genai.Client")
+    def test_a_thinking_budget_reaches_the_model_config(self, mock_client_cls):
+        response = MagicMock(text=_draft().model_dump_json())
+        generate = self._mock_client(mock_client_cls, [response])
+
+        _generate(user_content="goal", team_id=1, distinct_id="u", thinking_budget=512)
+
+        assert generate.call_args.kwargs["config"].thinking_config.thinking_budget == 512
 
     @patch("products.replay_vision.backend.scanner_draft.genai.Client")
     def test_output_cut_off_by_the_token_budget_is_its_own_failure(self, mock_client_cls):
@@ -512,6 +532,42 @@ class TestGenerate:
             _generate(user_content="goal", team_id=1, distinct_id="u")
 
         assert caught.value.reason == "output_truncated"
+
+
+class TestRunConcurrently:
+    @override_settings(TEST=False)
+    def test_runs_every_item_on_worker_threads_and_surfaces_a_failure(self):
+        # Tests otherwise run the items in turn, so only this one covers the threaded path.
+        ran: list[str] = []
+
+        def fail() -> None:
+            raise RuntimeError("clickhouse down")
+
+        _run_concurrently([lambda: ran.append("a"), lambda: ran.append("b")], thread_name_prefix="test")
+        with pytest.raises(RuntimeError):
+            _run_concurrently([lambda: ran.append("c"), fail], thread_name_prefix="test")
+
+        assert sorted(ran) == ["a", "b", "c"]
+
+    @override_settings(TEST=False)
+    def test_a_background_estimate_hands_its_result_to_the_caller(self):
+        get = _start_in_background(lambda: 42)
+
+        assert get() == 42
+
+    @override_settings(TEST=False)
+    def test_with_no_free_worker_the_estimate_runs_only_when_asked_for(self):
+        ran: list[int] = []
+
+        def work() -> int:
+            ran.append(1)
+            return 42
+
+        with patch(f"{_MODULE}._BACKGROUND_SLOTS", threading.BoundedSemaphore(1)) as slots:
+            slots.acquire()
+            get = _start_in_background(work)
+            assert ran == []
+            assert get() == 42
 
 
 class TestDraftScannerEndpoint(_VisionAPITestCase):

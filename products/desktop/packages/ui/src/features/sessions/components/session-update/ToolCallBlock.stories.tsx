@@ -529,7 +529,7 @@ export const ExecuteCommandLongInput: Story = {
             type: "text",
             text: `apps/code/src/renderer/components/permissions/types.ts
 apps/code/src/renderer/features/sessions/types.ts
-apps/code/src/renderer/features/sessions/components/ConversationView.tsx
+packages/ui/src/features/sessions/components/chat-thread/ChatThread.tsx
 packages/agent/src/adapters/claude/conversion/tool-use-to-acp.ts`,
           },
         },

@@ -170,7 +170,7 @@ class _WarehouseSubjectResolver(RecipientsResolver):
 
 def _source_url(team_id: int, subject_type: str, subject_name: str) -> str:
     if subject_type == SubjectType.METRIC:
-        return f"/project/{team_id}/data-catalog/metrics/{quote(subject_name, safe='')}?tab=tests"
+        return f"/project/{team_id}/data-catalog/metrics/{quote(subject_name, safe='')}?tab=data-quality"
     if subject_type == SubjectType.POSTHOG_TABLE:
         return f"/project/{team_id}/models?tab=data-quality"
     return ""

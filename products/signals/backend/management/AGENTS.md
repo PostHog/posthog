@@ -219,6 +219,23 @@ uv run manage.py resume_setup_paused_operational_scouts --apply --team-id 1
 
 Idempotent. A resumed row no longer matches.
 
+## Reactivating report checks a paused scout retired
+
+Dispatch once treated a paused scout as a permanent refusal, so three ticks of a pause retired an `agent` check as `errored`.
+`reactivate_pause_errored_report_checks` makes such a check active and due again with a clear error count.
+A check matches only when its last result is the paused-scout refusal, its report is still resolved, and its horizon has not passed.
+If the scout is still paused, the reactivated check waits for the resume without spending errors.
+
+```bash
+# Dry run (the default): how many checks match, and the first team ids
+uv run manage.py reactivate_pause_errored_report_checks
+
+# Write, optionally for one environment
+uv run manage.py reactivate_pause_errored_report_checks --apply --team-id 1
+```
+
+Idempotent. A reactivated check no longer matches.
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`

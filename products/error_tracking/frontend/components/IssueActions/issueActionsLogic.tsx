@@ -281,7 +281,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     posthog.capture('error_tracking_issue_update_status', {
                         status,
                         issue_id: id,
-                        source: 'issue_actions',
+                        ui_source: 'issue_actions',
                     })
                     await api.errorTracking.updateIssue(id, { status })
                 })
@@ -293,7 +293,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         posthog.capture('error_tracking_issue_update_severity', {
                             severity,
                             issue_id: id,
-                            source: 'issue_actions',
+                            ui_source: 'issue_actions',
                         })
                         await errorTrackingIssuesPartialUpdate(String(teamLogic.values.currentProjectId), id, {
                             severity,

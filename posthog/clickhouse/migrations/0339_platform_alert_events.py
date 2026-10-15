@@ -9,7 +9,7 @@ is `posthog` on the aux role, and a test or local ClickHouse runs under a differ
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
-from products.alerts.backend.models.platform_alert_events_sql import (
+from products.alerts_platform.backend.facade.clickhouse import (
     DISTRIBUTED_PLATFORM_ALERT_EVENTS_TABLE_SQL,
     SHARDED_PLATFORM_ALERT_EVENTS_TABLE_SQL,
 )

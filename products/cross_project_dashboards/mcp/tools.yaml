@@ -1,0 +1,58 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product cross_project_dashboards
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product cross_project_dashboards
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
+category: Cross-project dashboards
+feature: cross_project_dashboards
+url_prefix: /cross-project-dashboards
+ui_apps: {}
+tools:
+    cross-project-dashboard-tiles-list:
+        operation: cross_project_dashboards_tiles_list
+        enabled: true
+        scopes:
+            - cross_project_dashboard:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List the tiles on a cross-project dashboard
+        description: >
+            The tiles on one dashboard. Each tile carries the project id and insight id it references, its grid position
+            and any filters that apply to it alone.
+        feature_flag: cross-project-dashboards
+        feature_flag_behavior: enable
+    cross-project-dashboards-get:
+        operation: cross_project_dashboards_retrieve
+        enabled: true
+        scopes:
+            - cross_project_dashboard:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get one cross-project dashboard
+        description: >
+            One dashboard with its tiles. Each tile names the project and the insight it points at, never the insight's
+            name, query or numbers. To read a tile's numbers, switch to that project and query the insight there.
+        feature_flag: cross-project-dashboards
+        feature_flag_behavior: enable
+    cross-project-dashboards-list:
+        operation: cross_project_dashboards_list
+        enabled: true
+        scopes:
+            - cross_project_dashboard:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List cross-project dashboards
+        description: >
+            Dashboards the organization owns, each holding insights from one or more projects. Each dashboard comes with
+            its filters and counts of the tiles and projects the reader can open. Get one dashboard to read its tiles.
+        feature_flag: cross-project-dashboards
+        feature_flag_behavior: enable

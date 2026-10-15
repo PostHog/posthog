@@ -25,6 +25,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import DashboardFilter, EndpointRunRequest, HogQLVariable, PropertyOperator
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -310,6 +311,7 @@ class EndpointQueryStrategy(abc.ABC):
 
     supports_pagination: ClassVar[bool] = False
     supports_ducklake: ClassVar[bool] = False
+    materialized_limit_context: ClassVar[LimitContext | None] = None
 
     def __init__(self, endpoint: Endpoint, version: EndpointVersion, team: Team):
         self.endpoint = endpoint
@@ -444,8 +446,11 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
         try:
             parsed = parse_select(query_str)
             if isinstance(parsed, ast.SelectQuery):
+                output_names = [column["name"] for column in self.version.columns or []]
                 columns = (
-                    transform_select_for_materialized_table(list(parsed.select), self.team) if parsed.select else None
+                    transform_select_for_materialized_table(list(parsed.select), output_names)
+                    if parsed.select
+                    else None
                 )
                 limit = parsed.limit.value if isinstance(parsed.limit, ast.Constant) else None
                 has_group_by = bool(parsed.group_by)
@@ -498,12 +503,12 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
                             )
                         )
                     else:
-                        reagg_select.append(col.expr)
+                        reagg_select.append(col.labeled_expr)
                         if not col.is_aggregate:
                             group_by_columns.append(col.expr)
                 select_columns = reagg_select
             else:
-                select_columns = [col.expr for col in original_select]
+                select_columns = [col.labeled_expr for col in original_select]
 
         select_query = ast.SelectQuery(
             select=select_columns,
@@ -609,6 +614,7 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
     """
 
     BREAKDOWN_SUPPORTED_QUERY_TYPES: ClassVar[frozenset[str]] = BREAKDOWN_SUPPORTED_QUERY_TYPES
+    materialized_limit_context = LimitContext.SAVED_QUERY
     # Query types with a materialized-response transformer
     INSIGHT_TRANSFORM_TYPES: ClassVar[set[str]] = {"TrendsQuery", "LifecycleQuery", "RetentionQuery"}
 

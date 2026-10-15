@@ -85,7 +85,10 @@ jobs:
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
-                  build-args: COMMIT_HASH=${{ github.sha }}
+                  build-args: |
+                      COMMIT_HASH=${{ github.sha }}
+                      POSTHOG_UI_APPS_TOKEN=sTMFPsFhdP1Ssg
+                      POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=https://us.i.posthog.com
 
     deploy:
         name: Trigger MCP deployment
@@ -107,7 +110,7 @@ jobs:
 
             - name: Get PR labels
               id: labels
-              uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({

@@ -4,6 +4,7 @@ use std::sync::LazyLock;
 use tonic::Status;
 use uuid::Uuid;
 
+use personhog_common::persons::COOKIELESS_SENTINEL_VALUE;
 use personhog_proto::personhog::identity::v1::MergePersonsRequest;
 use personhog_proto::personhog::lifecycle::v1::DeletePersonsRequest;
 
@@ -54,6 +55,7 @@ const BARE_CASE_SENSITIVE_ILLEGAL_IDS: &[&str] = &[
     "null",
     "0",
     "undefined",
+    COOKIELESS_SENTINEL_VALUE,
 ];
 
 fn with_quoted(ids: &[&str]) -> HashSet<String> {

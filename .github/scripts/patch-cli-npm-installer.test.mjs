@@ -16,12 +16,51 @@ import {
 const GENERATED_INSTALLER = `const http = require("node:http");
 
 class Package {
-  install() {
+  install(suppressLogs = false) {
     return download(this.url)
-      .then(() => {});
+      .then(() => {
+        const tempFile = this.tempFile;
+        const result = spawnSync("powershell.exe", [
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    \`& {
+                        param([string]$LiteralPath, [string]$DestinationPath)
+                        Expand-Archive -LiteralPath $LiteralPath -DestinationPath $DestinationPath -Force
+                    }\`,
+                    tempFile,
+                    this.installDirectory,
+                  ]);
+      })
+      .then(() => {
+        if (!suppressLogs) {
+          console.error(\`\${this.name} has been installed!\`);
+        }
+      });
   }
 }
 `
+
+function loadPatchedPackage({ binaryExists }) {
+    const calls = []
+    const Package = new Function(
+        'require',
+        'download',
+        'spawnSync',
+        `${patchBinaryInstaller(GENERATED_INSTALLER)}\nreturn Package`
+    )(
+        () => ({}),
+        async () => {},
+        (command, args, options) => calls.push({ command, args, options })
+    )
+    const pkg = Object.assign(new Package(), {
+        name: 'posthog-cli',
+        tempFile: 'C:\\Users\\First Last\\AppData\\Local\\Temp\\cli.zip',
+        installDirectory: 'C:\\Users\\First Last\\project\\node_modules\\.bin_real',
+        exists: () => binaryExists,
+    })
+    return { pkg, calls }
+}
 
 test('classifies only transient download failures as retryable', () => {
     for (const message of ['HTTP 408 from URL', 'HTTP 429 from URL', 'HTTP 500 from URL', 'socket hang up']) {
@@ -75,6 +114,26 @@ test('patches the cargo-dist download call', () => {
     assert.match(patched, /downloadWithRetry\(\(\) => download\(this\.url\)/)
     assert.match(patched, /DOWNLOAD_MAX_ATTEMPTS = 4/)
     assert.match(patched, /DOWNLOAD_RETRY_BASE_DELAY_MS = 1000/)
+})
+
+test('passes the Windows unzip paths through the env, not as PowerShell arguments', async () => {
+    const { pkg, calls } = loadPatchedPackage({ binaryExists: true })
+
+    await pkg.install(true)
+
+    assert.equal(calls.length, 1)
+    for (const arg of calls[0].args) {
+        assert.doesNotMatch(arg, /First Last/)
+    }
+    assert.match(calls[0].args.at(-1), /-LiteralPath \$env:POSTHOG_CLI_ZIP -DestinationPath \$env:POSTHOG_CLI_DEST/)
+    assert.equal(calls[0].options.env.POSTHOG_CLI_ZIP, pkg.tempFile)
+    assert.equal(calls[0].options.env.POSTHOG_CLI_DEST, pkg.installDirectory)
+})
+
+test('fails the install when the binary is missing after extraction', async () => {
+    const { pkg } = loadPatchedPackage({ binaryExists: false })
+
+    await assert.rejects(pkg.install(true), /posthog-cli is missing from/)
 })
 
 test('patches the npm archive and refreshes release checksums', () => {

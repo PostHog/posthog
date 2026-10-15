@@ -1,12 +1,12 @@
 import { cn } from 'lib/utils/css-classes'
 
-import { TimelineRowData } from '../types'
+import type { TraceTimelineRowApi } from '../../../generated/api.schemas'
 import { TimelineAxis } from './TimelineAxis'
 import { TIMELINE_COLUMNS, TimelineRow } from './TimelineRow'
 import { timelineTicks } from './timelineTicks'
 
 export interface TraceTimelineProps {
-    rows: TimelineRowData[]
+    rows: TraceTimelineRowApi[]
     totalMs: number
     selectedNodeId: string | null
     onSelectNode: (id: string) => void

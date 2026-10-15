@@ -4,6 +4,7 @@ from typing import Optional, cast
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -76,6 +77,13 @@ _API_HEADER_BY_VERSION = {
 
 @SourceRegistry.register
 class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=("^LINKEDIN_ADS_", "^NEXT_PUBLIC_LINKEDIN_PARTNER_ID$"),
+        script_hosts=("snap.licdn.com", "px.ads.linkedin.com", "dc.ads.linkedin.com"),
+        npm=("nextjs-linkedin-insight-tag", "react-linkedin-insight", "gatsby-plugin-linkedin-insight"),
+        pypi=("tap-linkedin-ads", "airbyte-source-linkedin-ads"),
+    )
+
     api_docs_url = "https://learn.microsoft.com/en-us/linkedin/marketing/versioning"
 
     supported_versions = (
@@ -124,6 +132,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # resource can't be resolved — typically a deleted account, a wrong Account ID, or lost
             # access. Retrying can't recover it, so stop syncing instead of looping the 404.
             "RESOURCE_NOT_FOUND": "LinkedIn could not find the requested ad account. It may have been deleted, the configured Account ID may be wrong, or PostHog may have lost access. Check the Account ID and re-authorize the LinkedIn Ads integration.",
+            # LinkedIn returns a plain 404 with this generic error code (no "RESOURCE_" prefix) for
+            # the same underlying condition — a deleted account, a wrong Account ID, or lost access
+            # to it. Match the quoted JSON key/value so this never also matches "RESOURCE_NOT_FOUND"
+            # above, which carries a more specific message.
+            '"code":"NOT_FOUND"': "LinkedIn could not find the requested ad account. It may have been deleted, the configured Account ID may be wrong, or PostHog may have lost access. Check the Account ID and re-authorize the LinkedIn Ads integration.",
             # LinkedIn returns a 401 with this stable error code when the member who authorized the
             # integration has been restricted on LinkedIn's side (suspended / flagged account). The
             # token can't be used until LinkedIn lifts the restriction, so retrying never recovers —

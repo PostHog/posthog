@@ -6,7 +6,7 @@ import { KnowledgeSourceDetails } from './KnowledgeSourceDetails'
 const meta: Meta<typeof KnowledgeSourceDetails> = {
     title: 'Scenes-App/BusinessKnowledge/KnowledgeSourceDetails',
     component: KnowledgeSourceDetails,
-    parameters: { layout: 'padded', viewMode: 'story' },
+    parameters: { layout: 'padded', viewMode: 'story', mockDate: '2026-09-24' },
     args: {
         isRefreshing: false,
         isDeleting: false,

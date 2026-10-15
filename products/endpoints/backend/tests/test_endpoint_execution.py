@@ -13,8 +13,11 @@ from rest_framework.response import Response
 
 from posthog.schema import EventsNode, TrendsQuery
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.errors import CHQueryErrorNoCommonType
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 
@@ -1103,6 +1106,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             # Must use has() for array containment, not = for string equality
             self.assertIn("has(breakdown_value", query_sql)
             self.assertIn("chrome", query_sql)
+            # Insight reads are nested on return, so a default row cap would silently drop
+            # breakdown values or a compare period instead of reporting hasMore.
+            self.assertEqual(mock_exec.call_args.kwargs["limit_context"], LimitContext.SAVED_QUERY)
 
     def test_materialized_insight_endpoint_filters_by_multiple_breakdowns(self):
         endpoint = create_endpoint_with_version(
@@ -1709,6 +1715,30 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             assert pagination is not None
             assert pagination.limit == req_limit
             assert pagination.offset == req_offset
+
+    @parameterized.expand(
+        [
+            ("truncated_at_default_limit", 150, 100, True),
+            ("under_default_limit", 20, 20, False),
+        ]
+    )
+    def test_inline_run_without_limit_reports_has_more(self, _name, num_rows, expected_rows, expected_has_more):
+        endpoint = create_endpoint_with_version(
+            name="no_limit_has_more",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": f"SELECT number FROM numbers({num_rows})"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertEqual(len(data["results"]), expected_rows)
+        self.assertEqual(data["hasMore"], expected_has_more)
 
     def test_inline_pagination_with_variables(self):
         """Pagination on a HogQL query with {variables.*} placeholders must not raise."""
@@ -2494,10 +2524,18 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         inline_response = Response({"results": [[1]], "columns": ["count()"]})
+        outcomes: list[Response | Exception] = [RuntimeError("materialized table exploded"), inline_response]
+        workloads_seen: list[str | None] = []
+
+        def run_query(*args, **kwargs) -> Response:
+            workloads_seen.append(get_query_tags().workload)
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
         with mock.patch.object(
-            EndpointExecutionService,
-            "_execute_query_and_respond",
-            side_effect=[RuntimeError("materialized table exploded"), inline_response],
+            EndpointExecutionService, "_execute_query_and_respond", side_effect=run_query
         ) as mock_exec:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
@@ -2505,6 +2543,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline fallback")
+        self.assertEqual(workloads_seen[0], Workload.ENDPOINTS)
+        self.assertNotEqual(
+            workloads_seen[1], Workload.ENDPOINTS, "the inline fallback must not run on the endpoints cluster"
+        )
 
     def test_materialized_cache_ttl_derived_from_modeling_jobs(self):
         """v2 DAG runs record success in DataModelingJob but never write saved_query.last_run_at.

@@ -1,6 +1,7 @@
 import { LemonTabs } from '@posthog/lemon-ui'
 
-import { EvalsState, NodeContent, NodeDetailTab, NodeProperties, TraceTreeNode } from '../types'
+import type { TraceNodeApi } from '../../../generated/api.schemas'
+import { EvalsState, NodeContent, NodeDetailTab, NodeProperties } from '../types'
 import { EvalResultList } from './EvalResultList'
 import { NodeDetailHeader } from './NodeDetailHeader'
 import { NodeMessagesTab } from './NodeMessagesTab'
@@ -8,7 +9,7 @@ import { NodePropertyList } from './NodePropertyList'
 import { NodeRawTab } from './NodeRawTab'
 
 export interface NodeDetailProps {
-    node: TraceTreeNode
+    node: TraceNodeApi
     tab: NodeDetailTab
     onTabChange: (tab: NodeDetailTab) => void
     content: NodeContent

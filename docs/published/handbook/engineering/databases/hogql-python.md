@@ -65,6 +65,18 @@ Regex matching uses RE2 syntax, so backreferences and lookaround are unsupported
 SQL LIKE and ILIKE patterns sent to ClickHouse are not subject to these VM limits.
 For non-nullable materialized columns, patterns above 16,384 characters skip the optional sentinel-based rewrite and use the normal property read.
 
+## ClickHouse query errors
+
+`posthog/errors.py` maps ClickHouse error codes to exceptions. Query APIs expose `ExposedCHQueryError` messages and hide `InternalCHQueryError` messages.
+For additional user-correctable errors, set `ErrorCodeMeta.user_safe` to a fixed explanation with a next step.
+Parsing, array, regular expression, scalar subquery, JOIN, and LIMIT errors use these explanations where raw details cannot be exposed safely.
+Unrecognized error codes stay internal.
+
+Do not assume an error code makes its raw message safe. ClickHouse can append expressions and query context after the initial exception.
+Those messages can contain storage credentials, signed URLs, settings, or source data values, including values that a shared insight does not otherwise reveal.
+Check both the throw sites and the exception enrichment paths before allowing raw text.
+Keep importable exception classes when adding a fixed explanation, and test the wrapped message as well as its string representation.
+
 ## AST nodes
 
 If you want more control, you can build the AST nodes directly. The same query above can be written as:
@@ -147,6 +159,15 @@ If you access `pdi.person.properties.$browser`, we make a join via `persons` (th
 If you access `poe.properties.$browser`, we will actually access the field `person_properties` on the events table.
 
 In practice, you should avoid both and access `person.properties.$browser`, which will choose the right approach for you.
+
+On the native JSON events table, HogQL compares non-empty string constants directly with declared String paths and casts Dynamic paths to Nullable(String) for properties with String or unknown definition types.
+This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.
+Numeric, Boolean and DateTime property definitions keep their conversions when compared with strings, for both event and person properties.
+Boolean conversion reads the native path directly because object and array text cannot match `true` or `false`; numeric conversions already read native paths directly.
+Constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
+Single-property reads serialize sub-objects with ClickHouse's JSON formatter; whole-document reads still remove declared defaults.
+Raw SQL property readers preserve backslashes before forward slashes whether ClickHouse's `output_format_json_escape_forward_slashes` setting is enabled or disabled.
+Native queries disable forward-slash escaping so object and array text retains `/`.
 
 Add new tables and fields as needed! Just make sure each table has a `team_id` column.
 

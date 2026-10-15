@@ -17,13 +17,17 @@ from posthog.management.commands.start_temporal_worker import (
     workflows_include_data_import_syncs,
 )
 
-from products.alerts.backend.facade.temporal import (
+from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_ACTIVITIES,
     DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES,
     EVALUATION_WORKFLOWS,
     SHARED_ORCHESTRATION_ACTIVITIES,
     SHARED_ORCHESTRATION_WORKFLOWS,
+)
+from products.metrics.backend.facade.temporal import (
+    ACTIVITIES as METRICS_ACTIVITIES,
+    WORKFLOWS as METRICS_WORKFLOWS,
 )
 from products.signals.backend.temporal import InboxRankingScoringWorkflow, score_inbox_reports_activity
 from products.wizard.backend.facade.temporal import (
@@ -48,6 +52,7 @@ class _NotADataSyncWorkflow:
         ("alerts-platform-evaluation-task-queue", EVALUATION_WORKFLOWS, EVALUATION_ACTIVITIES),
         ("alerts-platform-delivery-task-queue", DELIVERY_WORKFLOWS, DELIVERY_ACTIVITIES),
         (settings.SELF_DRIVING_TASK_QUEUE, [InboxRankingScoringWorkflow], [score_inbox_reports_activity]),
+        (settings.GENERAL_PURPOSE_TASK_QUEUE, METRICS_WORKFLOWS, METRICS_ACTIVITIES),
     ],
 )
 def test_queue_registers_workflows_and_activities(

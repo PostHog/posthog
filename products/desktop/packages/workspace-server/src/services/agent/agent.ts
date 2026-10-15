@@ -95,7 +95,10 @@ import {
   TypedEventEmitter,
 } from "@posthog/shared";
 import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
-import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
+import {
+  appendRichOutputPrompt,
+  getProjectWebUrl,
+} from "@posthog/shared/rich-output-prompt";
 import { inject, injectable, preDestroy } from "inversify";
 import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
 import type { IWorkspaceRepository } from "../../db/repositories/workspace-repository";
@@ -902,11 +905,17 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   ): {
     append: string;
   } {
+    const projectUrl = getProjectWebUrl(
+      credentials.apiHost,
+      credentials.projectId,
+    );
     // Overrides replace task guidance, but product engineering and rich-output rules stay available.
     if (systemPromptOverride) {
       return {
         append: appendRichOutputPrompt(
           prependProductEngineerPrompt(systemPromptOverride),
+          undefined,
+          projectUrl,
         ),
       };
     }
@@ -929,7 +938,11 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     );
 
     return {
-      append: appendRichOutputPrompt(prependProductEngineerPrompt(prompt)),
+      append: appendRichOutputPrompt(
+        prependProductEngineerPrompt(prompt),
+        undefined,
+        projectUrl,
+      ),
     };
   }
 

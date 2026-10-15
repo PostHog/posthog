@@ -11,6 +11,7 @@ ACP_METHOD_SESSION_UPDATE = "session/update"
 
 # Sandbox-specific notification methods
 TURN_COMPLETE_METHOD = "_posthog/turn_complete"
+BACKGROUND_TURN_COMPLETE_METHOD = "_posthog/background_turn_complete"
 
 # Stop reasons
 STOP_REASON_END_TURN = "end_turn"
@@ -46,6 +47,19 @@ def is_turn_complete(event: Mapping[str, object]) -> bool:
         return True
     result = notification.get("result")
     return isinstance(result, dict) and result.get("stopReason") == STOP_REASON_END_TURN
+
+
+def is_background_turn_complete(event: Mapping[str, object]) -> bool:
+    """Check if a sandbox event ends a turn that the agent started without a user prompt.
+
+    The agent starts such a turn when a background task that it launched finishes. That turn
+    has no prompt response, so the agent server reports its end with this notification and not
+    with ``_posthog/turn_complete``. ``is_turn_complete`` does not match it.
+    """
+    if event.get("type") != ACP_NOTIFICATION_TYPE:
+        return False
+    notification = event.get("notification")
+    return isinstance(notification, dict) and notification.get("method") == BACKGROUND_TURN_COMPLETE_METHOD
 
 
 def is_idle_resume_turn_complete(event: Mapping[str, object]) -> bool:

@@ -461,18 +461,18 @@ def _deliver_investigation_outcome(
 ) -> None:
     """Decide what the user gets now that we have the verdict.
 
-    For a check whose notification was held back (the episode's first fire):
+    For a check whose notification was held back (every investigated check of a gated alert):
 
     - true_positive → notify (enriched body with verdict + summary + notebook link)
     - false_positive → suppress, mark the check so the UI can surface why
     - inconclusive → fall back to the alert's configured policy
     - unknown / null verdict → notify (safest default)
 
-    A later investigation of the same episode is not gated, so its notification already
-    went out. It gets a follow-up only when the verdict changed, because the change is
-    the news; an unchanged verdict would repeat what the user already read. A change to
-    a false positive is a correction of a message the user already has, so it is sent
-    rather than suppressed.
+    A check that was not held back (the alert did not gate when the check fired) already
+    notified. It gets a follow-up only when the verdict changed,
+    because the change is the news; an unchanged verdict would repeat what the user already
+    read. A change to a false positive is a correction of a message the user already has,
+    so it is sent rather than suppressed.
 
     Idempotent: if another codepath (retry, safety-net task) already dispatched,
     the first delivery is a no-op, and the follow-up is written once per check.

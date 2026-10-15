@@ -650,6 +650,7 @@ const ConditionContent = ({
                                             )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
+                                            sendAllKeyUpdates
                                             errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                             showCohortFlagTargeting

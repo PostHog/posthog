@@ -55,6 +55,28 @@ class TaskDTO:
     slug: str = ""
 
 
+@dataclass(frozen=True, kw_only=True)
+class AgentTaskRunDTO:
+    """Identity and workflow handle for a newly dispatched agent task."""
+
+    task_id: UUID
+    run_id: UUID
+    team_id: int
+    workflow_id: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class SessionFile:
+    """A text file a custom-prompt session puts in the sandbox before its first turn.
+
+    The agent server writes it under the run's attachments directory and lists its path in the
+    first prompt, so the agent and any sub-agent it starts can read it from disk.
+    """
+
+    name: str
+    content: str
+
+
 @dataclass(frozen=True)
 class StreamNotificationDelivery:
     """Where a server-originated stream notification landed.
@@ -233,6 +255,7 @@ class TaskDetailDTO:
     channel: UUID | None = None
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
     origin_key: str | None = None
+    client_provenance: str | None = None
 
 
 @dataclass(frozen=True)
@@ -381,6 +404,17 @@ class TaskArtifactDTO:
     id: str
     type: str
     name: str
+
+
+@dataclass(frozen=True)
+class TaskRunInputFile:
+    """An existing server-owned object attached before a task run starts."""
+
+    id: str
+    name: str
+    storage_path: str
+    size_bytes: int
+    content_type: str
 
 
 @dataclass(frozen=True)
@@ -1028,3 +1062,17 @@ class LivingArtifactVersionContent:
     name: str
     content_type: str
     content: bytes
+    script_sha256: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class LivingArtifactVersionPreview:
+    name: str
+    content_type: str
+    script_sha256: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class LivingArtifactVersionDownload:
+    url: str | None
+    error: Literal["not_found", "not_stored", "unavailable"] | None

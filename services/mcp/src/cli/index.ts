@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import { createExecTool, formatInputValidationError, repairArgumentNesting } from '@/tools/exec'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
@@ -10,7 +9,7 @@ import type { CliConfig } from './config'
 import { resolveCliConfig, requireApiKey } from './config'
 import { buildCliContext, flushAnalytics } from './context'
 import { installSkill, listSkills } from './skills'
-import { buildToolCallProperties } from './tool-call-properties'
+import { trackCliToolCall } from './tool-call-properties'
 import { getCliTools } from './tools'
 
 const COMMAND_REFERENCE = `CLI-style command string. Supported commands:
@@ -92,9 +91,7 @@ async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltE
         'Execute a PostHog CLI command',
         COMMAND_REFERENCE,
         'posthog-cli',
-        (toolName, properties) => {
-            void context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, buildToolCallProperties(toolName, properties))
-        },
+        (toolName, properties) => trackCliToolCall(context, toolName, properties),
         [],
         { requireDestructiveConfirmation: true }
     )

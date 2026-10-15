@@ -1710,6 +1710,24 @@ class TestResolver(BaseTest):
         query = "SELECT * FROM events.copy"
         resolve_types(self._select(query), self.context, dialect="hogql")
 
+    @parameterized.expand(
+        [
+            ("dotted_qualifier", ["models", "a"], "SELECT models.a.event FROM models.a"),
+            ("backquoted_qualifier", ["models", "a"], "SELECT `models.a`.event FROM models.a"),
+            ("three_segment_qualifier", ["models", "marts", "a"], "SELECT models.marts.a.event FROM models.marts.a"),
+            ("explicit_alias_still_wins", ["models", "a"], "SELECT a.event FROM models.a AS a"),
+        ]
+    )
+    def test_column_qualified_by_nested_table_name(self, _name: str, chain: list[str], query: str) -> None:
+        self.database.tables.add_child(TableNode.create_nested_for_chain(chain, EventsTable()))
+
+        resolved = cast(ast.SelectQuery, resolve_types(self._select(query), self.context, dialect="hogql"))
+
+        expr = resolved.select[0]
+        field_type = expr.type.type if isinstance(expr.type, ast.FieldAliasType) else expr.type
+        assert isinstance(field_type, ast.FieldType)
+        assert field_type.name == "event"
+
     def test_lambda_scope(self):
         query = "SELECT arrayMap(a -> e.timestamp, [1]) as a FROM events e"
         resolve_types(self._select(query), self.context, dialect="hogql")

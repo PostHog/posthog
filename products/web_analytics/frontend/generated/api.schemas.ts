@@ -370,6 +370,146 @@ export interface PatchedSavedHeatmapRequestApi {
     block_consent_modals?: boolean
 }
 
+/**
+ * * `scheduled` - Daily capture
+ * * `manual` - Requested capture
+ */
+export type HeatmapScreenshotHistoryTriggerEnumApi =
+    (typeof HeatmapScreenshotHistoryTriggerEnumApi)[keyof typeof HeatmapScreenshotHistoryTriggerEnumApi]
+
+export const HeatmapScreenshotHistoryTriggerEnumApi = {
+    Scheduled: 'scheduled',
+    Manual: 'manual',
+} as const
+
+/**
+ * * `ok` - Captured
+ * * `pending` - Capture pending
+ * * `failed` - Capture failed
+ */
+export type HeatmapScreenshotHistoryStatusEnumApi =
+    (typeof HeatmapScreenshotHistoryStatusEnumApi)[keyof typeof HeatmapScreenshotHistoryStatusEnumApi]
+
+export const HeatmapScreenshotHistoryStatusEnumApi = {
+    Ok: 'ok',
+    Pending: 'pending',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `queued` - Queued
+ * * `running` - Running
+ * * `succeeded` - Succeeded
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
+ */
+export type HeatmapCaptureRequestStateEnumApi =
+    (typeof HeatmapCaptureRequestStateEnumApi)[keyof typeof HeatmapCaptureRequestStateEnumApi]
+
+export const HeatmapCaptureRequestStateEnumApi = {
+    Queued: 'queued',
+    Running: 'running',
+    Succeeded: 'succeeded',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+export interface HeatmapCaptureRequestApi {
+    /** Durable capture request identifier. */
+    request_id: string
+    /** Queued, running, succeeded, failed, or cancelled.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled */
+    readonly state: HeatmapCaptureRequestStateEnumApi
+    /** Deadline after which this request cannot publish an image. */
+    readonly deadline: string
+    /**
+     * Reason this capture failed, when known.
+     * @nullable
+     */
+    readonly failure_cause: string | null
+    /**
+     * HTTP status returned by the rendered page.
+     * @nullable
+     */
+    readonly page_status: number | null
+    /**
+     * When this request finished.
+     * @nullable
+     */
+    readonly completed_at: string | null
+}
+
+export interface HeatmapScreenshotHistoryItemApi {
+    readonly id: string
+    /** Project-local calendar day of this capture. */
+    readonly captured_on: string
+    /**
+     * Time of the last successful capture.
+     * @nullable
+     */
+    readonly captured_at: string | null
+    /** Actual viewport width of the available image, in CSS pixels. */
+    readonly width: number
+    /** Project timezone when this image was captured. */
+    readonly timezone: string
+    /** Inclusive UTC start of the captured project day. */
+    readonly day_start: string
+    /** Exclusive UTC end of the captured project day. */
+    readonly day_end: string
+    /** Time this history item expires. */
+    readonly expires_at: string
+    /**
+     * Successful request UUID identifying this image revision.
+     * @nullable
+     */
+    readonly revision: string | null
+    readonly trigger: HeatmapScreenshotHistoryTriggerEnumApi
+    readonly status: HeatmapScreenshotHistoryStatusEnumApi
+    /** @nullable */
+    readonly failure_cause: string | null
+    /** @nullable */
+    readonly page_status: number | null
+    /**
+     * Authenticated, versioned URL of the available JPEG.
+     * @nullable
+     */
+    readonly content_url: string | null
+    /**
+     * Preview URL, or null when no preview is available.
+     * @nullable
+     */
+    readonly thumbnail_url: string | null
+    /** Latest attempt, independent of the available image. */
+    latest_request: HeatmapCaptureRequestApi | null
+}
+
+export interface HeatmapScreenshotHistoryResponseApi {
+    /** Viewport width (CSS pixels) daily captures of this heatmap are rendered at. */
+    width: number
+    /** Captures older than this many days are deleted together with their images. */
+    retention_days: number
+    /** Whether object storage is configured on this installation. Captures are only kept when it is. */
+    storage_available: boolean
+    /** Captures within the retention window, newest first. */
+    results: HeatmapScreenshotHistoryItemApi[]
+}
+
+export interface HeatmapScreenshotHistoryCaptureResponseApi {
+    /** Initial state of the durable capture request. */
+    status: string
+    /** Request to poll for the capture outcome. */
+    request_id: string
+    /** Time this request expires if it has not completed. */
+    deadline: string
+    /** Requested viewport width in CSS pixels. */
+    width: number
+}
+
 export interface SavedHeatmapCaptureRequestApi {
     /**
      * Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap.
@@ -563,6 +703,41 @@ export interface GoalApi {
     change: WoWChangeApi | null
 }
 
+/**
+ * * `ok` - OK
+ * * `no_web_sessions` - No web sessions
+ * * `no_sessions` - No sessions
+ * * `unknown` - Unknown
+ */
+export type DigestDataStatusEnumApi = (typeof DigestDataStatusEnumApi)[keyof typeof DigestDataStatusEnumApi]
+
+export const DigestDataStatusEnumApi = {
+    Ok: 'ok',
+    NoWebSessions: 'no_web_sessions',
+    NoSessions: 'no_sessions',
+    Unknown: 'unknown',
+} as const
+
+export interface DigestMetadataApi {
+    /** How to read the headline numbers. 'ok': the headline has pageviews or sessions in the period. 'no_web_sessions': the headline is zero, but the project has sessions in the period. None of them contain a $pageview or $screen event from a non-test account. Query the sessions table directly to count them. 'no_sessions': the project has no sessions in the period. 'unknown': the headline is zero, and the check for other sessions in the period failed. Query the sessions table directly to count them.
+     *
+     * * `ok` - OK
+     * * `no_web_sessions` - No web sessions
+     * * `no_sessions` - No sessions
+     * * `unknown` - Unknown */
+    data_status: DigestDataStatusEnumApi
+    /** Start of the current period, in the project timezone. */
+    date_from: string
+    /** End of the current period, in the project timezone. */
+    date_to: string
+    /** Project timezone for the period boundaries. */
+    timezone: string
+    /** True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them. */
+    filter_test_accounts: boolean
+    /** Metric definitions to use when you compare the digest with a direct query. */
+    notes: string[]
+}
+
 export interface RecapPersonaApi {
     /** Stable persona identifier. One of: just_getting_started, conversion_machine, traffic_magnet, crowd_favorite, search_hog, word_of_mouth, loyal_following, rising_star, steady_hog. */
     id: string
@@ -606,6 +781,8 @@ export interface WebAnalyticsRecapResponseApi {
     top_sources: TopSourceApi[]
     /** Goal conversions. */
     goals: GoalApi[]
+    /** Period, filters and metric definitions behind the numbers, and a status that explains a zero. */
+    metadata: DigestMetadataApi
     /** Link to the Web analytics dashboard for this project. */
     dashboard_url: string
     /** The single weekly persona assigned from this week's data. */
@@ -641,6 +818,8 @@ export interface WeeklyDigestResponseApi {
     top_sources: TopSourceApi[]
     /** Goal conversions. */
     goals: GoalApi[]
+    /** Period, filters and metric definitions behind the numbers, and a status that explains a zero. */
+    metadata: DigestMetadataApi
     /** Link to the Web analytics dashboard for this project. */
     dashboard_url: string
 }
@@ -1518,6 +1697,14 @@ export type HeatmapsListParams = {
      */
     offset?: number
     /**
+     * Inclusive UTC instant. Supply with timestamp_to to override date bounds.
+     */
+    timestamp_from?: string
+    /**
+     * Exclusive UTC instant. Supply with timestamp_from to override date bounds.
+     */
+    timestamp_to?: string
+    /**
      * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
      * @minLength 1
      */
@@ -1604,6 +1791,14 @@ export type HeatmapsEventsRetrieveParams = {
      */
     points: string
     /**
+     * Inclusive UTC instant. Supply with timestamp_to to override date bounds.
+     */
+    timestamp_from?: string
+    /**
+     * Exclusive UTC instant. Supply with timestamp_from to override date bounds.
+     */
+    timestamp_to?: string
+    /**
      * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
      * @minLength 1
      */
@@ -1670,6 +1865,29 @@ export type SavedListParams = {
      */
     type?: string
 }
+
+export type SavedScreenshotHistoryContentRetrieveParams = {
+    /**
+     * Successful request UUID; stale revisions return 404.
+     */
+    v: string
+    /**
+     * Full JPEG or thumbnail. Missing thumbnails return 404.
+     *
+     * * `full` - Full page
+     * * `thumbnail` - Thumbnail
+     * @minLength 1
+     */
+    variant?: SavedScreenshotHistoryContentRetrieveVariant
+}
+
+export type SavedScreenshotHistoryContentRetrieveVariant =
+    (typeof SavedScreenshotHistoryContentRetrieveVariant)[keyof typeof SavedScreenshotHistoryContentRetrieveVariant]
+
+export const SavedScreenshotHistoryContentRetrieveVariant = {
+    Full: 'full',
+    Thumbnail: 'thumbnail',
+} as const
 
 export type WebAnalyticsRecapParams = {
     /**

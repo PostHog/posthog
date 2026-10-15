@@ -1,8 +1,8 @@
-import { TraceTreeNode } from '../types'
+import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { TraceTreeRow } from './TraceTreeRow'
 
 export interface TraceTreeProps {
-    nodes: TraceTreeNode[]
+    nodes: TraceNodeApi[]
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
 }

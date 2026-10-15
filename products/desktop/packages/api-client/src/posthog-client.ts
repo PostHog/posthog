@@ -10,6 +10,7 @@ import type {
   SourceProduct,
   SourceType,
   StoredLogEntry,
+  TaskClientProvenance,
   TaskRunArtifactMetadata,
 } from "@posthog/shared";
 import {
@@ -41,6 +42,7 @@ import type {
   OrganizationMemberBasic,
   PriorityJudgmentArtefact,
   ProvisionedTaskChannels,
+  RankingHead,
   RankingModelResult,
   RankingScoreArtefact,
   RepoSelectionArtefact,
@@ -182,9 +184,16 @@ export function setPosthogApiClientLogger(logger: ApiClientLogger): void {
 // Host build version, set by the host at boot (default "unknown"); avoids a
 // build-time global so the package typechecks standalone and across importers.
 let clientAppVersion = "unknown";
+let taskClientProvenance: TaskClientProvenance = "posthog_desktop";
 
 export function setPosthogApiClientAppVersion(version: string): void {
   clientAppVersion = version;
+}
+
+export function setPosthogApiClientTaskClientProvenance(
+  provenance: TaskClientProvenance,
+): void {
+  taskClientProvenance = provenance;
 }
 
 export interface PostHogAPIClientOptions {
@@ -192,6 +201,7 @@ export interface PostHogAPIClientOptions {
   appVersion?: string;
   userAgent?: string | null;
   githubConnectFrom?: string;
+  taskClientProvenance?: TaskClientProvenance;
 }
 
 export function getPosthogApiClientAppVersion(): string {
@@ -402,10 +412,17 @@ export const NO_TASK_RUN_PREFERENCES: TaskRunPreferences = {
   reasoning_effort: null,
 };
 
+/** The signed-in user's defaults for new tasks. Null means never set. */
+export interface TaskDefaults {
+  start_in_plan_mode: boolean | null;
+  auto_publish_cloud_runs: boolean | null;
+}
+
 /** What the signed-in user has stored for this project, and what it resolves to. */
 export interface MyTaskRunConfig {
   preferences: TaskRunPreferences;
   resolved: TaskRunDefaults;
+  taskDefaults: TaskDefaults;
 }
 
 export interface TaskSessionStorageAccess {
@@ -1738,6 +1755,24 @@ function normalizeWorkReleaseArtefact(
   };
 }
 
+/** Reads the stored lift first. Otherwise mirrors `head_lifts` in `ranking/model_contract.py`. */
+function rankingHeadLift(
+  stored: unknown,
+  probability: number,
+  threshold: number | undefined,
+): number | null {
+  if (typeof stored === "number" && Number.isFinite(stored)) return stored;
+  return threshold !== undefined && threshold > 0
+    ? probability / threshold
+    : null;
+}
+
+function compareRankingHeads(a: RankingHead, b: RankingHead): number {
+  if (a.lift !== null && b.lift !== null) return b.lift - a.lift;
+  if (a.lift !== null || b.lift !== null) return a.lift === null ? 1 : -1;
+  return b.probability - a.probability;
+}
+
 function normalizeRankingModelResult(
   key: string,
   value: unknown,
@@ -1755,6 +1790,17 @@ function normalizeRankingModelResult(
       .filter((entry) => isObjectRecord(entry) && entry.readable === true)
       .map((entry) => String((entry as Record<string, unknown>).head)),
   );
+  // Mirrors `classification_thresholds` in `ranking/model_contract.py`.
+  const thresholds = new Map<string, number>();
+  for (const entry of metadataHeads) {
+    if (
+      isObjectRecord(entry) &&
+      typeof entry.refit_classification_threshold === "number"
+    ) {
+      thresholds.set(String(entry.head), entry.refit_classification_threshold);
+    }
+  }
+  const lifts = isObjectRecord(value.lifts) ? value.lifts : {};
   const scores = isObjectRecord(value.scores) ? value.scores : {};
   const heads = Object.entries(scores)
     .filter(
@@ -1764,9 +1810,10 @@ function normalizeRankingModelResult(
     .map(([name, probability]) => ({
       name,
       probability,
+      lift: rankingHeadLift(lifts[name], probability, thresholds.get(name)),
       readable: readable.has(name),
     }))
-    .sort((a, b) => b.probability - a.probability);
+    .sort(compareRankingHeads);
   return {
     key,
     roles: Array.isArray(value.roles)
@@ -2053,6 +2100,7 @@ export class PostHogAPIClient {
   private _teamId: number | null = null;
   private githubConnectFrom: string;
   private readonly apiHost: string;
+  private readonly taskClientProvenance: TaskClientProvenance;
 
   constructor(
     apiHost: string,
@@ -2064,6 +2112,8 @@ export class PostHogAPIClient {
     const baseUrl = apiHost.endsWith("/") ? apiHost.slice(0, -1) : apiHost;
     this.apiHost = baseUrl;
     this.githubConnectFrom = options.githubConnectFrom ?? "posthog_code";
+    this.taskClientProvenance =
+      options.taskClientProvenance ?? taskClientProvenance;
     this.api = createApiClient(
       buildApiFetcher({
         getAccessToken,
@@ -2613,6 +2663,7 @@ export class PostHogAPIClient {
     const payload = (await response.json()) as {
       ai_run_preferences?: Partial<TaskRunPreferences> | null;
       resolved_ai_run_defaults?: TaskRunDefaults | null;
+      task_defaults?: Partial<TaskDefaults> | null;
     };
     return {
       // The API stores a cleared preference as `{}`, so read each field rather than
@@ -2624,7 +2675,29 @@ export class PostHogAPIClient {
         reasoning_effort: payload.ai_run_preferences?.reasoning_effort ?? null,
       },
       resolved: payload.resolved_ai_run_defaults ?? NO_TASK_RUN_DEFAULTS,
+      taskDefaults: {
+        start_in_plan_mode: payload.task_defaults?.start_in_plan_mode ?? null,
+        auto_publish_cloud_runs:
+          payload.task_defaults?.auto_publish_cloud_runs ?? null,
+      },
     };
+  }
+
+  /** Save some of the signed-in user's task defaults. Fields left out keep their value. */
+  async setMyTaskDefaults(
+    projectId: number,
+    changes: Partial<Record<keyof TaskDefaults, boolean>>,
+  ): Promise<void> {
+    const urlPath = `/api/projects/${projectId}/tasks/@me/config/task_defaults/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify(changes) },
+    });
+    if (!response.ok) {
+      throw new Error(`Task defaults update failed: ${response.status}`);
+    }
   }
 
   async listSignalSourceConfigs(
@@ -3479,7 +3552,9 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/`, {
-        header: {},
+        header: {
+          "X-PostHog-Client-Provenance": this.taskClientProvenance,
+        },
         path: { project_id: teamId.toString() },
         body: {
           ...taskOptions,
@@ -4508,6 +4583,11 @@ export class PostHogAPIClient {
         method: "post",
         url,
         path: urlPath,
+        parameters: {
+          header: {
+            "X-PostHog-Client-Provenance": this.taskClientProvenance,
+          },
+        },
         overrides: {
           body: JSON.stringify({
             repository: options.repository,
@@ -7683,6 +7763,39 @@ export class PostHogAPIClient {
                 results: insight.result,
                 columns: insight.columns ?? [],
               },
+      };
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
+      throw error;
+    }
+  }
+
+  /**
+   * The insight's name and description by short id. Reads the cache only, so
+   * a reference card never runs the insight's query.
+   */
+  async getInsightSummary(shortId: string): Promise<{
+    name: string | null;
+    description: string | null;
+  } | null> {
+    const projectId = (await this.getTeamId()).toString();
+    try {
+      const urlPath = `/api/projects/${projectId}/insights/${encodeURIComponent(shortId)}/`;
+      const url = new URL(`${this.api.baseUrl}${urlPath}`);
+      url.searchParams.set("basic", "true");
+      url.searchParams.set("refresh", "force_cache");
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path: urlPath,
+      });
+      const insight = (await response.json()) as Pick<
+        Schemas.Insight,
+        "name" | "derived_name" | "description"
+      >;
+      return {
+        name: insight.name || insight.derived_name || null,
+        description: insight.description || null,
       };
     } catch (error) {
       if (requestErrorStatus(error) === 404) return null;

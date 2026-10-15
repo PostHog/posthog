@@ -156,6 +156,9 @@ def check_incremental_eligibility(
     # Shape is purely structural, so the raw AST is enough — no need for the resolved copy.
     for select in raw_selects:
         _check_shape(select, blockers)
+    # The resolved copy has every saved query this one reads inlined as a subquery, so the nested
+    # walk sees view bodies too. A LIMIT in a view moves rows under the watermark like an inline one.
+    for select in selects:
         _check_nested_shapes(select, blockers)
 
     if config is None:
@@ -357,15 +360,21 @@ def _check_set_operators(node: ast.SelectQuery | ast.SelectSetQuery, blockers: l
         _check_set_operators(branch, blockers)
 
 
-def _check_shape(select: ast.SelectQuery, blockers: list[str], *, nested: bool = False) -> None:
+def _check_shape(
+    select: ast.SelectQuery, blockers: list[str], *, nested: bool = False, location: str = "a subquery or CTE"
+) -> None:
     if select.limit is not None:
-        blockers.append(_row_slice_blocker("LIMIT", "A top-N within one window is not a top-N overall.", nested))
+        blockers.append(
+            _row_slice_blocker("LIMIT", "A top-N within one window is not a top-N overall.", nested, location)
+        )
     if select.offset is not None:
         blockers.append(
-            _row_slice_blocker("OFFSET", "The rows skipped within one window are not the rows skipped overall.", nested)
+            _row_slice_blocker(
+                "OFFSET", "The rows skipped within one window are not the rows skipped overall.", nested, location
+            )
         )
     if select.limit_by is not None:
-        blockers.append(_row_slice_blocker("LIMIT BY", "A per-window limit is not a limit overall.", nested))
+        blockers.append(_row_slice_blocker("LIMIT BY", "A per-window limit is not a limit overall.", nested, location))
     if not nested:
         # Only outer concerns. Nested, an ORDER BY without a LIMIT changes nothing (and with one,
         # the LIMIT blocker already fires); a nested DISTINCT commutes with the window filter, so
@@ -398,11 +407,11 @@ def _check_shape(select: ast.SelectQuery, blockers: list[str], *, nested: bool =
         )
 
 
-def _row_slice_blocker(construct: str, outer_reason: str, nested: bool) -> str:
+def _row_slice_blocker(construct: str, outer_reason: str, nested: bool, location: str) -> str:
     if nested:
         article = "An" if construct[0] in "AEIOU" else "A"
         return (
-            f"{article} {construct} inside a subquery or CTE cannot be incremental. Which rows it "
+            f"{article} {construct} inside {location} cannot be incremental. Which rows it "
             "lets through changes as data arrives, so a window cannot be recomputed to the same result."
         )
     return f"{construct} cannot be incremental. {outer_reason}"
@@ -416,7 +425,8 @@ def _check_nested_shapes(select: ast.SelectQuery, blockers: list[str]) -> None:
     for source in _source_nodes(select):
         _check_set_operators(source, blockers)
         for leaf in _leaf_selects(source):
-            _check_shape(leaf, blockers, nested=True)
+            location = f'the view "{leaf.view_name}"' if leaf.view_name else "a subquery or CTE"
+            _check_shape(leaf, blockers, nested=True, location=location)
             _check_nested_shapes(leaf, blockers)
 
 

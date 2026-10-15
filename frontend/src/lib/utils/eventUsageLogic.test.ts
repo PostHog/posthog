@@ -68,6 +68,30 @@ describe('eventUsageLogic', () => {
         })
     })
 
+    describe('experiments list viewed', () => {
+        it('sends the state of the list under its pinned property names', () => {
+            initKeaTests()
+            eventUsageLogic.mount()
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+
+            eventUsageLogic.actions.reportExperimentsListViewed({
+                experimentsShown: 2,
+                statusFilter: 'running',
+                page: 2,
+                hasSearch: true,
+                archived: true,
+            })
+
+            expect(capture.mock.calls.map(([event, properties]) => [event, properties])).toEqual([
+                [
+                    'experiments list viewed',
+                    { experiments_shown: 2, status_filter: 'running', page: 2, has_search: true, archived: true },
+                ],
+            ])
+            capture.mockRestore()
+        })
+    })
+
     describe('ExperimentMetric (new format)', () => {
         it('extracts funnel metric properties', () => {
             const metric: ExperimentFunnelMetric = {

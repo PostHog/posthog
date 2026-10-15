@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import {
     IconArchive,
+    IconCheckbox,
     IconCopy,
     IconExternal,
-    IconFolder,
     IconPencil,
     IconPin,
     IconPinFilled,
@@ -20,8 +20,8 @@ import { isMac } from 'lib/utils/dom'
 import { TodayMenuParts } from './todayMenuParts'
 import { todayArchiveShortcutLabel } from './todaySessionArchiveShortcut'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
-import { TodaySpaceFileList } from './TodaySpaceFileList'
-import { todaySpacesLogic } from './todaySpacesLogic'
+import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
+import { todayShellLogic } from './todayShellLogic'
 import { TodaySessionMenuTarget } from './todayWorkItems'
 
 interface TodaySessionActionItemsProps {
@@ -34,18 +34,18 @@ interface TodaySessionActionItemsProps {
 
 /** A session's actions, in Desktop's order: the edits, the places it can go, then archive last. */
 export function TodaySessionActionItems({
-    parts: { Item, Separator, Shortcut, Sub },
+    parts: { Item, Separator, Shortcut },
     target,
     surface,
     dataAttrPrefix,
 }: TodaySessionActionItemsProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { spaces } = useValues(todaySpacesLogic)
+    const { phoneLayout } = useValues(todayShellLogic)
+    const { toggleSessionSelection } = useActions(todaySessionSelectionLogic)
     const {
         setSessionPinned,
         startRenaming,
         requestArchive,
-        moveSession,
         openHandoff,
         analyzeSession,
         openSessionInNewTab,
@@ -58,10 +58,12 @@ export function TodaySessionActionItems({
 
     return (
         <>
-            <Item onClick={() => openSessionInNewTab(sessionId)} dataAttr={attr('open-new-tab')}>
-                <IconExternal />
-                Open in new tab
-            </Item>
+            {!phoneLayout && (
+                <Item onClick={() => openSessionInNewTab(sessionId)} dataAttr={attr('open-new-tab')}>
+                    <IconExternal />
+                    Open in new tab
+                </Item>
+            )}
             <Item onClick={() => copySessionLink(sessionId)} dataAttr={attr('copy-link')}>
                 <IconCopy />
                 Copy link
@@ -86,28 +88,16 @@ export function TodaySessionActionItems({
                     Stop session
                 </Item>
             )}
-            {spaces.length > 0 && (
-                <Sub
-                    label={
-                        <>
-                            <IconFolder />
-                            File to…
-                        </>
-                    }
-                    dataAttr={attr('file')}
-                >
-                    <TodaySpaceFileList
-                        currentSpaceId={target.spaceId}
-                        onSelect={(spaceId) => moveSession(sessionId, spaceId)}
-                        itemDataAttr={attr('move')}
-                        searchDataAttr={attr('move-search')}
-                    />
-                </Sub>
-            )}
             {target.canHandOff && (
                 <Item onClick={() => openHandoff(menuId)} dataAttr={attr('handoff')}>
                     <IconSend />
                     Hand off…
+                </Item>
+            )}
+            {phoneLayout && surface === 'sidebar' && (
+                <Item onClick={() => toggleSessionSelection(sessionId)} dataAttr={attr('select')}>
+                    <IconCheckbox />
+                    Select
                 </Item>
             )}
             <Separator />

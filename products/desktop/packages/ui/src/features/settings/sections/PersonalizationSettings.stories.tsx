@@ -100,13 +100,3 @@ export const SyncOnNoFileFound: Story = {
     synced: null,
   },
 };
-
-/** Cloud tasks use My instructions from PostHog: a note links there. */
-export const CloudUsesMyInstructions: Story = {
-  args: {
-    instructions:
-      "Always write tests for new code. Prefer functional patterns.",
-    myInstructionsUrl:
-      "https://us.posthog.com/project/1/settings/environment-task-agent-instructions",
-  },
-};

@@ -44,7 +44,8 @@ from posthog.models.activity_logging.activity_log import Change, Detail, LogActi
 from posthog.models.activity_logging.utils import activity_storage
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
-from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.config import ConfigFormatError, decode_config
+from products.feature_flags.backend.facade.references import references
 from products.feature_flags.backend.field_snapshots import capture_fields_before_save, snapshot_if_changed
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -252,7 +253,7 @@ def _flag_version_bump_entry(flag: FeatureFlag, old_version: int | None, trigger
 
 
 def direct_flag_dependency_ids(flag: FeatureFlag) -> set[int]:
-    """Flag ids this flag has a ``flag_evaluates_to`` release condition on.
+    """Flag ids this flag's release conditions (v1) or rule targeting (v2) depend on.
 
     Same parse as ``flags_cache._extract_direct_dependency_ids`` (a dependency is keyed by
     the referenced flag's id in ``key``), minus its inactive/deleted short-circuit: a
@@ -261,27 +262,15 @@ def direct_flag_dependency_ids(flag: FeatureFlag) -> set[int]:
     sibling flag can't break the save that triggered this. Read by the version-bump path
     below and by the stale-flags health check.
     """
-    dependency_ids: set[int] = set()
     try:
-        conditions = flag.conditions
+        return set(references(decode_config(flag.filters)).flag_ids)
     except ConfigFormatError:
-        # Only a v1 document carries release groups, so a row in another format has no v1 edges.
-        return dependency_ids
-    except Exception:
-        # A sibling flag with malformed filters must neither break the save nor suppress
-        # the bump for healthy flags.
+        return set()
+    except (AttributeError, TypeError):
+        # references() raises these for v1 groups or properties that are not lists of objects.
         logger.exception("flag_version_sync_dependency_parse_failed", flag_id=flag.pk, team_id=flag.team_id)
         capture_exception()
-        return dependency_ids
-    for condition in conditions:
-        for prop in condition.get("properties") or []:
-            if prop.get("type") != "flag":
-                continue
-            try:
-                dependency_ids.add(int(prop["key"]))
-            except (ValueError, KeyError, TypeError):
-                continue
-    return dependency_ids
+        return set()
 
 
 def flags_with_flag_dependencies(project_ids: Collection[int]) -> QuerySet[FeatureFlag]:
@@ -366,10 +355,7 @@ def _flags_referencing_cohort(cohort: Cohort) -> list[FeatureFlag]:
     direct_ids: set[int] = set()
     for flag in candidate_flags:
         try:
-            for condition in flag.conditions:
-                for prop in condition.get("properties", []):
-                    if prop.get("type") == "cohort" and str(prop.get("value")).lstrip("-").isdigit():
-                        direct_ids.add(int(prop["value"]))
+            direct_ids.update(references(decode_config(flag.filters)).cohort_ids)
         except Exception:
             continue
     direct_ids -= seen_cohorts_cache.keys()

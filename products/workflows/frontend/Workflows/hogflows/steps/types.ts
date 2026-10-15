@@ -368,6 +368,17 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             // untracked SES configuration set. Absent/true means tracked. Keep in sync with
             // nodejs/src/cdp/schema/hogflow.ts.
             tracking_enabled: z.boolean().optional(),
+            // When true, links get the UTM tags they don't already carry. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
+            utm_tags_enabled: z.boolean().optional(),
+            // Templates that replace the default tag values. An empty value keeps the default.
+            utm_params: z
+                .object({
+                    utm_source: z.string().optional(),
+                    utm_medium: z.string().optional(),
+                    utm_campaign: z.string().optional(),
+                    utm_content: z.string().optional(),
+                })
+                .optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),

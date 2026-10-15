@@ -18,6 +18,7 @@ import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.
 
 import { lookupToolRenderer, toolRegistry } from '../components/tool/toolRegistry'
 import { extractQueryResult } from '../components/tool/widgets/extractors'
+import { turnSuggestionsStateRetrieve } from '../generated/api'
 import { defaultPermissionDecision } from '../policy/toolPolicy'
 import type { AttachedContextItem } from '../types/contextTypes'
 import type { ThreadItem } from '../types/streamTypes'
@@ -25,10 +26,15 @@ import { TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { resolveToolCall } from '../utils/toolResolver'
+import { SUGGESTION_FRAMES } from '../utils/turnSuggestionFixtures'
 import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import {
+    appendToRunLog,
+    emptyRunLog,
     extractRunArtifacts,
+    type FoldCheckpoint,
+    foldLogFromCheckpoint,
     foldLogToThread,
     mapHttpStatusToStreamError,
     MAX_CUMULATIVE_RECONNECT_ATTEMPTS,
@@ -46,6 +52,10 @@ import {
     SSE_RECONNECT_MAX_DELAY_MS,
 } from './runStreamLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
+
+jest.mock('../generated/api', () => ({
+    turnSuggestionsStateRetrieve: jest.fn(),
+}))
 
 jest.mock('products/tasks/frontend/generated/api', () => ({
     tasksRunsRetrieve: jest.fn(),
@@ -238,6 +248,7 @@ describe('runStreamLogic', () => {
             .mockReset()
             .mockResolvedValue({ status: 'in_progress' } as TaskRunDetailDTOApi)
         jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+        jest.mocked(turnSuggestionsStateRetrieve).mockReset().mockResolvedValue({ muted: false, resolved_turns: [] })
         projectLogic.mount()
         projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
         ;(tasksRunsCommandCreate as jest.Mock)
@@ -275,6 +286,48 @@ describe('runStreamLogic', () => {
                 endedAt: 5000,
             })
             expect(result.threadItems.find((item) => item.id === 'missing-start')?.startedAt).toBeUndefined()
+        })
+
+        it('folds the same thread when it resumes from the last completed turn', () => {
+            const frames: [StoredLogEntry, 'live' | 'replay'][] = [
+                [notification('_posthog/run_started', {}), 'replay'],
+                [notification('_posthog/user_message', { content: 'first question' }), 'replay'],
+                [sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'slow', status: 'in_progress' }), 'replay'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', title: 'Reading' }), 'replay'],
+                [sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'first answer' } }), 'replay'],
+                [notification('_client/human_message', { content: 'queued follow-up' }), 'live'],
+                [notification('_posthog/turn_complete', { traceId: 'trace-1' }), 'live'],
+                [notification('_posthog/turn_suggestion', SUGGESTION_FRAMES.scout), 'live'],
+                [notification('_posthog/turn_suggestion_resolved', { turnIndex: 0, outcome: 'accepted' }), 'live'],
+                [notification('_posthog/user_message', { content: 'queued follow-up' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { text: 'queued follow-up' } }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', status: 'completed' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'second ' } }), 'live'],
+                [notification('_posthog/console', { level: 'debug', message: 'tick' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'answer' } }), 'live'],
+                [notification('_posthog/turn_complete', { traceId: 'trace-2' }), 'live'],
+                [notification('_client/human_message', { content: 'third question' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', rawOutput: 'late' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'fast', status: 'in_progress' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'third' } }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', status: 'failed' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'fast', status: 'completed' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'third answer' } }), 'live'],
+            ]
+            const options = { isResumeRun: false, taskId: 'task-1' }
+
+            let log = emptyRunLog()
+            let checkpoint: FoldCheckpoint | null = null
+            frames.forEach(([entry, source], index) => {
+                log = appendToRunLog(log, [
+                    { source, entry: { ...entry, timestamp: new Date((index + 1) * 1000).toISOString() } },
+                ])
+                const resumed = foldLogFromCheckpoint(log.entries, options, checkpoint)
+                checkpoint = resumed.checkpoint
+                expect(resumed.folded).toEqual(foldLogToThread(log.entries, options))
+            })
+            expect(checkpoint!.entries.at(-1)?.entry.notification.params).toEqual({ traceId: 'trace-2' })
+            expect(foldLogToThread(log.entries, options).turnSuggestions.outcomes.get(0)).toEqual('accepted')
         })
 
         it.each([
@@ -1311,6 +1364,127 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('Pi runtime', () => {
+        const piEvent = (
+            event: Record<string, unknown>,
+            eventId: string,
+            extra: Record<string, unknown> = {}
+        ): object => ({
+            type: 'pi_event',
+            timestamp: '2026-01-01T00:00:00Z',
+            event_id: eventId,
+            event,
+            ...extra,
+        })
+
+        it('replays a run log written before Pi runs used ACP', async () => {
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                { type: 'pi_run_started', runId: 'run-1', taskId: 'task-1', timestamp: '2026-01-01T00:00:00Z' },
+                piEvent(
+                    { type: 'user_message', id: 'u1', timestamp: 1, content: [{ type: 'text', text: 'fix it' }] },
+                    'b-1'
+                ),
+                piEvent(
+                    { type: 'assistant_message_chunk', timestamp: 2, content: { type: 'text', text: 'On ' } },
+                    'b-2'
+                ),
+                piEvent(
+                    { type: 'assistant_message_chunk', timestamp: 2, content: { type: 'text', text: 'it' } },
+                    'b-3'
+                ),
+                piEvent(
+                    {
+                        type: 'tool_call_started',
+                        timestamp: 3,
+                        toolCall: {
+                            id: 't1',
+                            name: 'read',
+                            title: 'read',
+                            kind: 'read',
+                            status: 'pending',
+                            rawInput: { path: 'a.ts' },
+                            _meta: { posthog: { toolName: 'Read' } },
+                        },
+                    },
+                    'b-4'
+                ),
+                piEvent(
+                    { type: 'tool_call_updated', timestamp: 4, toolCall: { id: 't1', status: 'completed' } },
+                    'b-6',
+                    {
+                        covered_event_ids: ['b-5'],
+                    }
+                ),
+                piEvent({ type: 'turn_completed', timestamp: 5, stopReason: 'end_turn' }, 'b-7'),
+            ] as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.map((item) => [item.type, item.text])).toEqual([
+                ['human_message', 'fix it'],
+                ['assistant_message', 'On it'],
+                ['tool_invocation', undefined],
+                ['turn_separator', undefined],
+            ])
+            const invocation = logic.values.toolInvocations.get('t1')
+            expect(invocation?.status).toBe('completed')
+            expect(resolveToolCall(invocation!).resolvedKey).toBe('Read')
+        })
+
+        it.each([
+            { caseName: 'hides a replayed request that a later turn end already closed', eventId: 'b-2', shown: false },
+            { caseName: 'shows a request raised after the last turn end', eventId: 'b-4', shown: true },
+        ])('$caseName', async ({ eventId, shown }) => {
+            let resolveLogs: (entries: unknown[]) => void = () => {}
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                new Promise<unknown[]>((resolve) => (resolveLogs = resolve)) as any
+            )
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', taskRuntime: 'pi' })
+            await flushPromises()
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(
+                {
+                    type: 'permission_request',
+                    event_id: eventId,
+                    requestId: 'mcp-1',
+                    toolCall: { toolCallId: 'mcp-1', _meta: { posthog: { toolName: 'mcp__linear__create_issue' } } },
+                    options: [
+                        { optionId: 'allow_always', name: 'Always allow', kind: 'allow_always' },
+                        { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
+                    ],
+                },
+                '1700-0'
+            )
+
+            resolveLogs([
+                { ...notification('_posthog/run_started', { runId: 'run-1' }), event_id: 'b-1' },
+                { ...notification('_posthog/turn_complete', { stopReason: 'end_turn' }), event_id: 'b-3' },
+            ])
+            await flushPromises()
+
+            expect(logic.values.pendingPermissionRequest?.requestId ?? null).toBe(shown ? 'mcp-1' : null)
+        })
+
+        it('drops a live tool update that the persisted log already covers', () => {
+            const persisted: StoredLogEntry = {
+                ...sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' }),
+                event_id: 'b-6',
+                covered_event_ids: ['b-5'],
+            }
+            const liveEarlier: StoredLogEntry = {
+                ...sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'in_progress' }),
+                event_id: 'b-5',
+            }
+
+            const log = reconcileRunLog([persisted], [], [liveEarlier])
+
+            expect(log.entries.map(({ entry }) => entry.event_id)).toEqual(['b-6'])
+        })
+    })
+
     describe('turn trace ids', () => {
         const TRACE = '1d223305-d7ca-bfeb-3775-a4a15a6a31c6'
 
@@ -1485,6 +1659,41 @@ describe('runStreamLogic', () => {
 
                 expect(items[0].attachments).toEqual([
                     { name: 'report.csv', taskId: 'task-3', runId: 'run-7', artifactId: 'art-9' },
+                ])
+            })
+
+            it('reads the attachments of a Pi prompt from the links the Pi server writes', () => {
+                const items = foldReplay([
+                    {
+                        ...notification('_posthog/user_message', {
+                            messageId: 'u1',
+                            content: [
+                                { type: 'text', text: 'Look here' },
+                                {
+                                    type: 'resource_link',
+                                    uri: 'file:///tmp/workspace/.posthog/attachments/run-7/art-1/report.csv',
+                                    name: 'report.csv',
+                                },
+                                {
+                                    type: 'resource_link',
+                                    uri: 'file:///tmp/workspace/.posthog/attachments/run-7/art-2/shot.png',
+                                    name: 'shot.png',
+                                    mimeType: 'image/png',
+                                },
+                            ],
+                        }),
+                        source_run_id: 'run-7',
+                    },
+                ])
+
+                expect(items.filter((item) => item.type === 'human_message')).toEqual([
+                    expect.objectContaining({
+                        text: 'Look here',
+                        attachments: [
+                            { name: 'report.csv', taskId: 'task-3', runId: 'run-7', artifactId: 'art-1' },
+                            { name: 'shot.png', taskId: 'task-3', runId: 'run-7', artifactId: 'art-2' },
+                        ],
+                    }),
                 ])
             })
 
@@ -5066,6 +5275,26 @@ describe('runStreamLogic', () => {
         })
     })
 
+    it('keeps the text of an extension notice on its status item', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/status', {
+                    status: 'extension_notice',
+                    isComplete: true,
+                    message: 'lint.ts failed during tool_call: crashed',
+                })
+            )
+        }).toFinishAllListeners()
+
+        expect(logic.values.threadItems).toEqual([
+            expect.objectContaining({
+                type: 'status',
+                status: 'extension_notice',
+                message: 'lint.ts failed during tool_call: crashed',
+            }),
+        ])
+    })
+
     describe('/clear inline items', () => {
         it('replaces the in-progress clearing spinner with the conversation_cleared divider', async () => {
             await expectLogic(logic, () => {
@@ -5121,6 +5350,177 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('_posthog/turn_suggestion', () => {
+        const suggestionParams = {
+            turnIndex: 0,
+            kind: 'scout',
+            intent: 'metric_state',
+            confidence: 0.9,
+            title: 'Get this in Slack every week',
+            description: 'A scout runs this analysis again every week and posts the results to Slack.',
+            scout: { displayName: 'Weekly signups', description: '', body: '# Weekly signups', cadence: 'weekly' },
+        }
+        const askAndOffer = (): void => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'How many signups?' }))
+            logic.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestionParams))
+        }
+
+        it('shows the newest valid offer and drops it on reset', async () => {
+            await expectLogic(logic, () => {
+                askAndOffer()
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/turn_suggestion', { kind: 'notebook', turnIndex: 0 })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.turnSuggestion).toMatchObject({ kind: 'scout', scout: { cadence: 'weekly' } })
+
+            const shown = logic.values.turnSuggestion
+            logic.actions.ingestAcpFrame(
+                notification('session/update', {
+                    update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'More' } },
+                })
+            )
+            expect(logic.values.turnSuggestion).toBe(shown)
+
+            logic.actions.reset()
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('closes the offer when the conversation moves on and ignores frames for a passed turn', async () => {
+            await expectLogic(logic, askAndOffer).toFinishAllListeners()
+            expect(logic.values.turnSuggestion).toMatchObject({ kind: 'scout' })
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'And last month?' }))
+            }).toFinishAllListeners()
+            expect(logic.values.turnSuggestion).toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestionParams))
+            }).toFinishAllListeners()
+            expect(logic.values.turnSuggestion).toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/turn_suggestion', { ...suggestionParams, turnIndex: 1 })
+                )
+            }).toFinishAllListeners()
+            expect(logic.values.turnSuggestion).toMatchObject({ turnIndex: 1 })
+        })
+
+        it.each([
+            { outcome: 'accepted', acceptedHere: true, shown: true, muted: false },
+            { outcome: 'accepted', acceptedHere: false, shown: false, muted: false },
+            { outcome: 'dismissed', acceptedHere: false, shown: false, muted: true },
+        ] as const)(
+            'an $outcome frame (accepted in this tab: $acceptedHere) leaves the card shown: $shown, mutes: $muted',
+            async ({ outcome, acceptedHere, shown, muted }) => {
+                await expectLogic(logic, () => {
+                    askAndOffer()
+                    if (acceptedHere) {
+                        logic.actions.markTurnSuggestionAccepted(0)
+                    }
+                    logic.actions.ingestAcpFrame(
+                        notification('_posthog/turn_suggestion_resolved', { turnIndex: 0, outcome })
+                    )
+                }).toFinishAllListeners()
+
+                expect(logic.values.turnSuggestion !== null).toBe(shown)
+                expect(logic.values.turnSuggestionsMuted).toBe(muted)
+            }
+        )
+
+        it.each([
+            ['the ledger resolved the turn', { muted: false, resolvedTurns: [0] }, null],
+            ['the ledger is muted', { muted: true, resolvedTurns: [] }, null],
+            ['this tab dismissed it before the ledger loaded', null, 'dismissed'],
+            [
+                'this tab dismissed it and the ledger read landed after',
+                { muted: false, resolvedTurns: [] },
+                'dismissed',
+            ],
+        ] as const)('hides the offer when %s', async (_label, ledger, localOutcome) => {
+            await expectLogic(logic, askAndOffer).toFinishAllListeners()
+            if (localOutcome) {
+                logic.actions.recordTurnSuggestionOutcome(0, localOutcome)
+            }
+            if (ledger) {
+                logic.actions.setTurnSuggestionLedger({
+                    taskId: 'task-1',
+                    ...ledger,
+                    resolvedTurns: [...ledger.resolvedTurns],
+                })
+            }
+
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('reads the server ledger once per task when the first offer arrives', async () => {
+            jest.mocked(turnSuggestionsStateRetrieve).mockResolvedValue({ muted: false, resolved_turns: [0] })
+
+            await expectLogic(logic, () => {
+                askAndOffer()
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestionParams))
+            }).toFinishAllListeners()
+
+            expect(turnSuggestionsStateRetrieve).toHaveBeenCalledTimes(1)
+            expect(turnSuggestionsStateRetrieve).toHaveBeenCalledWith('997', { task_id: 'task-1' })
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('rereads the ledger when the tab returns, so a card resolved in another tab closes', async () => {
+            jest.mocked(turnSuggestionsStateRetrieve).mockResolvedValueOnce({ muted: false, resolved_turns: [] })
+            await expectLogic(logic, () => askAndOffer()).toDispatchActions(['setTurnSuggestionLedger'])
+            expect(logic.values.turnSuggestion).toMatchObject({ turnIndex: 0 })
+
+            jest.mocked(turnSuggestionsStateRetrieve).mockResolvedValueOnce({ muted: false, resolved_turns: [0] })
+            await expectLogic(logic, () => {
+                document.dispatchEvent(new Event('visibilitychange'))
+            }).toDispatchActions(['loadTurnSuggestionLedger', 'setTurnSuggestionLedger'])
+
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('ignores an older ledger read that lands after a newer one', async () => {
+            jest.mocked(turnSuggestionsStateRetrieve).mockResolvedValueOnce({ muted: false, resolved_turns: [] })
+            await expectLogic(logic, () => askAndOffer()).toDispatchActions(['setTurnSuggestionLedger'])
+            let finishOlderRead: (state: { muted: boolean; resolved_turns: number[] }) => void = () => {}
+            jest.mocked(turnSuggestionsStateRetrieve)
+                .mockReturnValueOnce(new Promise((resolve) => (finishOlderRead = resolve)))
+                .mockResolvedValueOnce({ muted: false, resolved_turns: [0] })
+
+            await expectLogic(logic, () => {
+                document.dispatchEvent(new Event('visibilitychange'))
+                document.dispatchEvent(new Event('visibilitychange'))
+            }).toDispatchActions(['setTurnSuggestionLedger'])
+            finishOlderRead({ muted: false, resolved_turns: [] })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(turnSuggestionsStateRetrieve).toHaveBeenCalledTimes(3)
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('keeps the offer hidden until the ledger loads, and retries a failed read', async () => {
+            jest.useFakeTimers()
+            try {
+                jest.mocked(turnSuggestionsStateRetrieve).mockRejectedValueOnce(new Error('offline'))
+
+                askAndOffer()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.turnSuggestion).toBeNull()
+
+                await jest.advanceTimersByTimeAsync(1000)
+
+                expect(turnSuggestionsStateRetrieve).toHaveBeenCalledTimes(2)
+                expect(logic.values.turnSuggestion).toMatchObject({ kind: 'scout', turnIndex: 0 })
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+    })
+
     describe('_posthog/sdk_session handling', () => {
         it('stashes the adapter/session identity without rendering UI', async () => {
             await expectLogic(logic, () => {
@@ -5139,14 +5539,18 @@ describe('runStreamLogic', () => {
     })
 
     describe('reset clears notification state', () => {
-        it('clears contextUsage and sdkSession on reset', async () => {
+        it('clears contextUsage, sdkSession and the Pi runtime on reset', async () => {
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
             await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', taskRuntime: 'pi' })
                 logic.actions.ingestAcpFrame(notification('_posthog/usage_update', { used: { inputTokens: 1 } }))
                 logic.actions.ingestAcpFrame(notification('_posthog/sdk_session', { adapter: 'codex' }))
             }).toFinishAllListeners()
 
             expect(logic.values.contextUsage).not.toBeNull()
             expect(logic.values.sdkSession).not.toBeNull()
+            expect(logic.values.piRuntime).toBe(true)
 
             await expectLogic(logic, () => {
                 logic.actions.reset()
@@ -5154,6 +5558,7 @@ describe('runStreamLogic', () => {
 
             expect(logic.values.contextUsage).toBeNull()
             expect(logic.values.sdkSession).toBeNull()
+            expect(logic.values.piRuntime).toBe(false)
         })
     })
 

@@ -81,4 +81,40 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updatedAt": "Time at which the template was last updated, as a Unix timestamp.",
         },
     },
+    "campaign_metrics": {
+        "description": "Lifetime performance metrics for an Iterable campaign, such as sends, opens, clicks, bounces and unsubscribes.",
+        "docs_url": "https://api.iterable.com/api/docs#campaigns_metrics",
+        "columns": {
+            "id": "Identifier of the campaign the metrics belong to. Joins to `campaigns.id`.",
+        },
+    },
+    "list_users": {
+        "description": "Membership of Iterable lists: one row per user in each list.",
+        "docs_url": "https://api.iterable.com/api/docs#lists_getLists_0",
+        "columns": {
+            "listId": "Identifier of the list. Joins to `lists.id`.",
+            "email": "Email of the list member, or the userId for a user without an email.",
+        },
+    },
+    "users": {
+        "description": "User profiles in the Iterable project, from the Export API.",
+        "docs_url": "https://api.iterable.com/api/docs#export_exportDataJson",
+        "columns": {
+            "email": "The user's email address.",
+            "userId": "The user's userId, when set.",
+            "profileUpdatedAt": "Time at which the user's profile was last updated.",
+            "signupDate": "Time at which the user signed up.",
+        },
+    },
+    "email_send": {
+        "description": "One row per email Iterable sent, from the Export API.",
+        "docs_url": "https://api.iterable.com/api/docs#export_exportDataJson",
+        "columns": {
+            "createdAt": "Time at which the email was sent.",
+            "email": "Email address of the recipient.",
+            "campaignId": "Identifier of the campaign that sent the email. Joins to `campaigns.id`.",
+            "templateId": "Identifier of the template used. Joins to `templates.templateId`.",
+            "messageId": "Identifier of the sent message, shared by its open, click and bounce events.",
+        },
+    },
 }

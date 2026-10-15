@@ -338,3 +338,40 @@ class TestBusinessKnowledgeSettingsResourceLevelAccess(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig).learn_from_support_enabled is False
+
+
+@patch("posthoganalytics.feature_enabled", return_value=True)
+class TestBusinessKnowledgeResourceLevelRule(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def test_a_saved_none_rule_blocks_listing_sources(self, _ff) -> None:
+        member = User.objects.create_and_join(self.organization, "bk-none@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        sources_url = f"/api/projects/{self.team.id}/business_knowledge/sources/"
+
+        self.client.force_login(member)
+        before = self.client.get(sources_url)
+        assert before.status_code == status.HTTP_200_OK, before.content
+
+        self.client.force_login(self.user)
+        saved = self.client.put(
+            f"/api/projects/{self.team.id}/access_control_member_rules",
+            {
+                "resource": "business_knowledge",
+                "access_level": "none",
+                "member_id": str(membership.id),
+            },
+            format="json",
+        )
+        assert saved.status_code == status.HTTP_200_OK, saved.content
+
+        self.client.force_login(member)
+        after = self.client.get(sources_url)
+        assert after.status_code == status.HTTP_403_FORBIDDEN, after.content

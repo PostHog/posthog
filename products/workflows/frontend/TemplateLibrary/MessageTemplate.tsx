@@ -132,9 +132,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 htmlType="submit"
                                 form="template"
                                 onClick={submitTemplate}
-                                loading={isTemplateSubmitting}
+                                loading={isTemplateSubmitting || templateLoading}
                                 disabledReason={
-                                    !templateChanged
+                                    !templateChanged && props.id !== 'new'
                                         ? 'No changes to save'
                                         : !template.name
                                           ? 'Name is required'

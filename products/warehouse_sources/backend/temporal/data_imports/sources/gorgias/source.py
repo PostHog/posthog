@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
+    codebase_detection = detect(env=("^GORGIAS_",), script_hosts=("config.gorgias.chat", "assets.gorgias.chat"))
+
     api_docs_url = "https://developers.gorgias.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -123,7 +126,7 @@ class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
 
 Create an API key in your Gorgias account under **Settings → REST API**. Use the email of the account that owns the key together with the key itself.
 
-This source authenticates with HTTP Basic Auth (email + API key) and requires read access to the endpoints you want to sync (tickets, messages, customers, users, satisfaction surveys, tags, views, teams, macros, custom fields, voice calls).""",
+This source authenticates with HTTP Basic Auth (email + API key) and requires read access to the endpoints you want to sync (tickets, messages, customers, users, satisfaction surveys, tags, views, teams, macros, custom fields, events, voice calls, voice call events, voice call recordings).""",
             iconPath="/static/services/gorgias.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gorgias",
             releaseStatus=ReleaseStatus.GA,

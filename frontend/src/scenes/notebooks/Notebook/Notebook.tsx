@@ -14,8 +14,10 @@ import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/not
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 
+import { NotebookChangesNotice } from 'products/notebooks/frontend/NotebookChangesNotice'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
+import { getMarkdownNotebookMarkdown } from './markdownNotebookV2'
 import { MarkdownNotebookV2 } from './MarkdownNotebookV2Renderer'
 import { NotebookColumnLeft } from './NotebookColumnLeft'
 import { NotebookColumnRight } from './NotebookColumnRight'
@@ -56,7 +58,8 @@ export function Notebook({
         cachedInlineQueryResultsByNodeId,
     }
     const logic = notebookLogic(logicProps)
-    const { notebook, notebookLoading, isEditable, isTemplate, notebookMissing, isShared } = useValues(logic)
+    const { notebook, notebookLoading, isEditable, isTemplate, notebookMissing, isShared, isLocalOnly } =
+        useValues(logic)
     const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
     const { isMarkdownExpanded } = useValues(notebookSettingsLogic)
     useAttachedContext(
@@ -144,6 +147,12 @@ export function Notebook({
                         </LemonBanner>
                     )}
                     <NotebookHistoryWarning />
+                    {notebook && !isShared && !isTemplate && !isLocalOnly && mode !== 'canvas' && (
+                        <NotebookChangesNotice
+                            notebookId={shortId}
+                            markdown={getMarkdownNotebookMarkdown(notebook.content)}
+                        />
+                    )}
                     <NotebookMergeConflictDetails />
                     {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
                         <LemonBanner

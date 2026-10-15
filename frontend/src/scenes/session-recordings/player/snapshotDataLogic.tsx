@@ -60,6 +60,7 @@ export interface snapshotDataLogicValues {
     pollingInterval: number
     recordingDeletedAt: number | null
     recordingDeletedBy: string | null
+    replayProxyToken: string | null
     seekTarget: SeekTarget | null
     snapshotLoadError: Error | null
     snapshotSources: SessionRecordingSnapshotSource[] | null
@@ -160,6 +161,9 @@ export interface snapshotDataLogicActions {
     }
     setPollingInterval: (intervalMs: number) => {
         intervalMs: number
+    }
+    setReplayProxyToken: (token: string | null) => {
+        token: string | null
     }
     setSnapshots: (snapshots: RecordingSnapshot[]) => {
         snapshots: RecordingSnapshot[]
@@ -272,8 +276,15 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadAllSources: true,
         // dispatch after any mutation to cache.store — it lives outside Kea's reactivity and needs explicit invalidation
         storeUpdated: true,
+        setReplayProxyToken: (token: string | null) => ({ token }),
     }),
     reducers(() => ({
+        replayProxyToken: [
+            null as string | null,
+            {
+                setReplayProxyToken: (_, { token }) => token,
+            },
+        ],
         storeUpdateCount: [
             0,
             {
@@ -345,6 +356,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         // returning [] here would silently dead-end with no error and no polling.
                         throw new Error('Malformed response listing snapshot sources')
                     }
+                    // Each listing mints a new token, so polling the sources keeps the proxy token fresh.
+                    actions.setReplayProxyToken(response.replay_proxy_token ?? null)
                     const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
 
                     if (anyBlobV2) {

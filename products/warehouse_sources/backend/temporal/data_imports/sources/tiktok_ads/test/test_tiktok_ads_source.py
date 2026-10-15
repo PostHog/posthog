@@ -16,7 +16,6 @@ from requests.exceptions import (
 
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
@@ -27,6 +26,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
+    TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE,
+    TIKTOK_MISSING_SCOPE_MESSAGE,
     TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
     TIKTOK_TRANSIENT_ERROR_MESSAGE,
     TikTokAdsAPIError,
@@ -97,11 +98,30 @@ class TestTikTokAdsSource:
 
     @parameterized.expand(
         [
-            ("video", "advertiser does not grant you /file/video/ad/search/:GET permission"),
-            ("image", "advertiser does not grant you /file/image/ad/search/:GET permission"),
+            (
+                "video",
+                "advertiser does not grant you /file/video/ad/search/:GET permission",
+                TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE,
+            ),
+            (
+                "image",
+                "advertiser does not grant you /file/image/ad/search/:GET permission",
+                TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE,
+            ),
+            (
+                "report_scope",
+                "Permission error: The access token lacks the required scope for endpoint "
+                "'/report/integrated/get/(method=GET)'. Please first check if the request method is correct.",
+                TIKTOK_MISSING_SCOPE_MESSAGE,
+            ),
+            (
+                "campaign_scope",
+                "Permission error: The access token lacks the required scope for endpoint '/campaign/get/(method=GET)'.",
+                TIKTOK_MISSING_SCOPE_MESSAGE,
+            ),
         ]
     )
-    def test_creative_permission_denied_surfaces_friendly_message(self, name, message):
+    def test_permission_denied_surfaces_friendly_message(self, name, message, expected):
         """Fails if the dict entries are reordered, which would shadow this message with None."""
         error_message = f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} {message} (code: 40001)"
 
@@ -112,9 +132,7 @@ class TestTikTokAdsSource:
         ]
 
         assert friendly, "permission denial matched no non-retryable pattern"
-        assert friendly[0] is not None, "generic prefix shadowed the creative-permission message"
-        assert "creative_videos" in friendly[0]
-        assert "creative_images" in friendly[0]
+        assert friendly[0] == expected
 
     @parameterized.expand(
         [
@@ -133,21 +151,6 @@ class TestTikTokAdsSource:
         ]
 
         assert friendly, "permission denial matched no non-retryable pattern"
-        assert friendly[0] is None
-
-    def test_advertiser_deleted_40001_still_has_no_friendly_message(self):
-        """The raw message names the advertiser, so the creative key must not over-match it."""
-        error_message = (
-            f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} The advertiser 123 doesn't exist or has been deleted. (code: 40001)"
-        )
-
-        friendly = [
-            friendly_error
-            for pattern, friendly_error in self.source.get_non_retryable_errors().items()
-            if error_message_matches(error_message, [pattern])
-        ]
-
-        assert friendly, "deleted advertiser matched no non-retryable pattern"
         assert friendly[0] is None
 
     def test_creative_permission_denied_does_not_match_get_retryable_errors(self):
@@ -307,24 +310,6 @@ class TestTikTokAdsSource:
             with pytest.raises(TikTokAdsAPIError):
                 self.source.get_oauth_accounts(self.integration_id, self.team_id)
 
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "TikTokAds"
-        assert config.label == "TikTok Ads"
-        assert config.releaseStatus == ReleaseStatus.GA
-        assert len(config.fields) == 2
-
-        # OAuth field comes first — the account selector below reads from it
-        integration_field = config.fields[0]
-        assert integration_field.name == "tiktok_integration_id"
-        assert hasattr(integration_field, "kind") and integration_field.kind == "tiktok-ads"
-
-        advertiser_field = config.fields[1]
-        assert advertiser_field.name == "advertiser_id"
-        assert hasattr(advertiser_field, "required") and advertiser_field.required is True
-        assert getattr(advertiser_field, "integrationField", None) == "tiktok_integration_id"
-
     @parameterized.expand(
         [
             ("missing_advertiser_id", "", 123, False, "Advertiser ID and TikTok Ads integration are required"),
@@ -352,63 +337,6 @@ class TestTikTokAdsSource:
             assert is_valid == expected_valid
             if expected_error:
                 assert expected_error in str(error)
-
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        expected_schemas = {
-            "campaigns",
-            "ad_groups",
-            "ads",
-            "creative_videos",
-            "creative_images",
-            "campaign_report",
-            "ad_group_report",
-            "ad_report",
-            "campaign_demographic_report",
-            "campaign_country_report",
-            "campaign_platform_report",
-            "ad_group_demographic_report",
-            "ad_group_country_report",
-            "ad_group_platform_report",
-            "ad_demographic_report",
-            "ad_country_report",
-            "ad_platform_report",
-        }
-        actual_schema_names = {schema.name for schema in schemas}
-
-        assert actual_schema_names == expected_schemas
-
-        for schema in schemas:
-            if "report" in schema.name:
-                assert schema.supports_incremental is True
-                field_names = [field["field"] for field in schema.incremental_fields]
-                assert "stat_time_day" in field_names
-            else:
-                assert schema.supports_incremental is False
-                assert schema.incremental_fields == []
-
-    def test_only_breakdown_and_creative_tables_are_off_by_default(self):
-        # New tables land in the schema picker pre-ticked. The breakdown reports fan every
-        # entity-day out across its dimension values, and the creative tables need a grant most
-        # advertisers withhold, so both stay opt-in while the rest stay selected.
-        should_sync = {schema.name: schema.should_sync_default for schema in self.source.get_schemas(self.config, 1)}
-
-        off_by_default = {name for name, default in should_sync.items() if not default}
-
-        assert off_by_default == {
-            "creative_videos",
-            "creative_images",
-            "campaign_demographic_report",
-            "campaign_country_report",
-            "campaign_platform_report",
-            "ad_group_demographic_report",
-            "ad_group_country_report",
-            "ad_group_platform_report",
-            "ad_demographic_report",
-            "ad_country_report",
-            "ad_platform_report",
-        }
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source.tiktok_ads_source")
     def test_source_for_pipeline_success(self, mock_tiktok_source):

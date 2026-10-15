@@ -105,7 +105,11 @@ sequenceDiagram
     participant PH as PostHog
 
     User->>VM: Click "Link Existing Account"
-    VM->>PH: GET /connect/vercel/callback (OAuth code)
+    VM->>PH: GET /connect/vercel/callback (OAuth code, no state)
+    PH-->>User: Redirect to Vercel's install page with a state, set a state cookie
+    User->>VM: Continue on the install page
+    VM->>PH: GET /connect/vercel/callback (OAuth code + same state)
+    PH->>PH: Reject unless the state matches this browser's cookie
     PH->>PH: Exchange code for access token
     PH->>PH: Store session in cache (10 min TTL)
 
@@ -436,6 +440,11 @@ sequenceDiagram
 ## 8. SSO (single sign-on)
 
 Vercel users can SSO into PostHog without a separate login.
+
+An existing active PostHog account can link automatically when the signed Vercel SSO token contains a verified, matching email.
+Accounts with two-factor authentication or enforced domain SSO must complete PostHog login.
+The installation's verified-domain restrictions also apply before automatic linking.
+A stored mapping keeps its original account, and a removed organization member cannot regain access by retrying SSO.
 
 ```mermaid
 sequenceDiagram

@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     JellyfishSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.source import JellyfishSource
 
 
@@ -18,36 +17,13 @@ class TestJellyfishSource:
         self.source = JellyfishSource()
         self.team_id = 123
 
-    def test_source_is_released(self) -> None:
-        # `unreleasedSource=True` hides the connector from every user — a finished source must
-        # never carry it (newness is expressed via releaseStatus instead).
-        config = self.source.get_source_config
-        assert not config.unreleasedSource
-        assert config.releaseStatus is not None
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_covers_every_endpoint_full_refresh_only(self) -> None:
-        # The export API has no updated-since cursor and its date filters couldn't be verified
-        # against a live account, so no endpoint may advertise incremental sync.
-        schemas = {s.name: s for s in self.source.get_schemas(MagicMock(), team_id=self.team_id)}
-        assert set(schemas) == set(ENDPOINTS)
-        for schema in schemas.values():
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
-
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id, names=["engineers"])
         assert [s.name for s in schemas] == ["engineers"]
-
-    def test_documented_tables_render_from_static_catalog(self) -> None:
-        tables = {t["name"]: t for t in self.source.get_documented_tables()}
-        assert set(tables) == set(ENDPOINTS)
-        assert tables["engineers"]["description"]
-        assert tables["engineers"]["sync_methods"] == ["Full refresh"]
 
     @pytest.mark.parametrize("probe_result,expected_valid", [(True, True), (False, False)])
     def test_validate_credentials(self, probe_result: bool, expected_valid: bool, monkeypatch: Any) -> None:

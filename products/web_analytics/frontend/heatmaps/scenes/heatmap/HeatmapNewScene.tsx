@@ -27,6 +27,7 @@ import { heatmapsBrowserLogic } from '../../components/heatmapsBrowserLogic'
 import { HeatmapScreenshotAccessNotice } from '../../components/HeatmapScreenshotAccessNotice'
 import { HeatmapsEnableCapture } from '../../components/HeatmapsEnableCapture'
 import { HeatmapsInvalidURL } from '../../components/HeatmapsInvalidURL'
+import { HeatmapsPricingNotice } from '../../components/HeatmapsPricingNotice'
 import { HeatmapCreationStep, heatmapCreationLogic } from './heatmapCreationLogic'
 import { heatmapLogic } from './heatmapLogic'
 import { HeatmapNewSceneLegacy } from './HeatmapNewSceneLegacy'
@@ -685,6 +686,7 @@ function HeatmapCreationWizard(): JSX.Element {
                 onNameChange={setName}
                 forceBackTo={{ name: 'Heatmaps', path: urls.heatmaps(), key: 'heatmaps' }}
             />
+            <HeatmapsPricingNotice />
             <HeatmapCreationStepper />
             {currentStep === 'page' ? <ChoosePageStep /> : null}
             {currentStep === 'background' ? <ChooseBackgroundStep /> : null}

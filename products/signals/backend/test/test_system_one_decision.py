@@ -35,7 +35,13 @@ from products.signals.backend.system_one_decision import (
     model_mode,
     run_model_decision,
 )
-from products.signals.backend.system_one_prompts import DEFAULT_SYSTEM_ONE_MODEL, SystemOnePrompt, bundled_prompt
+from products.signals.backend.system_one_prompts import (
+    DEFAULT_SYSTEM_ONE_MODEL,
+    JEEVES_MODEL,
+    JEVK_MODEL,
+    SystemOnePrompt,
+    bundled_prompt,
+)
 from products.signals.backend.temporal.safety_filter import SafetyFilterJudgeResponse, safety_filter
 
 
@@ -179,7 +185,7 @@ async def test_shadow_disagreement_keeps_primary_result_and_records_usage() -> N
         patch("products.signals.backend.system_one_decision.posthoganalytics.capture") as capture,
         patch(
             "products.signals.backend.system_one_decision.decision_api.decide_when_available",
-            return_value=_actionability_result(),
+            return_value=replace(_actionability_result(), model=JEEVES_MODEL),
         ) as decide,
     ):
         result = await _run_actionability(traditional=primary)
@@ -191,7 +197,13 @@ async def test_shadow_disagreement_keeps_primary_result_and_records_usage() -> N
     assert properties["system_one_verdict"] is True
     assert properties["deciding_provider"] == "traditional"
     assert properties["system_one_input_tokens"] == 1000
-    assert properties["system_one_estimated_cost_usd"] == pytest.approx(0.000042)
+    assert properties["system_one_requested_model"] == JEEVES_MODEL
+    assert properties["system_one_model"] == JEEVES_MODEL
+    assert properties["system_one_prompt_source"] == "bundled"
+    assert properties["system_one_model_experiment_status"] == "not_enrolled"
+    assert properties["system_one_estimated_cost_usd"] is None
+    assert decide.call_count == 1
+    assert decide.call_args.args[0].model == JEEVES_MODEL
     trace_id = properties["signals_decision_id"]
     assert UUID(trace_id).version == 4
     assert properties["$ai_trace_id"] == trace_id
@@ -205,9 +217,12 @@ async def test_shadow_disagreement_keeps_primary_result_and_records_usage() -> N
 @pytest.mark.parametrize("variant", ["jevk", "jeeves"])
 async def test_shadow_model_split_calls_one_model_and_keeps_sonnet_deciding(stage: str, variant: str) -> None:
     prompt = replace(
-        bundled_prompt("signals-actionability-issue", "policy", "question", 0.9), source="managed", version=2
+        bundled_prompt("signals-actionability-issue", "policy", "question", 0.9),
+        model=JEVK_MODEL,
+        source="managed",
+        version=2,
     )
-    model = DEFAULT_SYSTEM_ONE_MODEL if variant == "jevk" else "posthog/hogference/jeeves-0.1"
+    model = JEVK_MODEL if variant == "jevk" else JEEVES_MODEL
     selected = replace(prompt, model=model, version=2 if variant == "jevk" else 3)
     result = DecisionResult(model=model, answers={"actionable": NoulAnswer(probability=0.99)}, input_tokens=100)
     if stage != "actionability":
@@ -255,7 +270,10 @@ async def test_shadow_model_split_calls_one_model_and_keeps_sonnet_deciding(stag
 @pytest.mark.parametrize("outcome", ["disabled", "invalid_payload", "prompt_unavailable", "flag_error"])
 async def test_unavailable_shadow_experiment_falls_back_to_one_jevk_call(outcome: str) -> None:
     prompt = replace(
-        bundled_prompt("signals-actionability-issue", "policy", "question", 0.9), source="managed", version=2
+        bundled_prompt("signals-actionability-issue", "policy", "question", 0.9),
+        model=JEVK_MODEL,
+        source="managed",
+        version=2,
     )
     flags = MagicMock()
     flags.get_flag.return_value = False if outcome == "disabled" else "jeeves"
@@ -281,7 +299,7 @@ async def test_unavailable_shadow_experiment_falls_back_to_one_jevk_call(outcome
     ):
         assert await _run_actionability(prompt=prompt, traditional=AsyncMock(return_value=False)) is False
     assert decide.call_count == 1
-    assert decide.call_args.args[0].model == DEFAULT_SYSTEM_ONE_MODEL
+    assert decide.call_args.args[0].model == JEVK_MODEL
     assert capture.call_args.kwargs["properties"]["system_one_model_experiment_status"] != "assigned"
 
 

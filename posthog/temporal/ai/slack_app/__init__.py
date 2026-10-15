@@ -14,6 +14,7 @@ from posthog.temporal.ai.slack_app.activities import (
     classify_message_is_agent_directed,
     classify_posthog_code_task_needs_repo_activity,
     classify_slack_app_model_override_activity,
+    classify_slack_app_model_router_activity,
     classify_slack_app_project_route_activity,
     classify_untagged_followup_activity,
     collect_posthog_code_thread_messages_activity,
@@ -30,6 +31,8 @@ from posthog.temporal.ai.slack_app.activities import (
     post_posthog_code_no_repos_activity,
     post_posthog_code_picker_timeout_activity,
     post_posthog_code_repo_picker_activity,
+    post_slack_unfurl_charts_activity,
+    prepare_slack_unfurl_charts_activity,
     process_slack_app_fork_thread_activity,
     request_untagged_followup_confirmation_activity,
     resolve_posthog_code_slack_command_user_activity,
@@ -47,6 +50,7 @@ from posthog.temporal.ai.slack_app.types import (
     SlackAppMessageReactionInput,
     SlackAppModelOverride,
     SlackAppModelOverrideInput,
+    SlackAppModelRouterInput,
     SlackAppProjectRoute,
     SlackAppProjectRouteInput,
     SlackRepoSelectionOutcome,
@@ -63,6 +67,7 @@ SLACK_APP_ACTIVITIES = [
     classify_posthog_code_task_needs_repo_activity,
     classify_slack_app_model_override_activity,
     classify_slack_app_project_route_activity,
+    classify_slack_app_model_router_activity,
     enforce_posthog_code_billing_quota_activity,
     post_posthog_code_no_repos_activity,
     post_posthog_code_repo_picker_activity,
@@ -76,6 +81,8 @@ SLACK_APP_ACTIVITIES = [
     mark_slack_app_message_processing_activity,
     mark_slack_app_message_queued_activity,
     run_posthog_slack_inbox_onboarding_activity,
+    prepare_slack_unfurl_charts_activity,
+    post_slack_unfurl_charts_activity,
 ]
 
 __all__ = [
@@ -95,6 +102,7 @@ __all__ = [
     "SlackAppMentionWorkflowInputs",
     "SlackAppModelOverride",
     "SlackAppModelOverrideInput",
+    "SlackAppModelRouterInput",
     "SlackAppProjectRoute",
     "SlackAppProjectRouteInput",
     "SlackRepoSelectionOutcome",
@@ -121,5 +129,8 @@ __all__ = [
     "post_posthog_code_repo_picker_activity",
     "request_untagged_followup_confirmation_activity",
     "resolve_posthog_code_slack_command_user_activity",
+    "classify_slack_app_model_router_activity",
     "run_posthog_slack_inbox_onboarding_activity",
+    "post_slack_unfurl_charts_activity",
+    "prepare_slack_unfurl_charts_activity",
 ]

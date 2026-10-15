@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
 
@@ -26,7 +26,6 @@ function buildNode(type: DataModelingNodeType, overrides: Partial<DataModelingNo
         id: NODE_ID,
         name: 'orders',
         type,
-        dag: 'dag-1',
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         upstream_count: 0,
@@ -42,9 +41,9 @@ describe('nodeDetailSceneLogic', () => {
     let node: DataModelingNode
     let savedQuery: Partial<DataWarehouseSavedQuery>
 
-    const mountScene = async (path: string): Promise<void> => {
+    const mountScene = async (path: string, id = NODE_ID): Promise<void> => {
         router.actions.push(path)
-        logic = nodeDetailSceneLogic({ id: NODE_ID })
+        logic = nodeDetailSceneLogic({ id })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
@@ -121,6 +120,16 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.currentTab).toEqual('lineage')
     })
 
+    it('replaces a backing-resource URL with the canonical node URL', async () => {
+        await mountScene(
+            combineUrl(urls.nodeDetail(SAVED_QUERY_ID, 'lineage'), { lookup: 'saved_query' }).url,
+            SAVED_QUERY_ID
+        )
+
+        expect(router.values.location.pathname).toEqual(`/project/997${urls.nodeDetail(NODE_ID, 'lineage')}`)
+        expect(router.values.searchParams).toEqual({})
+    })
+
     it('adds data quality for a warehouse table ID and loads its details', async () => {
         node = buildNode('table', { warehouse_table_id: 'table-1' })
         useMocks({
@@ -148,7 +157,7 @@ describe('nodeDetailSceneLogic', () => {
 
         await mountScene(urls.nodeDetail(NODE_ID))
 
-        expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
+        expect(logic.values.availableTabs).toEqual(['lineage', 'data-quality'])
         expect(logic.values.dataQualitySubject).toEqual({ subjectType: 'table', subjectId: 'table-1' })
         expect(logic.values.tableDetails).toMatchObject({
             table: { id: 'table-1' },
@@ -184,7 +193,7 @@ describe('nodeDetailSceneLogic', () => {
 
             await mountScene(urls.nodeDetail(NODE_ID))
 
-            expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
+            expect(logic.values.availableTabs).toEqual(['lineage', 'data-quality'])
             expect(logic.values.dataQualitySubject).toEqual({
                 subjectType: 'posthog_table',
                 subjectId: `${tableName}-subject`,
@@ -232,7 +241,7 @@ describe('nodeDetailSceneLogic', () => {
             })
         }).toFinishAllListeners()
 
-        expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
+        expect(logic.values.availableTabs).toEqual(['lineage', 'data-quality'])
         expect(logic.values.dataQualitySubject).toMatchObject({
             subjectType: 'posthog_table',
             subjectId: 'events-subject',
@@ -249,9 +258,10 @@ describe('nodeDetailSceneLogic', () => {
             },
         })
 
-        await mountScene(urls.nodeDetail(NODE_ID, 'tests'))
+        await mountScene(`/models/${NODE_ID}/tests`)
 
-        expect(logic.values.effectiveTab).toEqual('tests')
+        expect(logic.values.effectiveTab).toEqual('data-quality')
+        expect(router.values.location.pathname).toEqual(`/project/997${urls.nodeDetail(NODE_ID, 'data-quality')}`)
         expect(logic.values.dataQualitySubject).toBeNull()
 
         render(createElement(NodeDetailTests, { id: NODE_ID }))
@@ -271,7 +281,7 @@ describe('nodeDetailSceneLogic', () => {
 
         await mountScene(urls.nodeDetail(NODE_ID))
 
-        expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
+        expect(logic.values.availableTabs).toEqual(['lineage', 'data-quality'])
         expect(logic.values.lineageGraph).toEqual({ currentNodeId: NODE_ID, nodes: [], edges: [] })
         expect(logic.values.postHogSubjectError).toBe(true)
 
@@ -346,7 +356,7 @@ describe('nodeDetailSceneLogic', () => {
     it('lists every tab a saved query supports when data quality checks are on', async () => {
         await mountScene(urls.nodeDetail(NODE_ID))
 
-        expect(logic.values.availableTabs).toEqual(['query', 'lineage', 'materialization', 'tests', 'history'])
+        expect(logic.values.availableTabs).toEqual(['query', 'lineage', 'materialization', 'data-quality', 'history'])
     })
 
     // The tab is gated on the node's saved_query_id, not the loaded saved query, so a load failure
@@ -391,7 +401,7 @@ describe('nodeDetailSceneLogic', () => {
     it('falls back to the default tab when the URL names a tab this model does not have', async () => {
         flagsLogic.actions.setFeatureFlags([], {})
 
-        await mountScene(urls.nodeDetail(NODE_ID, 'tests'))
+        await mountScene(urls.nodeDetail(NODE_ID, 'data-quality'))
 
         expect(logic.values.effectiveTab).toEqual('query')
         expect(logic.values.currentTab).toEqual('query')

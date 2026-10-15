@@ -261,12 +261,12 @@ class TestAdmittedV2Creation(AdmittedV2TestCase):
 
     @parameterized.expand(
         [
-            ("string_bool_default", "string", True, "compact", "filters.default_value"),
-            ("string_empty_value", "string", None, "", "filters.rules[0].value"),
-            ("number_string_value", "number", 0, "1", "filters.rules[0].value"),
-            ("number_unsafe_integer", "number", 2**53, 1, "filters.default_value"),
-            ("object_array_value", "object", None, [1], "filters.rules[0].value"),
-            ("object_too_deep", "object", None, {"a": nested_list(20)}, "filters.rules[0].value"),
+            ("string_bool_default", "string", True, "compact", "filters__default_value"),
+            ("string_empty_value", "string", None, "", "filters__rules__0__value"),
+            ("number_string_value", "number", 0, "1", "filters__rules__0__value"),
+            ("number_unsafe_integer", "number", 2**53, 1, "filters__default_value"),
+            ("object_array_value", "object", None, [1], "filters__rules__0__value"),
+            ("object_too_deep", "object", None, {"a": nested_list(20)}, "filters__rules__0__value"),
         ]
     )
     def test_values_that_do_not_match_the_return_type_are_rejected(
@@ -276,7 +276,7 @@ class TestAdmittedV2Creation(AdmittedV2TestCase):
         submitted["default_value"] = default
         response = self.post_flag({"key": "typed-v2", "filters": submitted})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"].startswith(f"{attr}: "), response.json()
+        assert response.json()["attr"] == attr, response.json()
         assert not FeatureFlag.objects.filter(team=self.team, key="typed-v2").exists()
 
     def test_active_on_create_is_rejected_not_downgraded(self) -> None:
@@ -397,6 +397,27 @@ class TestAdmittedV2Enabling(AdmittedV2TestCase):
         flag.refresh_from_db()
         assert (flag.active, flag.version) == (False, 5)
         assert [entry.activity for entry in self.activity(flag)] == ["updated", "updated"]
+
+    def test_enabling_reports_a_disabled_flag_the_rule_targeting_depends_on(self) -> None:
+        dependency = FeatureFlag.objects.create(team=self.team, key="base-flag", active=False, created_by=self.user)
+        # Stored past the validator, which does not admit flag targeting yet. The non-integer key is skipped.
+        targeting = {
+            "properties": [
+                {"key": str(dependency.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+                {"key": "checkout-flow", "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+            ]
+        }
+        stored = config(targeted(targeting=targeting))
+        flag = self.flag(stored, active=False)
+
+        response = self.patch_flag(flag, {"version": 3, "active": True})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        detail = response.json()["detail"]
+        assert "Cannot enable this feature flag because it depends on disabled flags" in detail
+        assert f"base-flag (ID: {dependency.id})" in detail
+        flag.refresh_from_db()
+        assert (flag.active, flag.version, flag.filters) == (False, 3, stored)
 
     @parameterized.expand(
         [
