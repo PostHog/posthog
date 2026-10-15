@@ -2038,10 +2038,10 @@ Today (10): `automations`, `comments`, `emails`, `events`, `forms`, `prices`, `s
 
 Diffed against: <https://docs.buttondown.com/openapi.json>
 
-- [ ] `Stripe subscriptions (GET /v1/subscribers/{id_or_email}/stripe-subscriptions)` — analyze paid subscription history, recurring revenue, cancellations, and billing cadence (high)
-- [ ] `Referrals (GET /v1/subscribers/{id_or_email}/referrals)` — attribute subscriber growth to specific referring subscribers (medium)
-- [ ] `Subscriber automation attempts (GET /v1/subscribers/{id_or_email}/automations)` — analyze automation completion, skipped attempts, errors, and scheduled execution for each subscriber (medium)
-- [ ] `Notes (GET /v1/notes)` — track dated notes attached to subscribers, emails, and other analytical objects (medium)
+- [x] `Stripe subscriptions (GET /v1/subscribers/{id_or_email}/stripe-subscriptions)` — analyze paid subscription history, recurring revenue, cancellations, and billing cadence (high)
+- [x] `Referrals (GET /v1/subscribers/{id_or_email}/referrals)` — attribute subscriber growth to specific referring subscribers (medium)
+- [x] `Subscriber automation attempts (GET /v1/subscribers/{id_or_email}/automations)` — analyze automation completion, skipped attempts, errors, and scheduled execution for each subscriber (medium)
+- [x] `Notes (GET /v1/notes)` — track dated notes attached to subscribers, emails, and other analytical objects (medium)
 - [ ] `Segments (GET /v1/segments)` — analyze saved audiences and compare their targeting rules with email performance (medium)
 - [ ] `Coupons (GET /v1/coupons)` — analyze the complete discount catalog alongside paid subscriptions and subscriber promotions (medium)
 
