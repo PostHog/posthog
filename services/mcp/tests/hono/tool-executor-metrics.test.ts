@@ -127,13 +127,15 @@ describe('ToolExecutor metrics', () => {
     })
 
     it.each([false, true])(
-        'includes the result upload in duration telemetry in exec mode %s',
+        'tracks upload duration without download credentials in exec mode %s',
         async (useSingleExec) => {
             let now = 0
+            const resultText = 'synthetic result '.repeat(4000)
+            const downloadUrl = 'https://storage.example.com/result.json?X-Amz-Signature=synthetic-signature'
             vi.spyOn(Date, 'now').mockImplementation(() => now)
             const tool = makeFakeTool('execute-sql', async () => {
                 now += 20
-                return 'synthetic result '.repeat(4000)
+                return resultText
             })
             vi.spyOn(catalog, 'getToolByName').mockReturnValue(tool as any)
             const state = makeToolExecutorState(
@@ -151,10 +153,10 @@ describe('ToolExecutor metrics', () => {
                     expect(mockToolDurationStartTimer.mock.results[0]!.value).not.toHaveBeenCalled()
                 }
                 now += 2500
-                return { download_url: 'https://storage.example.com/result.json', expires_in: 3600 }
+                return { download_url: downloadUrl, expires_in: 3600 }
             })
 
-            await executor.handleToolCall(
+            const response = await executor.handleToolCall(
                 useSingleExec
                     ? { name: 'exec', arguments: { command: 'call execute-sql {}' } }
                     : { name: 'execute-sql', arguments: {} },
@@ -163,6 +165,10 @@ describe('ToolExecutor metrics', () => {
 
             expect(mockTrackToolCall.mock.calls.find((args) => args[0] === 'execute-sql')?.[1]).toBe(2520)
             expect(vi.mocked(trackToolSpan).mock.calls[0]?.[2]).toMatchObject({ durationMs: 2520 })
+            const spanOutput = JSON.stringify(vi.mocked(trackToolSpan).mock.calls[0]?.[2].output)
+            expect(spanOutput).toContain(resultText)
+            expect(spanOutput).not.toContain(downloadUrl)
+            expect(JSON.stringify(response)).toContain(downloadUrl)
             expect(vi.mocked(trackExecuteSqlGeneration).mock.calls[0]?.[3]).toMatchObject({ durationMs: 2520 })
             if (useSingleExec) {
                 expect(mockToolDurationObserve).toHaveBeenCalledExactlyOnceWith(

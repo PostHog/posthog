@@ -16,6 +16,8 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.viewsets import GenericViewSet
 from structlog import get_logger
 
@@ -115,6 +117,11 @@ class _MCPResultFileUnavailable(APIException):
     default_code = "mcp_result_file_unavailable"
 
 
+class MCPResultFileThrottle(UserRateThrottle):
+    scope = "mcp_result_files"
+    rate = "60/hour"
+
+
 class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "project"
     serializer_class = _FallbackSerializer
@@ -135,7 +142,13 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         responses={200: MCPStoredResultResponseSerializer},
         extensions={"x-internal": True},
     )
-    @action(detail=False, methods=["POST"], url_path="results/store", required_scopes=["project:read"])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="results/store",
+        required_scopes=["project:read"],
+        throttle_classes=[*api_settings.DEFAULT_THROTTLE_CLASSES, MCPResultFileThrottle],
+    )
     def store_result(self, request: ValidatedRequest, **kwargs: object) -> Response:
         if not settings.OBJECT_STORAGE_ENABLED:
             raise _MCPResultFileUnavailable()

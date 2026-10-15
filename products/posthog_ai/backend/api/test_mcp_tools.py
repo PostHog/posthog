@@ -1,10 +1,11 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.db import OperationalError
+from django.utils import timezone
 
 from parameterized import param, parameterized
 from psycopg.errors import QueryCanceled
@@ -40,8 +41,10 @@ from posthog.exceptions import (
 )
 from posthog.exceptions_capture import ambient_exception_properties, capture_exception
 from posthog.models import Organization, Team
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.posthog_ai.backend.api.mcp_tools import MCPResultFileThrottle
 
 from ee.hogai.mcp_tool import MCPToolResult
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -54,7 +57,8 @@ def _wrapped_hogql_error(cause: Exception, message: str) -> ExposedHogQLError:
 
 
 class TestMCPToolsAPI(APIBaseTest):
-    @parameterized.expand([("session",), ("read_scope",)])
+    @parameterized.expand([("session",), ("read_scope",), ("oauth",)])
+    @patch.object(MCPResultFileThrottle, "rate", "1/hour")
     @patch(
         "products.posthog_ai.backend.mcp_result_files.object_storage.get_presigned_url",
         return_value="https://storage.example.com/result.json",
@@ -67,6 +71,25 @@ class TestMCPToolsAPI(APIBaseTest):
             token = self.create_personal_api_key_with_scopes(["project:read"])
             self.client.logout()
             headers["authorization"] = f"Bearer {token}"
+        elif authentication == "oauth":
+            application = OAuthApplication.objects.create(
+                name="Example MCP client",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+            )
+            access_token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token="pha_synthetic_mcp_result_token",
+                expires=timezone.now() + timedelta(hours=1),
+                scope="project:read",
+            )
+            self.client.logout()
+            headers["authorization"] = f"Bearer {access_token.token}"
         content = json.dumps({"content": [{"type": "text", "text": "Invented query result"}]})
         response = self.client.post(
             f"/api/projects/{self.team.id}/mcp_tools/results/store/",
@@ -83,6 +106,16 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(stored_content, content)
         self.assertEqual(write.call_args.kwargs["extras"]["Tagging"], f"ttl_days=21&team_id={self.team.id}")
         presign.assert_called_once_with(key, expiration=3600)
+        throttled = self.client.post(
+            f"/api/projects/{self.team.id}/mcp_tools/results/store/",
+            {"content": content},
+            format="json",
+            headers=headers,
+        )
+        self.assertEqual(throttled.status_code, 429)
+        self.assertIn("Retry-After", throttled)
+        self.assertEqual(write.call_count, 1)
+        self.assertEqual(presign.call_count, 1)
 
     @parameterized.expand([("disabled", False), ("missing", None)])
     @patch("products.posthog_ai.backend.mcp_result_files.object_storage.write")
