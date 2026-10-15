@@ -17,7 +17,7 @@ use super::constants::{
     DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
 };
 use super::response::BatchResponse;
-use super::types::{Batch, Event, EventResult, OptionKeys, Options, WrappedEvent};
+use super::types::{Batch, Event, EventResult, OptionKeys, Options, ValidatedEvent, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::events::ai_byte_limit::charge_ai_bytes;
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
@@ -92,13 +92,14 @@ async fn run_pipeline(
     }
     context.set_batch_metadata(&batch);
 
-    let mut events = match validate_events(&state.historical_cfg, context, batch) {
+    let events = match validate_events(context, batch) {
         Ok(events) => events,
         Err(err) => {
             emit_batch_abort_warning(state, context, &err, batch_len);
             return Err(err);
         }
     };
+    let mut events = assign_destinations(&state.historical_cfg, context, events);
 
     // Import mode ingests only historical backfills: drop any batch not flagged
     // `historical_migration` (a batch-level flag) by marking every event Drop and
@@ -476,13 +477,9 @@ fn validate_batch(batch: &Batch) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate_events(
-    historical_cfg: &router::HistoricalConfig,
-    context: &RequestContext,
-    batch: Batch,
-) -> Result<Vec<WrappedEvent>, Error> {
+fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<ValidatedEvent>, Error> {
     let batch_len = batch.batch.len();
-    let mut events: Vec<WrappedEvent> = Vec::with_capacity(batch_len);
+    let mut events: Vec<ValidatedEvent> = Vec::with_capacity(batch_len);
     let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch_len);
     let mut illegal_distinct_id_count: u64 = 0;
 
@@ -500,25 +497,20 @@ fn validate_events(
             ));
         }
 
-        let destination = destination_for_event_name(&event.event);
-
         match validate_event(&event) {
             Ok(raw_ts) => {
                 // `observe_malformed_events` counts and logs this drop.
                 let options = match event.options.validate() {
                     Ok(opts) => opts,
                     Err(err) => {
-                        events.push(WrappedEvent {
+                        events.push(ValidatedEvent {
                             event,
                             uuid,
                             options: Options::default(),
                             adjusted_timestamp: None,
                             result: EventResult::Drop,
                             details: Some(err.detail()),
-                            destination,
                             force_disable_person_processing: false,
-                            spread_partitions: false,
-                            is_gateway_verified: false,
                         });
                         continue;
                     }
@@ -534,7 +526,7 @@ fn validate_events(
                 if illegal {
                     illegal_distinct_id_count += 1;
                 }
-                events.push(WrappedEvent {
+                events.push(ValidatedEvent {
                     event,
                     uuid,
                     options,
@@ -545,24 +537,18 @@ fn validate_events(
                     } else {
                         None
                     },
-                    destination: route_historical(historical_cfg, context, destination, adjusted),
                     force_disable_person_processing: illegal,
-                    spread_partitions: false,
-                    is_gateway_verified: false,
                 });
             }
             Err(err) => {
-                events.push(WrappedEvent {
+                events.push(ValidatedEvent {
                     event,
                     uuid,
                     options: Options::default(),
                     adjusted_timestamp: None,
                     result: EventResult::Drop,
                     details: Some(err.tag()),
-                    destination,
                     force_disable_person_processing: false,
-                    spread_partitions: false,
-                    is_gateway_verified: false,
                 });
             }
         }
@@ -586,7 +572,7 @@ fn validate_events(
     Ok(events)
 }
 
-fn observe_malformed_events(context: &RequestContext, events: &[WrappedEvent]) {
+fn observe_malformed_events(context: &RequestContext, events: &[ValidatedEvent]) {
     let mut malformed: HashMap<&'static str, u64> = HashMap::new();
 
     for event in events.iter() {
@@ -723,6 +709,26 @@ fn normalize_timestamp(
         return now;
     }
     adjusted
+}
+
+fn assign_destinations(
+    historical_cfg: &router::HistoricalConfig,
+    context: &RequestContext,
+    events: Vec<ValidatedEvent>,
+) -> Vec<WrappedEvent> {
+    events
+        .into_iter()
+        .map(|event| {
+            let destination = destination_for_event_name(&event.event.event);
+            let destination = match event.adjusted_timestamp {
+                Some(ts) if event.result == EventResult::Ok => {
+                    route_historical(historical_cfg, context, destination, ts)
+                }
+                _ => destination,
+            };
+            event.into_wrapped(destination)
+        })
+        .collect()
 }
 
 fn route_historical(
@@ -1195,11 +1201,6 @@ mod tests {
     use crate::v1::types::Destination;
     use crate::v1::Error;
 
-    const HISTORICAL_OFF: router::HistoricalConfig = router::HistoricalConfig {
-        enable_historical_rerouting: false,
-        historical_rerouting_threshold_days: 1,
-    };
-
     fn valid_batch(events: Vec<Event>) -> Batch {
         Batch {
             created_at: "2026-03-19T14:30:00.000Z".to_string(),
@@ -1495,7 +1496,7 @@ mod tests {
         let normal = valid_event();
         let normal_uuid = Uuid::parse_str(&normal.uuid).unwrap();
         let batch = valid_batch(vec![perf, normal]);
-        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
         // Vec preserves input order: perf first, normal second.
         let p = &events[0];
@@ -1519,7 +1520,7 @@ mod tests {
             ..valid_event()
         };
         let batch = valid_batch(vec![p1, p2]);
-        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
         for ev in &events {
             assert_eq!(ev.result, EventResult::Drop);
@@ -1535,7 +1536,7 @@ mod tests {
             illegal_event.distinct_id = id.to_string();
             let legal_event = valid_event();
             let batch = valid_batch(vec![illegal_event, legal_event]);
-            let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
+            let events = validate_events(&ctx, batch).unwrap();
             assert_eq!(events.len(), 2, "id={id:?}");
 
             let flagged = &events[0];
@@ -1559,7 +1560,7 @@ mod tests {
         let ctx = test_utils::test_context();
         let event = deserialized_event(&Uuid::new_v4().to_string(), "  NULL  ");
         let batch = valid_batch(vec![event]);
-        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events[0].result, EventResult::Ok);
         assert!(events[0].force_disable_person_processing);
         assert_eq!(events[0].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
@@ -1572,9 +1573,9 @@ mod tests {
             let mut illegal_event = valid_event();
             illegal_event.distinct_id = id.to_string();
             let batch = valid_batch(vec![illegal_event]);
-            let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
+            let events = validate_events(&ctx, batch).unwrap();
             assert_eq!(events.len(), 1, "id={id:?}");
-            assert!(events[0].should_publish(), "id={id:?}");
+            assert_eq!(events[0].result, EventResult::Ok, "id={id:?}");
         }
     }
 
@@ -1599,7 +1600,7 @@ mod tests {
                 },
             ],
         };
-        let err = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap_err();
+        let err = validate_events(&ctx, batch).unwrap_err();
         assert!(matches!(err, Error::DuplicateEventUuid(_)));
     }
 
@@ -1615,7 +1616,7 @@ mod tests {
                 ..valid_event()
             }],
         };
-        let err = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap_err();
+        let err = validate_events(&ctx, batch).unwrap_err();
         assert!(matches!(err, Error::InvalidEventUuid(_)));
     }
 
@@ -1631,7 +1632,7 @@ mod tests {
                 ..valid_event()
             }],
         };
-        let err = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap_err();
+        let err = validate_events(&ctx, batch).unwrap_err();
         assert!(matches!(err, Error::MissingEventUuid));
     }
 
@@ -1663,7 +1664,7 @@ mod tests {
 
         let count = dropped_count("duplicate_event_uuid", "validation_abort", || {
             assert!(matches!(
-                validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap_err(),
+                validate_events(&ctx, batch).unwrap_err(),
                 Error::DuplicateEventUuid(_)
             ));
         });
@@ -1685,7 +1686,7 @@ mod tests {
 
         let count = dropped_count("invalid_event_uuid", "validation_abort", || {
             assert!(matches!(
-                validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap_err(),
+                validate_events(&ctx, batch).unwrap_err(),
                 Error::InvalidEventUuid(_)
             ));
         });
@@ -1705,7 +1706,7 @@ mod tests {
 
         let count = dropped_count("missing_event_uuid", "validation_abort", || {
             assert!(matches!(
-                validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap_err(),
+                validate_events(&ctx, batch).unwrap_err(),
                 Error::MissingEventUuid
             ));
         });
@@ -1753,7 +1754,7 @@ mod tests {
         let event = deserialized_event(&padded_uuid, "user-42");
         assert_eq!(event.uuid, inner_uuid.to_string());
         let batch = valid_batch(vec![event]);
-        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].uuid, inner_uuid);
     }
@@ -1772,7 +1773,7 @@ mod tests {
             capture_internal: None,
             batch: vec![bad_event],
         };
-        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 1);
         let event = &events[0];
         assert_eq!(event.uuid, uuid);
@@ -1820,7 +1821,7 @@ mod tests {
                 ("result", "malformed"),
                 ("error", expected_drop.unwrap_or("none")),
             ],
-            || events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap(),
+            || events = validate_events(&ctx, batch).unwrap(),
         );
 
         assert_eq!(events[0].result, EventResult::Ok);
@@ -1857,7 +1858,7 @@ mod tests {
             capture_internal: None,
             batch: vec![ev1, ev2],
         };
-        let result = validate_events(&HISTORICAL_OFF, &ctx, batch);
+        let result = validate_events(&ctx, batch);
         assert!(result.is_ok());
         let events = result.unwrap();
         assert_eq!(events[0].result, EventResult::Drop);
@@ -1879,7 +1880,7 @@ mod tests {
             capture_internal: None,
             batch: vec![ev],
         };
-        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].options.disable_skew_correction, Some(true));
     }
@@ -1903,7 +1904,7 @@ mod tests {
             capture_internal: None,
             batch: vec![ev],
         };
-        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events[0].result, EventResult::Drop);
         assert_eq!(events[0].details, Some("missing_event_name"));
     }
@@ -3198,10 +3199,14 @@ mod tests {
         };
         let batch = valid_batch(vec![normal_a, perf, normal_b, normal_c]);
 
-        let events = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
 
+        let distinct_ids: Vec<&str> = events
+            .iter()
+            .map(|e| e.event.distinct_id.as_str())
+            .collect();
         assert_eq!(
-            distinct_id_sequence(&events),
+            distinct_ids,
             vec!["user-pos-0", "user-pos-1", "user-pos-2", "user-pos-3"],
         );
     }
@@ -3212,7 +3217,7 @@ mod tests {
         let ctx = test_utils::test_context();
         let (first, second) = test_utils::realistic_dup_uuid_pair();
         let batch = valid_batch(vec![first, second]);
-        let err = validate_events(&HISTORICAL_OFF, &ctx, batch).unwrap_err();
+        let err = validate_events(&ctx, batch).unwrap_err();
         assert!(matches!(err, Error::DuplicateEventUuid(_)));
     }
 
