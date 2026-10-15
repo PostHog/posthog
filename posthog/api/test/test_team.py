@@ -826,8 +826,8 @@ def team_api_test_factory():
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
 
-        def test_rotation_from_a_stale_instance_does_not_orphan_mirror_rows(self):
-            # A rotation computing from stale token fields would leave the other rotation's
+        def test_writes_from_a_stale_instance_do_not_orphan_mirror_rows(self):
+            # A write computing from stale token fields would leave another rotation's
             # mirror row authenticating forever, with no column referencing its token.
             self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
             self.team.secret_api_token_backup = None
@@ -846,6 +846,18 @@ def team_api_test_factory():
                 mirrored,
                 {hash_key_value(self.team.secret_api_token), hash_key_value(self.team.secret_api_token_backup)},
             )
+
+            # Deleting the backup from an instance that predates both rotations must not
+            # write its stale primary back over the current token.
+            current_primary = self.team.secret_api_token
+            first.delete_secret_token_backup_and_save(user=self.user, is_impersonated_session=False)
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.secret_api_token, current_primary)
+            self.assertIsNone(self.team.secret_api_token_backup)
+            mirrored = set(
+                ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("secure_value", flat=True)
+            )
+            self.assertEqual(mirrored, {hash_key_value(current_primary)})
 
         def test_retiring_a_token_never_touches_another_teams_row(self):
             # secure_value is globally unique, so when two teams hold the same string the

@@ -1169,13 +1169,16 @@ class Team(UUIDTClassicModel):
                 old_backup_token = locked.secret_api_token_backup
                 if not old_backup_token:
                     return
+                # save() writes every field, so a stale primary here would clobber a
+                # concurrently rotated token while its mirror row keeps authenticating.
+                self.secret_api_token = locked.secret_api_token
                 self.secret_api_token_backup = None
                 self.save()
                 delete_project_secret_api_keys_for_token(self.id, old_backup_token)
         except Exception:
             # save() already cached this team (post_save) with the cleared backup, which
             # the rollback discarded. Rewrite that entry from the committed row.
-            self.refresh_from_db(fields=["secret_api_token_backup"])
+            self.refresh_from_db(fields=["secret_api_token", "secret_api_token_backup"])
             set_team_in_cache(self.api_token, self)
             raise
         set_team_in_cache(old_backup_token, None)
