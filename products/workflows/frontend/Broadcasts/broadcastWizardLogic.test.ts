@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -442,6 +443,59 @@ describe('broadcastWizardLogic', () => {
             broadcast_id: 'broadcast-1',
             step: 'content',
         })
+    })
+
+    it('saves an email edit made while the workflow editor handoff is saving before it opens the editor', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('content')
+        releaseCreate()
+        await expectLogic(logic).toDispatchActions(['draftAutosaved', 'showSavedDraftUrl'])
+        logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, subject: 'Saved by the handoff' })
+
+        let releasePatch: () => void = () => {}
+        holdPatch = new Promise((resolve) => {
+            releasePatch = resolve
+        })
+        const patchStarted = new Promise<void>((resolve) => {
+            onPatchStarted = resolve
+        })
+        logic.actions.openInWorkflowEditorConfirmed()
+        await patchStarted
+        holdPatch = null
+        logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, subject: 'Typed during the handoff' })
+        releasePatch()
+
+        await expectLogic(logic).toDispatchActions(['saveBroadcastFinished']).toFinishAllListeners()
+        expect(patchedSubjects.at(-1)).toEqual('Typed during the handoff')
+        expect(router.values.location.pathname).toContain('/workflows/broadcast-1/workflow')
+    })
+
+    it('creates the draft and stores its send time when the workflow editor opens before any Continue', async () => {
+        const createdSchedules: Record<string, any>[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/:id/schedules/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
+                    createdSchedules.push(body)
+                    return [201, { id: 'schedule-1', ...body }]
+                },
+            },
+        })
+        const sendAt = dayjs().add(1, 'day').startOf('minute').toISOString()
+        router.actions.push('/broadcasts/new')
+        logic.actions.setScheduleMode('later')
+        logic.actions.setSendAt(sendAt)
+        logic.actions.setStep('review')
+        releaseCreate()
+
+        await expectLogic(logic, () => {
+            logic.actions.openInWorkflowEditorConfirmed()
+        })
+            .toDispatchActions(['saveBroadcastFinished'])
+            .toFinishAllListeners()
+
+        expect(createdSchedules).toEqual([expect.objectContaining({ starts_at: sendAt, rrule: expect.any(String) })])
+        expect(router.values.location.pathname).toContain('/workflows/broadcast-1/workflow')
     })
 
     it('keeps an email edit made while Continue is saving and moves to the draft URL after it saves', async () => {

@@ -1858,19 +1858,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     } as any)
                     lemonToast.success('Broadcast is sending')
                 } else {
-                    const schedule: Partial<HogFlowScheduleApi> = {
-                        rrule:
-                            values.scheduleMode === 'recurring' && values.recurringRepeating
-                                ? stateToRRule(values.scheduleState, values.recurringStartsAt)
-                                : ONE_TIME_RRULE,
-                        starts_at: (values.scheduleMode === 'recurring' ? values.recurringStartsAt : values.sendAt)!,
-                        timezone: values.effectiveTimezone,
-                        // The wizard has no variables step, so keep any overrides the old schedule carried.
-                        ...(values.broadcast?.schedules?.[0]?.variables
-                            ? { variables: values.broadcast.schedules[0].variables }
-                            : {}),
-                    }
-                    await hogFlowsSchedulesCreate(projectId, broadcastId, schedule as any)
+                    await hogFlowsSchedulesCreate(projectId, broadcastId, wizardSchedule(values) as any)
                     for (const id of oldScheduleIds) {
                         await hogFlowsSchedulesDestroy(projectId, broadcastId, id)
                     }
@@ -1985,8 +1973,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             confirmOpenInWorkflowEditor(actions.openInWorkflowEditorConfirmed)
         },
         openInWorkflowEditorConfirmed: async (_, breakpoint) => {
-            const broadcastId = values.broadcastId
-            if (!broadcastId || !values.currentProjectId) {
+            if ((!values.broadcastId && props.id !== 'new') || !values.currentProjectId) {
                 actions.saveBroadcastFinished(null)
                 return
             }
@@ -1999,11 +1986,28 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.saveBroadcastFinished(null)
                 return
             }
+            const projectId = String(values.currentProjectId)
+            let broadcastId = values.broadcastId
             try {
-                const projectId = String(values.currentProjectId)
-                const saved = await saves.run(() => saveWithoutClobbering(projectId, broadcastId, values))
+                // The email stays editable while the save runs, so save again until a save carries the latest edit.
+                let savedEditGeneration: number | undefined
+                do {
+                    const saved = await saves.run(() => {
+                        savedEditGeneration = cache.emailEditGeneration
+                        // The stepper can reach Review before any Continue created the draft.
+                        return broadcastId
+                            ? saveWithoutClobbering(projectId, broadcastId, values)
+                            : createDraft(projectId, values)
+                    })
+                    if (!broadcastId && values.entrySource) {
+                        saveEntrySource(saved.id, values.entrySource)
+                    }
+                    broadcastId = saved.id
+                    actions.draftAutosaved(saved)
+                } while (cache.emailEditGeneration !== savedEditGeneration)
                 cache.emailEditPending = false
-                actions.saveBroadcastFinished(saved)
+                await saveDraftSchedule(projectId, broadcastId, values)
+                actions.saveBroadcastFinished(values.broadcast)
             } catch (error: any) {
                 actions.saveBroadcastFinished(null)
                 if (error instanceof EditedElsewhereError) {
@@ -2166,6 +2170,47 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         }
     }),
 ])
+
+function wizardSchedule(values: broadcastWizardLogicType['values']): Partial<HogFlowScheduleApi> {
+    return {
+        rrule:
+            values.scheduleMode === 'recurring' && values.recurringRepeating
+                ? stateToRRule(values.scheduleState, values.recurringStartsAt)
+                : ONE_TIME_RRULE,
+        starts_at: (values.scheduleMode === 'recurring' ? values.recurringStartsAt : values.sendAt)!,
+        timezone: values.effectiveTimezone,
+        // The wizard has no variables step, so keep any overrides the old schedule carried.
+        ...(values.broadcast?.schedules?.[0]?.variables ? { variables: values.broadcast.schedules[0].variables } : {}),
+    }
+}
+
+/** Stores the timing picked in the wizard on the draft, so the workflow editor opens with it. The scheduler skips drafts. */
+async function saveDraftSchedule(
+    projectId: string,
+    broadcastId: string,
+    values: broadcastWizardLogicType['values']
+): Promise<void> {
+    if (values.stepValidationErrors.schedule.length > 0) {
+        return
+    }
+    const existing = values.broadcast?.schedules ?? []
+    const wanted = values.scheduleMode === 'now' ? null : wizardSchedule(values)
+    const unchanged = wanted
+        ? existing.length === 1 &&
+          existing[0].rrule === wanted.rrule &&
+          dayjs(existing[0].starts_at).isSame(dayjs(wanted.starts_at)) &&
+          existing[0].timezone === wanted.timezone
+        : existing.length === 0
+    if (unchanged) {
+        return
+    }
+    if (wanted) {
+        await hogFlowsSchedulesCreate(projectId, broadcastId, wanted as any)
+    }
+    for (const schedule of existing) {
+        await hogFlowsSchedulesDestroy(projectId, broadcastId, schedule.id)
+    }
+}
 
 async function createDraft(projectId: string, values: broadcastWizardLogicType['values']): Promise<HogFlowApi> {
     const created = await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
