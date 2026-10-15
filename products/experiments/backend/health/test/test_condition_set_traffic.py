@@ -52,6 +52,26 @@ _STAFF_PINNED_TO_TEST: dict[str, Any] = {
     "rollout_percentage": 100,
     "variant": "test",
 }
+# Set 1 pins a 0% holdout, so its 500 people do not count toward the minimum.
+TOO_FEW_PEOPLE_BESIDE_A_HOLDOUT = replace(TOO_FEW_PEOPLE, people_by_set={1: 500, 2: 3, 3: 50})
+_HOLDOUT_FILTERS: dict[str, Any] = {
+    "groups": [
+        {**_STAFF_PINNED_TO_TEST, "variant": "holdout"},
+        {
+            "properties": [{"key": "$device_type", "value": "iOS", "operator": "exact", "type": "person"}],
+            "rollout_percentage": 100,
+            "variant": "test",
+        },
+        {"properties": [], "rollout_percentage": 100},
+    ],
+    "multivariate": {
+        "variants": [
+            {"key": "control", "rollout_percentage": 50},
+            {"key": "test", "rollout_percentage": 50},
+            {"key": "holdout", "rollout_percentage": 0},
+        ]
+    },
+}
 
 
 def _create_running_experiment(team: Team, user: User, *, launched_at: datetime) -> Experiment:
@@ -130,11 +150,26 @@ class TestLoadConditionSetTraffic(BaseTest):
             ("enough_people_a_day_later", TRAFFIC, timedelta(days=1, minutes=1), 1),
             ("too_few_people_minutes_later", TOO_FEW_PEOPLE, timedelta(minutes=30), 0),
             ("too_few_people_an_hour_later", TOO_FEW_PEOPLE, timedelta(hours=1, minutes=1), 1),
+            (
+                "too_few_people_beside_a_holdout_an_hour_later",
+                TOO_FEW_PEOPLE_BESIDE_A_HOLDOUT,
+                timedelta(hours=1, minutes=1),
+                1,
+                _HOLDOUT_FILTERS,
+            ),
         ]
     )
     def test_answer_cache(
-        self, _name: str, answer: ConditionSetTraffic, next_load_after: timedelta, expected_queries: int
+        self,
+        _name: str,
+        answer: ConditionSetTraffic,
+        next_load_after: timedelta,
+        expected_queries: int,
+        flag_filters: dict[str, Any] | None = None,
     ) -> None:
+        if flag_filters is not None:
+            FeatureFlag.objects.filter(pk=self.experiment.feature_flag_id).update(filters=flag_filters)
+            self.experiment = Experiment.objects.get(pk=self.experiment.pk)
         first, _ = self._load(answer)
 
         with time_machine.travel(timezone.now() + next_load_after):

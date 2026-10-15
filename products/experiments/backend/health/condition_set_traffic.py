@@ -42,8 +42,8 @@ from posthog.exceptions_capture import capture_exception
 
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.health.checks.forced_variant import (
-    MIN_MATCHED_PEOPLE,
     TRAFFIC_WINDOW,
+    has_too_few_people,
     needs_condition_set_traffic,
 )
 from products.experiments.backend.health.context import ConditionSetTraffic, HealthContext
@@ -90,7 +90,7 @@ def load_condition_set_traffic(
     ):
         return None
     try:
-        return _load_condition_set_traffic(experiment)
+        return _load_condition_set_traffic(experiment, ctx)
     except Exception as error:
         capture_exception(error)
         return None
@@ -174,7 +174,7 @@ def _flag_call_events(organization_id: UUID) -> list[str]:
     return [DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT]
 
 
-def _load_condition_set_traffic(experiment: Experiment) -> ConditionSetTraffic | None:
+def _load_condition_set_traffic(experiment: Experiment, ctx: HealthContext) -> ConditionSetTraffic | None:
     launched_at = experiment.start_date
     flag = experiment.feature_flag
     if launched_at is None or flag.version is None:
@@ -208,9 +208,7 @@ def _load_condition_set_traffic(experiment: Experiment) -> ConditionSetTraffic |
             "calls": traffic.calls,
             "remotely_evaluated_calls": traffic.remotely_evaluated_calls,
         },
-        _TOO_FEW_PEOPLE_CACHE_SECONDS
-        if sum(traffic.people_by_set.values()) < MIN_MATCHED_PEOPLE
-        else _ANSWER_CACHE_SECONDS,
+        _TOO_FEW_PEOPLE_CACHE_SECONDS if has_too_few_people(ctx, traffic) else _ANSWER_CACHE_SECONDS,
     )
     return traffic
 
