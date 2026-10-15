@@ -76,6 +76,7 @@ def backfill_experiment_timeseries(recalculation_id: str, *, backfill_until: dat
     calculation_config = find_calculation_config_by_key(
         experiment, recalculation_request.metric.get("uuid") or "", fingerprint
     )
+    display_key = calculation_config.legacy_key() if calculation_config is not None else None
     results = MetricResultStore(experiment_id=experiment.id)
 
     days_processed = 0
@@ -103,7 +104,7 @@ def backfill_experiment_timeseries(recalculation_id: str, *, backfill_until: dat
             results.record_daily_point(
                 recalculation_request.metric["uuid"],
                 fingerprint,
-                calculation_config=calculation_config,
+                display_key=display_key,
                 window=query_to_utc,
                 query_from=experiment.start_date,
                 result=sanitize_non_finite(result.model_dump()),

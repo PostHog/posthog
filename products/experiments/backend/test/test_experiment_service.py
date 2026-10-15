@@ -5457,11 +5457,7 @@ class TestExperimentService(APIBaseTest):
             allow_unknown_events=True,
         )
 
-        # The client's copy of the metric is out of date. The backfill computes the experiment's definition and
-        # files the days under its key, so the chart finds them.
-        result = service.request_timeseries_recalculation(
-            experiment, metric={**self._DEFAULT_METRIC, "source": {"kind": "EventsNode", "event": "stale"}}
-        )
+        result = service.request_timeseries_recalculation(experiment, metric_uuid="m1")
 
         assert result["experiment_id"] == experiment.id
         assert result["metric_uuid"] == "m1"
@@ -5505,7 +5501,7 @@ class TestExperimentService(APIBaseTest):
                 status=ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
             ).id
         else:
-            first_id = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"})["id"]
+            first_id = service.request_timeseries_recalculation(experiment, metric_uuid="m1")["id"]
         if edit_settings_after_first:
             key_before_edit = _calculation_key(experiment, "m1")
             experiment.stats_config = {
@@ -5515,7 +5511,7 @@ class TestExperimentService(APIBaseTest):
             experiment.save()
             assert _calculation_key(experiment, "m1") != key_before_edit
 
-        second = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"})
+        second = service.request_timeseries_recalculation(experiment, metric_uuid="m1")
 
         assert (second["id"], second["is_existing"]) == (first_id, True)
         assert ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).count() == 1
@@ -5539,7 +5535,7 @@ class TestExperimentService(APIBaseTest):
         )
 
         with self.assertRaises(ValidationError) as ctx:
-            service.request_timeseries_recalculation(experiment, metric={"uuid": metric_uuid})
+            service.request_timeseries_recalculation(experiment, metric_uuid=metric_uuid)
 
         assert message in str(ctx.exception)
 
@@ -5567,7 +5563,7 @@ class TestExperimentService(APIBaseTest):
         )
         assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 1
 
-        service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"})
+        service.request_timeseries_recalculation(experiment, metric_uuid="m1")
 
         assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 0
 
@@ -7736,7 +7732,7 @@ class TestExperimentServiceWarehouseMetricAccess(APIBaseTest):
         )
         service = ExperimentService(team=self.team, user=self.user)
         with pytest.raises(PermissionDenied):
-            service.request_timeseries_recalculation(experiment, metric={"uuid": "dw-metric"})
+            service.request_timeseries_recalculation(experiment, metric_uuid="dw-metric")
         assert not ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).exists()
 
 

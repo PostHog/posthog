@@ -1346,14 +1346,15 @@ class EnterpriseExperimentsViewSet(
     def recalculate_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
 
-        # A `fingerprint` in the body is ignored: the service derives the key from the experiment.
+        # Only the metric's uuid is read, and a `fingerprint` in the body is ignored: the service derives the
+        # definition and the key from the experiment.
         metric = request.data.get("metric")
 
         if not isinstance(metric, dict) or not metric:
             raise ValidationError("metric is required")
 
         service = ExperimentService(team=self.team, user=request.user)
-        result = service.request_timeseries_recalculation(experiment, metric=metric)
+        result = service.request_timeseries_recalculation(experiment, metric_uuid=metric.get("uuid") or "")
         is_existing = result.pop("is_existing", False)
 
         if not is_existing:

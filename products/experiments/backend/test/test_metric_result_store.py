@@ -20,7 +20,6 @@ from products.experiments.backend.metric_calculation.results import (
     MetricResultStore,
     _recalc_fingerprint,
     previous_completed_metric_result,
-    record_daily_metric_failure,
     record_daily_metric_result,
 )
 from products.experiments.backend.models.experiment import (
@@ -414,7 +413,7 @@ class TestMetricResultStore(BaseTest):
         store.record_daily_point(
             "m1",
             calculation_config.calculation_key(),
-            calculation_config=calculation_config,
+            display_key=calculation_config.legacy_key(),
             window=_WINDOW,
             query_from=_START,
             result=_stored_result(3),
@@ -508,7 +507,7 @@ class TestMetricResultStore(BaseTest):
                 store.record_daily_point(
                     "m1",
                     key,
-                    calculation_config=calculation_config,
+                    display_key=calculation_config.legacy_key(),
                     window=_WINDOW,
                     query_from=_START,
                     result=_stored_result(9),
@@ -517,7 +516,7 @@ class TestMetricResultStore(BaseTest):
                 store.record_daily_failure(
                     "m1",
                     key,
-                    calculation_config=calculation_config,
+                    display_key=calculation_config.legacy_key(),
                     window=_WINDOW,
                     query_from=_START,
                     error_message="boom",
@@ -531,16 +530,6 @@ class TestMetricResultStore(BaseTest):
                     window=_WINDOW,
                     query_from=_START,
                     result=_stored_result(9),
-                )
-            case "daily_metric_failure":
-                record_daily_metric_failure(
-                    experiment.id,
-                    team_id=self.team.id,
-                    metric_uuid="m1",
-                    calculation_key=key,
-                    window=_WINDOW,
-                    query_from=_START,
-                    error_message="boom",
                 )
             case "sync_copy":
                 point = ExperimentMetricResult(result=_stored_result(9))

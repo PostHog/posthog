@@ -70,21 +70,19 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         exp.save()
         return exp
 
-    def _config_fp(self, exp: Experiment, metric_uuid: str) -> str:
+    def _config_fp(self, exp: Experiment, metric_uuid: str, *, legacy: bool = False) -> str:
         calculation_config = get_metric_calculation_config(exp, metric_uuid)
         assert calculation_config is not None
-        return calculation_config.calculation_key()
+        return calculation_config.legacy_key() if legacy else calculation_config.calculation_key()
 
     def _timeseries_point(
         self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict, *, legacy: bool = False
     ) -> None:
         assert exp.start_date is not None
-        calculation_config = get_metric_calculation_config(exp, metric_uuid)
-        assert calculation_config is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid=metric_uuid,
-            fingerprint=calculation_config.legacy_key() if legacy else calculation_config.calculation_key(),
+            fingerprint=self._config_fp(exp, metric_uuid, legacy=legacy),
             query_from=exp.start_date,
             query_to=query_to,
             status="completed",

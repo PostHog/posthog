@@ -69,7 +69,6 @@ from products.experiments.backend.logic.result_stats import MetricTimeseries
 from products.experiments.backend.logic.timeseries_text import ExperimentTimeseriesFormatter
 from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
-    MetricCalculationConfig,
     build_primary_calculation_configs,
     get_metric_calculation_config,
     saved_metric_calculation_keys,
@@ -4496,7 +4495,7 @@ class ExperimentService:
             overall_status = "partial"
 
         active_recalculation = (
-            self._active_timeseries_backfill(experiment, calculation_config) if calculation_config is not None else None
+            self._active_timeseries_backfill(experiment, metric_uuid) if calculation_config is not None else None
         )
 
         response = {
@@ -4523,16 +4522,16 @@ class ExperimentService:
         ).format()
         return response
 
-    def request_timeseries_recalculation(self, experiment: Experiment, *, metric: dict) -> dict:
+    def request_timeseries_recalculation(self, experiment: Experiment, *, metric_uuid: str) -> dict:
         """Create an idempotent recalculation request for experiment timeseries data.
 
         The backfill computes the metric's current definition and files the days under its calculation key, both
-        from the experiment, so the chart finds them. The client's copy of the metric only names it by uuid.
+        from the experiment, so the chart finds them.
         """
         if not experiment.is_launched:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
 
-        calculation_config = get_metric_calculation_config(experiment, metric.get("uuid") or "")
+        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
         if calculation_config is None:
             raise ValidationError(
                 "This metric is not on the experiment, or it uses an older metric format that has no daily results. "
@@ -4544,7 +4543,7 @@ class ExperimentService:
         # The backfill runs this metric without a user, so the caller's warehouse access is checked here.
         enforce_warehouse_metric_access([metric], team=self.team, user=self.user)
 
-        existing_recalculation = self._active_timeseries_backfill(experiment, calculation_config)
+        existing_recalculation = self._active_timeseries_backfill(experiment, calculation_config.metric_id)
 
         if existing_recalculation:
             return {
@@ -4579,9 +4578,9 @@ class ExperimentService:
 
     @staticmethod
     def _active_timeseries_backfill(
-        experiment: Experiment, calculation_config: MetricCalculationConfig
+        experiment: Experiment, metric_uuid: str
     ) -> ExperimentTimeseriesRecalculation | None:
-        """The pending or running backfill of the metric that `calculation_config` describes, under any key.
+        """The pending or running backfill of the metric with this uuid, under any key.
 
         A backfill requested before a settings edit or before calculation key version 2 carries another key but
         writes the same days. It counts as the active backfill, so that a second backfill does not race it for the
@@ -4590,7 +4589,7 @@ class ExperimentService:
         return (
             ExperimentTimeseriesRecalculation.objects.filter(
                 experiment=experiment,
-                metric__uuid=calculation_config.metric_id,
+                metric__uuid=metric_uuid,
                 status__in=[
                     ExperimentTimeseriesRecalculation.Status.PENDING,
                     ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,

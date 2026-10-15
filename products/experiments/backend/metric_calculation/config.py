@@ -49,7 +49,7 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     get_multiple_variant_handling_from_experiment,
-    is_default_exposure_config,
+    has_activation_config,
     normalize_to_exposure_criteria,
     resolve_filter_test_accounts,
 )
@@ -221,7 +221,7 @@ def normalize_exposure(exposure_criteria: dict[str, Any] | None) -> dict[str, An
         "multiple_variant_handling": get_multiple_variant_handling_from_experiment(criteria).value,
         "filter_test_accounts": resolve_filter_test_accounts(criteria),
     }
-    if criteria is not None and criteria.activation_config is not None and is_default_exposure_config(exposure_config):
+    if criteria is not None and has_activation_config(criteria):
         normalized["activation"] = _exposure_entity(
             criteria.activation_config, stored.get("activation_config"), default_event_resolves=False
         )

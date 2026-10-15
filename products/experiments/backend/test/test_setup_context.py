@@ -80,10 +80,10 @@ def _retention_metric(uuid: str, start_event: str = "signup", completion_event: 
     }
 
 
-def _key(experiment: Experiment, metric_uuid: str) -> str:
+def _key(experiment: Experiment, metric_uuid: str, *, legacy: bool = False) -> str:
     calculation_config = get_metric_calculation_config(experiment, metric_uuid)
     assert calculation_config is not None
-    return calculation_config.calculation_key()
+    return calculation_config.legacy_key() if legacy else calculation_config.calculation_key()
 
 
 def _payload_of_each_section() -> dict[str, Any]:
@@ -899,14 +899,10 @@ class TestPostgresSections(APIBaseTest):
         experiment = self._experiment(
             "keyed", start_date=now - timedelta(days=10), metrics=[_mean_metric("inline-primary")]
         )
-        calculation_config = get_metric_calculation_config(experiment, "inline-primary")
-        assert calculation_config is not None
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="inline-primary",
-            fingerprint=calculation_config.calculation_key()
-            if key_family == "current"
-            else calculation_config.legacy_key(),
+            fingerprint=_key(experiment, "inline-primary", legacy=key_family == "legacy"),
             query_from=now - timedelta(days=10),
             query_to=now,
             status=ExperimentMetricResult.Status.COMPLETED,

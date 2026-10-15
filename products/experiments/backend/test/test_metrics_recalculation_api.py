@@ -30,10 +30,10 @@ def _mean_metric(uuid: str) -> dict:
     }
 
 
-def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
+def _calculation_key(experiment: Experiment, metric_uuid: str, *, legacy: bool = False) -> str:
     calculation_config = get_metric_calculation_config(experiment, metric_uuid)
     assert calculation_config is not None
-    return calculation_config.calculation_key()
+    return calculation_config.legacy_key() if legacy else calculation_config.calculation_key()
 
 
 class TestMetricsRecalculationAPI(APIBaseTest):
@@ -277,13 +277,10 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert exp.start_date is not None
         assert recalc.query_to is not None
         for metric_uuid, family in zip(("m1", "m2"), key_families):
-            calculation_config = get_metric_calculation_config(exp, metric_uuid)
-            assert calculation_config is not None
-            key = calculation_config.calculation_key() if family == "current" else calculation_config.legacy_key()
             ExperimentMetricResult.objects.create(
                 experiment=exp,
                 metric_uuid=metric_uuid,
-                fingerprint=_recalc_fingerprint(key),
+                fingerprint=_recalc_fingerprint(_calculation_key(exp, metric_uuid, legacy=family == "legacy")),
                 query_from=exp.start_date,
                 query_to=recalc.query_to,
                 status="completed",
@@ -342,12 +339,10 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         self, exp: Experiment, metric_uuid: str, query_to: datetime, *, legacy: bool = False
     ) -> None:
         assert exp.start_date is not None
-        calculation_config = get_metric_calculation_config(exp, metric_uuid)
-        assert calculation_config is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid=metric_uuid,
-            fingerprint=calculation_config.legacy_key() if legacy else calculation_config.calculation_key(),
+            fingerprint=_calculation_key(exp, metric_uuid, legacy=legacy),
             query_from=exp.start_date,
             query_to=query_to,
             status="completed",
