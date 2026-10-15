@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.unity_ads.
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     LOOKBACK,
+    MERGE_ONLY,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.unity_ads.unity_ads import (
     INVALID_ORGANIZATION_ID,
@@ -80,7 +81,7 @@ class UnityAdsSource(ResumableSource[UnityAdsSourceConfig, UnityAdsResumeConfig]
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
-            ENDPOINTS, INCREMENTAL_FIELDS, names, default_incremental_lookback_seconds=LOOKBACK
+            ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=MERGE_ONLY, default_incremental_lookback_seconds=LOOKBACK
         )
 
     def validate_credentials(

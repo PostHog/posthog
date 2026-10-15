@@ -40,7 +40,7 @@ def _rows(*rows: dict[str, Any]) -> ScriptedResponse:
 
 
 class TestWindows:
-    def test_campaigns_read_31_day_windows_from_the_watermark_in_date_order(self) -> None:
+    def test_campaigns_read_92_day_windows_from_the_watermark_in_date_order(self) -> None:
         result = _run(
             "campaigns_daily",
             [
@@ -51,14 +51,14 @@ class TestWindows:
                 _rows({"timestamp": "2026-10-02", "campaignId": "c1", "installs": 1}),
             ],
             incremental_field="timestamp",
-            db_incremental_field_last_value=date(2026, 9, 1),
+            db_incremental_field_last_value=date(2026, 7, 1),
         )
 
         assert result.raised is None
         assert result.paths == ["/advertise/stats/v2/organizations/5772916123937/reports/acquisitions"] * 2
         assert [(r.param("start"), r.param("end")) for r in result.requests] == [
-            ("2026-09-01T00:00:00Z", "2026-10-02T00:00:00Z"),
-            ("2026-10-02T00:00:00Z", "2026-10-16T00:00:00Z"),
+            ("2026-07-01T00:00:00Z", "2026-10-01T00:00:00Z"),
+            ("2026-10-01T00:00:00Z", "2026-10-16T00:00:00Z"),
         ]
         first = result.requests[0]
         assert (first.param("scale"), first.param("breakdowns"), first.param("format")) == ("day", "campaign", "json")
@@ -66,7 +66,7 @@ class TestWindows:
         assert metrics is not None and "d7TotalRoas" in metrics
         assert first.headers["authorization"] == "Basic a2lkOmtzZWNyZXQ="
         assert [row["timestamp"] for row in result.rows] == ["2026-09-01", "2026-09-02", "2026-10-02"]
-        assert result.saved_states == [UnityAdsResumeConfig(next_window_start="2026-10-02")]
+        assert result.saved_states == [UnityAdsResumeConfig(next_window_start="2026-10-01")]
 
     def test_a_resumed_country_run_reads_from_the_saved_window_and_skips_an_empty_one(self) -> None:
         result = _run(
@@ -81,14 +81,14 @@ class TestWindows:
         ]
         assert result.rows == []
 
-    def test_a_full_refresh_starts_one_year_back_in_14_day_windows(self) -> None:
-        result = _run("campaigns_daily_by_country", always(ScriptedResponse(status=204)))
+    @pytest.mark.parametrize(("endpoint", "requests"), [("campaigns_daily", 4), ("campaigns_daily_by_country", 12)])
+    def test_a_first_sync_of_both_tables_fits_one_rate_limit_window(self, endpoint: str, requests: int) -> None:
+        # Unity allows 30 requests per 30 minutes per organization, shared by both tables.
+        result = _run(endpoint, always(ScriptedResponse(status=204)))
 
         assert result.raised is None
-        starts = result.params("start")
-        assert starts[0] == "2025-10-15T00:00:00Z"
-        assert starts[1] == "2025-10-29T00:00:00Z"
-        assert len(starts) == 27
+        assert result.params("start")[0] == "2025-10-15T00:00:00Z"
+        assert len(result.requests) == requests
 
     @pytest.mark.parametrize("organization_id", ["../../other", "org-1", ""])
     def test_a_non_numeric_organization_id_never_reaches_the_url(self, organization_id: str) -> None:

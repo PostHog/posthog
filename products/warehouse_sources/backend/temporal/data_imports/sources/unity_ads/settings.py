@@ -42,7 +42,8 @@ class UnityAdsEndpointConfig:
     name: str
     breakdowns: tuple[str, ...]
     primary_keys: tuple[str, ...]
-    # Days per request. Unity advises short windows for high-cardinality breakdowns such as country.
+    # Days per request. Both tables share Unity's quota of 30 requests per 30 minutes, so a first sync
+    # of both (16 requests for a year) fits inside one quota window.
     window_days: int
 
 
@@ -51,13 +52,13 @@ UNITY_ADS_ENDPOINTS: dict[str, UnityAdsEndpointConfig] = {
         name="campaigns_daily",
         breakdowns=("campaign",),
         primary_keys=("timestamp", "campaignId"),
-        window_days=31,
+        window_days=92,
     ),
     "campaigns_daily_by_country": UnityAdsEndpointConfig(
         name="campaigns_daily_by_country",
         breakdowns=("campaign", "country"),
         primary_keys=("timestamp", "campaignId", "country"),
-        window_days=14,
+        window_days=31,
     ),
 }
 
@@ -66,3 +67,6 @@ ENDPOINTS = tuple(UNITY_ADS_ENDPOINTS)
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {name: [_TIMESTAMP] for name in UNITY_ADS_ENDPOINTS}
 
 LOOKBACK: dict[str, int] = dict.fromkeys(UNITY_ADS_ENDPOINTS, LOOKBACK_SECONDS)
+
+# Both tables re-read the last 30 days each run. Appending would write those rows again.
+MERGE_ONLY = tuple(UNITY_ADS_ENDPOINTS)
