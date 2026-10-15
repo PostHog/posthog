@@ -55,7 +55,6 @@ export function TaskRepositoryTemplateEditor({
                         }
                         placeholder="Add repository..."
                         excluded={allowed}
-                        ariaLabel="Add allowed repository"
                     />
                 </div>
             </div>

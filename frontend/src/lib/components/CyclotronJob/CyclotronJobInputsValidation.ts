@@ -141,13 +141,6 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
         return 'Value must be a dictionary'
     } else if (inputSchema.type === 'integration' && typeof value !== 'number') {
         return 'Value must be an Integration ID'
-    } else if (inputSchema.type === 'task_repository' && typeof value === 'object') {
-        if (!value.template?.trim()) {
-            return 'Enter a repository template'
-        }
-        if (!value.allowed?.length) {
-            return 'Add at least one allowed repository'
-        }
     } else if (inputSchema.type === 'json') {
         if (!['string', 'object'].includes(typeof value)) {
             return 'Value must be valid json'

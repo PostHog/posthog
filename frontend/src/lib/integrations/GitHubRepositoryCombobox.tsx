@@ -31,7 +31,6 @@ export interface GitHubRepositoryComboboxProps {
     /** Load every page. The default picker stops after the first page and waits for "Load more". */
     loadAll?: boolean
     fullWidth?: boolean
-    ariaLabel?: string
 }
 
 /**
@@ -53,7 +52,6 @@ export function GitHubRepositoryCombobox({
     repositoryFilter,
     loadAll = false,
     fullWidth = false,
-    ariaLabel = 'Repository',
 }: GitHubRepositoryComboboxProps): JSX.Element {
     const logic = githubRepositorySearchLogic({ id: integrationId, loadAll })
     const { repositories, loading, hasMore, searchQuery, error } = useValues(logic)
@@ -101,7 +99,7 @@ export function GitHubRepositoryCombobox({
                         variant="outline"
                         size="sm"
                         disabled={isDisabled}
-                        aria-label={ariaLabel}
+                        aria-label="Repository"
                         aria-describedby={disabledReason ? disabledReasonId : undefined}
                         className={fullWidth ? 'min-h-10 w-full justify-start' : undefined}
                     >
