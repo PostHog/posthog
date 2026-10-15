@@ -193,34 +193,31 @@ export function TraceDialogSpanTree(): JSX.Element {
                 </span>
                 <span className="w-20 shrink-0 px-2 text-right">Duration</span>
             </div>
-            {/* Always the same height, so the list below does not jump as the strip fills and empties. */}
-            <div
-                className="flex items-center gap-1 h-7 px-2 border-b text-xs text-muted bg-surface-secondary min-w-0 overflow-hidden"
-                data-attr="trace-dialog-pinned-ancestors"
-            >
-                {pinnedAncestors.length > 0 && (
-                    <>
-                        <span className="shrink-0">Inside</span>
-                        {hiddenAncestorCount > 0 && <span className="shrink-0">{hiddenAncestorCount} more ›</span>}
-                        {pinnedAncestors.slice(hiddenAncestorCount).map((ancestor, i) => {
-                            const node = rowSpanNode(ancestor)
-                            return node ? (
-                                <span key={node.span.span_id} className="flex items-center gap-1 min-w-0">
-                                    {i > 0 && <span aria-hidden>›</span>}
-                                    <button
-                                        type="button"
-                                        className="truncate font-mono text-primary hover:underline"
-                                        onClick={() => selectSpan(node.span.span_id)}
-                                        translate="no"
-                                    >
-                                        {rowLabel(ancestor)}
-                                    </button>
-                                </span>
-                            ) : null
-                        })}
-                    </>
-                )}
-            </div>
+            {pinnedAncestors.length > 0 && (
+                <div
+                    className="flex items-center gap-1 h-7 px-2 border-b text-xs text-muted bg-surface-secondary min-w-0 overflow-hidden"
+                    data-attr="trace-dialog-pinned-ancestors"
+                >
+                    <span className="shrink-0">Inside</span>
+                    {hiddenAncestorCount > 0 && <span className="shrink-0">{hiddenAncestorCount} more ›</span>}
+                    {pinnedAncestors.slice(hiddenAncestorCount).map((ancestor, i) => {
+                        const node = rowSpanNode(ancestor)
+                        return node ? (
+                            <span key={node.span.span_id} className="flex items-center gap-1 min-w-0">
+                                {i > 0 && <span aria-hidden>›</span>}
+                                <button
+                                    type="button"
+                                    className="truncate font-mono text-primary hover:underline"
+                                    onClick={() => selectSpan(node.span.span_id)}
+                                    translate="no"
+                                >
+                                    {rowLabel(ancestor)}
+                                </button>
+                            </span>
+                        ) : null
+                    })}
+                </div>
+            )}
             <div className="flex-1 min-h-0">
                 <AutoSizer
                     renderProp={({ width, height }: SizeProps) => (
