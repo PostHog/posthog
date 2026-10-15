@@ -81,7 +81,7 @@ A pin shows in one of three modes, chosen on this phone:
 | Chart | The value, the change pill, a compact `MetricChart` | 207 pt | Yes |
 
 Each mode has a fixed height, so the list never moves when a value arrives or a chart's canvas replaces its sparkline placeholder.
-Chart pins pass `canvasSlot` and sit inside `ChartCanvasBudget`, so at most six Skia canvases are mounted; the list feeds both the budget and the refresh rules from one `onViewableItemsChanged`.
+Chart pins pass `canvasSlot` and sit inside `ChartCanvasBudget`, so at most six Skia canvases are mounted; the list feeds both the budget and the refresh rules from one `onViewableItemsChanged`. The list and each dashboard pass `active={useIsFocused()}`, so a screen under a pushed view or behind another tab gives its canvases back, and a stack holds only the focused screen's canvases.
 A tap on a Chart pin's plot pins a tooltip, and a tap on its name or value opens the view.
 A tap on the pinned tooltip opens the Point sheet. `ViewsScreen` wraps the list in `ChartSheetsProvider`, and the sheet follows the pin's own cache entry, which reads the saved range.
 A Chart pin draws the first current series and its previous period (`pinChartSeries`, built on `snapshotChartSeries`), because the pin has no legend.

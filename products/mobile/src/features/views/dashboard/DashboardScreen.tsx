@@ -1,3 +1,4 @@
+import { useIsFocused } from 'expo-router'
 import { type ReactElement, useCallback, useRef, useState } from 'react'
 import {
     FlatList,
@@ -50,6 +51,8 @@ export function DashboardScreen({ dashboardRef, from, displayMode }: DashboardSc
     const back = useViewBack()
     const { scope } = useViewsContext()
     const [moreOpen, setMoreOpen] = useState(false)
+    // A tile opened on top of the dashboard keeps it mounted. Its charts then give their canvases back.
+    const focused = useIsFocused()
     const allowed = screen.access.state === 'ok'
     const dashboard = screen.dashboard.data
     return (
@@ -63,7 +66,7 @@ export function DashboardScreen({ dashboardRef, from, displayMode }: DashboardSc
             }
         >
             {allowed ? (
-                <ChartCanvasBudget>
+                <ChartCanvasBudget active={focused}>
                     <DashboardBody screen={screen} dashboardRef={dashboardRef} onBack={back} />
                 </ChartCanvasBudget>
             ) : (

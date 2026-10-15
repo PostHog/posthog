@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router'
+import { useIsFocused, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Linking, Platform, RefreshControl, SectionList, StyleSheet, Text, View, type ViewToken } from 'react-native'
 
@@ -82,6 +82,8 @@ type MenuState =
 /** The Views tab: pinned views first, then Recent and Browse, with search over all of them. */
 export function ViewsScreen(): ReactElement {
     const access = useViewsAccess()
+    // The tab stays mounted under a pushed view and behind other tabs. Its charts then give their canvases back.
+    const focused = useIsFocused()
     if (access.state !== 'ok') {
         return <ViewsReauth access={access} />
     }
@@ -89,7 +91,7 @@ export function ViewsScreen(): ReactElement {
         <View style={styles.screen} testID="views-screen">
             <ChartSheetsProvider>
                 <ChartSelectionProvider>
-                    <ChartCanvasBudget>
+                    <ChartCanvasBudget active={focused}>
                         <ViewsBody />
                     </ChartCanvasBudget>
                 </ChartSelectionProvider>

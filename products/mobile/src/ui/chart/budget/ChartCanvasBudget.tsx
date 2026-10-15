@@ -13,6 +13,7 @@ export const MAX_MOUNTED_CANVASES = 6
 interface BudgetState {
     slots: ReadonlyMap<string, number>
     visibleKeys: readonly string[]
+    active: boolean
     granted: ReadonlySet<string>
 }
 
@@ -20,7 +21,10 @@ interface BudgetApi {
     store: StoreApi<BudgetState>
     register: (slot: ChartCanvasSlot) => () => void
     setVisibleKeys: (keys: readonly string[]) => void
+    setActive: (active: boolean) => void
 }
+
+const NONE: ReadonlySet<string> = new Set()
 
 const BudgetContext = createContext<BudgetApi | null>(null)
 
@@ -45,40 +49,54 @@ function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
     return a.size === b.size && [...a].every((key) => b.has(key))
 }
 
-/** Wrap a list of charts. Charts with a `canvasSlot` inside it share `max` canvases. */
+/**
+ * Wrap a list of charts. Charts with a `canvasSlot` inside it share `max` canvases. `active: false` grants none, so a
+ * screen under another one in a stack keeps no canvas while it is not on screen.
+ */
 export function ChartCanvasBudget({
     max = MAX_MOUNTED_CANVASES,
+    active = true,
     children,
 }: {
     max?: number
+    active?: boolean
     children: ReactNode
 }): ReactElement {
     const api = useMemo<BudgetApi>(() => {
-        const store = createStore<BudgetState>(() => ({ slots: new Map(), visibleKeys: [], granted: new Set() }))
-        const update = (slots: ReadonlyMap<string, number>, visibleKeys: readonly string[]): void => {
-            const granted = grantSlots(slots, visibleKeys, max)
+        const store = createStore<BudgetState>(() => ({
+            slots: new Map(),
+            visibleKeys: [],
+            active: true,
+            granted: new Set(),
+        }))
+        const update = (slots: ReadonlyMap<string, number>, visibleKeys: readonly string[], on: boolean): void => {
+            const granted = on ? grantSlots(slots, visibleKeys, max) : NONE
             const previous = store.getState().granted
-            store.setState({ slots, visibleKeys, granted: sameSet(previous, granted) ? previous : granted })
+            store.setState({ slots, visibleKeys, active: on, granted: sameSet(previous, granted) ? previous : granted })
         }
         return {
             store,
             register: ({ key, index }) => {
                 const slots = new Map(store.getState().slots)
                 slots.set(key, index)
-                update(slots, store.getState().visibleKeys)
+                update(slots, store.getState().visibleKeys, store.getState().active)
                 return () => {
                     const next = new Map(store.getState().slots)
                     next.delete(key)
-                    update(next, store.getState().visibleKeys)
+                    update(next, store.getState().visibleKeys, store.getState().active)
                 }
             },
-            setVisibleKeys: (keys) => update(store.getState().slots, keys),
+            setVisibleKeys: (keys) => update(store.getState().slots, keys, store.getState().active),
+            setActive: (on) => update(store.getState().slots, store.getState().visibleKeys, on),
         }
     }, [max])
+    useEffect(() => {
+        api.setActive(active)
+    }, [api, active])
     return <BudgetContext.Provider value={api}>{children}</BudgetContext.Provider>
 }
 
-const ALWAYS = createStore<BudgetState>(() => ({ slots: new Map(), visibleKeys: [], granted: new Set() }))
+const ALWAYS = createStore<BudgetState>(() => ({ slots: new Map(), visibleKeys: [], active: true, granted: new Set() }))
 
 /**
  * Whether this chart may mount its canvas. True outside a `ChartCanvasBudget` or without a slot. Inside one, the
