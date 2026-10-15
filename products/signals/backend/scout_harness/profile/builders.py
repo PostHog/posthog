@@ -29,9 +29,10 @@ back to `created_at` for entities that don't track modifications (cohorts, alert
 
 from __future__ import annotations
 
+import math
 import time
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.db.models import Count, F, Max, Q
@@ -69,7 +70,7 @@ from products.signals.backend.models import SignalReport, SignalScoutConfig, Sig
 from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names
 from products.signals.backend.scout_harness.lazy_seed import canonical_precheck_queries
-from products.signals.backend.scout_harness.precheck import run_precheck_query
+from products.signals.backend.scout_harness.precheck import PRECHECK_TIMEOUT_S, run_precheck_query
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.surveys.backend.models import Survey
@@ -129,8 +130,8 @@ SCOUT_FLEET_EMITTED_LOOKBACK_DAYS = 30
 # `_surfaces` binds a pre-check's `{since}` to this many days before now, and `{interval_minutes}`
 # to the same span. Most default queries carry their own window off `{now}` and ignore both.
 SURFACES_LOOKBACK_DAYS = 30
-# The total time the surface queries can take in one build. Each query also has the pre-check
-# timeout. A surface that the budget leaves out reads as `in_use: null`.
+# The total time the surface queries can take in one build. A surface that the budget leaves out
+# reads as `in_use: null`.
 SURFACES_TIME_BUDGET_S = 30
 
 
@@ -937,53 +938,51 @@ def _surfaces(team: Team) -> dict[str, dict[str, Any]]:
     the payload does not disclose them.
     """
     queries = canonical_precheck_queries()
-    withheld = withheld_skills_for_team(team.id)
     configs = {
         config.skill_name: config
-        for config in SignalScoutConfig.objects.for_team(team.id).filter(skill_name__in=list(queries))
+        for config in SignalScoutConfig.objects.for_team(team.id).filter(skill_name__in=queries.keys())
     }
     now = timezone.now()
-    since = now - timedelta(days=SURFACES_LOOKBACK_DAYS)
-    started = time.monotonic()
-    users: dict[int, User | None] = {}
-    surfaces: dict[str, dict[str, Any]] = {}
-    for skill_name in sorted(set(queries) - set(withheld)):
-        entry: dict[str, Any] = {"in_use": None, "evaluated_at": None, "source": None, "row_count": None}
-        surfaces[skill_name] = entry
-        if time.monotonic() - started > SURFACES_TIME_BUDGET_S:
-            entry["source"] = "time_budget"
-            continue
-        acting_user = resolve_scout_run_acting_user(team, skill_name, configs.get(skill_name))
-        user = None
-        if acting_user is not None:
-            if acting_user.user_id not in users:
-                users[acting_user.user_id] = User.objects.filter(pk=acting_user.user_id).first()
-            user = users[acting_user.user_id]
-        if user is None:
-            entry["source"] = "no_acting_user"
-            continue
-        try:
-            result = run_precheck_query(
-                team,
-                user,
-                queries[skill_name],
-                since=since,
-                now=now,
-                interval_minutes=SURFACES_LOOKBACK_DAYS * 24 * 60,
-            )
-        except Exception:
-            logger.warning(
-                "signals_scout_profile: surface query failed for team_id=%s skill_name=%s",
-                team.id,
-                skill_name,
-                exc_info=True,
-            )
-            entry["source"] = "query_error"
-            continue
-        entry.update(
-            in_use=result.should_run,
-            evaluated_at=timezone.now().isoformat(),
-            source="skill_default",
-            row_count=result.row_count,
+    deadline = time.monotonic() + SURFACES_TIME_BUDGET_S
+    return {
+        skill_name: _surface_entry(team, skill_name, queries[skill_name], configs.get(skill_name), now, deadline)
+        for skill_name in sorted(queries.keys() - withheld_skills_for_team(team.id))
+    }
+
+
+def _surface_entry(
+    team: Team, skill_name: str, query: str, config: SignalScoutConfig | None, now: datetime, deadline: float
+) -> dict[str, Any]:
+    unanswered: dict[str, Any] = {"in_use": None, "evaluated_at": None, "row_count": None}
+    # Each query gets at most the time left in the build, so one slow query cannot pass the budget.
+    remaining_s = math.floor(deadline - time.monotonic())
+    if remaining_s < 1:
+        return {**unanswered, "source": "time_budget"}
+    acting_user = resolve_scout_run_acting_user(team, skill_name, config)
+    user = User.objects.filter(pk=acting_user.user_id).first() if acting_user is not None else None
+    if user is None:
+        return {**unanswered, "source": "no_acting_user"}
+    try:
+        result = run_precheck_query(
+            team,
+            user,
+            query,
+            since=now - timedelta(days=SURFACES_LOOKBACK_DAYS),
+            now=now,
+            interval_minutes=SURFACES_LOOKBACK_DAYS * 24 * 60,
+            timeout_s=min(PRECHECK_TIMEOUT_S, remaining_s),
         )
-    return surfaces
+    except Exception:
+        logger.warning(
+            "signals_scout_profile: surface query failed for team_id=%s skill_name=%s",
+            team.id,
+            skill_name,
+            exc_info=True,
+        )
+        return {**unanswered, "source": "query_error"}
+    return {
+        "in_use": result.should_run,
+        "evaluated_at": now.isoformat(),
+        "source": "skill_default",
+        "row_count": result.row_count,
+    }

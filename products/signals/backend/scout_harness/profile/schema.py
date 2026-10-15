@@ -20,6 +20,8 @@ and columns that are `null=True` at the DB layer (`HogFunction.type`/`kind`,
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -338,7 +340,7 @@ class SurfaceEntry(_Section):
     evaluated_at: str | None
     # `skill_default` when the shipped default query answered. Otherwise the reason `in_use` is
     # null: `query_error`, `no_acting_user`, or `time_budget`.
-    source: str | None
+    source: Literal["skill_default", "query_error", "no_acting_user", "time_budget"]
     # The rows the query returned, capped at the pre-check row cap. Null when `in_use` is null.
     row_count: int | None
 

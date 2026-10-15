@@ -1026,7 +1026,9 @@ class TestSurfaces(ClickhouseTestMixin, BaseTest):
         surfaces = _surfaces(self.team)
 
         assert set(surfaces) == set(canonical_precheck_queries())
-        assert {name: (entry["source"], entry["in_use"]) for name, entry in surfaces.items()} == dict.fromkeys(surfaces, ("skill_default", False))
+        assert {name: (entry["source"], entry["in_use"]) for name, entry in surfaces.items()} == dict.fromkeys(
+            surfaces, ("skill_default", False)
+        )
 
     def test_an_event_outside_top_events_still_marks_its_surface_in_use(self) -> None:
         _create_event(
