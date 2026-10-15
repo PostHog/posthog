@@ -55,9 +55,14 @@ def insight_snapshot(
     )
 
 
+def platform_state_of(insight_state: str) -> AlertState:
+    """Insight stores the `schema_enums` spelling ("Firing"). The machine spells it "firing"."""
+    return AlertState[InsightAlertState(insight_state).name]
+
+
 def snapshot_from_alert(alert: AlertConfiguration) -> AlertSnapshot:
     return insight_snapshot(
-        AlertState[InsightAlertState(alert.state).name],
+        platform_state_of(alert.state),
         last_notified_at=alert.last_notified_at,
         snooze_until=alert.snoozed_until,
     )

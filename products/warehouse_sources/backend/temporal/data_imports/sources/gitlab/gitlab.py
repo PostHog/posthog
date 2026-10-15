@@ -157,7 +157,7 @@ def _build_initial_params(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"per_page": config.page_size}
+    params: dict[str, Any] = {"per_page": config.page_size, **config.extra_params}
 
     active_field = _active_incremental_field(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
@@ -187,6 +187,18 @@ def _build_initial_url(
     if not params:
         return url
     return f"{url}?{urlencode(params)}"
+
+
+def _shape_row(config: GitLabEndpointConfig, row: dict[str, Any]) -> dict[str, Any] | None:
+    """Lift a nested primary key onto the row; None when the row has no key and can't be merged."""
+    if config.primary_key_path is None:
+        return row
+    value: Any = row
+    for key in config.primary_key_path:
+        value = value.get(key) if isinstance(value, dict) else None
+    if value is None:
+        return None
+    return {**row, config.primary_key: value}
 
 
 def _parse_next_url(link_header: str) -> str | None:
@@ -409,7 +421,7 @@ def get_rows(
         return response
 
     def iter_pages(
-        start_url: str, max_pages: int | None = None, allow_not_found: bool = False
+        start_url: str, max_pages: int | None = None, allow_not_found: bool = False, rows_key: str | None = None
     ) -> Iterator[tuple[str, list[Any]]]:
         page_url = start_url
         pages = 0
@@ -419,6 +431,8 @@ def get_rows(
                 logger.warning("GitLab: fan-out parent no longer exists, skipping it", endpoint=endpoint, url=page_url)
                 return
             data = response.json()
+            if rows_key is not None:
+                data = data.get(rows_key) if isinstance(data, dict) else None
             if not isinstance(data, list) or not data:
                 return
 
@@ -446,11 +460,14 @@ def get_rows(
             page_url = next_url
 
     if parent_config is None:
-        for page_url, data in iter_pages(url):
+        for page_url, data in iter_pages(url, rows_key=config.rows_key):
             # Page and chunk boundaries don't line up, so checkpoint the CURRENT page URL. On resume we
             # re-fetch it and rely on primary-key merge semantics to dedupe already-yielded rows.
             for item in data:
-                batcher.batch(item)
+                row = _shape_row(config, item)
+                if row is None:
+                    continue
+                batcher.batch(row)
 
                 if batcher.should_yield():
                     py_table = batcher.get_table()
@@ -467,9 +484,14 @@ def get_rows(
                 child_url = _build_initial_url(host, config, project, child_params, parent_iid=parent_iid)
                 # A parent deleted after the parent page was listed 404s; that must not fail the run
                 # with the non-retryable "project not found" error.
-                for _, children in iter_pages(child_url, max_pages=MAX_PAGES_PER_PARENT, allow_not_found=True):
+                for _, children in iter_pages(
+                    child_url, max_pages=MAX_PAGES_PER_PARENT, allow_not_found=True, rows_key=config.rows_key
+                ):
                     for child in children:
-                        batcher.batch({**child, config.fan_out_parent_column: parent_iid})
+                        row = _shape_row(config, child)
+                        if row is None:
+                            continue
+                        batcher.batch({**row, config.fan_out_parent_column: parent_iid})
 
                         if batcher.should_yield():
                             py_table = batcher.get_table()

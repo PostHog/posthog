@@ -103,7 +103,7 @@ class GrowthBookSource(ResumableSource[GrowthBookSourceConfig, GrowthBookResumeC
         pub=("growthbook_sdk_flutter",),
         rubygems=("growthbook",),
         swiftpm=("github.com/growthbook/growthbook-swift",),
-        competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
+        alternative_to=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )
 
     lists_tables_without_credentials = True
