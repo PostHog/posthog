@@ -20,9 +20,8 @@ older than about three months.
   was complete. Don't compare the two numbers as a trend.
 - **Position is everything.** Row 0 takes ~52% of picks, row 1 ~23%,
   row 2 ~10%. About 85% of picks are in the top three rows.
-- **~93% of opens never select a category** (7-day sample, opens
-  approximated by splitting sessions at `taxonomic filter add filter
-clicked`).
+- **~95% of engaged opens never select a category** (7-day sample, legacy
+  picker, sessions split at each `taxonomic filter closed`).
 - **Suggested carries about three quarters of selections.** Roughly half of
   those are recents.
 
@@ -89,9 +88,11 @@ So promote email and URL, but don't design only for them.
 
 Summary only. Detail in [failure-modes](failure-modes.md).
 
-- Category picked, then a search that finds nothing: ~16% of opens with a
-  category pick have an empty result after the pick, vs ~4% of opens
-  without one. The ~4% is too low: Suggested sends no empty-result event.
+- Category picked, then a search that finds nothing: ~9% of opens with a
+  category pick have an empty result after the pick, vs ~3% of opens
+  without one. The ~3% is too low: Suggested sends no empty-result event.
+- Opens with a category pick end in a selection ~55% of the time, vs
+  ~85% without one.
 - Most empty searches are ordinary words in the wrong scope.
 - Recovery within 30s of an empty result fell from ~46% to ~39%
   (Jul to Oct 2026, health dashboard session tile) while the empty-result
@@ -122,7 +123,7 @@ Engineering latency data shows real slow tails (see
 
 ## Caveats
 
-- The open-level splits are approximate.
+- The open-level splits cover engaged legacy opens only.
 - Some dashboard tiles include staff traffic. Filter it when it matters.
 - Replay classifier results are a sample, and the prompt has changed
   over time. Compare within one scanner version.

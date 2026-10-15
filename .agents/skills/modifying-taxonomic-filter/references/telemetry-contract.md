@@ -57,8 +57,10 @@ neither.
 
 ## Navigation and preferences
 
-- `taxonomic filter add filter clicked`: marks the start of an open.
-  Useful for splitting sessions into opens.
+- `taxonomic filter add filter clicked`: fires only when a property
+  filter row opens with no valid filter yet. Most opens do not send it,
+  so do not use it to split sessions into opens. Split after each legacy
+  `taxonomic filter closed` instead.
 - `taxonomic filter category selected`: `groupType`.
 - `taxonomic filter category dropdown opened`: legacy pill only.
 - `taxonomic filter category rail toggled`: `docked`.

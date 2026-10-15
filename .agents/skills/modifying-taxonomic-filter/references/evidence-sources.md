@@ -17,7 +17,7 @@ vision scanners, conversations) to query them.
 - **Bad for:** intent. A close without a pick can be success (the user
   only looked) or failure.
 - **Watch for:** staff traffic, `groupType` vs `sourceGroupType`, and
-  open-level splits being approximate.
+  open-level splits covering engaged legacy opens only.
 
 ## The health dashboard
 

@@ -148,40 +148,40 @@ ORDER BY share_pct DESC
 
 ### 8. The category trap (open level)
 
-Splits sessions into opens at `taxonomic filter add filter clicked`, then
-compares opens with and without a category pick. This is approximate:
-opens that don't emit the click are merged into the previous one.
+Splits each session after every legacy `taxonomic filter closed`, so
+each chunk is one engaged legacy open. Then it compares opens with and
+without a category pick. Do not split on `taxonomic filter add filter
+clicked`: it fires only when a property filter row is added, so most
+opens have no start marker. The rebuild is left out, because its close
+event fires on every close and its category event is different.
 Suggested sends no `taxonomic filter empty result`, so the
 without-category empty rate is too low. `category_then_empty_ratio` only
 compares opens with a category pick, so it does not have this bias.
-The rebuild sends `taxonomic filter menu category changed` instead of
-`taxonomic filter category selected`. The query maps one to the other,
-and skips a change back to `all` because that does not narrow search.
 Drives failure mode 1 in [failure-modes](failure-modes.md).
 
 ```sql
-WITH opens AS (
-  SELECT
-    $session_id AS sid,
-    arraySplit(
-      (e, i) -> e = 'taxonomic filter add filter clicked' AND i > 1,
-      groupArray(step),
-      arrayEnumerate(groupArray(step))
-    ) AS chunks
+WITH sessions AS (
+  SELECT $session_id AS sid, groupArray(event) AS steps
   FROM (
-    SELECT
-      $session_id,
-      if(event = 'taxonomic filter menu category changed', 'taxonomic filter category selected', event) AS step,
-      timestamp
+    SELECT $session_id, event, timestamp
     FROM events
-    WHERE (event IN ('taxonomic filter add filter clicked', 'taxonomic filter category selected',
-                     'taxonomic filter empty result', 'taxonomic filter item selected')
-           OR (event = 'taxonomic filter menu category changed' AND properties.toChip != 'all'))
+    WHERE event IN ('taxonomic filter closed', 'taxonomic filter category selected',
+                    'taxonomic filter empty result', 'taxonomic filter item selected')
+      -- the category event has no surface, and only legacy sends it
+      AND (event = 'taxonomic filter category selected' OR coalesce(toString(properties.surface), '') != 'rebuild-menu')
       AND timestamp >= now() - INTERVAL 7 DAY
       AND $session_id IS NOT NULL
     ORDER BY timestamp
   )
   GROUP BY sid
+),
+opens AS (
+  -- split after each close, and drop the trailing chunk of an open that has not closed yet
+  SELECT arrayFilter(
+    c -> has(c, 'taxonomic filter closed'),
+    arraySplit((e, prev) -> prev = 'taxonomic filter closed', steps, arrayPushFront(arrayPopBack(steps), ''))
+  ) AS chunks
+  FROM sessions
 ),
 per_open AS (
   SELECT
@@ -264,16 +264,25 @@ LIMIT 15
 ### 11. Assistive feature funnels
 
 Event match: answered, then suggested, then selected. Intent banner:
-switch suggested, then switched. Write back the step ratios.
+banner shown, then switched. Write back the step ratios.
+
+- The frontend sends `event match suggested` again when a tab switch
+  reuses a cached answer, so the query counts distinct suggestions per
+  person, session and suggestion list.
+- Every experiment arm sends `search intent predicted`, but only the
+  `banner` arm can switch. On the banner arm, `shown` can be true when
+  `suggestsSwitch` is false (it seems to lag one prediction), so the
+  query needs both.
 
 ```sql
 SELECT
-  round(100 * countIf(event = 'taxonomic filter event match suggested')
+  round(100 * uniqIf((person_id, $session_id, toString(properties.suggestedEvents)), event = 'taxonomic filter event match suggested')
     / countIf(event = 'taxonomic filter event match answered'), 1) AS match_suggested_per_answer_pct,
   round(100 * countIf(event = 'taxonomic filter event match selected')
-    / countIf(event = 'taxonomic filter event match suggested'), 1) AS match_selected_per_suggestion_pct,
+    / uniqIf((person_id, $session_id, toString(properties.suggestedEvents)), event = 'taxonomic filter event match suggested'), 1) AS match_selected_per_suggestion_pct,
   round(100 * countIf(event = 'taxonomic filter search intent switched')
-    / countIf(event = 'taxonomic filter search intent predicted' AND toString(properties.suggestsSwitch) = 'true'), 1) AS switched_per_switch_suggestion_pct
+    / countIf(event = 'taxonomic filter search intent predicted' AND properties.variant = 'banner'
+              AND toString(properties.suggestsSwitch) = 'true' AND toString(properties.shown) = 'true'), 1) AS switched_per_shown_banner_pct
 FROM events
 WHERE event IN ('taxonomic filter event match answered', 'taxonomic filter event match suggested',
                 'taxonomic filter event match selected', 'taxonomic filter search intent predicted',
