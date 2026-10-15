@@ -135,6 +135,14 @@ Both cards have **AND / OR groups**. Choose **AND (match all)** or **OR (match a
 
 Top N selects categories before result filters run. Comparison periods apply the same result conditions independently. Result filters hide detail groups; totals still aggregate all data matching the row filters. Table calculations use the full aggregated result before result filtering. Query usage events include result-filter and group counts without their values.
 
+## Marketing analytics cost charts
+
+The cost trend chart reads the selected integrations through their live warehouse adapters.
+The costs-precomputation flag does not switch this chart to the precomputed table.
+A flag or a configured conversion goal does not prove that every source and requested date has been materialized.
+The chart must verify complete coverage, including comparison dates, before using precomputed costs again.
+Summary cards and breakdown tables retain their own precompute eligibility and fallback checks.
+
 ## Apple Ads in Marketing analytics
 
 Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-apple-ads` and is off by default.
