@@ -6,7 +6,7 @@ import { IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { reportOnboardingStepCompleted, reportOnboardingStepSkipped } from 'scenes/onboarding/onboardingUsage'
 
 import { OnboardingStepKey } from '~/types'
 
@@ -51,7 +51,6 @@ export const OnboardingStep = ({
     const { hasNextStep, currentStepProductKey } = useValues(onboardingLogic)
 
     const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
-    const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     const advance: () => void = !hasNextStep ? completeOnboarding : goToNextStep
