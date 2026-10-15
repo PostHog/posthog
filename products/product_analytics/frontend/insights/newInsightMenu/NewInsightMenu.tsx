@@ -193,8 +193,7 @@ function useNewInsightCards(): {
         }
         byType[insightType as InsightType] = spec
     }
-    const metricsEnabled =
-        !!featureFlags[FEATURE_FLAGS.METRICS] && !!featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]
+    const metricsEnabled = !!featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]
     return { ai: AI_CARD, metrics: metricsEnabled ? METRICS_CARD : undefined, byType }
 }
 
