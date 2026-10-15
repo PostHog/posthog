@@ -27,7 +27,6 @@ from products.replay_vision.backend.queries.scanner_candidate_query import MIN_S
 from products.replay_vision.backend.queries.scanner_volume_estimate import ScannerVolumeEstimate
 from products.replay_vision.backend.queries.visited_paths import VisitedPath
 from products.replay_vision.backend.scanner_draft import (
-    _CAPPED_THINKING_BUDGET,
     _MAX_BASELINE_EVENTS,
     _MAX_OUTPUT_TOKENS,
     DraftError,
@@ -1644,27 +1643,6 @@ class TestDraftV2(_VisionAPITestCase):
                 monthly_credit_budget=10_000,
                 user_access_control=_access_control(allow=True),
             )
-
-    @parameterized.expand([("flag_on", True, _CAPPED_THINKING_BUDGET), ("flag_off", None, None)])
-    def test_the_flag_caps_the_drafts_thinking(self, _name, flag_value, expected_budget):
-        with (
-            patch(f"{_MODULE}.get_feature_flag_or_none", return_value=flag_value),
-            patch(f"{_MODULE}.fetch_visited_paths", return_value=()),
-            patch(_GENERATE_PATH, return_value=_draft_v2()) as generate,
-            patch(
-                f"{_MODULE}.estimate_scanner_session_volume",
-                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
-            ),
-        ):
-            draft_scanner_from_goal_v2(
-                team=self.team,
-                user=self.user,
-                goal="find out where people give up in billing",
-                monthly_credit_budget=10_000,
-                user_access_control=_access_control(allow=True),
-            )
-
-        assert generate.call_args.kwargs["thinking_budget"] == expected_budget
 
     def test_a_costing_failure_does_not_cost_the_draft(self):
         # The estimate is a nicety on top of a good draft; a ClickHouse timeout must not 503 the flow.

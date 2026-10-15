@@ -44,7 +44,6 @@ from posthog.llm.semantic_enrichment import get_team_business_context
 from posthog.models import EventDefinition
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.ph_client import get_feature_flag_or_none
 from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -80,9 +79,8 @@ _DRAFT_MODEL = "gemini-3.8-flash"
 _MODEL_CALL_TIMEOUT_MS = 90_000
 # A slower failure already cost most of a draft's wait, so a retry would double it.
 _MAX_RETRYABLE_FAILURE_S = 10
-# Reasoning is most of the draft's wait; the flag caps it so draft quality can be compared first.
-CAPPED_THINKING_FLAG = "vision-draft-capped-thinking"
-_CAPPED_THINKING_BUDGET = 1_024
+# Reasoning is most of the draft's wait, so the budget caps it.
+_DRAFT_THINKING_BUDGET = 1_024
 # Runs estimates a draft may not wait for, so they never hold a request's own threads.
 _BACKGROUND_WORKERS = 8
 _BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=_BACKGROUND_WORKERS, thread_name_prefix="vision-draft-background")
@@ -1913,21 +1911,6 @@ def _start_in_background(work: Callable[[], _T]) -> Callable[[], _T]:
     return lambda: future.result()
 
 
-def _capped_thinking(team: Team, user: User) -> bool:
-    return (
-        get_feature_flag_or_none(
-            CAPPED_THINKING_FLAG,
-            str(user.distinct_id),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            person_properties={"email": user.email},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            # A remote evaluation would put a network call in front of every draft.
-            only_evaluate_locally=True,
-        )
-        is True
-    )
-
-
 def draft_scanner_from_goal_v2(
     *,
     team: Team,
@@ -2030,7 +2013,7 @@ def draft_scanner_from_goal_v2(
         system_prompt=_SYSTEM_PROMPT_V2,
         response_model=_LlmDraftV2,  # type: ignore[arg-type]
         feature="draft_scanner_from_goal_v2",
-        thinking_budget=_CAPPED_THINKING_BUDGET if _capped_thinking(team, user) else None,
+        thinking_budget=_DRAFT_THINKING_BUDGET,
     )
     draft = _finalize_v2(
         cast(_LlmDraftV2, parsed),
