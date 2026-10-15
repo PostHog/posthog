@@ -4,7 +4,6 @@ import csv
 import json
 import time
 import hashlib
-import dataclasses
 from collections.abc import Buffer, Callable, Iterator, Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -13,6 +12,8 @@ from urllib.parse import quote, urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -114,7 +115,7 @@ class _ResponseByteStream(io.RawIOBase):
         return take
 
 
-@dataclasses.dataclass
+@frozen
 class GladlyResumeConfig:
     # Jobs are processed oldest-first; persisting the last fully-processed
     # job's updatedAt lets a retried sync skip straight past it.
