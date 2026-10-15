@@ -1,10 +1,11 @@
-import posthog, { BeforeSendFn, PostHogConfig } from 'posthog-js'
+import posthog, { BeforeSendFn, PostHog, PostHogConfig } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 
@@ -58,6 +59,43 @@ export function withLastSeenFeatureFlags(
 // pinned: analytics property name. Insights filter the framed pages by it.
 const stampEmbeddedPageFrame: BeforeSendFn = (event) =>
     event && { ...event, properties: { ...event.properties, embedded_page_frame: true } }
+
+type FlagProperties = Record<string, unknown>
+
+// Storage drops `undefined` values, so the comparison drops them too.
+function storedPropertiesMatch(stored: FlagProperties | undefined, properties: FlagProperties): boolean {
+    const current = stored ?? {}
+    return objectsEqual(current, { ...current, ...JSON.parse(JSON.stringify(properties)) })
+}
+
+/**
+ * posthog-js reloads flags on every `people.set` call, and on every `group` call with properties,
+ * even when the values match what it stored on an earlier page load. At boot, that queues a second
+ * /flags request behind the request from init. These helpers skip a call that changes no flag input.
+ */
+export function setPersonPropertiesIfChanged(instance: PostHog, properties: FlagProperties): void {
+    if (!storedPropertiesMatch(instance.get_property('$stored_person_properties'), properties)) {
+        instance.people.set(properties)
+    }
+}
+
+export function setGroupIfChanged(
+    instance: PostHog,
+    groupType: string,
+    groupKey: string,
+    properties?: FlagProperties
+): void {
+    const groups: Record<string, string> | undefined = instance.get_property('$groups')
+    const storedGroupProperties: Record<string, FlagProperties> | undefined =
+        instance.get_property('$stored_group_properties')
+    if (
+        groups?.[groupType] === groupKey &&
+        (!properties || storedPropertiesMatch(storedGroupProperties?.[groupType], properties))
+    ) {
+        return
+    }
+    instance.group(groupType, groupKey, properties)
+}
 
 function readLastSeenFeatureFlags(): LastSeenFeatureFlags | null {
     try {

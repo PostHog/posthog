@@ -2,6 +2,7 @@ import { MakeLogicType, afterMount, connect, kea, listeners, path, selectors } f
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { waitForBootIdle } from 'lib/utils/async'
 import type { HealthIssueSummary } from 'scenes/health/types'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -62,6 +63,7 @@ export const healthSummaryLogic = kea<healthSummaryLogicType>([
             null as HealthIssueSummary | null,
             {
                 loadHealthSummary: async (): Promise<HealthIssueSummary | null> => {
+                    await waitForBootIdle()
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         return await api.get(`api/projects/${values.currentTeamIdStrict}/health_issues/summary/`)

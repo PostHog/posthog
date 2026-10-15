@@ -138,6 +138,19 @@ describe('maxLogic', () => {
 
         expect(actionsRequestCount).toBe(0)
         expect(conversationRequestCount).toBe(1)
+
+        const unmountFreshPanel = maxLogic({ panelId: 'mounted-soon-after' }).mount()
+        expect(conversationRequestCount).toBe(1)
+        unmountFreshPanel()
+
+        const loadedAt = maxGlobalLogic.values.conversationHistoryLoadedAt!
+        jest.spyOn(Date, 'now').mockReturnValue(loadedAt + 31 * 1000)
+        const stalePanel = maxLogic({ panelId: 'mounted-later' })
+        const unmountStalePanel = stalePanel.mount()
+        await expectLogic(stalePanel).toDispatchActions(['loadConversationHistorySuccess'])
+        expect(conversationRequestCount).toBe(2)
+        unmountStalePanel()
+        jest.mocked(Date.now).mockRestore()
     })
 
     it.each([

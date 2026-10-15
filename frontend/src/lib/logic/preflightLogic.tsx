@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
+import { setGroupIfChanged } from '~/loadPostHogJS'
 import { PreflightStatus, Realm } from '~/types'
 
 export type PreflightMode = 'experimentation' | 'live'
@@ -403,7 +404,7 @@ export const preflightLogic = kea<preflightLogicType>([
                 })
 
                 if (values.preflight.site_url) {
-                    posthog.group('instance', values.preflight.site_url, {
+                    setGroupIfChanged(posthog, 'instance', values.preflight.site_url, {
                         site_url: values.preflight.site_url,
                     })
                 }

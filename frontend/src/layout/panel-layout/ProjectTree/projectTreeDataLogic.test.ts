@@ -25,6 +25,7 @@ describe('projectTreeDataLogic', () => {
     let unmount: () => void
 
     beforeEach(async () => {
+        localStorage.clear()
         jest.restoreAllMocks()
         jest.spyOn(api.fileSystem, 'list').mockResolvedValue({ count: 0, results: [], users: [] })
         jest.spyOn(api.fileSystem, 'unfiled').mockResolvedValue(null)
@@ -44,31 +45,39 @@ describe('projectTreeDataLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('initializes the home folder once when the sidebar flag arrives after mount', async () => {
-        const initialize = jest.fn(() => [200, { id: 'home', path: 'Users/Alex' }])
-        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': initialize } })
-        expect(logic.values.homeFolder).toBeNull()
-        await expectLogic(logic, () => {
+    it.each([
+        { created: true, reloads: 1 },
+        { created: false, reloads: 0 },
+    ])(
+        'initializes the home folder once when the sidebar flag arrives after mount (created: $created)',
+        async ({ created, reloads }) => {
+            const initialize = jest.fn(() => [200, { id: 'home', path: 'Users/Alex', created }])
+            useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': initialize } })
+            expect(logic.values.homeFolder).toBeNull()
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
+                    [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
+                })
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
+                    [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
+                })
+            }).toDispatchActions(['loadHomeFolderSuccess'])
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
                 [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
             })
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
-                [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
-            })
-        }).toDispatchActions(['loadHomeFolderSuccess'])
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
-            [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
-        })
-        expect(initialize).toHaveBeenCalledTimes(1)
-        expect(logic.values.currentHomeFolder).toEqual({ id: 'home', path: 'Users/Alex' })
-        logic.actions.loadFolderSuccess(
-            'Research',
-            [{ id: 'home', path: 'Research/My work', type: 'folder' }],
-            false,
-            0
-        )
-        expect(logic.values.currentHomeFolder?.path).toBe('Research/My work')
-    })
+            expect(initialize).toHaveBeenCalledTimes(1)
+            expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(reloads)
+            expect(api.fileSystem.list).toHaveBeenCalledTimes(reloads)
+            expect(logic.values.currentHomeFolder).toEqual({ id: 'home', path: 'Users/Alex', created })
+            logic.actions.loadFolderSuccess(
+                'Research',
+                [{ id: 'home', path: 'Research/My work', type: 'folder' }],
+                false,
+                0
+            )
+            expect(logic.values.currentHomeFolder?.path).toBe('Research/My work')
+        }
+    )
 
     it.each(['loaded', 'loading', 'has-more', 'populated'] as const)(
         'renders a starred nested folder with %s contents',

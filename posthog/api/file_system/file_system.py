@@ -206,6 +206,10 @@ class FileSystemHomeFolderSerializer(serializers.Serializer):
     path = serializers.CharField(
         read_only=True, allow_null=True, help_text="The current path of the user's home folder."
     )
+    created = serializers.BooleanField(
+        read_only=True,
+        help_text="True when this request created the home folder and its sidebar shortcut.",
+    )
 
 
 class UnfiledFilesQuerySerializer(serializers.Serializer):
@@ -297,8 +301,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def home_folder(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if self.file_system_surface != DEFAULT_SURFACE:
             raise serializers.ValidationError("Home folders are only available in the project's Files sidebar.")
-        folder = FileSystemHomeFolder.ensure_for_user(team=self.team, user=cast(User, request.user))
-        return Response({"id": str(folder.id) if folder else None, "path": folder.path if folder else None})
+        folder, created = FileSystemHomeFolder.ensure_for_user(team=self.team, user=cast(User, request.user))
+        return Response(
+            {"id": str(folder.id) if folder else None, "path": folder.path if folder else None, "created": created}
+        )
 
     @cached_property
     def _denied_short_id_refs(self) -> dict[tuple[str, int], builtins.list[str]]:
