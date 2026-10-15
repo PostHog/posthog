@@ -255,22 +255,21 @@ WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE = ScopedServiceJwtPurpose(
 )
 
 
-def _mint_transactional_email_jwt(team_id: int, template_id: str) -> str:
-    """Short-lived scoped JWT for one transactional email send, pinned to the team and the template so a
-    leaked token can only send that template. Verified in the plugin server's CdpApi.postTransactionalEmail."""
+def _mint_transactional_email_jwt(team_id: int, hog_flow_id: str) -> str:
+    """Short-lived scoped JWT for one transactional email send, pinned to the team and the transactional email's
+    workflow so a leaked token can only send that email. Verified in the plugin server's CdpApi."""
     if not WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.enabled():
         raise RuntimeError("WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET is not configured — cannot send email")
-    return WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.mint({"team_id": team_id, "template_id": template_id})
+    return WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.mint({"team_id": team_id, "hog_flow_id": hog_flow_id})
 
 
-def send_transactional_email(team_id: int, template_id: str, payload: dict) -> requests.Response:
-    """Queue one email from a message template. `payload` carries the recipient, the sender integration id, the
-    recipient's distinct_id and the template variables. cdp-api loads the template content by id. 202 means
-    queued, 429 means the team is over its email quota."""
+def send_transactional_email(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
+    """Run a transactional email's workflow once. `payload` carries the recipient, the recipient's distinct_id and
+    the template variables. 202 means queued, 429 means the team is over its email quota."""
     return internal_requests.post(
-        CDP_API_URL + f"/api/projects/{team_id}/messaging/transactional_email",
-        json={**payload, "template_id": template_id},
-        headers={"Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, template_id)}"},
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email",
+        json=payload,
+        headers={"Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id)}"},
         timeout=10,
     )
 
