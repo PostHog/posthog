@@ -52,9 +52,14 @@ path. `TaxonomicPopover` renders the rebuild only when
 null`), because the rebuilt menu can't honor those three capabilities.
 So "does this reach the rebuild?" depends on the wrapper and the props
 that call site passes. `ActionFilterRow` goes through `TaxonomicPopover`
-and passes none of the three, so it does reach the rebuild. Only a call
-site that hand-rolls its own popover around `<TaxonomicFilter>` bypasses
-the wrappers entirely.
+and passes none of the three, so it does reach the rebuild.
+
+Many call sites skip the wrappers and mount the legacy picker directly,
+so they always render legacy. Examples are `ColumnConfigurator.tsx`
+(inline `<TaxonomicFilter>`), `UniversalFilters.tsx`
+(`PureTaxonomicFilter`) and `TaxonomicBreakdownPopover.tsx`. Search the
+repo for direct `<TaxonomicFilter` and `PureTaxonomicFilter` uses to find
+them all before you decide which surfaces a change touches.
 
 **Touching tab or group rendering means testing both surfaces.**
 

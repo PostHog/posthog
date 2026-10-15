@@ -1,7 +1,9 @@
 # Telemetry contract
 
 Dashboards, experiments and replay scanners read these events. Treat
-property shapes as a public API.
+property shapes as a public API. The lists below match the code on
+2026-10-15. The `posthog.capture` call is the source of truth, so read it
+before you remove or rename a property.
 
 - **Adding** a property: fine.
 - **Removing** a dead one: fine, once nothing reads it.
@@ -104,15 +106,15 @@ needed. Do not add `surface = 'rebuild-menu'` to a query on them: it
 returns no rows.
 
 - `taxonomic filter menu opened`: `openedTo`, `hadSelection`,
-  `triggerLabel`, `reopenedQuickly`.
+  `triggerLabel`, `msSinceLastClose`, `reopenedQuickly`.
 - `taxonomic filter menu drilled`: `fromState`, `toState`.
 - `taxonomic filter menu closed`: `dwellMs`, `hadCommit`, `lastState`.
 - `taxonomic filter menu option clicked`: `option`.
 - `taxonomic filter menu item selected`: `groupType`, `hadSearchInput`,
-  `query`, `hadExtras`, `fromState`.
+  `query`, `hadExtras`, `fromState`, `msSinceOpen`.
 - `taxonomic filter menu category changed`: `fromChip`, `toChip`, `via`,
   and `direction` when `via` is `tab`.
-- `taxonomic filter menu pin toggled`: `groupType`.
+- `taxonomic filter menu pin toggled`: `groupType`, `pinned`.
 
 `taxonomic filter menu preference changed` (`useNewMenu`, no `surface`)
 comes from the classic/new toggle. It fires on either surface for users

@@ -98,13 +98,18 @@ ORDER BY surface
 
 ### 5. Selection-source mix
 
-The buckets overlap. Write back relative shares only.
+The buckets overlap. Write back relative shares only. `from_recents_pct`
+counts recents from any tab. `from_recents_in_suggested_pct` counts only
+the Suggested tab, which backs the "Recents inside Suggested" row in
+[feature-inventory](feature-inventory.md). The rebuild's merged `all`
+scope has no `groupType`, so its recents fall outside that column.
 
 ```sql
 SELECT
   round(100 * countIf(toBool(properties.hadSearchInput)) / count(), 1) AS had_search_pct,
   round(100 * countIf(NOT toBool(properties.hadSearchInput) AND NOT toBool(properties.wasFromRecents) AND NOT toBool(properties.wasFromPinnedList)) / count(), 1) AS browsed_no_search_pct,
   round(100 * countIf(toBool(properties.wasFromRecents)) / count(), 1) AS from_recents_pct,
+  round(100 * countIf(toBool(properties.wasFromRecents) AND properties.groupType = 'suggested_filters') / count(), 1) AS from_recents_in_suggested_pct,
   round(100 * countIf(toBool(properties.wasFromPinnedList)) / count(), 1) AS from_pinned_pct
 FROM events
 WHERE event = 'taxonomic filter item selected'
@@ -278,9 +283,12 @@ LIMIT 15
 Event match: answered, then suggested, then selected. Intent banner:
 banner shown, then switched. Write back the step ratios.
 
-- The frontend sends `event match suggested` again when a tab switch
-  reuses a cached answer, so the query counts distinct suggestions per
-  person, session and suggestion list.
+- `event match suggested` carries no query or request ID, so no key
+  counts suggestions exactly. The raw count is too high: a tab switch
+  that reuses a cached answer sends it again. The distinct count per
+  person, session and suggestion list is too low: two queries with the
+  same list count once. The query returns both, and the true rate lies
+  between them.
 - Selections have no exposure ID to pair with a suggestion, so the
   selection step compares person-sessions on both sides.
 - Every experiment arm sends `search intent predicted`, but only the
@@ -291,7 +299,9 @@ banner shown, then switched. Write back the step ratios.
 ```sql
 SELECT
   round(100 * uniqIf((person_id, $session_id, toString(properties.suggestedEvents)), event = 'taxonomic filter event match suggested')
-    / countIf(event = 'taxonomic filter event match answered'), 1) AS match_suggested_per_answer_pct,
+    / countIf(event = 'taxonomic filter event match answered'), 1) AS match_suggested_per_answer_low_pct,
+  round(100 * countIf(event = 'taxonomic filter event match suggested')
+    / countIf(event = 'taxonomic filter event match answered'), 1) AS match_suggested_per_answer_high_pct,
   round(100 * uniqIf((person_id, $session_id), event = 'taxonomic filter event match selected')
     / uniqIf((person_id, $session_id), event = 'taxonomic filter event match suggested'), 1) AS sessions_selecting_per_session_suggested_pct,
   round(100 * countIf(event = 'taxonomic filter search intent switched')
