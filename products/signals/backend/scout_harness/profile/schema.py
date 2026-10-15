@@ -339,8 +339,9 @@ class SurfaceEntry(_Section):
     in_use: bool | None
     evaluated_at: str | None
     # `skill_default` when the shipped default query answered. Otherwise the reason `in_use` is
-    # null: `query_error`, `no_acting_user`, or `time_budget`.
-    source: Literal["skill_default", "query_error", "no_acting_user", "time_budget"]
+    # null: `query_error`, `no_acting_user`, `time_budget`, or `deferred` when a background build
+    # has not run the query yet.
+    source: Literal["skill_default", "query_error", "no_acting_user", "time_budget", "deferred"]
     # The rows the query returned, capped at the pre-check row cap. Null when `in_use` is null.
     row_count: int | None
 

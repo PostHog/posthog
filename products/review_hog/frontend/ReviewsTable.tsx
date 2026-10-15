@@ -6,7 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { ReviewHogReviewsListScope, type ReviewRecentReviewApi } from './generated/api.schemas'
-import { reviewTitle, runningStageLabel } from './reviewDisplay'
+import { displayedReviewMode, reviewTitle, runningStageLabel } from './reviewDisplay'
 import { REVIEWS_PAGE_SIZE, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 import { ReviewModeTag } from './ReviewModeTag'
 
@@ -165,7 +165,7 @@ export function ReviewsTable(): JSX.Element {
         {
             title: 'Mode',
             key: 'mode',
-            render: (_, review) => <ReviewModeTag mode={review.review_mode} />,
+            render: (_, review) => <ReviewModeTag mode={displayedReviewMode(review)} />,
         },
         {
             title: 'Findings',
