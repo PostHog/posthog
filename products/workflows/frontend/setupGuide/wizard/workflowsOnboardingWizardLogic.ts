@@ -19,6 +19,7 @@ import type { SetupGuideStep } from '../setupGuideSteps'
 import { WorkflowsOnboardingPath, workflowsSetupGuideLogic } from '../workflowsSetupGuideLogic'
 import {
     BLANK_START_ID,
+    DATA_SUGGESTION_START_ID,
     ONBOARDING_WIZARD_TAB,
     WIZARD_STEP_COPY,
     WizardConnection,
@@ -120,6 +121,9 @@ export interface workflowsOnboardingWizardLogicActions {
     selectTemplate: (templateId: string) => {
         templateId: string
     }
+    finishWithSuggestion: () => {
+        value: true
+    }
     setStepIndex: (index: number) => {
         index: number
     }
@@ -217,6 +221,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
         positionIfReady: true,
         startPushSetup: true,
         setTemplatesShown: (shown: boolean) => ({ shown }),
+        finishWithSuggestion: true,
     }),
     reducers({
         wizardPath: [
@@ -462,6 +467,20 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 template_scope: template.scope,
             })
             actions.createWorkflowFromTemplate(template)
+        },
+        // A suggestion card creates and opens the workflow itself, so it skips `next` and `finish`.
+        finishWithSuggestion: () => {
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('workflows onboarding wizard step completed', {
+                path: values.wizardPath,
+                step: values.currentStep,
+                skipped: false,
+            })
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('workflows onboarding wizard finished', {
+                path: values.wizardPath,
+                template_id: DATA_SUGGESTION_START_ID,
+            })
         },
         exit: () => {
             // pinned: analytics event name - renaming breaks dashboards

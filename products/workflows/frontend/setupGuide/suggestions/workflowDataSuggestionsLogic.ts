@@ -29,6 +29,7 @@ import {
     workflowDataSuggestionsGenerate,
 } from '../../generated/api'
 import type { DataSuggestionsResponseApi } from '../../generated/api.schemas'
+import { workflowsOnboardingWizardLogic } from '../wizard/workflowsOnboardingWizardLogic'
 import { SuggestionCard, cardFromSuggestion } from './suggestionCards'
 
 // A background run or build usually takes 10 to 30 seconds. Past the deadline it counts as failed.
@@ -297,6 +298,9 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                         stage: card.stage,
                         uses_saved_template: built.uses_saved_template,
                     })
+                    if (props.surface === 'onboarding_wizard') {
+                        workflowsOnboardingWizardLogic.findMounted()?.actions.finishWithSuggestion()
+                    }
                     router.actions.push(urls.workflow(workflow.id, 'workflow'))
                 } catch (error: any) {
                     if (isBreakpoint(error)) {
