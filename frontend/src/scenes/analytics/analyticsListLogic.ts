@@ -13,6 +13,7 @@ import { AnalyticsListUrlParams, urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import type { OrganizationMemberType, UserBasicType, UserType } from '~/types'
 
@@ -24,6 +25,7 @@ import {
     AnalyticsSourceState,
 } from './analyticsFeed'
 import { analyticsFeedLogic, selectAnalyticsFeed } from './analyticsFeedLogic'
+import { analyticsShareLogic } from './analyticsShareLogic'
 import {
     ANALYTICS_FILE_SYSTEM_TYPES,
     AnalyticsItem,
@@ -147,6 +149,7 @@ export interface analyticsListLogicValues {
     hasMore: boolean
     items: AnalyticsItem[]
     listState: AnalyticsListState
+    loadedCount: number
     loading: boolean
     mode: AnalyticsListMode
     narrowingFiltersActive: boolean
@@ -178,9 +181,15 @@ export interface analyticsListLogicActions {
         key: string
         page: null | import('./analyticsFeed').AnalyticsSourcePage
     } // analyticsFeedLogic
+    shareToSpaceDone: () => {
+        value: true
+    } // analyticsShareLogic
     ensureAllMembersLoaded: () => {
         value: true
     } // membersLogic
+    folderCreated: () => {
+        value: true
+    } // todayAnalyticsLogic
     clearFilters: () => {
         value: true
     }
@@ -244,7 +253,7 @@ export interface analyticsListLogicMeta {
             filters: AnalyticsListFilters,
             user: UserType | null,
             meFirstMembers: OrganizationMemberType[],
-            scope: any
+            scope: AnalyticsListScope
         ) => AnalyticsCreator | null
         feedQuery: (
             filters: AnalyticsListFilters,
@@ -271,8 +280,8 @@ export interface analyticsListLogicMeta {
             folderContents: FolderContents | null,
             filters: AnalyticsListFilters,
             user: UserType | null,
-            scope: any,
-            showPersonal: any
+            scope: AnalyticsListScope,
+            showPersonal: boolean
         ) => AnalyticsItem[]
         subfolders: (
             mode: AnalyticsListMode,
@@ -281,6 +290,7 @@ export interface analyticsListLogicMeta {
         ) => FolderRow[]
         folderBreadcrumbs: (filters: AnalyticsListFilters) => FolderRow[]
         loading: (mode: AnalyticsListMode, feed: AnalyticsFeed, folderContentsLoading: boolean) => boolean
+        loadedCount: (feed: AnalyticsFeed) => number
         hasMore: (mode: AnalyticsListMode, feed: AnalyticsFeed) => boolean
         failedTypes: (mode: AnalyticsListMode, feed: AnalyticsFeed) => AnalyticsFeed['failedTypes']
         listState: (
@@ -323,6 +333,10 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             ['ensureFeed', 'refreshFeed', 'sourceRefreshed'],
             membersLogic,
             ['ensureAllMembersLoaded'],
+            analyticsShareLogic,
+            ['shareToSpaceDone'],
+            todayAnalyticsLogic,
+            ['folderCreated'],
         ],
     })),
     actions({
@@ -531,6 +545,8 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             (mode: AnalyticsListMode, feed: AnalyticsFeed, folderContentsLoading: boolean): boolean =>
                 mode === 'feed' ? feed.loading : folderContentsLoading,
         ],
+        // Rows fetched before the personal filter, so the end sentinel keeps loading while hidden rows arrive.
+        loadedCount: [(s) => [s.feed], (feed: AnalyticsFeed): number => feed.items.length],
         hasMore: [
             (s) => [s.mode, s.feed],
             (mode: AnalyticsListMode, feed: AnalyticsFeed): boolean => mode === 'feed' && feed.hasMore,
@@ -672,7 +688,16 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 actions.setFeedSearch('')
                 loadCurrentMode()
             },
-            sourceRefreshed: () => syncShownQuery(),
+            sourceRefreshed: () => {
+                syncShownQuery()
+                // Unfiled rows stay hidden, so a page can add nothing visible; keep reading until the list fills.
+                if (values.mode === 'feed' && values.hasMore && values.items.length < ANALYTICS_PREFETCH_COUNT) {
+                    actions.loadMore()
+                }
+            },
+            // A move or a new folder changes what this list holds, so it reads again.
+            shareToSpaceDone: () => actions.loadList(),
+            folderCreated: () => actions.loadList(),
         }
     }),
     actionToUrl(({ values }) => {

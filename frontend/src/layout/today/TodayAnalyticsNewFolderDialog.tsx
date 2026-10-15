@@ -20,7 +20,7 @@ import { todayAnalyticsLogic } from './todayAnalyticsLogic'
 
 /** Asks for a name and creates a top-level project folder. */
 export function TodayAnalyticsNewFolderDialog(): JSX.Element {
-    const { newFolderDialogOpen, creatingFolder } = useValues(todayAnalyticsLogic)
+    const { newFolderDialogOpen, creatingFolder, newFolderParent } = useValues(todayAnalyticsLogic)
     const { setNewFolderDialogOpen, createFolder } = useActions(todayAnalyticsLogic)
     const [name, setName] = useState('')
     const trimmed = name.trim()
@@ -46,10 +46,11 @@ export function TodayAnalyticsNewFolderDialog(): JSX.Element {
                     }}
                 >
                     <DialogHeader>
-                        <DialogTitle>New folder</DialogTitle>
+                        <DialogTitle>{newFolderParent ? `New folder in ${newFolderParent}` : 'New space'}</DialogTitle>
                         <DialogDescription>
-                            A folder in the project tree. Move dashboards, insights, notebooks and canvases into it from
-                            their own pages.
+                            {newFolderParent
+                                ? 'A folder inside this space, for grouping what the space shares.'
+                                : 'A space for a team or an area. Share dashboards, insights, notebooks and canvases into it from their own pages.'}
                         </DialogDescription>
                     </DialogHeader>
                     <DialogBody>
@@ -60,7 +61,7 @@ export function TodayAnalyticsNewFolderDialog(): JSX.Element {
                                 autoFocus
                                 value={name}
                                 onChange={(event: React.ChangeEvent<HTMLInputElement>) => setName(event.target.value)}
-                                placeholder="Growth team"
+                                placeholder={newFolderParent ? 'Q4 launch' : 'Growth team'}
                                 data-attr="analytics-new-folder-name"
                             />
                         </Field>
@@ -76,7 +77,7 @@ export function TodayAnalyticsNewFolderDialog(): JSX.Element {
                             disabled={!trimmed}
                             data-attr="analytics-new-folder-create"
                         >
-                            Create folder
+                            {newFolderParent ? 'Create folder' : 'Create space'}
                         </Button>
                     </DialogFooter>
                 </form>

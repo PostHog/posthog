@@ -50,30 +50,31 @@ export function AnalyticsSpaces(): JSX.Element {
 function SpaceCard({ space }: { space: AnalyticsSpace }): JSX.Element {
     const { starredPaths, starring } = useValues(analyticsSpacesLogic)
     const { toggleStar } = useActions(analyticsSpacesLogic)
-    const counts = ANALYTICS_TYPES.filter((info) => space.counts[info.type] > 0)
     const starred = starredPaths.has(space.path)
     return (
         <Card className="relative h-full transition-colors hover:bg-fill-button-tertiary-hover">
-            <CardHeader className="flex-row items-center gap-3 pr-10">
-                <AnalyticsSpaceGlyph name={space.name} size="lg" />
-                <div className="min-w-0">
-                    <CardTitle className="truncate">
-                        {/* The link's pseudo-element covers the card, so the whole card opens the space while the star stays its own control. */}
-                        <LinkPrimitive
-                            to={urls.analyticsList({ folder: space.path })}
-                            className="text-foreground after:absolute after:inset-0 after:content-['']"
-                            data-attr="analytics-space-card"
-                        >
-                            {space.name}
-                        </LinkPrimitive>
-                    </CardTitle>
-                    <CardDescription>
-                        {space.total === 0
-                            ? 'Nothing shared here yet'
-                            : `${space.total} ${space.total === 1 ? 'item' : 'items'}${
-                                  space.lastAddedAt ? ` · added ${dayjs(space.lastAddedAt).fromNow()}` : ''
-                              }`}
-                    </CardDescription>
+            <CardHeader className="pr-10">
+                <div className="flex items-center gap-3">
+                    <AnalyticsSpaceGlyph name={space.name} size="lg" />
+                    <div className="min-w-0">
+                        <CardTitle className="truncate">
+                            {/* The link's pseudo-element covers the card, so the whole card opens the space while the star stays its own control. */}
+                            <LinkPrimitive
+                                to={urls.analyticsList({ folder: space.path })}
+                                className="text-foreground after:absolute after:inset-0 after:content-['']"
+                                data-attr="analytics-space-card"
+                            >
+                                {space.name}
+                            </LinkPrimitive>
+                        </CardTitle>
+                        <CardDescription>
+                            {space.total === 0
+                                ? 'Nothing shared here yet'
+                                : `${space.total} ${space.total === 1 ? 'item' : 'items'}${
+                                      space.lastAddedAt ? ` · added ${dayjs(space.lastAddedAt).fromNow()}` : ''
+                                  }`}
+                        </CardDescription>
+                    </div>
                 </div>
             </CardHeader>
             <Tooltip>
@@ -95,23 +96,21 @@ function SpaceCard({ space }: { space: AnalyticsSpace }): JSX.Element {
                 </TooltipTrigger>
                 <TooltipContent>{starred ? 'Remove from sidebar' : 'Pin to the sidebar'}</TooltipContent>
             </Tooltip>
-            {counts.length > 0 && (
-                <CardContent className="flex flex-wrap gap-x-4 gap-y-1">
-                    {counts.map((info) => (
-                        <span key={info.type} className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <span
-                                className="flex [&_svg]:size-4"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ color: info.color }}
-                            >
-                                <AnalyticsTypeIcon type={info.type} />
-                            </span>
-                            <span className="font-semibold text-foreground">{space.counts[info.type]}</span>
-                            {space.counts[info.type] === 1 ? info.label.toLowerCase() : info.pluralLabel.toLowerCase()}
+            <CardContent className="flex flex-wrap gap-x-4 gap-y-1">
+                {ANALYTICS_TYPES.map((info) => (
+                    <span key={info.type} className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <span
+                            className="flex [&_svg]:size-4"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ color: info.color }}
+                        >
+                            <AnalyticsTypeIcon type={info.type} />
                         </span>
-                    ))}
-                </CardContent>
-            )}
+                        <span className="font-semibold text-foreground">{space.counts[info.type]}</span>
+                        {space.counts[info.type] === 1 ? info.label.toLowerCase() : info.pluralLabel.toLowerCase()}
+                    </span>
+                ))}
+            </CardContent>
         </Card>
     )
 }

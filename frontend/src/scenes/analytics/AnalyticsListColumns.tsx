@@ -1,7 +1,19 @@
 import { useActions } from 'kea'
+import { router } from 'kea-router'
 
-import { IconShare } from '@posthog/icons'
-import { Button, DataTableProps, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { IconFolderMove, IconFolderOpen, IconShare, IconX } from '@posthog/icons'
+import {
+    Button,
+    DataTableProps,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+    Text,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -36,7 +48,8 @@ function TimeCell({ time, label }: { time: string | null; label?: string }): JSX
 }
 
 function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
-    const { openShareToSpace } = useActions(analyticsShareLogic)
+    const { openShareToSpace, moveItem } = useActions(analyticsShareLogic)
+    const target = { type: item.type, ref: item.id, name: item.name }
     if (!item.spaceName) {
         return (
             <Tooltip>
@@ -46,7 +59,7 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
                             variant="link-muted"
                             size="xs"
                             className="h-auto gap-1 px-0 text-xs"
-                            onClick={() => openShareToSpace({ type: item.type, ref: item.id, name: item.name })}
+                            onClick={() => openShareToSpace(target)}
                             data-attr="analytics-list-row-share"
                         />
                     }
@@ -59,14 +72,64 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
         )
     }
     return (
-        <LinkPrimitive
-            to={urls.analyticsList({ folder: item.spaceName })}
-            className="flex min-w-0 items-center gap-1.5 text-xs text-foreground"
-            data-attr="analytics-list-row-space"
-        >
-            <AnalyticsSpaceGlyph name={item.spaceName} />
-            <span className="truncate">{item.spaceName}</span>
-        </LinkPrimitive>
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                render={
+                    <Button
+                        variant="link"
+                        size="xs"
+                        className="h-auto max-w-full gap-1.5 px-0 text-xs text-foreground"
+                        data-attr="analytics-list-row-space"
+                    />
+                }
+            >
+                <AnalyticsSpaceGlyph name={item.spaceName} />
+                <span className="truncate">{item.spaceName}</span>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-60">
+                <DropdownMenuItem
+                    onClick={() => router.actions.push(urls.analyticsList({ folder: item.spaceName ?? '' }))}
+                    data-attr="analytics-list-row-open-space"
+                >
+                    <IconFolderOpen />
+                    {`Open "${item.spaceName}" space`}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openShareToSpace(target)} data-attr="analytics-list-row-move">
+                    <IconFolderMove />
+                    Move to another space
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => moveItem(target, null)}
+                    data-attr="analytics-list-row-remove-from-space"
+                >
+                    <IconX />
+                    {`Remove from "${item.spaceName}"`}
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    )
+}
+
+function MoveCell({ item }: { item: AnalyticsItem }): JSX.Element {
+    const { openShareToSpace } = useActions(analyticsShareLogic)
+    return (
+        <Tooltip>
+            <TooltipTrigger
+                render={
+                    <Button
+                        variant="default"
+                        size="icon-sm"
+                        aria-label="Move to another space"
+                        onClick={() => openShareToSpace({ type: item.type, ref: item.id, name: item.name })}
+                        data-attr="analytics-list-row-move"
+                    />
+                }
+            >
+                <IconFolderMove />
+            </TooltipTrigger>
+            <TooltipContent>Move to another space</TooltipContent>
+        </Tooltip>
     )
 }
 
@@ -153,5 +216,20 @@ export function analyticsListColumns({
                 </div>
             ),
         },
+        // Inside a space the Space column is gone, so the row carries the way out instead.
+        ...(showSpace
+            ? []
+            : ([
+                  {
+                      id: 'move',
+                      header: '',
+                      enableSorting: false,
+                      cell: ({ row }) => (
+                          <div className="flex w-8 justify-end">
+                              <MoveCell item={row.original} />
+                          </div>
+                      ),
+                  },
+              ] satisfies AnalyticsListColumns)),
     ]
 }

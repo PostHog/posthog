@@ -20,6 +20,7 @@ import { AnalyticsItem, FromPostHogItem, fromPostHogItems } from 'scenes/analyti
 import { teamLogic } from 'scenes/teamLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { canvasesRetrieve } from 'products/canvas/frontend/generated/api'
@@ -58,6 +59,7 @@ export interface todayAnalyticsLogicValues {
     firstBuildsLoading: boolean
     fromPostHog: FromPostHogItem[]
     newFolderDialogOpen: boolean
+    newFolderParent: string | null
     openCanvasBuilding: Record<string, boolean>
     query: string
     search: string
@@ -142,8 +144,12 @@ export interface todayAnalyticsLogicActions {
     loadRecentAnalytics: () => {
         value: true
     }
-    setNewFolderDialogOpen: (open: boolean) => {
+    setNewFolderDialogOpen: (
+        open: boolean,
+        parent?: string | null
+    ) => {
         open: boolean
+        parent: string | null
     }
     setOpenCanvasBuilding: (
         canvasId: string,
@@ -222,7 +228,7 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
     })),
     actions({
         toggleSection: (section: TodayAnalyticsSection) => ({ section }),
-        setNewFolderDialogOpen: (open: boolean) => ({ open }),
+        setNewFolderDialogOpen: (open: boolean, parent: string | null = null) => ({ open, parent }),
         createFolder: (name: string) => ({ name }),
         folderCreated: true,
         folderCreationFailed: true,
@@ -275,6 +281,8 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
                     state.includes(section) ? state.filter((id) => id !== section) : [...state, section],
             },
         ],
+        // The space a folder is created in, or null for a new top-level space.
+        newFolderParent: [null as string | null, { setNewFolderDialogOpen: (_, { parent }) => parent }],
         newFolderDialogOpen: [
             false,
             {
@@ -379,8 +387,9 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
             })
         },
         createFolder: async ({ name }) => {
-            const path = name.trim()
-            if (!path) {
+            const parent = values.newFolderParent
+            const path = parent ? `${parent}/${escapePath(name.trim())}` : name.trim()
+            if (!name.trim()) {
                 actions.folderCreationFailed()
                 return
             }

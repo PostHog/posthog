@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IconPlusSmall, IconShare } from '@posthog/icons'
 
@@ -9,7 +9,7 @@ import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSu
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { analyticsShareLogic } from 'scenes/analytics/analyticsShareLogic'
+import { analyticsShareLogic, shareTargetKey } from 'scenes/analytics/analyticsShareLogic'
 import { ShareToSpaceModal } from 'scenes/analytics/ShareToSpaceModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -87,7 +87,17 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const metricsAlertsEnabled = useFeatureFlag('METRICS')
     const spacesEnabled = useFeatureFlag('TODAY_RAIL_NAV')
-    const { openShareToSpace } = useActions(analyticsShareLogic)
+    const { openShareToSpace, loadItemSpace } = useActions(analyticsShareLogic)
+    const { itemSpaces } = useValues(analyticsShareLogic)
+    const insightSpace = insight.short_id
+        ? itemSpaces[shareTargetKey({ type: 'insight', ref: insight.short_id })]
+        : undefined
+    const insightName = insight.name || insight.derived_name || 'Untitled insight'
+    useEffect(() => {
+        if (spacesEnabled && isPersistedInsight && insight.short_id && insightSpace === undefined) {
+            loadItemSpace({ type: 'insight', ref: insight.short_id, name: insightName })
+        }
+    }, [spacesEnabled, isPersistedInsight, insight.short_id, insightSpace, insightName, loadItemSpace])
     const biEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
 
@@ -190,7 +200,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <LemonMenu
                                 items={[
                                     {
-                                        label: 'Share into a space',
+                                        label: insightSpace ? `Move from ${insightSpace}` : 'Share into a space',
                                         icon: <IconShare />,
                                         onClick: () =>
                                             openShareToSpace({
