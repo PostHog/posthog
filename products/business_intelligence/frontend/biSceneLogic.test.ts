@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { BIConfig, BIField, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { DatabaseSchemaQuery, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -17,7 +18,9 @@ import { claimConnectionScope, releaseConnectionScope } from 'products/data_ware
 import { BI_EDITOR_EVENTS } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
 import { BIEditorView, buildBIQuery } from './biEditorTypes'
+import { biMemberAliasesLogic } from './biMemberAliasesLogic'
 import { biSceneLogic } from './biSceneLogic'
+import { biSourcePreviewLogic } from './biSourcePreviewLogic'
 
 const eventField: BIField = {
     id: 'event',
@@ -374,6 +377,24 @@ describe('biSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     })
 
+    it('cancels only the source preview query when its modal closes', () => {
+        const preview = biSourcePreviewLogic({ tabId: 'preview-cancel' })
+        preview.mount()
+        const data = dataNodeLogic({
+            key: insightVizDataNodeKey({ dashboardItemId: 'new-SQL-bi-source-preview-preview-cancel' }),
+            query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+            autoLoad: false,
+        })
+        data.mount()
+        const cancel = jest.spyOn(data.actions, 'cancelQuery')
+        preview.actions.open(worksheet(config))
+        preview.actions.close()
+        expect(cancel).toHaveBeenCalledTimes(1)
+        expect(preview.values.worksheet).toBeNull()
+        data.unmount()
+        preview.unmount()
+    })
+
     it('tracks the first successful chart once, without counting empty results or reruns', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         logic.actions.restoreWorksheet(worksheet())
@@ -525,6 +546,37 @@ describe('biSceneLogic', () => {
         logic.actions.discardChanges()
         expect(logic.values.canUndo).toBe(false)
         expect(logic.values.hasUnsavedChanges).toBe(false)
+    })
+
+    it('saves member aliases as drafts, keeps raw query semantics, and preserves them through undo and Clear sheet', async () => {
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
+        editor.actions.setAutoUpdate(false)
+        const aliases = biMemberAliasesLogic({ tabId: 'bi-test' })
+        const unmount = aliases.mount()
+        const query = logic.values.worksheet.source.query
+        aliases.actions.edit(eventField, [])
+        aliases.actions.setAlias('example_a', 'Same label')
+        aliases.actions.close()
+        expect(editor.values.config.memberAliases).toBeUndefined()
+        aliases.actions.edit(eventField, [])
+        aliases.actions.setAlias('example_a', 'Same label')
+        aliases.actions.setAlias('example_b', 'Same label')
+        aliases.actions.save()
+        expect(editor.values.config.memberAliases?.[0].aliases).toHaveLength(2)
+        expect(logic.values.worksheet.source.query).toBe(query)
+        logic.actions.undo()
+        expect(editor.values.config.memberAliases).toBeUndefined()
+        logic.actions.redo()
+        expect(editor.values.config.memberAliases?.[0].aliases).toHaveLength(2)
+        await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        expect(stored.query.config.memberAliases?.[0].aliases).toHaveLength(2)
+        editor.actions.resetConfig()
+        expect(editor.values.config.memberAliases?.[0].aliases).toHaveLength(2)
+        aliases.actions.edit(eventField, editor.values.config.memberAliases![0].aliases)
+        aliases.actions.setAlias('example_a', '   ')
+        aliases.actions.save()
+        expect(editor.values.config.memberAliases?.[0].aliases).toEqual([{ value: 'example_b', label: 'Same label' }])
+        unmount()
     })
 
     it('runs the restored worksheet when auto update is enabled', async () => {
