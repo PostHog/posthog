@@ -8,7 +8,7 @@ const {
     isExcludedFile,
     classifyOwner,
     teamSlugToLabel,
-    featureLabelsFor,
+    pinnedTeamsWithLabels,
     partitionExternalTeams,
     computeOwnerFootprints,
     computeAdditionOwners,
@@ -216,16 +216,23 @@ const fp = (owner, lines, fileCount = 1, type = 'team') => ({
     lines,
 })
 
-for (const [description, footprints, expected] of [
+for (const [description, footprints, expectedRequested, expectedLabels] of [
     [
-        'labels a minor agent infra change next to a larger one',
+        'requests and labels a minor agent infra change next to a larger one',
         [fp('@PostHog/team-surveys', 200), fp('@PostHog/team-agent-infrastructure', 1)],
+        ['@PostHog/team-surveys', '@PostHog/team-agent-infrastructure'],
         ['feature/agent-infra'],
     ],
-    ['labels nothing without agent infra code', [fp('@PostHog/team-surveys', 200)], []],
+    ['leaves a PR without agent infra code alone', [fp('@PostHog/team-surveys', 200)], ['@PostHog/team-surveys'], []],
 ]) {
-    test(`featureLabelsFor: ${description}`, () => {
-        assert.deepEqual(featureLabelsFor(footprints), expected)
+    test(`pinnedTeamsWithLabels: ${description}`, () => {
+        const { teams, labels } = pinnedTeamsWithLabels(footprints)
+        const { requested } = classifyOwnersWithPinned(footprints, teams)
+        assert.deepEqual(
+            requested.map((f) => f.owner),
+            expectedRequested
+        )
+        assert.deepEqual(labels, expectedLabels)
     })
 }
 

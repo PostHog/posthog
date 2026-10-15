@@ -170,12 +170,11 @@ function teamSlugToLabel(name) {
     return name.replace(/^team-/, 'team/')
 }
 
-const FEATURE_LABEL_BY_TEAM = new Map([['team-agent-infrastructure', 'feature/agent-infra']])
+const PINNED_TEAM_LABELS = new Map([['team-agent-infrastructure', 'feature/agent-infra']])
 
-function featureLabelsFor(footprints) {
-    return footprints
-        .filter((footprint) => footprint.type === 'team' && FEATURE_LABEL_BY_TEAM.has(footprint.name))
-        .map((footprint) => FEATURE_LABEL_BY_TEAM.get(footprint.name))
+function pinnedTeamsWithLabels(footprints) {
+    const teams = footprints.filter((footprint) => footprint.type === 'team' && PINNED_TEAM_LABELS.has(footprint.name))
+    return { teams, labels: teams.map((footprint) => PINNED_TEAM_LABELS.get(footprint.name)) }
 }
 
 function partitionExternalTeams(teams) {
@@ -722,7 +721,12 @@ async function main() {
         const footprints = computeOwnerFootprints(resolutionByPath, changedFiles)
         const additionOwners = computeAdditionOwners(resolutionByPath, changedFiles)
         const sensitiveOwners = computeSensitiveOwners(resolutionByPath, changedFiles)
-        const { requested, demoted } = classifyOwnersWithPinned(footprints, [...additionOwners, ...sensitiveOwners])
+        const pinnedTeams = pinnedTeamsWithLabels(footprints)
+        const { requested, demoted } = classifyOwnersWithPinned(footprints, [
+            ...additionOwners,
+            ...sensitiveOwners,
+            ...pinnedTeams.teams,
+        ])
 
         const teams = requested.filter((f) => f.type === 'team').map((f) => f.name)
         const users = requested.filter((f) => f.type === 'user').map((f) => f.name)
@@ -739,14 +743,14 @@ async function main() {
         console.info()
 
         const { toLabel, toRequest } = isExternal ? partitionExternalTeams(teams) : { toLabel: [], toRequest: teams }
-        await applyTeamLabels([...featureLabelsFor(footprints), ...toLabel.map(teamSlugToLabel).filter(Boolean)])
+        await applyTeamLabels([...pinnedTeams.labels, ...toLabel.map(teamSlugToLabel).filter(Boolean)])
         await assignReviewers(toRequest, users)
 
         const commentBody = buildReviewerComment(
             requested,
             demoted,
             additionOwners,
-            sensitiveOwnersToExplain(sensitiveOwners, footprints, additionOwners)
+            sensitiveOwnersToExplain(sensitiveOwners, footprints, [...additionOwners, ...pinnedTeams.teams])
         )
         if (commentBody) {
             await upsertReviewerComment(commentBody)
@@ -766,7 +770,7 @@ module.exports = {
     isExcludedFile,
     classifyOwner,
     teamSlugToLabel,
-    featureLabelsFor,
+    pinnedTeamsWithLabels,
     partitionExternalTeams,
     computeOwnerFootprints,
     computeAdditionOwners,
