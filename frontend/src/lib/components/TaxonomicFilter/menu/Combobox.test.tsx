@@ -191,6 +191,38 @@ describe('MenuFilterCombobox', () => {
         expect(screen.getAllByText('Power users').length).toBeGreaterThan(0)
     })
 
+    it('shows an error state with retry when the cohorts fetch fails (not the empty state), captures it once, and retry re-fetches', async () => {
+        const user = userEvent.setup()
+        apiGet.mockImplementation((url: string) =>
+            url.includes('cohorts') ? Promise.reject(new Error('network error')) : emptyPaginated()
+        )
+
+        renderCombobox()
+
+        await waitFor(() => {
+            expect(screen.getByTestId('menu-filter-error')).toBeInTheDocument()
+        })
+        expect(screen.getByText("Couldn't load results")).toBeInTheDocument()
+        expect(screen.queryByTestId('menu-filter-empty')).not.toBeInTheDocument()
+        expect(screen.queryByText(/No "Cohorts" found/)).not.toBeInTheDocument()
+        // Fires once for the failed fetch — mirrors legacy's per-group+query dedup.
+        expect(captureMock).toHaveBeenCalledWith(
+            'taxonomic filter fetch failed',
+            expect.objectContaining({ groupType: TaxonomicFilterGroupType.Cohorts, searchQuery: '' })
+        )
+        expect(
+            captureMock.mock.calls.filter(([event]: [string]) => event === 'taxonomic filter fetch failed')
+        ).toHaveLength(1)
+
+        apiGet.mockResolvedValueOnce({ results: [{ id: 1, name: 'Internal team' }], count: 1 })
+        await user.click(screen.getByText('Try again'))
+
+        await waitFor(() => {
+            expect(screen.queryByTestId('menu-filter-error')).not.toBeInTheDocument()
+        })
+        expect(screen.getAllByText('Internal team').length).toBeGreaterThan(0)
+    })
+
     it('dedups a synthetic selected entry against the real remote entry (no double checkmark)', async () => {
         apiGet.mockResolvedValue({
             results: [

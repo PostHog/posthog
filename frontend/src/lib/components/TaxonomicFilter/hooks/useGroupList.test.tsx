@@ -138,11 +138,8 @@ describe('useGroupList', () => {
             // The exact count is deterministic: fetches fire synchronously from act-flushed
             // effects, so both hooks' requests (or cache hits) precede waitFor's first poll.
             await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(expectedFetches))
-            if (expectedFetches === 2) {
-                // The differing params must actually reach the request, not just the cache key.
-                const [firstUrl, secondUrl] = apiGet.mock.calls.map(([url]) => url)
-                expect(firstUrl).not.toEqual(secondUrl)
-            }
+            // The differing params must actually reach the request, not just the cache key.
+            expect(new Set(apiGet.mock.calls.map(([url]) => url)).size).toBe(expectedFetches)
         })
 
         it('respects minSearchQueryLength gating', () => {
@@ -172,7 +169,7 @@ describe('useGroupList', () => {
             expect(result.current.needsMoreSearchCharacters).toBe(true)
         })
 
-        it('drops the previous page when the request for the current query fails', async () => {
+        it('drops the previous page and surfaces an error when the request for the current query fails', async () => {
             apiGet
                 .mockResolvedValueOnce({ results: [{ name: 'alpha' }], count: 1 })
                 .mockRejectedValueOnce(new Error('search unavailable'))
@@ -186,6 +183,17 @@ describe('useGroupList', () => {
 
             await waitFor(() => expect(result.current.items).toEqual([]))
             expect(result.current.isLoading).toBe(false)
+            // Surfaced so the UI can tell "failed" apart from "genuinely empty".
+            expect(result.current.error).toBeInstanceOf(Error)
+            expect(result.current.showErrorState).toBe(true)
+            expect(result.current.showEmptyState).toBe(false)
+
+            apiGet.mockResolvedValueOnce({ results: [{ name: 'beta-result' }], count: 1 })
+            await act(async () => {
+                await result.current.refetch()
+            })
+            expect(result.current.items).toEqual([{ name: 'beta-result' }])
+            expect(result.current.showErrorState).toBe(false)
         })
 
         it('refires when searchQuery changes', async () => {

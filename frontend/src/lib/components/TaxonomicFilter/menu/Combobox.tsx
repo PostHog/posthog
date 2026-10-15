@@ -15,7 +15,7 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { MutableRefObject, ReactElement, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconChevronRight, IconClock, IconPinFilled } from '@posthog/icons'
+import { IconCheck, IconChevronRight, IconClock, IconPinFilled, IconWarning } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -238,6 +238,13 @@ export function MenuFilterCombobox({
     // `loadingByType` which is `loading && no-items-yet`). Drives the reveal
     // barrier so kept-previous-data refetches still hold the list.
     const [fetchingByType, setFetchingByType] = useState<Record<string, { query?: string; fetching: boolean }>>({})
+    // Per-group "failed with nothing to fall back on" flag, reported by `Fetcher`. Drives the
+    // error state (instead of "No results") and gates which groups `handleRetry` re-fetches.
+    const [errorByType, setErrorByType] = useState<Record<string, boolean>>({})
+    // Latest retry function per group, kept out of state since identity changes every render
+    // and it's only read imperatively from `handleRetry`.
+    const retryFnsRef = useRef<Record<string, () => Promise<unknown>>>({})
+    const [retrying, setRetrying] = useState(false)
     // Only engages while actively searching a fetching scope. Recent/Pinned read
     // pre-resolved entries (`drillItems` when drilled to, the recents/pinned props
     // when picked from the category select) and never fetch, so they're never gated.
@@ -292,6 +299,11 @@ export function MenuFilterCombobox({
                 ? prev
                 : { ...prev, [type]: { query, fetching } }
         )
+    }, [])
+
+    const reportError = useCallback((type: string, hasError: boolean, retry: () => Promise<unknown>): void => {
+        retryFnsRef.current[type] = retry
+        setErrorByType((prev) => (prev[type] === hasError ? prev : { ...prev, [type]: hasError }))
     }, [])
 
     // Chips show only when `drillTo='all'` — drilled scopes lock to one
@@ -678,6 +690,26 @@ export function MenuFilterCombobox({
         return targetGroups.some((g) => loadingByType[g.type])
     }, [drillItems, targetGroups, loadingByType])
 
+    // True when a visible group's request failed with nothing to fall back on — takes over
+    // from the empty state (below) so a dead backend doesn't read as "no matching results".
+    const anyError = useMemo(() => {
+        if (drillItems) {
+            return false
+        }
+        return targetGroups.some((g) => errorByType[g.type])
+    }, [drillItems, targetGroups, errorByType])
+
+    const handleRetry = useCallback(async (): Promise<void> => {
+        setRetrying(true)
+        try {
+            await Promise.all(
+                targetGroups.filter((g) => errorByType[g.type]).map((g) => retryFnsRef.current[g.type]?.())
+            )
+        } finally {
+            setRetrying(false)
+        }
+    }, [targetGroups, errorByType])
+
     // ---- Reveal barrier ----------------------------------------------------
     // Close synchronously the instant the query changes (React "adjust state
     // while rendering" pattern) so a stale list never paints between keystroke
@@ -834,6 +866,31 @@ export function MenuFilterCombobox({
             searchQuery: trimmed,
         })
     }, [emptyState, searchQuery, telemetryGroupType])
+
+    // `taxonomic filter fetch failed` — once per scope+query while the visible list's request
+    // keeps failing. Mirrors legacy `lastFetchFailedDedupeKey`: the key is only cleared once the
+    // group settles without an error, so retries that fail again for the same query don't
+    // recapture, but a later genuine failure for a new query does.
+    const lastFetchFailedKeyRef = useRef<string | null>(null)
+    useEffect(() => {
+        const trimmed = searchQuery.trim()
+        if (!anyError) {
+            if (!isAnyLoading) {
+                lastFetchFailedKeyRef.current = null
+            }
+            return
+        }
+        const key = `${telemetryGroupType ?? 'all'}::${trimmed}`
+        if (lastFetchFailedKeyRef.current === key) {
+            return
+        }
+        lastFetchFailedKeyRef.current = key
+        posthog.capture('taxonomic filter fetch failed', {
+            surface: TAXONOMIC_FILTER_SURFACE,
+            groupType: telemetryGroupType,
+            searchQuery: trimmed,
+        })
+    }, [anyError, isAnyLoading, searchQuery, telemetryGroupType])
 
     // Offered in the empty state whenever an event/custom-event group is among
     // the visible targets (drilled Events/CustomEvents, or the merged All surface
@@ -1072,6 +1129,7 @@ export function MenuFilterCombobox({
                                     onItems={reportItems}
                                     onLoadingChange={reportLoading}
                                     onFetchingChange={reportFetching}
+                                    onErrorChange={reportError}
                                 />
                             ))}
                         <ScrollArea className="flex-1 min-h-0 scroll-py-8" alwaysShowScrollbars>
@@ -1079,6 +1137,26 @@ export function MenuFilterCombobox({
                                 <Autocomplete.Empty className="empty:hidden">
                                     {isAnyLoading || barrierClosed ? (
                                         <LoadingRows />
+                                    ) : anyError ? (
+                                        <div
+                                            data-attr="menu-filter-error"
+                                            className="flex flex-col items-center gap-2 px-4 py-8 text-center"
+                                        >
+                                            <IconWarning className="text-5xl text-tertiary" />
+                                            <div className="text-sm font-semibold">Couldn't load results</div>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                data-attr="menu-filter-retry"
+                                                loading={retrying}
+                                                onClick={handleRetry}
+                                            >
+                                                Try again
+                                            </Button>
+                                            <div className="text-xs text-secondary italic">
+                                                If it keeps happening, contact support.
+                                            </div>
+                                        </div>
                                     ) : (
                                         emptyState && (
                                             <div
@@ -1408,6 +1486,7 @@ function Fetcher({
     onItems,
     onLoadingChange,
     onFetchingChange,
+    onErrorChange,
 }: {
     group: TaxonomicFilterGroup
     /** Hide stale event definitions (event / custom-event groups only). */
@@ -1419,6 +1498,9 @@ function Fetcher({
     /** Reports `isFetching` (true during background refetches too) so the
      *  parent's reveal barrier holds the list until every group settles. */
     onFetchingChange: (type: string, fetching: boolean, query?: string) => void
+    /** Reports whether this group's request failed with nothing to fall back on, plus a
+     *  retry function the parent can call from the error state's "Try again" button. */
+    onErrorChange: (type: string, hasError: boolean, retry: () => Promise<unknown>) => void
 }): null {
     const { getGroupListInput } = useTaxonomicFilterContext()
     const input = getGroupListInput(group)
@@ -1432,15 +1514,24 @@ function Fetcher({
     useEffect(() => {
         onFetchingChange(group.type, list.isFetching, input.searchQuery)
     }, [group.type, list.isFetching, input.searchQuery, onFetchingChange])
-    // Make sure we flip back to "not loading"/"not fetching" when this group
-    // unmounts — otherwise a stale `true` from a previously-active chip would
-    // keep the skeleton (or the reveal barrier) stuck after we switch scope.
+    // `refetch`'s identity changes every render — read it through a ref so the effect only
+    // reruns when `showErrorState` itself changes, not on every unrelated re-render.
+    const refetchRef = useRef(list.refetch)
+    refetchRef.current = list.refetch
+    useEffect(() => {
+        onErrorChange(group.type, list.showErrorState, () => refetchRef.current())
+        // oxlint-disable-next-line react-hooks/exhaustive-deps -- refetchRef always holds the latest fn
+    }, [group.type, list.showErrorState, onErrorChange])
+    // Make sure we flip back to "not loading"/"not fetching"/"not errored" when this group
+    // unmounts — otherwise a stale `true` from a previously-active chip would keep the
+    // skeleton (or the reveal barrier, or the error state) stuck after we switch scope.
     useEffect(() => {
         return () => {
             onLoadingChange(group.type, false)
             onFetchingChange(group.type, false)
+            onErrorChange(group.type, false, () => Promise.resolve())
         }
-    }, [group.type, onLoadingChange, onFetchingChange])
+    }, [group.type, onLoadingChange, onFetchingChange, onErrorChange])
     return null
 }
 

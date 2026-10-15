@@ -105,7 +105,12 @@ export interface UseGroupListResult {
     isFetching: boolean
     needsMoreSearchCharacters: boolean
     hasRemoteDataSource: boolean
+    /** The remote fetch for the current query failed, with nothing usable to fall back on. */
+    error: unknown
     showEmptyState: boolean
+    /** A fetch that failed for the current query. Kept separate from `showEmptyState` so a
+     *  timeout or a 5xx doesn't read as "this project has no matching properties". */
+    showErrorState: boolean
     showLoadingState: boolean
     showNonCapturedEventOption: boolean
 
@@ -113,7 +118,9 @@ export interface UseGroupListResult {
     isExpanded: boolean
     expand: () => void
 
-    refetch: () => void
+    /** Retries the failed fetch. Resolves once the retry settles, so a caller can
+     *  disable its retry button for the duration. */
+    refetch: () => Promise<unknown>
 }
 
 const DEFAULT_LIMIT = 100
@@ -483,12 +490,18 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         return realResults.length === 0
     }, [allowNonCapturedEvents, group.type, group.excludedProperties, trimmedSearch, isLoading, items])
 
+    // A fetch that failed for the *current* query with nothing usable to fall back on.
+    // Mirrors legacy infiniteListLogic's `showErrorState`.
+    const error = remote.error
+    const showErrorState = remoteEnabled && !!error && items.length === 0 && !isLoading
+
     // Empty / loading state checks read array length, not the API-reported
     // total — a remote tab can have count > 0 while still loading its first
     // page, and we don't want to flash an empty state during that window.
     const showEmptyState =
-        (items.length === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption) ||
-        needsMoreSearchCharacters
+        !showErrorState &&
+        ((items.length === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption) ||
+            needsMoreSearchCharacters)
 
     const showLoadingState = isLoading && items.length === 0
 
@@ -531,17 +544,20 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         isFetching,
         needsMoreSearchCharacters,
         hasRemoteDataSource,
+        error,
         showEmptyState,
+        showErrorState,
         showLoadingState,
         showNonCapturedEventOption,
         isExpandable,
         isExpanded,
         expand,
         refetch: () => {
-            remote.refetch()
+            const pending = [remote.refetch()]
             if (remoteEnabled && group.scopedEndpoint && !isExpanded) {
-                expandedCount.refetch()
+                pending.push(expandedCount.refetch())
             }
+            return Promise.all(pending)
         },
     }
 }
