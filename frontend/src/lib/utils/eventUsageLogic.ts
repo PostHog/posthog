@@ -10,6 +10,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
+import { ONBOARDING_EVENT_PROPS } from 'scenes/onboarding/onboardingUsage'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -437,15 +438,6 @@ export type SDKSetupInstructionsSurface =
     | 'settings_sdk_setup'
     | 'settings_reverse_proxy_setup'
     | 'onboarding_ai_observability'
-
-// pinned: event property values. Onboarding funnel insights filter and break down on these, so
-// they keep the values the flow sent while it was one of two experiment arms. `entry_point` rides
-// along with every funnel event, not only `started`, so a breakdown by it stays populated.
-const ONBOARDING_EVENT_PROPS = {
-    version: 1,
-    flow_variant: 'legacy',
-    entry_point: 'product_selection',
-} as const
 
 function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
     const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
@@ -1400,9 +1392,6 @@ export interface eventUsageLogicActions {
         itemType: string | null | undefined
         section: string
     }
-    reportOnboardingCompleted: (productKey: string) => {
-        productKey: string
-    }
     reportOnboardingProductToggled: (
         productKey: string,
         selected: boolean,
@@ -1411,9 +1400,6 @@ export interface eventUsageLogicActions {
         productKey: string
         recommendationSource: string
         selected: boolean
-    }
-    reportOnboardingStarted: () => {
-        value: true
     }
     reportOnboardingStepCompleted: (
         stepKey: OnboardingStepKey,
@@ -2005,7 +1991,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportProductTourListViewed: true,
         reportProductUnsubscribed: (product: string) => ({ product }),
-        reportOnboardingStarted: true,
         reportOnboardingStepCompleted: (stepKey: OnboardingStepKey, productKey?: string) => ({
             stepKey,
             productKey,
@@ -2014,7 +1999,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             stepKey,
             productKey,
         }),
-        reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
             useCase,
             recommendedProducts,
@@ -2765,9 +2749,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         // onboarding
-        reportOnboardingStarted: () => {
-            posthog.capture('onboarding started', ONBOARDING_EVENT_PROPS)
-        },
         reportOnboardingStepCompleted: ({ stepKey, productKey }) => {
             posthog.capture('onboarding step completed', {
                 step_key: stepKey,
@@ -2781,12 +2762,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('onboarding step skipped', {
                 step_key: stepKey,
                 ...(productKey ? { product_key: productKey } : {}),
-                ...ONBOARDING_EVENT_PROPS,
-            })
-        },
-        reportOnboardingCompleted: ({ productKey }) => {
-            posthog.capture('onboarding completed', {
-                product_key: productKey,
                 ...ONBOARDING_EVENT_PROPS,
             })
         },

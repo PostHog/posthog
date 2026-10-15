@@ -1,5 +1,7 @@
 import posthog from 'posthog-js'
 
+import { reportOnboardingCompleted, reportOnboardingStarted } from 'scenes/onboarding/onboardingUsage'
+
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
@@ -45,10 +47,10 @@ describe('eventUsageLogic', () => {
         })
 
         it('stamps the entry point on every funnel event', () => {
-            eventUsageLogic.actions.reportOnboardingStarted()
+            reportOnboardingStarted()
             eventUsageLogic.actions.reportOnboardingStepCompleted(OnboardingStepKey.INSTALL)
             eventUsageLogic.actions.reportOnboardingStepSkipped(OnboardingStepKey.INSTALL)
-            eventUsageLogic.actions.reportOnboardingCompleted('product_analytics')
+            reportOnboardingCompleted('product_analytics')
 
             for (const event of [
                 'onboarding started',
