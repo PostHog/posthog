@@ -6928,10 +6928,8 @@ TASK_LIST_ORDERINGS: dict[str, tuple[str, ...]] = {
 }
 DEFAULT_TASK_LIST_ORDERING = "-created_at"
 
-#: Sources the task list filters on, in the words of the desktop source filter. A first-party client
-#: names the user-created tasks it made. Any other source names an origin product. The list never
-#: shows product-private tasks, so their origin products are not offered. Built from the two source
-#: classes, so a new origin product becomes a source without an edit here.
+#: Built from the two source classes, so a new origin product becomes a source without an edit here.
+#: Product-private origin products are left out because the task list never shows their tasks.
 # django-stubs types only the class-body form of TextChoices; Django supports this functional form.
 TaskListSource = TextChoices(  # type: ignore[call-overload]
     "TaskListSource",
