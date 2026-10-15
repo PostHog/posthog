@@ -945,3 +945,17 @@ COPY_EVENTS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
     person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties,
      group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, person_mode""",
 )
+
+# The copy takes the rows that native ingestion wrote for the source team, so the event cleaner does not run again
+# and the target gets the same events as the source. In cloud, the nodes the app queries have events_json but not
+# writable_events_json, so the copy reads and writes through events_json. The elements_chain_* columns stay out of the
+# list because the sharded table computes them from elements_chain. Where it declares them MATERIALIZED, an insert
+# that names them fails.
+COPY_EVENTS_JSON_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
+    table_name=DISTRIBUTED_EVENTS_JSON_TABLE,
+    columns_except_team_id="""uuid, event, properties, temporary_properties, properties_null_keys,
+    temporary_properties_null_keys, timestamp, distinct_id, elements_chain, created_at, captured_at, person_id,
+    person_created_at, person_properties, person_properties_null_keys, group0_properties, group1_properties,
+    group2_properties, group3_properties, group4_properties, group0_created_at, group1_created_at, group2_created_at,
+    group3_created_at, group4_created_at, person_mode, total_event_size""",
+)

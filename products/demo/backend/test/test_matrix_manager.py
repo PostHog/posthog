@@ -10,6 +10,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import OrganizationMembership
@@ -133,13 +135,8 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
 
         # At least one event for each cluster
         assert sync_execute("SELECT count() FROM events WHERE team_id = 0")[0][0] >= 3
-        assert (
-            sync_execute(
-                "SELECT count() FROM events WHERE team_id = %(team_id)s",
-                {"team_id": self.team.pk},
-            )[0][0]
-            >= 3
-        )
+        copied = execute_hogql_query("SELECT count() FROM events WHERE properties.foo = 'bar'", team=self.team)
+        assert copied.results[0][0] >= 3
 
 
 class TestProduceWhenQueueHasRoom(SimpleTestCase):
