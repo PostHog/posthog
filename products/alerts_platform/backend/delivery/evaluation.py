@@ -216,6 +216,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     target=target,
                     announcement=replace(announced, transitions=transitions),
                     incident_action=action_by_event_id.get(event_id),
+                    source_alert_url=request.source_alert_url,
                 )
             except ThreadBusy as error:
                 busy.append(str(error))

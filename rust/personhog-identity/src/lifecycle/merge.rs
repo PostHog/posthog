@@ -258,11 +258,15 @@ fn record_transition(from: &str, to: &str) {
 
 /// Count settled per-source outcomes. Shared by the saga's terminal record
 /// and the entrance's inline settlement, so the counter covers every
-/// requested source — not just the ones that entered the saga.
-pub(crate) fn record_outcome_count(outcome: &str, count: u64) {
+/// requested source — not just the ones that entered the saga. `stage` is
+/// `inline` or the step the op settled from.
+pub(crate) fn record_outcome_count(stage: &'static str, outcome: &str, count: u64) {
     common_metrics::inc(
         OUTCOMES_TOTAL,
-        &[("outcome".to_string(), outcome.to_string())],
+        &[
+            ("stage".to_string(), stage.to_string()),
+            ("outcome".to_string(), outcome.to_string()),
+        ],
         count,
     );
 }
@@ -290,7 +294,7 @@ pub(crate) fn record_conflict(reason: &str, count: u64) {
     }
 }
 
-fn record_outcomes(outcome: &Value) {
+fn record_outcomes(stage: &'static str, outcome: &Value) {
     let Ok(parsed) = serde_json::from_value::<MergeOutcome>(outcome.clone()) else {
         return;
     };
@@ -305,7 +309,7 @@ fn record_outcomes(outcome: &Value) {
     ] {
         let count = parsed.results.iter().filter(|r| r.outcome == label).count();
         if count > 0 {
-            record_outcome_count(label, count as u64);
+            record_outcome_count(stage, label, count as u64);
         }
     }
 }
@@ -995,7 +999,7 @@ async fn abort_in_claim_tx(
     tx.commit().await?;
     record_conflicts(conflicts);
     record_transition(MergeStep::Started.as_str(), STEP_ABORTED);
-    record_outcomes(&outcome);
+    record_outcomes(MergeStep::Started.as_str(), &outcome);
     Ok(())
 }
 
@@ -1124,7 +1128,7 @@ impl MergeDriver {
             }
             tx.commit().await?;
             record_transition(MergeStep::Claimed.as_str(), STEP_ABORTED);
-            record_outcomes(&outcome);
+            record_outcomes(MergeStep::Claimed.as_str(), &outcome);
             return Ok(());
         }
 
@@ -1221,7 +1225,7 @@ impl MergeDriver {
             )],
             1,
         );
-        record_outcomes(&outcome);
+        record_outcomes(from_step.as_str(), &outcome);
         // Releases only after the completing CAS proves we still owned the
         // op; ghosts left by a crash here are healed lazily by the leader.
         self.release_fences(op, &pairs).await?;
@@ -1942,7 +1946,7 @@ impl MergeDriver {
         }
         tx.commit().await?;
         record_transition(MergeStep::Flipped.as_str(), STEP_COMPLETED);
-        record_outcomes(&outcome);
+        record_outcomes(MergeStep::Flipped.as_str(), &outcome);
         Ok(())
     }
 }
