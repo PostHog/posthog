@@ -11,7 +11,7 @@ backfill of older rows reaches the stored days on the next load.
 """
 
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -228,13 +228,15 @@ class _Span:
     until: datetime
 
 
-def _newest_first(start: datetime) -> Iterator[_Span]:
-    """The spans from ``start`` to now, newest first, ``_BACKFILL_STEP`` long."""
-    until = datetime.now(UTC)
+def _newest_first(start: datetime, until: datetime | None = None, length: timedelta = _BACKFILL_STEP) -> list[_Span]:
+    """The spans from ``start`` to ``until``, or to now, newest first, ``length`` long."""
+    spans = []
+    until = until or datetime.now(UTC)
     while until > start:
-        since = max(start, until - _BACKFILL_STEP)
-        yield _Span(since=since, until=until)
+        since = max(start, until - length)
+        spans.append(_Span(since=since, until=until))
         until = since
+    return spans
 
 
 def ensure_stored(
@@ -322,7 +324,7 @@ def _refresh(team: Team) -> bool:
         trigger="engineering_analytics",
     )
     deadline = time.monotonic() + _TASK_BUDGET_SECONDS
-    spans: list[tuple[StoredRows, JobSourceTables, Iterator[_Span]]] = []
+    spans: list[tuple[StoredRows, JobSourceTables, list[_Span]]] = []
     for source in sources:
         for stored in (STORED_RUNS, STORED_JOBS):
             if time.monotonic() >= deadline:
@@ -347,10 +349,10 @@ def _refresh(team: Team) -> bool:
     while spans:
         for span in list(spans):
             stored, source, steps = span
-            step = next(steps, None)
-            if step is None:
+            if not steps:
                 spans.remove(span)
                 continue
+            step = steps.pop(0)
             if time.monotonic() >= deadline:
                 return failed
             result = ensure_stored(
@@ -372,8 +374,14 @@ def _refresh(team: Team) -> bool:
                     repository=source.repository,
                     errors=result.errors,
                 )
-                failed = failed or not result.timed_out
-                spans.remove(span)
+                if result.timed_out:
+                    spans.remove(span)
+                    continue
+                failed = True
+                # The framework stores the days of a span oldest first and stops at the first day that
+                # fails, so the newer days of a failed span are stored one at a time.
+                if step.until - step.since > timedelta(days=1):
+                    steps[0:0] = _newest_first(step.since, step.until, timedelta(days=1))
     return failed
 
 

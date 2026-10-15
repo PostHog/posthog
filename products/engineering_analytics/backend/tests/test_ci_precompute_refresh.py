@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
@@ -100,6 +100,24 @@ class TestRefreshAfterLoad(SimpleTestCase):
         ci_precompute.refresh_after_load(_TEAM)
 
         assert self.ensure_stored.call_count == inserts
+
+    def test_a_failed_day_does_not_block_the_newer_days_of_its_step(self) -> None:
+        failed = SimpleNamespace(ready=False, errors=["Code: 241. Memory limit exceeded"])
+        stored = SimpleNamespace(ready=True, errors=[])
+        self.ensure_stored.side_effect = lambda *args, since, **kwargs: (
+            failed if since < datetime(2026, 10, 5, tzinfo=UTC) else stored
+        )
+        ci_precompute.mark_in_use(_TEAM)
+        ci_precompute.refresh_after_load(_TEAM)
+
+        runs_spans = [
+            (call.kwargs["since"], call.kwargs["until"])
+            for call in self.ensure_stored.call_args_list
+            if call.args[0] == ci_precompute.STORED_RUNS
+        ]
+        step = (datetime(2026, 10, 4, tzinfo=UTC), _NOW)
+        days = [(_NOW - timedelta(days=n + 1), _NOW - timedelta(days=n)) for n in range(10)]
+        assert runs_spans == [step, *days, (datetime(2026, 10, 4, tzinfo=UTC), _NOW - timedelta(days=10))]
 
     @parameterized.expand(
         [
