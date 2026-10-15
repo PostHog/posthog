@@ -14,6 +14,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -72,8 +73,8 @@ from products.signals.backend.scout_harness.profile.builders import (
     _recent_surveys,
     _scout_fleet,
     _signal_source_configs,
-    _surfaces,
     _top_events,
+    build_surfaces,
 )
 from products.signals.backend.scout_harness.profile.schema import ScoutFleetEntry
 from products.signals.backend.scout_harness.tools.emit import emit_eligibility, emit_eligibility_for_run
@@ -1024,7 +1025,7 @@ class TestTopEvents(BaseTest):
 class TestSurfaces(ClickhouseTestMixin, BaseTest):
     def test_every_shipped_default_runs_and_reads_a_quiet_surface_as_not_in_use(self) -> None:
         # An empty project: a backstop row (surveys) or a bad placeholder binding would read as in use.
-        surfaces = _surfaces(self.team)
+        surfaces = build_surfaces(self.team)
 
         assert set(surfaces) == set(canonical_precheck_queries())
         assert {name: (entry["source"], entry["in_use"]) for name, entry in surfaces.items()} == dict.fromkeys(
@@ -1037,7 +1038,7 @@ class TestSurfaces(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        entry = _surfaces(self.team)["signals-scout-csp-violations"]
+        entry = build_surfaces(self.team)["signals-scout-csp-violations"]
 
         assert (entry["in_use"], entry["source"], entry["row_count"]) == (True, "skill_default", 1)
         assert entry["evaluated_at"] is not None
@@ -1059,7 +1060,7 @@ class TestSurfaces(ClickhouseTestMixin, BaseTest):
                 "products.signals.backend.scout_harness.precheck.execute_hogql_query", side_effect=[response]
             ) as query,
         ):
-            surfaces = _surfaces(self.team)
+            surfaces = build_surfaces(self.team)
 
         assert surfaces["signals-scout-x"]["in_use"] is in_use
         assert (surfaces["signals-scout-x"]["source"], surfaces["signals-scout-x"]["row_count"]) == (source, row_count)
@@ -1076,7 +1077,7 @@ class TestSurfaces(ClickhouseTestMixin, BaseTest):
                 return_value=SimpleNamespace(columns=["n"], results=[[1]]),
             ),
         ):
-            surfaces = _surfaces(self.team)
+            surfaces = build_surfaces(self.team)
 
         assert list(surfaces) == ["signals-scout-x"]
 
@@ -1202,6 +1203,35 @@ class TestGetProjectProfile(BaseTest):
         build_signal_project_profile(self.team.id)
         result = get_project_profile(team_id=self.team.id, lazy_build=False)
         assert result is not None and result.stale is False
+        sources = {entry["source"] for entry in result.payload["inventory"]["surfaces"].values()}
+        assert sources and "deferred" not in sources
+
+    @parameterized.expand([("expired_row", True), ("no_row", False)])
+    def test_cache_miss_read_defers_surface_queries_to_a_background_build(
+        self, _name: str, seed_expired_row: bool
+    ) -> None:
+        cache.clear()
+        stored = {}
+        if seed_expired_row:
+            old = compute_project_profile(team=self.team)
+            SignalProjectProfile.objects.filter(id=old.profile_id).update(
+                expires_at=timezone.now() - timedelta(minutes=1)
+            )
+            stored = old.payload["inventory"]["surfaces"]
+        with (
+            patch(f"{BUILDERS}.run_precheck_query", side_effect=AssertionError("surface query on a read")),
+            patch("products.signals.backend.tasks.build_signal_project_profile.delay") as mock_delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = get_project_profile(team_id=self.team.id)
+        assert result is not None
+        surfaces = result.payload["inventory"]["surfaces"]
+        assert set(surfaces) == set(canonical_precheck_queries())
+        if seed_expired_row:
+            assert surfaces == stored
+        else:
+            assert {entry["source"] for entry in surfaces.values()} == {"deferred"}
+        mock_delay.assert_called_once_with(self.team.id)
 
     @parameterized.expand([("fresh", timedelta(minutes=30), False), ("expired", -timedelta(days=1), True)])
     def test_lazy_build_false_returns_newest_row_whatever_its_age(

@@ -84,7 +84,7 @@ logger = logging.getLogger(__name__)
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache. A redaction change bumps it too, so rows built before the
 # redaction stop being served.
-INVENTORY_SOURCE_VERSION = "v16"
+INVENTORY_SOURCE_VERSION = "v17"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -127,7 +127,7 @@ REVIEWER_CORRECTIONS_LIMIT = 20
 # most), so it needs no result cap of its own.
 SCOUT_FLEET_EMITTED_LOOKBACK_DAYS = 30
 
-# `_surfaces` binds a pre-check's `{since}` to this many days before now, and `{interval_minutes}`
+# `build_surfaces` binds a pre-check's `{since}` to this many days before now, and `{interval_minutes}`
 # to the same span. Most default queries carry their own window off `{now}` and ignore both.
 SURFACES_LOOKBACK_DAYS = 30
 # The total time the surface queries can take in one build. A surface that the budget leaves out
@@ -135,7 +135,7 @@ SURFACES_LOOKBACK_DAYS = 30
 SURFACES_TIME_BUDGET_S = 30
 
 
-def build_inventory(team: Team) -> Inventory:
+def build_inventory(team: Team, *, surfaces: dict[str, dict[str, Any]] | None = None) -> Inventory:
     """Aggregate the deterministic inventory layer for a team.
 
     Each source is read independently — a failure in one (e.g. warehouse temporarily
@@ -146,6 +146,9 @@ def build_inventory(team: Team) -> Inventory:
     Returns a validated `Inventory` (see `schema.py`) rather than a bare dict — the shape
     is a contract the scout skills read by key, so validating it on the way out keeps the
     builders and consumers from drifting apart silently.
+
+    `surfaces` replaces the `build_surfaces` call, for a caller that must not wait for the
+    surface queries.
     """
     return Inventory.model_validate(
         {
@@ -172,7 +175,7 @@ def build_inventory(team: Team) -> Inventory:
             "recent_actions": _recent_actions(team),
             "business_knowledge": _business_knowledge(team),
             "top_events": _top_events(team),
-            "surfaces": _surfaces(team),
+            "surfaces": build_surfaces(team) if surfaces is None else surfaces,
         }
     )
 
@@ -922,7 +925,7 @@ def _top_events(team: Team) -> list[dict[str, Any]] | None:
     ]
 
 
-def _surfaces(team: Team) -> dict[str, dict[str, Any]]:
+def build_surfaces(team: Team) -> dict[str, dict[str, Any]]:
     """Whether each canonical scout's surface is in use, keyed by scout name.
 
     `top_events` keeps only the top events by volume, and `products_in_use` reads onboarding, so
@@ -936,6 +939,9 @@ def _surfaces(team: Team) -> dict[str, dict[str, Any]]:
     entry is `in_use: null` when the query fails, when no member can act, or when the build runs
     out of `SURFACES_TIME_BUDGET_S`. `source` names the cause. Held-back scouts are left out, so
     the payload does not disclose them.
+
+    The queries can take up to `SURFACES_TIME_BUDGET_S`, so a synchronous read uses
+    `deferred_surfaces` and a background build calls this.
     """
     queries = canonical_precheck_queries()
     configs = {
@@ -947,6 +953,18 @@ def _surfaces(team: Team) -> dict[str, dict[str, Any]]:
     return {
         skill_name: _surface_entry(team, skill_name, queries[skill_name], configs.get(skill_name), now, deadline)
         for skill_name in sorted(queries.keys() - withheld_skills_for_team(team.id))
+    }
+
+
+def deferred_surfaces(team: Team, stored: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The `surfaces` section without the queries: the `stored` entries, and `deferred` for the rest.
+
+    A scout that the team now holds back is left out, as in `build_surfaces`.
+    """
+    unanswered: dict[str, Any] = {"in_use": None, "evaluated_at": None, "source": "deferred", "row_count": None}
+    return {
+        skill_name: stored.get(skill_name) or unanswered
+        for skill_name in sorted(canonical_precheck_queries().keys() - withheld_skills_for_team(team.id))
     }
 
 

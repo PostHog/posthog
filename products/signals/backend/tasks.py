@@ -21,6 +21,7 @@ from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, SlackIntegration
 from posthog.models.organization import BillingPeriod
 from posthog.models.scoping import with_team_scope
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
@@ -1037,15 +1038,18 @@ def enqueue_project_profile_build(team_id: int) -> None:
 )
 @with_team_scope()
 def build_signal_project_profile(team_id: int) -> None:
-    """Build the team's project profile off the request path, for a read caller that found none.
+    """Build the team's full project profile off the request path, with the surface queries.
 
-    `get_project_profile` returns a fresh row if one landed since the enqueue, and its advisory
-    lock collapses this build with a concurrent scout build.
+    A read caller that found no profile queues this, and so does a read that built a profile
+    without the surface queries. The build always writes a row, because the newest row can be
+    fresh but carry old surface entries. The dedupe window in `enqueue_project_profile_build`
+    bounds how often this runs.
     """
     # The `tools` package imports this module through `slack_delivery_queue`.
-    from products.signals.backend.scout_harness.tools.profile import get_project_profile  # noqa: PLC0415
+    from products.signals.backend.scout_harness.tools.profile import compute_project_profile  # noqa: PLC0415
 
-    get_project_profile(team_id=team_id)
+    team = Team.objects.get(id=resolve_effective_team_id(team_id))
+    compute_project_profile(team=team, force=True)
 
 
 @shared_task(
