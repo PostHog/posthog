@@ -1266,8 +1266,8 @@ class TestMintRefusalScope:
         with patch(_CREDIT_LOOKUP, return_value=None):
             assert mint_refusal(product, team_id=2, state=None, model=None, runtime="acp") is None
 
-    @pytest.mark.parametrize("product", ["workflows", "review_hog", "signals_scout"])
-    def test_pi_runs_never_mint(self, product):
+    @pytest.mark.parametrize("product", ["workflows", "review_hog", "signals_scout", "posthog_ai"])
+    def test_pi_runs_of_other_products_never_mint(self, product):
         assert mint_refusal(product, team_id=2, state=None, model=None, runtime="pi") == "pi_runtime"
 
     @pytest.mark.parametrize("product", ["posthog_ai", "workflows", "review_hog"])
@@ -1472,6 +1472,10 @@ class TestPosthogCodeSandboxMint:
         assert {entry.id for entry in model_catalog.MODELS} <= set(pin)
         assert set(SDK_IMPLICIT_MODELS) <= set(pin)
         assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini"} <= set(pin)
+
+    def test_pin_carries_the_go_spelling_of_every_cf_id(self):
+        pin = set(_PRODUCT_ALLOWED_MODELS["posthog_code"])
+        assert {entry.removeprefix("@cf/") for entry in pin if entry.startswith("@cf/")} <= pin
         assert any("/" in model for model in pin)
 
     def test_free_pin_is_the_legacy_free_tier_in_both_glm_spellings(self):
@@ -1577,6 +1581,18 @@ class TestPosthogCodeSandboxMint:
             assert mint_refusal("posthog_code", team_id=team.id, state=None, model=None, runtime="acp") == (
                 "not_rolled_out"
             )
+
+    @pytest.mark.django_db
+    def test_a_rolled_out_pi_run_mints(self):
+        team = self._team(paid=True)
+        with (
+            patch(
+                "products.tasks.backend.logic.services.desktop_gateway_token.feature_enabled_or_false",
+                return_value=True,
+            ),
+            patch(_CREDIT_LOOKUP, return_value=None),
+        ):
+            assert mint_refusal("posthog_code", team_id=team.id, state=None, model=None, runtime="pi") is None
 
     @pytest.mark.django_db
     def test_flag_is_evaluated_for_the_team_org(self):

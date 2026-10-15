@@ -25,7 +25,6 @@ from products.slack_app.backend.facade.run_preferences import (
     ModelRouterOption,
     model_router_options,
 )
-from products.slack_app.backend.feature_flags import is_slack_app_model_router_enabled
 from products.slack_app.backend.services.slack_settings import resolve_auto_model_choice
 
 logger = structlog.get_logger(__name__)
@@ -145,7 +144,7 @@ def classify_slack_app_model_router_activity(input: SlackAppModelRouterInput) ->
         integration_id=input.slack_team_id,
     )
     user = User.objects.filter(id=input.user_id).first()
-    if user is None or not is_slack_app_model_router_enabled(integration, distinct_id=user.distinct_id):
+    if user is None:
         return override
 
     trace_id = _thread_trace_id(input.slack_team_id, input.thread_ts)

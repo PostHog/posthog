@@ -15,7 +15,13 @@ import type {
 } from 'products/metrics/frontend/generated/api.schemas'
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
-import { formatSeriesNamesParts, seriesColor } from './metricsSeries'
+import {
+    type SeriesLabel,
+    distinctSeriesLabels,
+    formatSeriesNames,
+    seriesColor,
+    seriesNamePrefixes,
+} from './metricsSeries'
 import { type MetricsViewerSeries, metricsViewerLogic, resolveDate } from './metricsViewerLogic'
 
 // The side panel next to the chart: per-series totals, or the raw emissions
@@ -27,10 +33,14 @@ export const SAMPLES_LIMIT = 50
 
 // One row of the Series tab: a series with its headline numbers.
 export interface MetricsSeriesRow {
+    /** Full name with every label, also the row key. */
     name: string
-    /** One `key=value` label per entry, for the expanded row. */
-    nameParts: string[]
-    hasLabels: boolean
+    /** Clause alias ("a · "), set when the chart plots more than one clause. */
+    prefix: string
+    /** Labels that differ between series. */
+    labels: SeriesLabel[]
+    /** Shown when no label differs: the clause alias or the metric name. */
+    fallbackName: string
     color: string
     latest: number
     total: number
@@ -257,15 +267,18 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
         seriesRows: [
             (s) => [s.queryResults, s.metricName],
             (queryResults: MetricsViewerSeries[], metricName: string): MetricsSeriesRow[] => {
-                const nameParts = formatSeriesNamesParts(queryResults, metricName)
+                const names = formatSeriesNames(queryResults, metricName)
+                const prefixes = seriesNamePrefixes(queryResults)
+                const distinctLabels = distinctSeriesLabels(queryResults)
                 return queryResults.map((series, index) => {
                     // Null points are gaps (unrepresentable buckets) — skip them
                     // rather than counting them as zero.
                     const values = series.points.map((point) => point.value).filter((value) => value !== null)
                     return {
-                        name: nameParts[index].join(', '),
-                        nameParts: nameParts[index],
-                        hasLabels: Object.keys(series.labels ?? {}).length > 0,
+                        name: names[index],
+                        prefix: prefixes[index],
+                        labels: distinctLabels[index],
+                        fallbackName: (prefixes[index] && series.clause) || series.metric_name || metricName,
                         color: seriesColor(index),
                         latest: values.length ? values[values.length - 1] : 0,
                         total: values.reduce((sum, value) => sum + value, 0),
