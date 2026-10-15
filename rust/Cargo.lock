@@ -10937,12 +10937,15 @@ name = "replay-recorder-v4"
 version = "0.1.0"
 dependencies = [
  "arc-swap",
+ "arrow-array",
+ "arrow-schema",
  "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
  "aws-sdk-kms",
  "aws-sdk-s3",
  "axum 0.7.9",
+ "bytes",
  "chrono",
  "common-alloc",
  "common-database",
@@ -10951,6 +10954,7 @@ dependencies = [
  "envconfig",
  "lifecycle",
  "metrics",
+ "parquet",
  "posthog-replay-anonymizer",
  "rand 0.8.5",
  "rdkafka",
