@@ -1724,7 +1724,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def validate_session_recording_linked_flag(self, value: Any) -> dict | None:
         project_id = self.instance.project_id if self.instance is not None else self.context.get("project_id")
         return validate_team_session_recording_linked_flag(
-            value, project_id=project_id, user_access_control=self.user_access_control
+            value,
+            stored=self.instance.session_recording_linked_flag if self.instance is not None else None,
+            project_id=project_id,
+            user_access_control=self.user_access_control,
         )
 
     @staticmethod
@@ -3333,10 +3336,11 @@ LOCKED_CONVERSATIONS_COLUMNS = ("conversations_settings", "conversations_enabled
 
 
 def validate_team_session_recording_linked_flag(
-    value: Any, *, project_id: int | None, user_access_control: UserAccessControl | None
+    value: Any, *, stored: Any, project_id: int | None, user_access_control: UserAccessControl | None
 ) -> dict | None:
     """Shared by the team and project serializers, because both endpoints can PATCH the link.
 
+    `stored` is the link the team holds before this request.
     `project_id` is None when the request creates the project, so it has no flags to link yet.
     """
     if value is None:
@@ -3367,6 +3371,17 @@ def validate_team_session_recording_linked_flag(
     except ValueError:
         raise exceptions.ValidationError("Must provide an integer 'id'.")
 
+    # A client that sends the whole team back also sends the link it did not change. A 400 on that
+    # link would reject the other edits in the same request. Accepting it reveals nothing, because a
+    # GET of the team returns the stored link. The key rewrite leaves a flag that the user cannot view
+    # as sent, so a match on the id alone would let a request store any key for that flag.
+    # A row saved before ids were normalized can hold a string id, so the raw value can match too.
+    # A stored bool id never matches, because True == 1 in Python.
+    normalized = {**value, "id": flag_id}
+    stored_id = stored.get("id") if isinstance(stored, dict) else None
+    if not isinstance(stored_id, bool) and stored in (value, normalized):
+        return normalized
+
     # The SDKs treat a flag they cannot resolve as "do not record", so a link to a missing,
     # deleted, or other-project flag turns replay off for the team without an error.
     # A flag that the user cannot view gets the same error, so the error does not reveal that it exists.
@@ -3374,7 +3389,7 @@ def validate_team_session_recording_linked_flag(
         raise exceptions.ValidationError(
             f"Feature flag {flag_id} doesn't exist in this project or has been deleted. Choose a different flag."
         )
-    return {**value, "id": flag_id}
+    return normalized
 
 
 def merge_conversations_settings_locked(

@@ -1106,6 +1106,7 @@ class ProjectBackwardCompatSerializer(
     def validate_session_recording_linked_flag(self, value: Any) -> dict | None:
         return validate_team_session_recording_linked_flag(
             value,
+            stored=self.instance.passthrough_team.session_recording_linked_flag if self.instance is not None else None,
             project_id=self.instance.id if self.instance is not None else None,
             user_access_control=self.user_access_control,
         )

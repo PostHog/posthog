@@ -1244,14 +1244,58 @@ def team_api_test_factory():
             if case == "access_denied":
                 self._deny_flag_access(flag)
 
-            response = self._patch_linked_flag_config(
-                {"id": flag_id, "key": "gate"}, expected_status=status.HTTP_400_BAD_REQUEST
+            response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_linked_flag": {"id": flag_id, "key": "gate"}}
             )
 
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert response.json()["detail"] == (
                 f"Feature flag {flag_id} doesn't exist in this project or has been deleted. Choose a different flag."
             )
             self._assert_linked_flag_config(None)
+
+        @parameterized.expand(
+            [
+                ["unchanged_soft_deleted", "soft_deleted", int, {}, status.HTTP_200_OK],
+                ["unchanged_string_id_soft_deleted", "soft_deleted", str, {}, status.HTTP_200_OK],
+                ["unchanged_access_denied", "access_denied", int, {}, status.HTTP_200_OK],
+                ["changed_key_access_denied", "access_denied", int, {"key": "other-key"}, status.HTTP_400_BAD_REQUEST],
+                ["added_variant_access_denied", "access_denied", int, {"variant": "x"}, status.HTTP_400_BAD_REQUEST],
+            ]
+        )
+        def test_accepts_only_an_unchanged_link_to_a_flag_that_cannot_gate_recording(
+            self,
+            _name: str,
+            case: str,
+            stored_id: Callable[[int], Any],
+            sent_changes: dict[str, str],
+            expected_status: int,
+        ) -> None:
+            flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate")
+            stored_link = {"id": stored_id(flag.id), "key": "gate"}
+            # Written with the ORM, because the API stores every id as an int.
+            Team.objects.filter(pk=self.team.pk).update(session_recording_linked_flag=stored_link)
+            if case == "soft_deleted":
+                flag.deleted = True
+                flag.save()
+            else:
+                self._deny_flag_access(flag)
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "session_recording_linked_flag": {**stored_link, **sent_changes},
+                    "session_recording_minimum_duration_milliseconds": 1000,
+                },
+            )
+
+            assert response.status_code == expected_status, response.json()
+            accepted = expected_status == status.HTTP_200_OK
+            team = self.client.get("/api/environments/@current/").json()
+            assert team["session_recording_linked_flag"] == (
+                {"id": flag.id, "key": "gate"} if accepted else stored_link
+            )
+            assert team["session_recording_minimum_duration_milliseconds"] == (1000 if accepted else None)
 
         def test_can_set_and_unset_session_recording_network_payload_capture_config(self) -> None:
             # can set just one
