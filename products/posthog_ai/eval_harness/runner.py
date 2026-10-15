@@ -42,8 +42,6 @@ __all__ = ["run_eval_case"]
 TEST_TITLE_RE = re.compile(r"\b(pytest|tests?)\b")
 LINT_TITLE_RE = re.compile(r"\b(ruff|lint)\b")
 
-# The origin selects the agent's LLM gateway product. The default `user_created` origin maps to
-# `posthog_code`, which the local Python gateway no longer serves, so every model call would 403.
 EVAL_ORIGIN_PRODUCT = TaskOriginProduct.POSTHOG_AI
 
 WORKFLOW_COMPLETION_GRACE_SECONDS = 60
