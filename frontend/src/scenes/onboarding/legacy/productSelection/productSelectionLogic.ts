@@ -10,6 +10,7 @@ import {
     UseCaseOption,
     getRecommendedProducts,
 } from 'scenes/onboarding/legacy/productRecommendations'
+import { reportOnboardingStarted } from 'scenes/onboarding/onboardingUsage'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -76,11 +77,6 @@ export interface productSelectionLogicActions {
         productKey: string
         recommendationSource: string
         selected: boolean
-    } // eventUsageLogic
-    reportOnboardingStarted: (
-        properties?: import('lib/utils/eventUsageLogic').OnboardingEventProperties | undefined
-    ) => {
-        properties: import('lib/utils/eventUsageLogic').OnboardingEventProperties | undefined
     } // eventUsageLogic
     setOnCompleteOnboardingRedirectUrl: (url: string | null) => {
         url: string | null
@@ -159,7 +155,7 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             onboardingLogic,
             ['setOnCompleteOnboardingRedirectUrl'],
             eventUsageLogic,
-            ['reportOnboardingStarted', 'reportOnboardingProductToggled'],
+            ['reportOnboardingProductToggled'],
         ],
         values: [teamLogic, ['currentTeam']],
     })),
@@ -451,6 +447,6 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             }
         }
 
-        actions.reportOnboardingStarted()
+        reportOnboardingStarted()
     }),
 ])

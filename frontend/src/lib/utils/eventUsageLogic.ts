@@ -11,6 +11,7 @@ import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import type { SelfDrivingOnboardingStepId } from 'scenes/onboarding/onboardingEventUsageLogic'
+import { LEGACY_ONBOARDING_EVENT_PROPS, type OnboardingEventProperties } from 'scenes/onboarding/onboardingUsage'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -438,26 +439,6 @@ export type SDKSetupInstructionsSurface =
     | 'settings_sdk_setup'
     | 'settings_reverse_proxy_setup'
     | 'onboarding_ai_observability'
-
-// GROW-89: both onboarding flows fire the same funnel event names during the transition, told apart
-// by `version` (1 = legacy, 2 = context-first redesign) and `flow_variant`. Stamping properties
-// instead of renaming keeps every existing dashboard and alert on the v1 events working. The
-// redesign's v2 events live in `scenes/onboarding/onboardingEventUsageLogic`.
-// `entry_point` names the surface the flow starts on. It rides along with every funnel event, not
-// only `started`, so a breakdown by entry point stays populated for the whole funnel.
-export type OnboardingEntryPoint = 'product_selection' | 'welcome'
-
-export type OnboardingEventProperties = {
-    entry_point: OnboardingEntryPoint
-    flow_variant: 'context_first' | 'legacy'
-    version: 1 | 2
-}
-
-const LEGACY_ONBOARDING_EVENT_PROPS: OnboardingEventProperties = {
-    version: 1,
-    flow_variant: 'legacy',
-    entry_point: 'product_selection',
-}
 
 function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
     const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
@@ -1445,13 +1426,6 @@ export interface eventUsageLogicActions {
         itemType: string | null | undefined
         section: string
     }
-    reportOnboardingCompleted: (
-        productKey: string,
-        properties?: OnboardingEventProperties
-    ) => {
-        productKey: string
-        properties: OnboardingEventProperties | undefined
-    }
     reportOnboardingProductToggled: (
         productKey: string,
         selected: boolean,
@@ -1460,9 +1434,6 @@ export interface eventUsageLogicActions {
         productKey: string
         recommendationSource: string
         selected: boolean
-    }
-    reportOnboardingStarted: (properties?: OnboardingEventProperties) => {
-        properties: OnboardingEventProperties | undefined
     }
     reportOnboardingStepCompleted: (
         stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
@@ -2078,9 +2049,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportProductTourListViewed: true,
         reportProductUnsubscribed: (product: string) => ({ product }),
-        reportOnboardingStarted: (properties?: OnboardingEventProperties) => ({
-            properties,
-        }),
         reportOnboardingStepCompleted: (
             stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
             productKey?: string,
@@ -2096,10 +2064,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             properties?: OnboardingEventProperties
         ) => ({
             stepKey,
-            productKey,
-            properties,
-        }),
-        reportOnboardingCompleted: (productKey: string, properties?: OnboardingEventProperties) => ({
             productKey,
             properties,
         }),
@@ -2857,12 +2821,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         // onboarding
-        reportOnboardingStarted: ({ properties }) => {
-            posthog.capture('onboarding started', {
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-                ...properties,
-            })
-        },
         reportOnboardingStepCompleted: ({ stepKey, productKey, properties }) => {
             posthog.capture('onboarding step completed', {
                 step_key: stepKey,
@@ -2877,13 +2835,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('onboarding step skipped', {
                 step_key: stepKey,
                 ...(productKey ? { product_key: productKey } : {}),
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-                ...properties,
-            })
-        },
-        reportOnboardingCompleted: ({ productKey, properties }) => {
-            posthog.capture('onboarding completed', {
-                product_key: productKey,
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
                 ...properties,
             })
