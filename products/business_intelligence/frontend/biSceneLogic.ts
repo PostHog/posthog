@@ -58,6 +58,7 @@ import {
 import type { BIQueryBuildResult } from './biEditorTypes'
 import { mergeBITableSettings } from './biMeasureSettings'
 import { applyBIDateRange, mergeBIQuerySource } from './biQueryFilters'
+import { getBIScatterAxisOptions } from './biScatter'
 
 export interface BISceneLogicProps {
     tabId: string
@@ -479,7 +480,10 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                     visualization.chartSettings,
                     generatedQuery?.node.chartSettings,
                     chartSettingsDefaults ?? buildBIQuery(visualization.config)?.node.chartSettings,
+                    config.chartType === ChartDisplayType.ScatterPlot,
                     config.chartType === ChartDisplayType.ScatterPlot
+                        ? getBIScatterAxisOptions(config).map(({ value }) => value)
+                        : []
                 ),
                 tableSettings: mergeBITableSettings(
                     visualization.tableSettings,

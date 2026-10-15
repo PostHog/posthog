@@ -4438,6 +4438,7 @@ export namespace Schemas {
         tags: QueryLogTags | null;
         version: number | null;
     }>;
+    export type Alias = { label: string; value?: (string | null) | undefined };
     /**
      * * `first_touch` - First Touch
      * * `last_touch` - Last Touch
@@ -4620,6 +4621,7 @@ export namespace Schemas {
         groups: Array<BICategoryGroup>;
         kind?: string | undefined;
         other: string;
+        preserveUngrouped?: (boolean | null) | undefined;
     };
     export type BILocalFieldDefinition3 = {
         expression: string;
@@ -4685,6 +4687,7 @@ export namespace Schemas {
         customExpression?: (string | null) | undefined;
         enabled?: (boolean | null) | undefined;
         field: BIField;
+        label?: (string | null) | undefined;
         operator: BIFilterOperator;
         value: string;
         valueTo?: (string | null) | undefined;
@@ -4698,7 +4701,14 @@ export namespace Schemas {
         levels: Array<BIField>;
         name: string;
     };
+    export type HierarchyDrillPathItem = {
+        filterIds: Array<string>;
+        hierarchyId: string;
+        nextField: BIField;
+        previousField: BIField;
+    };
     export type BIQueryLimit = 100 | 1000 | 10000 | 50000;
+    export type MemberAliase = { aliases: Array<Alias>; field: BIField };
     export type MissingDates = "gap" | "zero";
     export type Operator2 =
         | "equals"
@@ -4713,6 +4723,7 @@ export namespace Schemas {
     export type BIResultFilter = {
         enabled?: (boolean | null) | undefined;
         id: string;
+        label?: (string | null) | undefined;
         measureIndex: number;
         operator: Operator2;
         value: string;
@@ -4781,8 +4792,10 @@ export namespace Schemas {
         dateRange?: (DateRange | null) | undefined;
         filters: Array<BIFilter>;
         hierarchies?: (Array<BIHierarchy> | null) | undefined;
+        hierarchyDrillPath?: (Array<HierarchyDrillPathItem> | null) | undefined;
         limit: BIQueryLimit;
         localFields?: (Array<BIField> | null) | undefined;
+        memberAliases?: (Array<MemberAliase> | null) | undefined;
         missingDates?: (MissingDates | null) | undefined;
         resultFilterGroup?: (BIConditionGroup | null) | undefined;
         resultFilters?: (Array<BIResultFilter> | null) | undefined;

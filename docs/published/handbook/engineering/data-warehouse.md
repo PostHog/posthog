@@ -58,7 +58,7 @@ For older saves without worksheet configuration, discarding query edits preserve
 
 SQL query-scan advisories are hidden in Business intelligence. Query errors and warnings about stale sources or restricted data remain visible.
 
-Saving a worksheet preserves its connection, table, shelves, measures, filters, chart type, limit, sort order, and visualization settings in a `BIVisualizationNode`. The wrapper contains the worksheet configuration and a plain `HogQLQuery` source. Saving keeps the worksheet in the BI editor; dashboard tiles can still use the normal insight view. **Edit** reopens Business intelligence when the feature is enabled, including from a dashboard. Leaving a worksheet with unsaved edits asks for confirmation, including when returning to **Worksheets**. **Discard changes** restores the saved worksheet. **Save as SQL view** exports only the generated SQL to a warehouse view; save a worksheet to retain editable worksheet state.
+Saving a worksheet preserves its connection, table, shelves, measures, filters, chart type, limit, sort order, and visualization settings in a `BIVisualizationNode`. The wrapper contains the worksheet configuration and a plain `HogQLQuery` source. Member aliases, filter labels, ungrouped member handling, and hierarchy drill paths are optional saved definitions; existing worksheets keep their defaults. Saving keeps the worksheet in the BI editor; dashboard tiles can still use the normal insight view. **Edit** reopens Business intelligence when the feature is enabled, including from a dashboard. Leaving a worksheet with unsaved edits asks for confirmation, including when returning to **Worksheets**. **Discard changes** restores the saved worksheet. **Save as SQL view** exports only the generated SQL to a warehouse view; save a worksheet to retain editable worksheet state.
 
 Older saves containing only SQL still open in the SQL editor. Their original shelves cannot be reconstructed without the worksheet configuration from a draft or shared URL.
 
@@ -313,6 +313,8 @@ You'll need to install MS SQL drivers for the PostHog app to connect to a MS SQL
 ```text
 symbol not found in flat namespace '_bcp_batch'
 ```
+
+When groups preserve ungrouped values, named groups and original members retain distinct identities. An ungrouped member whose label matches a group is shown with “(ungrouped)”. Null member aliases also survive saves through MCP. Optional worksheet definitions restore as unset when omitted or null. Saved numeric scatter dimensions remain available as axes even when measure defaults are preferred. Scatter selections require every detail dimension to be representable as a filter; unsupported values cannot broaden a “Keep only” selection.
 
 Repeated dimension pills use distinct result columns so their chart and table bindings stay unambiguous. Generated dimension aliases avoid source identifiers used by measures and filters. Expressions containing percent signs or matching reserved names use supported generated aliases while keeping their original calculation.
 

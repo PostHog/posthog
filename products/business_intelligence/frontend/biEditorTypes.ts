@@ -125,7 +125,8 @@ export function mergeBIChartSettings(
     current: ChartSettings | undefined,
     generated: ChartSettings | undefined,
     previousDefaults?: ChartSettings,
-    preserveNumericAxes = false
+    preserveNumericAxes = false,
+    numericColumns: string[] = []
 ): ChartSettings | undefined {
     if (!generated) {
         if (current?.seriesBreakdownColumn) {
@@ -135,7 +136,11 @@ export function mergeBIChartSettings(
         return current
     }
     if (preserveNumericAxes && current?.xAxis?.column) {
-        const axes = [generated.xAxis, ...(generated.yAxis ?? [])].filter((axis) => axis?.column)
+        const axes = [
+            generated.xAxis,
+            ...(generated.yAxis ?? []),
+            ...numericColumns.map((column) => ({ column, settings: undefined })),
+        ].filter((axis) => axis?.column)
         const selectedX = axes.find((axis) => axis?.column === current.xAxis?.column)
         const selectedY = current.yAxis?.filter(
             (axis) => axis.column !== selectedX?.column && axes.some((available) => available?.column === axis.column)
@@ -229,7 +234,8 @@ export function normalizeBIConfig(config: BIConfig): BIConfig {
     let normalized = normalizeBIDates(config)
     if (
         normalized.colorBy &&
-        (normalized.rows.length + normalized.columns.length !== 2 ||
+        ((normalized.chartType !== ChartDisplayType.ScatterPlot &&
+            normalized.rows.length + normalized.columns.length !== 2) ||
             ![...normalized.rows, ...normalized.columns].some((field) => field.id === normalized.colorBy))
     ) {
         normalized = { ...normalized, colorBy: undefined }
@@ -620,7 +626,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
 
     const candidate = decodedConfig as Partial<BIConfig>
     if (
-        candidate.hierarchies !== undefined &&
+        candidate.hierarchies != null &&
         (!Array.isArray(candidate.hierarchies) ||
             candidate.hierarchies.some(
                 (hierarchy) =>
@@ -636,8 +642,43 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         return null
     }
     if (
-        candidate.localFields !== undefined &&
+        candidate.localFields != null &&
         (!Array.isArray(candidate.localFields) || candidate.localFields.some((field) => !parseBIFieldValue(field)))
+    ) {
+        return null
+    }
+    if (
+        candidate.memberAliases != null &&
+        (!Array.isArray(candidate.memberAliases) ||
+            candidate.memberAliases.some(
+                (entry) =>
+                    !entry ||
+                    !parseBIFieldValue(entry.field) ||
+                    !Array.isArray(entry.aliases) ||
+                    entry.aliases.some(
+                        (alias) =>
+                            !alias ||
+                            (alias.value !== null && typeof alias.value !== 'string') ||
+                            typeof alias.label !== 'string' ||
+                            !alias.label.trim()
+                    ) ||
+                    new Set(entry.aliases.map((alias) => alias.value)).size !== entry.aliases.length
+            ))
+    ) {
+        return null
+    }
+    if (
+        candidate.hierarchyDrillPath != null &&
+        (!Array.isArray(candidate.hierarchyDrillPath) ||
+            candidate.hierarchyDrillPath.some(
+                (step) =>
+                    !step ||
+                    typeof step.hierarchyId !== 'string' ||
+                    !parseBIFieldValue(step.previousField) ||
+                    !parseBIFieldValue(step.nextField) ||
+                    !Array.isArray(step.filterIds) ||
+                    step.filterIds.some((id) => typeof id !== 'string')
+            ))
     ) {
         return null
     }
@@ -722,6 +763,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
                   !field ||
                   !BI_FILTER_OPERATORS.has(filterCandidate.operator as BIFilterOperator) ||
                   typeof filterCandidate.value !== 'string' ||
+                  (filterCandidate.label !== undefined && typeof filterCandidate.label !== 'string') ||
                   (filterCandidate.values !== undefined &&
                       (!Array.isArray(filterCandidate.values) ||
                           !filterCandidate.values.every((value) => typeof value === 'string'))) ||
@@ -734,6 +776,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
               }
               return {
                   field,
+                  label: filterCandidate.label?.trim() || undefined,
                   operator: filterCandidate.operator as BIFilterOperator,
                   value: filterCandidate.value,
                   customExpression: filterCandidate.customExpression,
@@ -780,6 +823,8 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         ...(candidate.colorBy === null || typeof candidate.colorBy === 'string' ? { colorBy: candidate.colorBy } : {}),
         ...(candidate.localFields ? { localFields: candidate.localFields } : {}),
         ...(candidate.hierarchies ? { hierarchies: candidate.hierarchies } : {}),
+        ...(candidate.memberAliases ? { memberAliases: candidate.memberAliases } : {}),
+        ...(candidate.hierarchyDrillPath ? { hierarchyDrillPath: candidate.hierarchyDrillPath } : {}),
         ...(candidate.comparisonPeriod ? { comparisonPeriod: candidate.comparisonPeriod } : {}),
         ...(candidate.rowFilterGroup ? { rowFilterGroup: candidate.rowFilterGroup } : {}),
         ...(candidate.resultFilterGroup ? { resultFilterGroup: candidate.resultFilterGroup } : {}),
@@ -1035,6 +1080,10 @@ function filterExpression(filter: BIFilter): string | null {
     }
 }
 
+export function isBIFilterActive(filter: BIFilter): boolean {
+    return !!filterExpression(filter)
+}
+
 export function buildBIRowFilterExpressions(config: BIConfig, excludedIndex?: number): string[] {
     const filters = config.filters.filter(
         (filter, index) =>
@@ -1055,7 +1104,7 @@ export function buildBIRowFilterExpressions(config: BIConfig, excludedIndex?: nu
     return expression ? [expression] : []
 }
 
-function resultAsRowFilter(config: BIConfig, filter: BIResultFilter): BIFilter | null {
+export function resultAsRowFilter(config: BIConfig, filter: BIResultFilter): BIFilter | null {
     const value = config.values[filter.measureIndex]
     const alias = config.values.length
         ? computeBIQueryParts(config).configuredValues.find((part) => part.value === value)?.alias
@@ -1251,7 +1300,7 @@ export function getBIResultMeasureColumns(config: BIConfig): { column: string; v
         : [{ column: 'count' }]
 }
 
-export function buildBIRowsQuery(config: BIConfig, previous = false): HogQLQuery | null {
+export function buildBIRowsQuery(config: BIConfig, previous = false, limit = 1000): HogQLQuery | null {
     if (!config.source || config.filters.some(getBIFilterValidationError)) {
         return null
     }
@@ -1264,7 +1313,7 @@ export function buildBIRowsQuery(config: BIConfig, previous = false): HogQLQuery
         kind: NodeKind.HogQLQuery,
         connectionId: config.source.connectionId,
         filters: getBIQueryFilters(config),
-        query: `SELECT * FROM ${escapePropertyAsHogQLIdentifier(config.source.table)} WHERE ${conditions.map((condition) => `(${condition})`).join(' AND ')} LIMIT 1000`,
+        query: `SELECT * FROM ${escapePropertyAsHogQLIdentifier(config.source.table)} WHERE ${conditions.map((condition) => `(${condition})`).join(' AND ')} LIMIT ${limit}`,
     }
 }
 
@@ -1676,9 +1725,11 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
 
     if (config.chartType === ChartDisplayType.ScatterPlot) {
         const numericColumns = [
-            ...getBIResultDimensions(config)
-                .filter(({ field }) => isNumericBIResultField(field))
-                .map(({ column, field }) => ({ column, label: getBIFieldPillLabel(field) })),
+            ...(configuredValues.length < 2
+                ? getBIResultDimensions(config)
+                      .filter(({ field }) => isNumericBIResultField(field))
+                      .map(({ column, field }) => ({ column, label: getBIFieldPillLabel(field) }))
+                : []),
             ...(configuredValues.length
                 ? configuredValues.map(({ alias, value }) => ({ column: alias, label: getBIValuePillLabel(value) }))
                 : [{ column: 'count', label: 'Count of rows' }]),
