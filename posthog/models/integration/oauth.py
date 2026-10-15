@@ -344,6 +344,7 @@ class OauthIntegration:
         "pinterest-ads",
         "stripe",
         "resend",
+        "xero",
         "youtube-analytics",
     ]
     integration: model.Integration
@@ -571,6 +572,24 @@ class OauthIntegration:
                 client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
                 scope="https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
+                name_path="email",
+            )
+        elif kind == "xero":
+            if not settings.XERO_APP_CLIENT_ID or not settings.XERO_APP_CLIENT_SECRET:
+                raise NotImplementedError("Xero app not configured")
+
+            # Xero apps registered after 2 March 2026 can only request the granular accounting scopes.
+            return OauthConfig(
+                authorize_url="https://login.xero.com/identity/connect/authorize",
+                token_url="https://identity.xero.com/connect/token",
+                client_id=settings.XERO_APP_CLIENT_ID,
+                client_secret=settings.XERO_APP_CLIENT_SECRET,
+                scope=(
+                    "offline_access openid profile email accounting.invoices.read accounting.payments.read "
+                    "accounting.banktransactions.read accounting.manualjournals.read accounting.contacts.read "
+                    "accounting.settings.read"
+                ),
+                id_path="xero_userid",
                 name_path="email",
             )
         elif kind == "youtube-analytics":
@@ -1013,6 +1032,18 @@ class OauthIntegration:
                 },
                 timeout=10,
             )
+        elif kind == "xero":
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "code": params["code"],
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "grant_type": "authorization_code",
+                },
+                timeout=10,
+                allow_redirects=False,
+            )
         elif kind == "tiktok-ads":
             # TikTok Ads uses JSON request body instead of form data and maps 'code' to 'auth_code'
             res = requests.post(
@@ -1256,6 +1287,17 @@ class OauthIntegration:
             config["apple_ads_org_ids"] = org_ids
             grant_token = config.get("refresh_token") or config["access_token"]
             integration_id = f"grant:{hashlib.sha256(grant_token.encode()).hexdigest()}"
+
+        # One Xero grant reaches every organisation the user connected, so it is keyed by the user.
+        if kind == "xero" and not integration_id:
+            id_token = config.get("id_token")
+            jwt_data = common._decode_jwt_payload(id_token) if id_token else None
+            if jwt_data and jwt_data.get("xero_userid"):
+                config["xero_userid"] = jwt_data["xero_userid"]
+                config["email"] = jwt_data.get("email") or jwt_data["xero_userid"]
+                integration_id = jwt_data["xero_userid"]
+            else:
+                logger.error("Xero OAuth response has no usable id_token", config_keys=list(config.keys()))
 
         # LinkedIn id_token is a JWT, extract user ID and email from it
         # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors
@@ -1504,6 +1546,14 @@ class OauthIntegration:
                 auth=HTTPBasicAuth(client_id, client_secret),
                 data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
                 timeout=10,
+            )
+        elif kind == "xero":
+            return requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(client_id, client_secret),
+                data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                timeout=10,
+                allow_redirects=False,
             )
         elif kind == "tiktok-ads":
             # Refresh against the Business API app we authorized against, using its app_id/secret and

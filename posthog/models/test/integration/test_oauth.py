@@ -1821,3 +1821,51 @@ class TestAppleAdsIntegrationModel(BaseTest):
         ]
         assert integration.sensitive_config["access_token"] == "at_2"
         assert integration.errors == ""
+
+
+@override_settings(XERO_APP_CLIENT_ID="xero-client-id", XERO_APP_CLIENT_SECRET="xero-client-secret")
+class TestXeroIntegrationModel(BaseTest):
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_token_exchange_uses_basic_auth_and_names_the_user_from_the_id_token(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "at_1",
+            "refresh_token": "rt_1",
+            "expires_in": 1800,
+            "token_type": "Bearer",
+            "id_token": _make_resend_jwt({"xero_userid": "user-123", "email": "books@example.com"}),
+        }
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "xero", self.team.id, self.user, {"code": "code", "state": "token=state_token"}
+        )
+
+        call = mock_post.call_args
+        assert call.args[0] == "https://identity.xero.com/connect/token"
+        assert (call.kwargs["auth"].username, call.kwargs["auth"].password) == ("xero-client-id", "xero-client-secret")
+        assert "client_secret" not in call.kwargs["data"]
+        assert call.kwargs["allow_redirects"] is False
+        assert integration.integration_id == "user-123"
+        assert integration.config["email"] == "books@example.com"
+        assert integration.sensitive_config["refresh_token"] == "rt_1"
+
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_refresh_uses_basic_auth_and_stores_the_rotated_refresh_token(self, mock_post, _mock_reload):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "at_2", "refresh_token": "rt_2", "expires_in": 1800}
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="xero",
+            integration_id="user-123",
+            config={"expires_in": 1800, "refreshed_at": int(time.time()) - 3600},
+            sensitive_config={"refresh_token": "rt_1", "access_token": "at_1"},
+        )
+
+        OauthIntegration(integration).refresh_access_token()
+
+        call = mock_post.call_args
+        assert call.kwargs["data"] == {"refresh_token": "rt_1", "grant_type": "refresh_token"}
+        assert (call.kwargs["auth"].username, call.kwargs["auth"].password) == ("xero-client-id", "xero-client-secret")
+        stored = Integration.objects.get(id=integration.id)
+        assert (stored.sensitive_config["access_token"], stored.sensitive_config["refresh_token"]) == ("at_2", "rt_2")
