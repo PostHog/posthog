@@ -15,6 +15,7 @@ from products.alerts.backend.facade.destinations import (
     classify_alert_destinations,
     unbound_alert_destinations,
 )
+from products.alerts.backend.logic.destination_bucket_report import bucketed_destinations
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 
@@ -315,6 +316,31 @@ class TestDestinationEligibility(APIBaseTest):
             untyped_event.id,
             excluding_one_alert.id,
         )
+
+    def test_the_report_buckets_an_unbound_function_by_its_content_once_per_team(self) -> None:
+        other_alert = "01936a2e-0000-7000-8000-0000000000dd"
+        bound = self._function("template-slack", SLACK_INPUTS)
+        self._function("template-slack", SLACK_INPUTS, alert_id=other_alert)
+        team_wide = self._function("template-slack", SLACK_INPUTS, alert_id=None)
+        self._edited(team_wide, hog="fetch('https://hooks.example.com/hook')")
+        excluding_one_alert = self._function("template-slack", SLACK_INPUTS)
+        HogFunction.objects.filter(pk=excluding_one_alert.pk).update(
+            filters={
+                **(excluding_one_alert.filters or {}),
+                "properties": [{"key": "alert_id", "value": ALERT_ID, "operator": "is_not", "type": "event"}],
+            }
+        )
+
+        report = list(
+            bucketed_destinations([(self.team.id, ALERT_ID), (self.team.id, other_alert)], allowed_event_ids=[EVENT])
+        )
+
+        assert [(d.alert_id, d.eligibility.hog_function_id, bucket_for(d.eligibility)) for d in report[:3]] == [
+            (None, team_wide.id, DestinationBucket.CODE),
+            (None, excluding_one_alert.id, DestinationBucket.STOCK),
+            (ALERT_ID, bound.id, DestinationBucket.STOCK),
+        ]
+        assert [d.alert_id for d in report] == [None, None, ALERT_ID, other_alert]
 
 
 class TestBucketFor(SimpleTestCase):
