@@ -348,6 +348,7 @@ export namespace Schemas {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -469,6 +470,7 @@ export namespace Schemas {
       Heatmap: 'heatmap',
       HogFlow: 'hog_flow',
       HogFunction: 'hog_function',
+      Inbox: 'inbox',
       IngestionWarning: 'ingestion_warning',
       Insight: 'insight',
       InsightVariable: 'insight_variable',
@@ -590,6 +592,7 @@ export namespace Schemas {
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
        * * `hog_function` - hog_function
+       * * `inbox` - inbox
        * * `ingestion_warning` - ingestion_warning
        * * `insight` - insight
        * * `insight_variable` - insight_variable
@@ -834,6 +837,7 @@ export namespace Schemas {
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
        * * `hog_function` - hog_function
+       * * `inbox` - inbox
        * * `ingestion_warning` - ingestion_warning
        * * `insight` - insight
        * * `insight_variable` - insight_variable
@@ -1241,6 +1245,7 @@ export namespace Schemas {
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
        * * `hog_function` - hog_function
+       * * `inbox` - inbox
        * * `ingestion_warning` - ingestion_warning
        * * `insight` - insight
        * * `insight_variable` - insight_variable
@@ -66464,6 +66469,7 @@ export namespace Schemas {
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
        * * `hog_function` - hog_function
+       * * `inbox` - inbox
        * * `ingestion_warning` - ingestion_warning
        * * `insight` - insight
        * * `insight_variable` - insight_variable

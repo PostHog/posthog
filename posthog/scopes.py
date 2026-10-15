@@ -75,6 +75,7 @@ APIScopeObject = Literal[
     # propose without holding the scope that publishes, updates or test-sends a workflow. INTERNAL.
     "hog_flow_proposal",
     "hog_function",
+    "inbox",
     "ingestion_warning",
     "insight",
     "insight_variable",
