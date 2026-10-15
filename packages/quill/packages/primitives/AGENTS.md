@@ -91,14 +91,17 @@ For a custom menu-like list inside a Popover (when DropdownMenu's open/close sem
 | Tooltip     | Hover-only text hint; never interactive content, never essential information                                                            |
 | Toast       | Async outcome notification (`toast.success({ title })`) — fire and forget                                                               |
 
+Toast vs Callout: a toast reports an outcome and goes away; a Callout stays in the layout next to the content it is about.
+
 ### Status and labels
 
-| Component | Use when                                                                   |
-| --------- | -------------------------------------------------------------------------- |
-| Badge     | Semantic status text — variants info/warning/success/completed/destructive |
-| Chip      | Removable token (selected tags, active filters) — pair with ChipClose      |
-| Dot       | Tiny presence/status indicator next to text; `pulse` for live state        |
-| Kbd       | Keyboard shortcut display, with KbdGroup for combos                        |
+| Component | Use when                                                                                                                   |
+| --------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Badge     | Semantic status text — variants info/warning/success/completed/destructive                                                 |
+| Chip      | Removable token (selected tags, active filters) — pair with ChipClose                                                      |
+| Callout   | Static inline message on the page (warning above a form, error after a failed load) — pair with CalloutIcon / CalloutClose |
+| Dot       | Tiny presence/status indicator next to text; `pulse` for live state                                                        |
+| Kbd       | Keyboard shortcut display, with KbdGroup for combos                                                                        |
 
 ### Form controls
 
@@ -774,6 +777,29 @@ Item variants: default, outline, pressable, muted, menuItem
 Item sizes: default, sm, xs
 `<ItemGroup>` spaces items with a gap by default; pass `combined` to merge them into one flush list (no gap, squared interior corners, collapsed shared borders, rounded outer corners — like CardGroup)
 Item tones (the `tone` prop — named `tone`, not `color`, to avoid colliding with the DOM `color` attribute when Base UI render props are spread onto ItemCheckbox/ItemRadio): default, info, success, warning, completed, destructive — a semantic tint orthogonal to `variant`, designed to pair with `variant="pressable"` for colored clickable rows (e.g. `<Item variant="pressable" tone="success" render={<a href="…" />}>`)
+
+### Callout
+
+A static, inline message that stays in the layout — the quill replacement for `LemonBanner`. `Callout` is an `Item` (outline variant + `tone`), so its body uses the Item slots. `CalloutIcon` renders the tone's default icon when it has no children. `CalloutClose` is the far-right dismiss X — put it last; the caller owns the dismissed state (and any persistence, such as a localStorage key).
+
+```tsx
+<Callout tone="warning">
+  <CalloutIcon />
+  <ItemContent>
+    <ItemTitle>Your event volume is close to the billing limit</ItemTitle>
+    <ItemDescription>New events stop when the project reaches the limit.</ItemDescription>
+  </ItemContent>
+  <ItemActions>
+    <Button variant="outline">Increase limit</Button>
+  </ItemActions>
+  <CalloutClose onClick={dismiss} />
+</Callout>
+```
+
+Callout tones: default, info, success, warning, destructive. Default size is `sm`.
+Inside a Callout, `ItemDescription` does not clamp and uses the foreground colour, so long prose wraps. With a description, the icon and close button pin to the first line.
+Callout sets no live-region role. Pass `role="alert"` (urgent) or `role="status"` (polite) only when the callout appears after a user action and screen readers must announce it.
+`LemonBanner` map: `type` info/warning/success → same `tone`, error → `destructive`; `action` → `Button variant="outline"` in `ItemActions`; `onClose` / `dismissKey` → `CalloutClose` + caller state; `icon` → `CalloutIcon` children; `hideIcon` → leave out `CalloutIcon`.
 
 ### Avatar
 

@@ -1,4 +1,7 @@
 import { LemonBanner } from '@posthog/lemon-ui'
+import { Callout, CalloutIcon, ItemContent, ItemDescription } from '@posthog/quill'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export interface FeatureFlagNoConditionsWarningProps {
     conditionSetCount: number
@@ -12,8 +15,24 @@ export function FeatureFlagNoConditionsWarning({
     conditionSetCount,
     className,
 }: FeatureFlagNoConditionsWarningProps): JSX.Element | null {
+    const quill = useFeatureFlag('LEMON_UI_TO_QUILL')
+
     if (conditionSetCount > 0) {
         return null
+    }
+
+    if (quill) {
+        return (
+            <Callout tone="warning" className={className} data-attr="feature-flag-no-conditions-warning">
+                <CalloutIcon />
+                <ItemContent>
+                    <ItemDescription>
+                        This flag has no release conditions, so it always evaluates to <code>false</code>. Add a
+                        condition set to release it, for example one set at 100% rollout.
+                    </ItemDescription>
+                </ItemContent>
+            </Callout>
+        )
     }
 
     return (
