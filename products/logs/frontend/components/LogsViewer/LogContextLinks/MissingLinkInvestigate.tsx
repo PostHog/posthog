@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 
 import { IconSearch, IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -9,30 +8,12 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { humanList } from 'lib/utils/strings'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
-import { getServiceName } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/logContextUtils'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 import type { LogContextLinksSurface } from './LogContextLinks'
 import { missingLinkInvestigateLogic } from './missingLinkInvestigateLogic'
 import { MissingLink, buildMissingLinkPrompt } from './missingLinkPrompt'
-
-type InvestigateOption = AgentPromptDestination | 'posthog-ai-task'
-
-// pinned: analytics event names and properties, renaming breaks dashboards
-function captureInvestigate(
-    event: 'shown' | 'clicked',
-    log: ParsedLogMessage,
-    missing: MissingLink[],
-    surface: LogContextLinksSurface,
-    option?: InvestigateOption
-): void {
-    posthog.capture(`logs missing link investigate ${event}`, {
-        option,
-        missing,
-        source: `log-${surface}`,
-        service_name: getServiceName(log),
-    })
-}
+import { captureInvestigate, missingLinkEventContext } from './missingLinkTelemetry'
 
 function missingLabel(missing: MissingLink[]): string {
     const links = humanList(missing)
@@ -54,7 +35,9 @@ export function MissingLinkInvestigate({
     const { launching, startsSidePanelTask } = useValues(missingLinkInvestigateLogic)
     const { startTask } = useActions(missingLinkInvestigateLogic)
 
-    useOnMountEffect(() => captureInvestigate('shown', log, missing, surface))
+    const eventContext = missingLinkEventContext(log, missing, surface)
+
+    useOnMountEffect(() => captureInvestigate('shown', eventContext))
 
     return (
         <div className="flex flex-wrap items-center gap-1">
@@ -72,7 +55,7 @@ export function MissingLinkInvestigate({
                     },
                 ]}
                 onRun={({ agentKey }) =>
-                    captureInvestigate('clicked', log, missing, surface, agentKey as AgentPromptDestination)
+                    captureInvestigate('clicked', eventContext, { option: agentKey as AgentPromptDestination })
                 }
                 data-attr={`logs-${surface}-missing-link-agent-prompt`}
             />
@@ -82,10 +65,7 @@ export function MissingLinkInvestigate({
                     type="tertiary"
                     icon={<IconSparkles />}
                     loading={startsSidePanelTask && launching}
-                    onClick={() => {
-                        captureInvestigate('clicked', log, missing, surface, 'posthog-ai-task')
-                        startTask(buildMissingLinkPrompt(log, missing), onLeave ?? (() => {}))
-                    }}
+                    onClick={() => startTask(buildMissingLinkPrompt(log, missing), onLeave ?? (() => {}), eventContext)}
                     data-attr={`logs-${surface}-missing-link-posthog-ai`}
                 >
                     Ask PostHog AI
