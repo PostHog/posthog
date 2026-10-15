@@ -1476,6 +1476,10 @@ snapshots:
         hash: v1.k794b7964.abb36f352932cf1ebbfb4c4267c3f0e5dfbf89cdbee7bfeaa5f04ad6a36cf91c.uWW2PK6INwUQRQLerG3WIftvpF1y8_ThERfFUk4IruI
     components-hogcharts-timeseriescombochart--dual-y-axis--light:
         hash: v1.k794b7964.224ed925d58f3aaa3670535fda23aa26e4132b578fa844270d8ed44f38f77ecf.D72PsCXUb5FKgyhu7EUOxzQ2nLfWYOx95dmKTAw7H2w
+    components-hogcharts-timeseriescombochart--shared-value-domain--dark:
+        hash: v1.k794b7964.08219c59f23f020eadc1a51cdd7ee2c4223956dcc2d90516b89b8756def5b9fe.T-lvU5ZHfDCo_PWD7hj6NM7-b2jwXw3oa4Bpr6e0XPg
+    components-hogcharts-timeseriescombochart--shared-value-domain--light:
+        hash: v1.k794b7964.dc1d142541398db902f080303fa109c4817638f7434835bf4f64e21a6104dead.ez5V3lITuAL4WI1__7lMzCqaXj-Mvq94BfWEjN71IOo
     components-hogcharts-timeseriescombochart--stacked-bars-and-line--dark:
         hash: v1.k794b7964.2c28b0405bc0bc75bdca9d041071aa6e7a3cc08715786da6e76b1b91009c2329.6pDV8-cbIiNwaO3yxO3Om4fMOBVNpi0lTD0ArlJzeks
     components-hogcharts-timeseriescombochart--stacked-bars-and-line--light:
