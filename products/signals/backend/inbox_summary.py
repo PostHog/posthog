@@ -1,7 +1,9 @@
+from collections.abc import Collection
 from datetime import datetime, timedelta
+from uuid import UUID
 
-from django.db.models import Exists, JSONField, OuterRef, QuerySet, TextField, Value
-from django.db.models.functions import Cast, Concat, JSONArray, Lower
+from django.db.models import Exists, OuterRef, Q, QuerySet, TextField, Value
+from django.db.models.functions import Cast, Concat, JSONArray
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -24,32 +26,31 @@ class GitHubParticipant:
     login: str
 
 
-def generated_pull_requests(team_id: int) -> QuerySet[SignalReportPullRequest]:
+def generated_pull_requests(
+    team_id: int, *, task_ids: Collection[str | UUID] | None = None
+) -> QuerySet[SignalReportPullRequest]:
     # Neither a manually attached PR nor an API-writable task output proves that the task created it.
-    implementations = (
-        SignalReportTask.objects.filter(
-            team_id=team_id,
-            relationship=TASK_RUN_TYPE_IMPLEMENTATION,
-            task__team_id=team_id,
-            task__runs__team_id=team_id,
-        )
-        .alias(
-            verified_urls=Cast(Lower(Cast("task__runs__state__verified_pr_urls", TextField())), JSONField()),
-        )
-        .filter(
-            verified_urls__contains=JSONArray(
-                Lower(
-                    Concat(
-                        Value("https://github.com/"),
-                        OuterRef("repository"),
-                        Value("/pull/"),
-                        Cast(OuterRef("number"), TextField()),
-                        output_field=TextField(),
-                    )
+    implementations = SignalReportTask.objects.filter(
+        team_id=team_id,
+        relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+        task__team_id=team_id,
+        task__runs__team_id=team_id,
+    ).filter(
+        Q(task__runs__state__verified_pr_urls__contains=JSONArray(OuterRef("url")))
+        | Q(
+            task__runs__state__verified_pr_urls__contains=JSONArray(
+                Concat(
+                    Value("https://github.com/"),
+                    OuterRef("repository"),
+                    Value("/pull/"),
+                    Cast(OuterRef("number"), TextField()),
+                    output_field=TextField(),
                 )
-            ),
+            )
         )
     )
+    if task_ids is not None:
+        implementations = implementations.filter(task_id__in=task_ids)
     return SignalReportPullRequest.objects.for_team(team_id).filter(Exists(implementations))
 
 
@@ -69,7 +70,7 @@ def human_participant(user: object) -> GitHubParticipant | None:
     login = user.get("login")
     if user.get("type") == "Bot" or (isinstance(login, str) and login.lower().endswith("[bot]")):
         return None
-    user_id = user.get("id")
+    user_id = user["id"]
     if (
         user.get("type") != "User"
         or type(user_id) is not int
@@ -82,7 +83,9 @@ def human_participant(user: object) -> GitHubParticipant | None:
     return GitHubParticipant(id=user_id, login=login)
 
 
-def github_for_generated_pull_request(*, team_id: int, repository: str, pr_number: int) -> GitHubIntegrationBase | None:
+def github_for_generated_pull_request(
+    *, team_id: int, repository: str, pr_number: int, pr_url: str
+) -> GitHubIntegrationBase | None:
     verified_url = f"https://github.com/{repository.lower()}/pull/{pr_number}"
     implementations = (
         SignalReportTask.objects.filter(
@@ -91,10 +94,10 @@ def github_for_generated_pull_request(*, team_id: int, repository: str, pr_numbe
             task__team_id=team_id,
             task__runs__team_id=team_id,
         )
-        .alias(
-            verified_urls=Cast(Lower(Cast("task__runs__state__verified_pr_urls", TextField())), JSONField()),
+        .filter(
+            Q(task__runs__state__verified_pr_urls__contains=[verified_url])
+            | Q(task__runs__state__verified_pr_urls__contains=[pr_url])
         )
-        .filter(verified_urls__contains=[verified_url])
         .select_related("task__github_integration", "task__github_user_integration", "task__team")
         .order_by("task_id")
     )
@@ -114,10 +117,14 @@ def github_for_generated_pull_request(*, team_id: int, repository: str, pr_numbe
                 user_id=personal.user_id, organization_id=task.team.organization_id
             ).exists()
         ):
-            return UserGitHubIntegration(personal, source="signals_inbox_summary", priority=Priority.BATCH)
+            github = UserGitHubIntegration(personal, source="signals_inbox_summary", priority=Priority.BATCH)
+            if github.installation_can_access_repository(repository):
+                return github
         integration = task.github_integration
         if integration is not None and integration.kind == "github" and integration.team_id == team_id:
-            return GitHubIntegration(integration, source="signals_inbox_summary", priority=Priority.BATCH)
+            github = GitHubIntegration(integration, source="signals_inbox_summary", priority=Priority.BATCH)
+            if github.installation_can_access_repository(repository):
+                return github
     return GitHubIntegration.first_for_team_repository(
         team_id, repository, source="signals_inbox_summary", priority=Priority.BATCH
     )
@@ -129,16 +136,15 @@ def sync_pull_request_participants(*, team_id: int, repository: str, pr_number: 
     )
     if pr is None:
         return
-    SignalReportPullRequest.objects.for_team(team_id).filter(id=pr.id).update(
-        participant_ids=None, participant_logins=None, participants_synced_at=None
+    github = github_for_generated_pull_request(
+        team_id=team_id, repository=pr.repository, pr_number=pr.number, pr_url=pr.url
     )
-    github = github_for_generated_pull_request(team_id=team_id, repository=pr.repository, pr_number=pr.number)
     if github is None:
         return
     snapshot = github.get_pull_request(pr.repository, pr.number)
     if not snapshot.get("success"):
         raise GitHubIntegrationError("Could not fetch merged pull request")
-    merged_at = github_datetime(snapshot.get("merged_at"))
+    merged_at = github_datetime(snapshot["merged_at"])
     if snapshot.get("merged") is not True or merged_at is None:
         raise GitHubIntegrationError("Missing verified merge time")
     now = timezone.now()
@@ -147,7 +153,7 @@ def sync_pull_request_participants(*, team_id: int, repository: str, pr_number: 
     if merged_at < now - INBOX_SUMMARY_PERIOD:
         return
     participants: dict[int, str] = {}
-    merger = human_participant(snapshot.get("merged_by"))
+    merger = human_participant(snapshot["merged_by"])
     if merger is not None:
         participants[merger.id] = merger.login
     for review in github.get_pull_request_reviews(pr.repository, pr.number):

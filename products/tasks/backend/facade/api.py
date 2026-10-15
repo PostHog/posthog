@@ -62,6 +62,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
 from posthog.utils import absolute_uri
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.cdp.backend.facade import api as cdp_facade
 from products.posthog_ai.backend.task_ownership import (
     detach_conversations_for_task_handoff,
@@ -301,6 +302,7 @@ __all__ = [
     "filter_uncovered_workflow_dispatch_run_ids",
     "maintain_workflow_dispatch_outbox",
     "get_task_detail",
+    "filter_accessible_task_ids",
     "get_task_id_for_run",
     "get_task_run",
     "get_task_run_session",
@@ -1096,6 +1098,16 @@ def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
     need to deep-link a run to its task.
     """
     return TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).first()
+
+
+def filter_accessible_task_ids(*, team_id: int, user: User, task_ids: Iterable[str | UUID]) -> set[UUID]:
+    ids = list(task_ids)
+    if not ids:
+        return set()
+    team = Team.objects.get(id=team_id)
+    tasks = Task.objects.filter(team_id=team_id, id__in=ids)
+    accessible = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(tasks, resource="task")
+    return set(accessible.values_list("id", flat=True))
 
 
 def is_verified_task_pr_url(*, task_id: str | UUID, team_id: int, pr_url: str) -> bool:

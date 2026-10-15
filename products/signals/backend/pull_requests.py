@@ -4,6 +4,7 @@ from enum import StrEnum
 from functools import partial
 from typing import TYPE_CHECKING
 
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+PARTICIPANT_REFRESH_DEDUPE_SECONDS = 60
+
 
 class PullRequestStateSource(StrEnum):
     GITHUB = "github"
@@ -32,11 +35,15 @@ def schedule_participant_refresh(pr: SignalReportPullRequest) -> None:
     if pr.state == SignalReportPullRequest.State.MERGED and pr.participants_synced_at is None:
 
         def enqueue() -> None:
+            key = f"signals:participant-refresh:{pr.id}"
+            if not cache.add(key, True, timeout=PARTICIPANT_REFRESH_DEDUPE_SECONDS):
+                return
             try:
                 refresh_pull_request_participants.delay(
                     team_id=pr.team_id, repository=pr.repository, pr_number=pr.number
                 )
             except Exception:
+                cache.delete(key)
                 logger.exception("signals_participant_refresh_enqueue_failed", team_id=pr.team_id, pr_id=str(pr.id))
 
         transaction.on_commit(enqueue)
