@@ -21,7 +21,6 @@ from products.workflows.backend.presentation.views.workflow_classifications impo
     validate_workflow_context,
 )
 from products.workflows.backend.services.ai_extraction import (
-    EXTRACTION_BUDGET,
     MAX_TEXT_VALUE_CHARS,
     ExtractionBudgetExceededError,
     ExtractionField,
@@ -134,7 +133,7 @@ class WorkflowExtractionViewSet(viewsets.GenericViewSet):
             ),
             429: OpenApiResponse(
                 response=WorkflowExtractionErrorSerializer,
-                description="The project spent its hourly budget of model calls. Retry after the Retry-After seconds",
+                description="The project calls the model faster than its rate limit allows. Retry after the Retry-After seconds",
             ),
             501: OpenApiResponse(
                 response=WorkflowExtractionErrorSerializer,
@@ -192,8 +191,8 @@ class WorkflowExtractionViewSet(viewsets.GenericViewSet):
         except ExtractionBudgetExceededError as error:
             logger.info("workflow_extraction_budget_spent", team_id=team.id)
             response = _error(
-                f"Extract with AI reached this project's limit of {EXTRACTION_BUDGET.per_hour} model calls an hour. "
-                f"Try again in {error.retry_after} seconds.",
+                "Extract with AI is calling the model faster than this project's limit allows. "
+                f"Try again in {error.retry_after} seconds, or trigger the step less often.",
                 status.HTTP_429_TOO_MANY_REQUESTS,
             )
             response["Retry-After"] = str(error.retry_after)
