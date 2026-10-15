@@ -61,6 +61,7 @@ from products.stamphog.backend.temporal.constants import (
     NETWORK_RESTRICTED_AGENT_ENV,
     SANDBOX_RETRY_POLICY,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
+    STAMPHOG_SANDBOX_ENGINE_DIR,
     STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH,
     STAMPHOG_SANDBOX_REPO_DIR,
     SandboxPhaseError,
@@ -77,7 +78,7 @@ from products.tasks.backend.models import Task, TaskRun
 REPO = "acme/widgets"
 INSTALLATION_ID = "2001"
 BASE_SHA = "base000"
-POLICY_DEFAULTS_DIR = Path(__file__).resolve().parents[1] / "logic" / "policy_defaults"
+POLICY_DEFAULTS_DIR = Path(__file__).resolve().parents[2] / "packages" / "pr-approval-agent" / "defaults"
 
 
 def _repo_config(team_id: int, *, digest_enabled: bool = True, repository: str = REPO) -> StamphogRepoConfig:
@@ -534,7 +535,7 @@ def test_malformed_repo_policy_keeps_the_parser_text_out_of_the_error() -> None:
     # PyYAML names the bad tag on its first line, and run.error keeps that line. Anyone with
     # stamphog:read can read it without access to the repository the policy file comes from.
     with pytest.raises(RuntimeError) as raised:
-        activities._overlay_policy_yaml("acme/widgets", "version: 1\n", "!a-private-internal-tag {}\n")
+        activities._checked_repo_policy_yaml("acme/widgets", "!a-private-internal-tag {}\n")
 
     assert "a-private-internal-tag" not in str(raised.value)
     assert ".stamphog/policy.yml" in str(raised.value)
@@ -1018,8 +1019,8 @@ def test_scoped_token_is_scrubbed_from_persisted_reviewer_output(team, stamphog_
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_missing_policy_files_fall_back_to_server_defaults(team, stamphog_chain: StamphogChain) -> None:
     # A target repo carrying neither .stamphog/policy.yml nor review-guidance.md must still get a
-    # sandbox run, with the hosted defaults injected into the checkout. Regression: run_review_in_sandbox
-    # used to hard-fail (FAILED run) when a trusted file was absent.
+    # sandbox run, with the shipped defaults beside the engine and nothing in the checkout's .stamphog/.
+    # Regression: run_review_in_sandbox used to hard-fail (FAILED run) when a trusted file was absent.
     repo_config = _repo_config(team.id)
     recorder = stamphog_chain.recorder
     recorder.policy_files.clear()  # repo carries no policy files at all
@@ -1037,16 +1038,10 @@ def test_missing_policy_files_fall_back_to_server_defaults(team, stamphog_chain:
     assert run.status == ReviewRunStatus.COMPLETED
 
     injected = {path: payload.decode() for path, payload in stamphog_chain.sandbox_writes}
-    assert (
-        injected[f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog/policy.yml"]
-        == (POLICY_DEFAULTS_DIR / "policy.yml").read_text()
-    )
-    assert (
-        injected[f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog/review-guidance.md"]
-        == (POLICY_DEFAULTS_DIR / "review-guidance.md").read_text()
-    )
-    # No default steering exists, so nothing must be injected at that path either.
-    assert f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog/steering.md" not in injected
+    for name in ("policy.yml", "review-guidance.md"):
+        assert injected[f"{STAMPHOG_SANDBOX_ENGINE_DIR}/defaults/{name}"] == (POLICY_DEFAULTS_DIR / name).read_text()
+    for name in ("policy.yml", "review-guidance.md", "steering.md"):
+        assert f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog/{name}" not in injected
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

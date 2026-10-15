@@ -33,7 +33,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any, Literal
 from urllib.parse import urlparse
 
@@ -106,7 +106,6 @@ from products.stamphog.backend.temporal.constants import (
     STAMPHOG_OPTIONAL_POLICY_PATHS,
     STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_POLICY_PATHS,
-    STAMPHOG_REVIEW_GUIDANCE_PATH,
     STAMPHOG_REVIEWHOG_LABEL,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_ENGINE_DIR,
@@ -134,12 +133,6 @@ _CONTEXT_RELATIVE_PATH = PurePosixPath(STAMPHOG_SANDBOX_CONTEXT_PATH).relative_t
 
 # The context reads are a dozen GitHub round trips plus the familiarity reads, which run their own pool.
 _CONTEXT_FETCH_WORKERS = 8
-
-# Server-shipped default policy files, the base layer every repo's config sits on. Named by the
-# basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
-# config reviews under these as-is, a repo's policy.yml overlays its sections onto the default's
-# (see _effective_policy_files), and a repo's review-guidance.md replaces the default wholesale.
-_POLICY_DEFAULTS_DIR = Path(__file__).resolve().parent.parent / "logic" / "policy_defaults"
 
 
 @dataclass
@@ -2155,28 +2148,13 @@ def _prefetch_review_blobs(sandbox: SandboxBase, merge_base_sha: str, token: str
         )
 
 
-def _read_default_policy_file(path: str) -> str:
-    """Read a shipped default by the policy path's basename; missing means a server packaging bug."""
-    default_file = _POLICY_DEFAULTS_DIR / Path(path).name
-    if not default_file.is_file():
-        raise RuntimeError(f"server-shipped default policy file missing: {default_file} (for {path})")
-    return default_file.read_text()
+def _checked_repo_policy_yaml(repo: str, repo_text: str) -> str:
+    """The repository's policy.yml as it is, once it parses as a YAML mapping.
 
-
-def _overlay_policy_yaml(repo: str, default_text: str, repo_text: str | None) -> str:
-    """Overlay the repo's policy.yml top-level sections onto the shipped default.
-
-    Lets a repo declare only the sections it wants to change (e.g. just ``size_gate``); each
-    present section replaces the default's section wholesale. The engine's strict loader still
-    validates the merged doc inside the sandbox, so required sections and the self-governance
-    deny can't be dropped by omission, and a full-schema repo file overlays to exactly itself.
-    The ``digest:`` key passes through harmlessly (the engine tolerates and ignores it).
-
-    A present-but-unusable repo file (malformed YAML, non-mapping root) fails closed: the repo
-    declared *something*, and silently reviewing under pure defaults would be wrong.
+    The engine merges it onto the default it ships (`merge_policy` in the engine's policy.py) and
+    validates the result. This check only fails a malformed file closed before a sandbox exists:
+    the repository declared something, and reviewing under pure defaults would be wrong.
     """
-    if repo_text is None:
-        return default_text
     try:
         overlay = yaml.safe_load(repo_text)
     except yaml.YAMLError as exc:
@@ -2186,34 +2164,27 @@ def _overlay_policy_yaml(repo: str, default_text: str, repo_text: str | None) ->
         raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml") from exc
     if not isinstance(overlay, dict):
         raise RuntimeError(f"repo {repo} .stamphog/policy.yml must be a YAML mapping to overlay the defaults")
-    merged = {**yaml.safe_load(default_text), **overlay}
-    # sort_keys=False keeps the default's section order stable in the dumped doc.
-    return yaml.safe_dump(merged, sort_keys=False)
+    return repo_text
 
 
 def _effective_policy_files(repo: str, policy_files: dict[str, str]) -> dict[str, str]:
-    """The final injection set: the repo's default-branch files layered over the hosted defaults.
+    """The repository's default-branch policy files that go into the tree, as they are.
 
-    policy.yml: section overlay onto the shipped default (see _overlay_policy_yaml).
-    review-guidance.md: the repo's copy if present, else the shipped default.
-    Optional paths (steering.md): the repo's copy if present, else omitted — no default exists.
+    The engine ships the defaults and layers these over them: it merges policy.yml onto its default
+    policy, a review-guidance.md replaces its default guidance, and steering.md is appended. A file
+    the repository does not carry is left out, and the PR head's copy is still wiped.
     """
     defaulted = [path for path in STAMPHOG_POLICY_PATHS if path not in policy_files]
     if defaulted:
-        activity.logger.info(f"Policy files for {repo} using hosted defaults: {defaulted}")
+        activity.logger.info(f"Policy files for {repo} using shipped defaults: {defaulted}")
 
     effective = {
-        STAMPHOG_POLICY_ENTRYPOINT: _overlay_policy_yaml(
-            repo,
-            _read_default_policy_file(STAMPHOG_POLICY_ENTRYPOINT),
-            policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
-        ),
-        STAMPHOG_REVIEW_GUIDANCE_PATH: policy_files.get(STAMPHOG_REVIEW_GUIDANCE_PATH)
-        or _read_default_policy_file(STAMPHOG_REVIEW_GUIDANCE_PATH),
+        path: text
+        for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS)
+        if (text := policy_files.get(path))
     }
-    for path in STAMPHOG_OPTIONAL_POLICY_PATHS:
-        if path in policy_files:
-            effective[path] = policy_files[path]
+    if STAMPHOG_POLICY_ENTRYPOINT in effective:
+        effective[STAMPHOG_POLICY_ENTRYPOINT] = _checked_repo_policy_yaml(repo, effective[STAMPHOG_POLICY_ENTRYPOINT])
     return effective
 
 

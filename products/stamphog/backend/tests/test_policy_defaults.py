@@ -32,7 +32,7 @@ from products.stamphog.backend.temporal.constants import (  # noqa: E402
 )
 from products.stamphog.backend.tests.fakes import FakeExecResult  # noqa: E402
 
-_DEFAULT_POLICY = Path(__file__).resolve().parents[1] / "logic" / "policy_defaults" / "policy.yml"
+_DEFAULT_POLICY = _ENGINE_DIR / "defaults" / "policy.yml"
 
 _SIZE_GATE_ONLY = "size_gate:\n    max_lines: 123\n    max_files: 7\n"
 
@@ -55,25 +55,10 @@ def test_shipped_default_policy_loads_through_engine_loader() -> None:
     assert loaded.version == 1
 
 
-def test_overlay_absent_repo_policy_keeps_default_text_verbatim() -> None:
-    effective = _effective_policy_files("acme/widgets", {})
-    assert effective[STAMPHOG_POLICY_ENTRYPOINT] == _DEFAULT_POLICY.read_text()
-    assert STAMPHOG_STEERING_PATH not in effective
-
-
-def test_overlay_partial_repo_policy_replaces_only_declared_sections() -> None:
+def test_repo_files_pass_through_unmerged() -> None:
+    assert _effective_policy_files("acme/widgets", {}) == {}
     effective = _effective_policy_files("acme/widgets", {STAMPHOG_POLICY_ENTRYPOINT: _SIZE_GATE_ONLY})
-    merged = yaml.safe_load(effective[STAMPHOG_POLICY_ENTRYPOINT])
-    default = yaml.safe_load(_DEFAULT_POLICY.read_text())
-    assert merged["size_gate"] == {"max_lines": 123, "max_files": 7}
-    assert merged["deny"] == default["deny"]
-    assert merged["familiarity"] == default["familiarity"]
-
-
-def test_overlay_full_schema_repo_policy_is_itself() -> None:
-    full = _DEFAULT_POLICY.read_text()
-    effective = _effective_policy_files("acme/widgets", {STAMPHOG_POLICY_ENTRYPOINT: full})
-    assert yaml.safe_load(effective[STAMPHOG_POLICY_ENTRYPOINT]) == yaml.safe_load(full)
+    assert effective == {STAMPHOG_POLICY_ENTRYPOINT: _SIZE_GATE_ONLY}
 
 
 @pytest.mark.parametrize(
@@ -89,15 +74,23 @@ def test_overlay_unusable_repo_policy_fails_closed(repo_policy: str) -> None:
         _effective_policy_files("acme/widgets", {STAMPHOG_POLICY_ENTRYPOINT: repo_policy})
 
 
-def test_overlay_of_partial_repo_policy_validates_through_engine_loader(tmp_path: Path) -> None:
-    # Partial repo files must never yield an invalid effective policy: the merged doc has to satisfy
-    # the engine's strict loader (required sections, self-governance) exactly like a hand-written one.
-    effective = _effective_policy_files("acme/widgets", {STAMPHOG_POLICY_ENTRYPOINT: _SIZE_GATE_ONLY})
-    merged_path = tmp_path / "policy.yml"
-    merged_path.write_text(effective[STAMPHOG_POLICY_ENTRYPOINT])
-    loaded = _load_engine_policy(merged_path)
-    assert loaded.size_gate.max_lines == 123
-    assert loaded.size_gate.max_files == 7
+def _pregate_context(path: str) -> dict:
+    return {
+        "repo": "example/widgets",
+        "pr": {
+            "number": 1,
+            "title": "chore: update configuration",
+            "state": "open",
+            "user": {"login": "maintainer", "type": "User"},
+        },
+        "files": [{"filename": path, "status": "modified", "additions": 1, "deletions": 1, "patch": "+setting"}],
+        "folder_policies_known": True,
+    }
+
+
+def test_pregate_reviews_a_repo_with_no_policy_files() -> None:
+    outcome = run_engine_pregate(_pregate_context("docs/readme.md"), {}, environment={})
+    assert outcome.not_final_reason == "no_failing_gate"
 
 
 @pytest.mark.parametrize(
@@ -111,12 +104,13 @@ def test_overlay_of_partial_repo_policy_validates_through_engine_loader(tmp_path
         (".github/CODEOWNERS", "stamphog_policy"),
     ],
 )
-def test_deny_exceptions_preserve_inherited_guards(path: str, denied_category: str | None) -> None:
-    default = yaml.safe_load(_DEFAULT_POLICY.read_text())
-    default["deny"]["billing"]["match"]["any"].append("ledger")
-    default["deny"]["new_guard"] = {"match": {"paths": [r"^\.github/workflows/restricted\.yml$"]}}
+def test_pregate_merges_the_repo_policy_onto_the_shipped_default(path: str, denied_category: str | None) -> None:
     repo_policy = yaml.safe_dump(
         {
+            "deny": {
+                "billing": {"match": {"extend_any": ["ledger"]}},
+                "new_guard": {"match": {"paths": [r"^\.github/workflows/restricted\.yml$"]}},
+            },
             "deny_exceptions": {
                 "billing": [
                     {
@@ -126,22 +120,10 @@ def test_deny_exceptions_preserve_inherited_guards(path: str, denied_category: s
                     }
                 ],
                 "infra_cicd": [{"path_prefixes": [".github/"]}],
-            }
+            },
         }
     )
-    effective = activities._overlay_policy_yaml("example/widgets", yaml.safe_dump(default), repo_policy)
-    context = {
-        "repo": "example/widgets",
-        "pr": {
-            "number": 1,
-            "title": "chore: update configuration",
-            "state": "open",
-            "user": {"login": "maintainer", "type": "User"},
-        },
-        "files": [{"filename": path, "status": "modified", "additions": 1, "deletions": 1, "patch": "+setting"}],
-        "folder_policies_known": True,
-    }
-    outcome = run_engine_pregate(context, {STAMPHOG_POLICY_ENTRYPOINT: effective}, environment={})
+    outcome = run_engine_pregate(_pregate_context(path), {STAMPHOG_POLICY_ENTRYPOINT: repo_policy}, environment={})
     if denied_category is None:
         assert not outcome.final
         assert outcome.not_final_reason == "no_failing_gate"
