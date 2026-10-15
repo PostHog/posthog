@@ -1151,7 +1151,9 @@ async def _run(
     on_resumable_retry_budget: bool = False,
 ) -> PipelineResult:
     try:
-        reset_pipeline = reset_pipeline or source_response.destination_reset_required
+        reset_pipeline = (
+            reset_pipeline or source_response.destination_reset_required
+        ) and not source_response.reset_handed_over
         models = await _get_models(job_inputs.run_id)
 
         pipeline = v3_pipeline_class(source_response)(
