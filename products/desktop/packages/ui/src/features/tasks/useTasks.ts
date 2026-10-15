@@ -28,7 +28,11 @@ export function useTasks(
     limit?: number;
     ordering?: "-last_activity_at" | "-created_at";
   },
-  options?: { enabled?: boolean; subscribed?: boolean },
+  options?: {
+    enabled?: boolean;
+    subscribed?: boolean;
+    keepPreviousPage?: boolean;
+  },
 ) {
   const { data: currentUser } = useMeQuery();
   const createdBy = filters?.showAllUsers ? undefined : currentUser?.id;
@@ -62,8 +66,25 @@ export function useTasks(
       enabled: (options?.enabled ?? true) && !!currentUser?.id,
       subscribed: options?.subscribed,
       refetchInterval: TASK_LIST_POLL_INTERVAL_MS,
+      placeholderData: options?.keepPreviousPage ? keepPreviousData : undefined,
     },
   );
+}
+
+export const TASK_LIST_MAX_PAGE_SIZE = 100;
+
+/**
+ * Pinned records read every page on each poll, so the poll waits one interval per page. Any pin
+ * history then costs about one page request a minute and still refreshes.
+ */
+export function pinnedRecordsPollInterval(
+  pinCount: number | undefined,
+): number {
+  const pages = Math.max(
+    1,
+    Math.ceil((pinCount ?? 0) / TASK_LIST_MAX_PAGE_SIZE),
+  );
+  return pages * TASK_LIST_POLL_INTERVAL_MS;
 }
 
 // A pin can be on any task the user can see, also one older than the recent list reaches. The
@@ -81,7 +102,11 @@ export function usePinnedTaskRecords() {
           { fetchAll: true },
         )
       ).tasks as unknown as Task[],
-    { staleTime: 30_000, refetchInterval: TASK_LIST_POLL_INTERVAL_MS },
+    {
+      staleTime: 30_000,
+      refetchInterval: (query) =>
+        pinnedRecordsPollInterval(query.state.data?.length),
+    },
   );
 }
 
