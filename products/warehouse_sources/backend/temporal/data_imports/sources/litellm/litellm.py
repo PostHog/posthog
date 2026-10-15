@@ -48,6 +48,8 @@ class LiteLLMResumeConfig:
     page: int | None = None
     window_start: str | None = None
     run_end: str | None = None
+    # Whether an earlier window already yielded the rows at exactly `window_start`.
+    window_start_seen: bool = False
 
 
 def normalize_base_url(base_url: str) -> str:
@@ -133,7 +135,7 @@ def spend_log_pages(
         start = datetime.fromisoformat(resume.window_start)
         run_end = datetime.fromisoformat(resume.run_end)
         page = resume.page or 1
-        repeated_start = start
+        repeated_start = start if resume.window_start_seen else None
     else:
         run_end = datetime.now(UTC).replace(microsecond=0)
         page = 1
@@ -162,10 +164,15 @@ def spend_log_pages(
 
         if has_next_page:
             next_state: LiteLLMResumeConfig | None = LiteLLMResumeConfig(
-                window_start=start.isoformat(), run_end=run_end.isoformat(), page=page + 1
+                window_start=start.isoformat(),
+                run_end=run_end.isoformat(),
+                page=page + 1,
+                window_start_seen=repeated_start is not None,
             )
         elif not last_window:
-            next_state = LiteLLMResumeConfig(window_start=end.isoformat(), run_end=run_end.isoformat(), page=1)
+            next_state = LiteLLMResumeConfig(
+                window_start=end.isoformat(), run_end=run_end.isoformat(), page=1, window_start_seen=True
+            )
         else:
             next_state = None
 

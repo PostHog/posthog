@@ -64,7 +64,12 @@ class TestSpendLogs:
         assert [row["request_id"] for row in result.rows] == ["a", "b", "c", "d"]
         assert result.saved_states == [
             LiteLLMResumeConfig(window_start="2026-01-01T10:00:00+00:00", run_end="2026-01-03T00:00:00+00:00", page=2),
-            LiteLLMResumeConfig(window_start="2026-01-02T10:00:00+00:00", run_end="2026-01-03T00:00:00+00:00", page=1),
+            LiteLLMResumeConfig(
+                window_start="2026-01-02T10:00:00+00:00",
+                run_end="2026-01-03T00:00:00+00:00",
+                page=1,
+                window_start_seen=True,
+            ),
         ]
 
     def test_incremental_run_starts_at_the_watermark_without_the_oldest_log_lookup(self) -> None:
@@ -117,6 +122,29 @@ class TestSpendLogs:
 
         assert result.raised is None
         assert [row["request_id"] for row in result.rows] == ["first", "edge", "later"]
+
+    @pytest.mark.parametrize(("window_start_seen", "expected_ids"), [(False, ["edge", "later"]), (True, ["later"])])
+    def test_resumed_window_drops_start_rows_only_after_an_earlier_window(
+        self, window_start_seen: bool, expected_ids: list[str]
+    ) -> None:
+        rows = [
+            {"request_id": "edge", "startTime": "2026-01-02T20:00:00Z"},
+            {"request_id": "later", "startTime": "2026-01-02T21:00:00Z"},
+        ]
+        result = _run(
+            "spend_logs",
+            [ScriptedResponse(json={"data": rows, "total_pages": 2})],
+            should_use_incremental_field=False,
+            resume_state=LiteLLMResumeConfig(
+                window_start="2026-01-02T20:00:00+00:00",
+                run_end="2026-01-03T00:00:00+00:00",
+                page=2,
+                window_start_seen=window_start_seen,
+            ),
+        )
+
+        assert result.raised is None
+        assert [row["request_id"] for row in result.rows] == expected_ids
 
     def test_keeps_paging_past_a_capped_total(self) -> None:
         full_page = [f"r{index}" for index in range(1000)]
