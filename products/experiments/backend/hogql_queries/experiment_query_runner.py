@@ -25,7 +25,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
@@ -233,7 +232,10 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return get_or_create_team_extension(self.team, TeamExperimentsConfig)
 
     def _should_precompute(self) -> bool:
-        return self._precompute_skip_reason() not in BLOCKING_PRECOMPUTE_SKIP_REASONS
+        return (
+            not self.modifiers.useNewEventsCluster
+            and self._precompute_skip_reason() not in BLOCKING_PRECOMPUTE_SKIP_REASONS
+        )
 
     def _precompute_skip_reason(self) -> Optional[PrecomputeSkipReason]:
         """Why precompute was not used, for the query-performance UI. None when it was attempted."""
@@ -411,16 +413,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             experiment_scan_date_from=self.date_range.date_from,
             experiment_scan_date_to=self.date_range.date_to,
         )
-        experiment_query_debug = get_experiment_query_debug(
-            experiment_query_ast,
-            self.team,
-            user=self.user,
-            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
-        )
-        self.hogql = experiment_query_debug[0]
-        self.clickhouse_sql = experiment_query_debug[1]
-
-        modifiers = create_default_modifiers_for_team(self.team)
+        modifiers = self.modifiers.model_copy()
         if posthoganalytics.feature_enabled(
             "hogql-session-id-pushdown",
             str(self.team.id),
@@ -430,6 +423,16 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             send_feature_flag_events=False,
         ):
             modifiers.sessionIdPushdown = True
+
+        experiment_query_debug = get_experiment_query_debug(
+            experiment_query_ast,
+            self.team,
+            user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            modifiers=modifiers,
+        )
+        self.hogql = experiment_query_debug[0]
+        self.clickhouse_sql = experiment_query_debug[1]
 
         settings = HogQLGlobalSettings(
             max_execution_time=self.max_execution_time,

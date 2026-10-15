@@ -1,5 +1,7 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -55,6 +57,19 @@ class TestNewEventsClusterRouting(SimpleTestCase):
                 ),
                 team=self.team,
             )
+
+    def test_raw_native_opt_in_cannot_be_enqueued_with_a_constructor_override(self) -> None:
+        runner = HogQLQueryRunner(
+            query=HogQLQuery(
+                query="SELECT 1", modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": True})
+            ),
+            team=self.team,
+            modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": False}),
+        )
+        with patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue:
+            with self.assertRaisesRegex(ExposedHogQLError, "synchronous execution"):
+                runner.enqueue_async_calculation(cache_manager=MagicMock(), user=self.user)
+            enqueue.assert_not_called()
 
     def test_direct_warehouse_connection_cannot_claim_native_cluster_opt_in(self) -> None:
         with self.assertRaisesRegex(ExposedHogQLError, "warehouse connection"):
@@ -134,6 +149,13 @@ class TestNewEventsClusterPilot(APIBaseTest):
         self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]))
         self.enterContext(override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False))
 
+    def _run_query(self, query: dict, refresh: str = "force_blocking", async_: bool = False):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {"query": query, "refresh": refresh, "async": async_},
+            format="json",
+        )
+
     @parameterized.expand(
         [
             (modifiers, eligible, native_table, native_cluster)
@@ -169,7 +191,7 @@ class TestNewEventsClusterPilot(APIBaseTest):
                 True,
                 True,
                 True,
-                {"kind": "PropertyValuesQuery", "property_key": "$browser", "property_type": "event"},
+                {"kind": "GroupsQuery", "select": ["group_key"], "group_type_index": 0},
             ),
         ]
     )
@@ -179,7 +201,7 @@ class TestNewEventsClusterPilot(APIBaseTest):
         eligible: bool,
         native_table: bool,
         native_cluster: bool,
-        sql: str | dict[str, str] = "SELECT count() AS n FROM events",
+        sql: str | dict[str, Any] = "SELECT count() AS n FROM events",
         refresh: str = "force_blocking",
         async_: bool = False,
     ) -> None:
@@ -218,3 +240,30 @@ class TestNewEventsClusterPilot(APIBaseTest):
             self.assertNotIn("pre_aggregated", execute.call_args.args[0])
             self.assertNotIn("preaggregation_results", execute.call_args.args[0])
             self.assertIs(response.json()["modifiers"]["useNewEventsCluster"], True)
+
+    @parameterized.expand([(False,), (True,)])
+    def test_property_values_native_opt_in_bypasses_the_aggregate_table(self, native: bool) -> None:
+        with (
+            patch(
+                "posthog.hogql_queries.property_values_query_runner.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == "property-values-table",
+            ),
+            patch(
+                "posthog.hogql_queries.utils.aggregated_property_values.sync_execute", return_value=[('"Chrome"',)]
+            ) as aggregate,
+            patch("posthog.hogql.query.sync_execute", return_value=([('"Chrome"',)], [("value", "String")])) as execute,
+        ):
+            response = self._run_query(
+                {
+                    "kind": "PropertyValuesQuery",
+                    "property_type": "event",
+                    "property_key": "browser",
+                    "modifiers": {"useNewEventsSchema": native, "useNewEventsCluster": native},
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(aggregate.called, not native)
+        self.assertEqual(execute.called, native)
+        if native:
+            self.assertIn("events_json", execute.call_args.args[0])
+            self.assertEqual(execute.call_args.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)

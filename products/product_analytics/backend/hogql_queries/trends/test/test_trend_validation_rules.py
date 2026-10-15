@@ -1,10 +1,13 @@
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    ActorsQuery,
     Breakdown,
     BreakdownFilter,
     BreakdownType,
@@ -12,13 +15,19 @@ from posthog.schema import (
     DataWarehouseNode,
     DateRange,
     EventsNode,
+    HogQLQueryModifiers,
+    InsightActorsQuery,
     MultipleBreakdownType,
     PropertyMathType,
     TrendsFilter,
     TrendsQuery,
 )
 
+from posthog.clickhouse.workload import Workload
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.validation.validation import QueryValidationContext
+from posthog.models.instance_setting import override_instance_config
 
 from products.product_analytics.backend.hogql_queries.trends.trend_validation_rules import (
     DisallowDaysOfWeekWithSmoothing,
@@ -412,3 +421,52 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
         runner = TrendsQueryRunner(query=query, team=self.team)
 
         self.assertEqual(len(runner.series), 150)
+
+    @parameterized.expand([(False,), (True,)])
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_actor_options_execute_on_the_selected_cluster(self, native: bool) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-08"),
+            breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
+            modifiers=HogQLQueryModifiers(useNewEventsCluster=native, useNewEventsSchema=native),
+        )
+        with (
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
+            patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
+        ):
+            result = TrendsQueryRunner(query=query, team=self.team).to_actors_query_options()
+        assert result.breakdown == []
+        execute.assert_called_once()
+        assert execute.call_args.kwargs["workload"] == (Workload.NEW_EVENTS_CLUSTER if native else Workload.DEFAULT)
+        assert ("events_json" in execute.call_args.args[0]) is native
+
+    @parameterized.expand([(False,), (True,)])
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_actor_source_is_reused_until_the_user_changes(self, native: bool) -> None:
+        query = ActorsQuery(
+            source=InsightActorsQuery(
+                source=TrendsQuery(
+                    series=[EventsNode(event="$pageview")],
+                    modifiers=HogQLQueryModifiers(useNewEventsCluster=native, useNewEventsSchema=native),
+                )
+            )
+        )
+        with (
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
+        ):
+            runner = ActorsQueryRunner(query=query, team=self.team, user=self.user)
+            source = runner.source_query_runner
+            runner.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=self.user)
+            assert runner.source_query_runner is source
+            runner.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=None)
+            anonymous_source = runner.source_query_runner
+            assert anonymous_source is not None and anonymous_source is not source
+            assert anonymous_source.user is None
+            runner.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=self.user)
+            restored_source = runner.source_query_runner
+            assert restored_source is not None and restored_source is not anonymous_source
+            assert restored_source.user is self.user
+            assert bool(restored_source.modifiers.useNewEventsCluster) is native

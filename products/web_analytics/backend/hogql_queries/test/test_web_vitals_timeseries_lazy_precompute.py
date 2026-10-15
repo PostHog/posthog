@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
@@ -17,6 +17,7 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     EventsNode,
+    HogQLQueryModifiers,
     IntervalType,
     PropertyOperator,
     TrendsFilter,
@@ -25,6 +26,8 @@ from posthog.schema import (
     WebStatsTableQuery,
     WebVitalsQuery,
 )
+
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries
@@ -74,6 +77,24 @@ def _vitals_query(**overrides: Any) -> WebVitalsQuery:
 
 
 class TestVitalsTimeseriesGate(APIBaseTest):
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_raw_native_source_cannot_be_enqueued_with_an_override(self) -> None:
+        query = _vitals_query(
+            modifiers=HogQLQueryModifiers(useNewEventsCluster=False),
+            source_overrides={"modifiers": HogQLQueryModifiers(useNewEventsCluster=True)},
+        )
+        runner = WebVitalsQueryRunner(
+            query=query, team=self.team, modifiers=HogQLQueryModifiers(useNewEventsCluster=False)
+        )
+        original = runner.query
+        with (
+            patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
+            self.assertRaisesRegex(ExposedHogQLError, "synchronous execution"),
+        ):
+            runner.enqueue_async_calculation(cache_manager=MagicMock(), user=self.user)
+        enqueue.assert_not_called()
+        self.assertIs(runner.query, original)
+
     def test_canonical_tab_shape_is_servable(self) -> None:
         assert vitals_timeseries_percentile(_vitals_query()) == "p90"
         # The tab query the frontend builds pins the line-graph display explicitly.

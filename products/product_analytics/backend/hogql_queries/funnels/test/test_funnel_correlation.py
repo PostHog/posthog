@@ -12,12 +12,17 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from unittest import skip
+from unittest.mock import patch
+
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
+    ActorsQuery,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -29,10 +34,16 @@ from posthog.schema import (
     FunnelsFilter,
     FunnelsQuery,
     GroupPropertyFilter,
+    HogQLQueryModifiers,
+    InsightActorsQuery,
+    InsightActorsQueryOptions,
     PersonPropertyFilter,
+    PersonsOnEventsMode,
     PropertyOperator,
 )
 
+from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.models import Organization, Team, User
 from posthog.models.element import Element
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
@@ -2497,3 +2508,132 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
                 error_msg = str(e).lower()
                 # Should not be a SQL syntax error
                 self.assertNotIn("syntax error", error_msg, f"Special character handling failed for: {repr(prop_name)}")
+
+
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+class TestNativeEventsActorRouting(SimpleTestCase):
+    def setUp(self) -> None:
+        self.team = Team(id=44, modifiers={}, organization=Organization(id=1))
+        self.user = User(id=123, is_staff=True, is_active=True)
+        self.modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
+        self.enterContext(
+            patch(
+                "posthog.models.event.new_events_schema.get_instance_setting",
+                side_effect={
+                    "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [44],
+                    "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com",
+                }.get,
+            )
+        )
+        self.enterContext(
+            patch(
+                "products.web_analytics.backend.hogql_queries.cookieless_flag.resolve_cookieless_traffic_is_regular_modifier",
+                return_value=True,
+            )
+        )
+
+    @parameterized.expand(
+        [
+            (kind, True, None)
+            for kind in ("InsightActorsQuery", "InsightActorsQueryOptions", "ActorsQuery", "FunnelCorrelationQuery")
+        ]
+        + [(kind, True, False) for kind in ("InsightActorsQuery", "ActorsQuery")]
+        + [(kind, None, None) for kind in ("InsightActorsQuery", "ActorsQuery")]
+        + [("EventsQuery", choice, None) for choice in (None, False, True)]
+    )
+    def test_actor_queries_inherit_the_source_route_unless_explicitly_overridden(
+        self, kind: str, source_choice: bool | None, wrapper_choice: bool | None
+    ) -> None:
+        modifiers = self.modifiers.model_copy(update={"useNewEventsCluster": source_choice})
+        source = FunnelsQuery(series=[EventsNode(event="example"), EventsNode(event="finished")], modifiers=modifiers)
+        actors = FunnelsActorsQuery(source=source, funnelStep=1)
+        query: BaseModel
+        if kind == "InsightActorsQuery":
+            query = InsightActorsQuery(source=source, modifiers=HogQLQueryModifiers())
+        elif kind == "ActorsQuery":
+            query = ActorsQuery(source=actors, modifiers=HogQLQueryModifiers())
+        elif kind == "InsightActorsQueryOptions":
+            query = InsightActorsQueryOptions(source=actors)
+        elif kind == "EventsQuery":
+            from posthog.schema import EventsQuery
+
+            source.modifiers = (
+                modifiers.model_copy(update={"convertToProjectTimezone": True}) if source_choice is not None else None
+            )
+            self.team.timezone = "Europe/Amsterdam"
+            query = EventsQuery(
+                select=["timestamp"],
+                source=InsightActorsQuery(source=source),
+                modifiers=self.modifiers.model_copy(update={"convertToProjectTimezone": False}),
+            )
+        else:
+            query = FunnelCorrelationQuery(funnelCorrelationType=FunnelCorrelationResultsType.EVENTS, source=actors)
+        if wrapper_choice is not None:
+            assert isinstance(query, (ActorsQuery, InsightActorsQuery))
+            query.modifiers = self.modifiers.model_copy(
+                update={"useNewEventsSchema": wrapper_choice, "useNewEventsCluster": wrapper_choice}
+            )
+        original = query.model_dump()
+        runner = get_query_runner(query, self.team, user=self.user)
+        native = source_choice if wrapper_choice is None else wrapper_choice
+        self.assertEqual(runner.modifiers.personsOnEventsMode, PersonsOnEventsMode.DISABLED)
+        self.assertIs(runner.modifiers.useNewEventsSchema, bool(native))
+        self.assertIs(runner.modifiers.useNewEventsCluster, native)
+        if kind == "EventsQuery":
+            self.assertIs(runner.modifiers.convertToProjectTimezone, False)
+        self.assertEqual(query.model_dump(), original)
+
+
+class TestActorExecutionUserContext(APIBaseTest):
+    @parameterized.expand(
+        [("ActorsQuery",), ("InsightActorsQuery",), ("InsightActorsQueryOptions",), ("FunnelCorrelationQuery",)]
+    )
+    def test_nested_query_context_follows_execution_user(self, kind: str) -> None:
+        from typing import cast
+
+        from posthog.schema import (
+            ActorsQuery,
+            FunnelCorrelationQuery,
+            FunnelCorrelationResultsType,
+            FunnelsActorsQuery,
+            FunnelsQuery,
+            InsightActorsQuery,
+            InsightActorsQueryOptions,
+        )
+
+        from posthog.hogql.context import HogQLContext
+
+        from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+        from posthog.hogql_queries.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
+        from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
+        from posthog.hogql_queries.query_runner import get_query_runner_or_none
+
+        from products.product_analytics.backend.facade.queries import FunnelCorrelationQueryRunner, FunnelsQueryRunner
+
+        source = FunnelsQuery(series=[EventsNode(event="started"), EventsNode(event="finished")])
+        actors = FunnelsActorsQuery(source=source, funnelStep=1)
+        queries = {
+            "ActorsQuery": ActorsQuery(source=actors),
+            "InsightActorsQuery": InsightActorsQuery(source=source),
+            "InsightActorsQueryOptions": InsightActorsQueryOptions(source=actors),
+            "FunnelCorrelationQuery": FunnelCorrelationQuery(
+                source=actors, funnelCorrelationType=FunnelCorrelationResultsType.EVENTS
+            ),
+        }
+        runner = get_query_runner_or_none(query=queries[kind], team=self.team, user=self.user)
+        assert runner is not None
+
+        def execution_context() -> HogQLContext:
+            if isinstance(runner, ActorsQueryRunner):
+                assert runner.source_query_runner is not None
+                return runner.source_query_runner.build_hogql_context()
+            if isinstance(runner, FunnelCorrelationQueryRunner):
+                return runner.context.hogql_context
+            assert isinstance(runner, (InsightActorsQueryRunner, InsightActorsQueryOptionsRunner))
+            return cast(FunnelsQueryRunner, runner.source_runner).context.hogql_context
+
+        assert execution_context().user is self.user
+        other_user = User.objects.create_and_join(self.organization, "context-user@example.com", None)
+        runner.user = other_user
+        runner._on_user_changed()
+        assert execution_context().user is other_user

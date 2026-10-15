@@ -1,6 +1,6 @@
 import json
-import threading
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
@@ -22,6 +22,7 @@ from posthog.schema import (
     ExperimentTrendsQuery,
     ExperimentTrendsQueryResponse,
     ExperimentVariantTrendsBaseStats,
+    HogQLQueryModifiers,
     PropertyMathType,
     PropertyOperator,
     TrendsFilter,
@@ -36,6 +37,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.math_functions import ALL_SUPPORTED_MATH_FUNCTIONS
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY
 from products.experiments.backend.hogql_queries.trends_statistics_v2_continuous import (
@@ -75,6 +77,14 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         self.prepared_count_query = self._prepare_count_query()
         self.prepared_exposure_query = self._prepare_exposure_query()
+        if self.modifiers.useNewEventsCluster is not None:
+            for query in (self.prepared_count_query, self.prepared_exposure_query):
+                query.modifiers = (query.modifiers or HogQLQueryModifiers()).model_copy(
+                    update={
+                        "useNewEventsCluster": self.modifiers.useNewEventsCluster,
+                        **({"useNewEventsSchema": True} if self.modifiers.useNewEventsCluster else {}),
+                    }
+                )
 
         # The two runners run on separate threads and HogQLTimings is not thread safe, so each one
         # gets its own clone. _calculate merges them back once both threads have joined.
@@ -273,12 +283,12 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             run(self.exposure_query_runner, "exposure_result", False)
         else:
             stats = query_stats.get_active()
-            jobs = [
-                threading.Thread(target=run, args=(self.count_query_runner, "count_result", True, stats)),
-                threading.Thread(target=run, args=(self.exposure_query_runner, "exposure_result", True, stats)),
-            ]
-            [j.start() for j in jobs]  # type: ignore
-            [j.join() for j in jobs]  # type: ignore
+            run_in_parallel_threads(
+                [
+                    partial(run, self.count_query_runner, "count_result", True, stats),
+                    partial(run, self.exposure_query_runner, "exposure_result", True, stats),
+                ]
+            )
 
         self.timings.timings.update(self.count_query_runner.timings.timings)
         self.timings.timings.update(self.exposure_query_runner.timings.timings)

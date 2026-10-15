@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 
+from drf_spectacular.drainage import get_override
 from parameterized import parameterized
 from rest_framework import serializers
 
@@ -65,6 +66,11 @@ class TestBatchExportModelValidation(SimpleTestCase):
                 field.run_validation(modifiers)
         else:
             assert field.run_validation(modifiers) == expected
+
+    def test_export_schema_does_not_advertise_native_cluster_opt_ins(self) -> None:
+        schema = get_override(HogQLModifiersField, "field").model_json_schema()
+        assert "useNewEventsCluster" not in schema["properties"]
+        assert "useNewEventsSchema" in schema["properties"]
 
 
 def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
