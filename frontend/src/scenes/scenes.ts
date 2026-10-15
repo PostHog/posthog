@@ -352,6 +352,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Spaces',
     },
+    [Scene.AnalyticsProductHome]: {
+        projectBased: true,
+        name: 'Product analytics',
+    },
     [Scene.Tools]: {
         projectBased: true,
         name: 'Tools',
@@ -859,6 +863,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.analyticsList()]: [Scene.AnalyticsList, 'analyticsList'],
     [urls.analyticsMine()]: [Scene.AnalyticsList, 'analyticsMine'],
     [urls.analyticsSpaces()]: [Scene.AnalyticsSpaces, 'analyticsSpaces'],
+    [urls.analyticsProductHome()]: [Scene.AnalyticsProductHome, 'analyticsProductHome'],
     [urls.tools()]: [Scene.Tools, 'tools'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
