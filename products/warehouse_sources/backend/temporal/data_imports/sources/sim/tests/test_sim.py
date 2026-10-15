@@ -163,6 +163,19 @@ def test_usage_probe_requires_admin_access_in_one_organization(
     assert validate_credentials(config, "v2", "usage_events") == expected
 
 
+def test_usage_probe_searches_every_organization_page(config: SimSourceConfig, http: Mocker) -> None:
+    http.get(
+        "https://www.sim.ai/api/v2/organizations",
+        [
+            {"json": {"data": [{"id": "org-a"}], "nextCursor": "page-2"}},
+            {"json": {"data": [{"id": "org-b"}], "nextCursor": None}},
+        ],
+    )
+    http.get("https://www.sim.ai/api/v2/organizations/org-a/usage/events", status_code=403, json={})
+    http.get("https://www.sim.ai/api/v2/organizations/org-b/usage/events", json={"data": [], "nextCursor": None})
+    assert validate_credentials(config, "v2", "usage_events") == (True, None)
+
+
 def test_usage_events_is_merge_only(config: SimSourceConfig) -> None:
     schemas = {schema.name: schema for schema in SimSource().get_schemas(config, 1)}
     assert schemas["usage_events"].supports_incremental

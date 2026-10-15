@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -17,6 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     build_dependent_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
@@ -33,7 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sim.settin
     SimEndpoint,
 )
 
-# How many of a key's organizations validation tries before it concludes the key cannot read usage.
+# Page size for listing organizations while validating usage access.
 USAGE_PROBE_ORGANIZATIONS = 10
 
 AUTH_ERROR = "Your Sim API key is invalid or expired. Create a new key in Sim settings and reconnect."
@@ -122,29 +125,39 @@ def usage_window(inputs: SourceInputs, resume: SimResumeConfig | None) -> UsageW
     return UsageWindow(start=start.isoformat(), end=end.isoformat())
 
 
-def _check_usage_access(client: RESTClient, endpoint: SimEndpoint, organizations: Any) -> tuple[bool, str | None]:
+def _check_usage_access(
+    client: RESTClient, endpoint: SimEndpoint, organization_pages: Iterator[Any]
+) -> tuple[bool, str | None]:
     # Listing organizations succeeds for any key, but usage needs organization admin rights in at least one of them.
-    organization_ids = [organization["id"] for organization in organizations if organization.get("id")]
-    if not organization_ids:
-        return True, None
     end = datetime.now(UTC).date()
     start = end - timedelta(days=1)
-    for organization_id in organization_ids[:USAGE_PROBE_ORGANIZATIONS]:
-        try:
-            next(
-                client.paginate(
-                    path=endpoint.path.format(organization_id=organization_id),
-                    params={"limit": 1, "preset": "custom", "startDate": start.isoformat(), "endDate": end.isoformat()},
-                    data_selector="data",
-                    data_selector_required=True,
-                )
-            )
-        except HTTPError as error:
-            if error.response is not None and error.response.status_code in (403, 404):
+    found_organization = False
+    for page in organization_pages:
+        for organization in page:
+            if not organization.get("id"):
                 continue
-            raise
-        return True, None
-    return False, USAGE_PERMISSION_ERROR
+            found_organization = True
+            try:
+                next(
+                    client.paginate(
+                        path=endpoint.path.format(organization_id=organization["id"]),
+                        params={
+                            "limit": 1,
+                            "preset": "custom",
+                            "startDate": start.isoformat(),
+                            "endDate": end.isoformat(),
+                        },
+                        data_selector="data",
+                        data_selector_required=True,
+                    )
+                )
+            except HTTPError as error:
+                if error.response is not None and error.response.status_code in (403, 404):
+                    continue
+                raise
+            return True, None
+    # A key without organizations has no usage to read, so there is nothing to reject.
+    return (False, USAGE_PERMISSION_ERROR) if found_organization else (True, None)
 
 
 def validate_credentials(
@@ -165,16 +178,18 @@ def validate_credentials(
         allow_redirects=False,
     )
     try:
-        first_page = next(
-            client.paginate(
-                path=cast(str, probe["path"]),
-                params=probe["params"],
-                data_selector="data",
-                data_selector_required=True,
-            )
+        pages = client.paginate(
+            path=cast(str, probe["path"]),
+            params=probe["params"],
+            paginator=JSONResponseCursorPaginator(cursor_path="nextCursor", cursor_param="cursor")
+            if is_usage
+            else None,
+            data_selector="data",
+            data_selector_required=True,
         )
         if is_usage:
-            return _check_usage_access(client, endpoint, first_page)
+            return _check_usage_access(client, endpoint, pages)
+        next(pages)
     except HTTPError as error:
         status = error.response.status_code if error.response is not None else None
         if status == 401:
