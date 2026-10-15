@@ -200,6 +200,7 @@ class _Recorder:
         self.safety_checks = 0
         self.repo_selections = 0
         self.researches = 0
+        self.spend_publications = 0
         self.reverts = 0
         self.resets = 0
         self.failures = 0
@@ -298,6 +299,10 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     async def fake_publish(input: PublishReportCompletedInput) -> None:
         return None
 
+    @activity.defn(name="publish_report_spend_activity")
+    async def fake_publish_spend(input: SignalReportSummaryWorkflowInputs) -> None:
+        recorder.spend_publications += 1
+
     @activity.defn(name="revert_report_to_candidate_activity")
     async def fake_revert(input: RevertReportToCandidateInput) -> None:
         recorder.reverts += 1
@@ -330,6 +335,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
                 fake_mark_pending,
                 fake_mark_ready,
                 fake_publish,
+                fake_publish_spend,
                 fake_revert,
                 fake_reset,
                 fake_failed,
@@ -378,6 +384,7 @@ async def test_open_gates_let_the_run_flow_through():
     await _run_summary_workflow(recorder)
     assert recorder.gate_checks == ["summary_entry", "pre_repo_selection", "pre_research"]
     assert recorder.researches == 1
+    assert recorder.spend_publications == 1
     assert recorder.reverts == 0
     assert recorder.failures == 0
 
@@ -433,6 +440,7 @@ async def test_empty_first_fetch_is_retried_and_run_proceeds():
     await _run_summary_workflow(recorder)
     assert recorder.fetches == 3
     assert recorder.researches == 1
+    assert recorder.spend_publications == 1
     assert recorder.failures == 0
     assert recorder.assigned_signal_checks == 0
 

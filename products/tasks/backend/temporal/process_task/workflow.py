@@ -149,6 +149,7 @@ from .activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
     UpdateTaskRunStatusInput,
+    complete_signal_spend,
     update_task_run_status,
 )
 from .credential_refresh import CredentialRefreshExitReason, run_credential_refresh_loop, sandbox_gone_error_message
@@ -1865,6 +1866,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
                 if sandbox_cleaned and self._slack_thread_context and self._context:
                     await self._post_slack_update(sandbox_cleaned=True)
+
+                if (
+                    self._context
+                    and self.context.origin_product in {_ORIGIN_PRODUCT_SIGNAL_REPORT, "signals_scout"}
+                    and workflow.patched("signals-publish-spend-on-completion")
+                ):
+                    try:
+                        await workflow.execute_activity(
+                            complete_signal_spend,
+                            run_id,
+                            start_to_close_timeout=timedelta(minutes=20),
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                        )
+                    except Exception:
+                        workflow.logger.exception("Failed to finalize signal spend", extra={"run_id": run_id})
 
     async def _provision_and_start_agent(self, input: ProcessTaskInput, run_id: str) -> tuple[str, str, str | None]:
         """Initial-run setup: resolve agent-design, provision the sandbox, start the agent
