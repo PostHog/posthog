@@ -38,7 +38,8 @@ A call site reaching one of those wrappers can still land on the legacy path.
 So "does this reach the rebuild?" depends on the wrapper and the props that call site passes.
 `ActionFilterRow` goes through `TaxonomicPopover` and passes none of the three, so it does reach the rebuild.
 `TaxonomicPropertyFilter` has a legacy branch too: without `disablePopover`, a new or empty row, or a HogQL row, sets `showInitialSearchInline` and renders the legacy picker inline, whatever the flag and toggle say.
-With `disablePopover` (or inside a nested group), that branch is skipped and the flag and toggle decide.
+With `disablePopover`, that branch is skipped and the flag and toggle decide.
+A group row (`nestedGroup`) opens no picker at all; a leaf row inside a group follows the same rules as any other row.
 Without `disablePopover`, only an existing, non-HogQL row reaches the flag and toggle check.
 
 Many call sites skip the wrappers and mount the legacy picker directly, so they always render legacy.

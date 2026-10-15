@@ -215,7 +215,8 @@ per_open AS (
     has(chunk, 'taxonomic filter item selected') AS had_selection,
     indexOf(chunk, 'taxonomic filter category selected') AS cat_idx,
     indexOf(chunk, 'taxonomic filter empty result') AS empty_idx,
-    arrayLastIndex(x -> x = 'taxonomic filter empty result', chunk) AS last_empty_idx
+    arrayLastIndex(x -> x = 'taxonomic filter empty result', chunk) AS last_empty_idx,
+    arrayLastIndex(x -> x = 'taxonomic filter item selected', chunk) AS last_sel_idx
   FROM opens
   ARRAY JOIN chunks AS chunk
 )
@@ -225,7 +226,8 @@ SELECT
   round(100 * countIf(picked_category AND last_empty_idx > cat_idx) / countIf(picked_category), 1) AS empty_rate_after_category_pct,
   round(100 * countIf(had_empty AND NOT picked_category) / countIf(NOT picked_category), 1) AS empty_rate_without_category_pct,
   round(countIf(picked_category AND had_empty AND cat_idx < empty_idx) / countIf(picked_category AND had_empty AND empty_idx < cat_idx), 1) AS category_then_empty_ratio,
-  round(100 * countIf(had_selection AND picked_category) / countIf(picked_category), 1) AS selection_after_category_pct,
+  -- only a pick after the category pick counts
+  round(100 * countIf(picked_category AND last_sel_idx > cat_idx) / countIf(picked_category), 1) AS selection_after_category_pct,
   round(100 * countIf(had_selection AND NOT picked_category) / countIf(NOT picked_category), 1) AS selection_without_category_pct
 FROM per_open
 ```

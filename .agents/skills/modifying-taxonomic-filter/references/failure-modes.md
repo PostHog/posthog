@@ -9,7 +9,7 @@ A user picks a category, then searches for something that lives in another group
 
 - **Signal:** a category pick followed by an empty result is ~5.5x more common than the reverse order.
   ~10% of opens with a category pick have an empty result after the pick, vs ~3% of opens without one.
-  Selection rate drops ~30 points (~56% vs ~85%).
+  Selection rate drops ~30 points (~55% vs ~85%).
 - **Caveat:** the ~3% is too low.
   Opens that stay on Suggested send no empty-result event, so their empty states are not counted.
   The same gap pushes the ~5.5x order ratio up, because an empty search on Suggested before a category pick is never counted.
@@ -32,8 +32,11 @@ Most empty searches are real words that exist somewhere else.
 
 ## 3. Poor recovery after an empty result
 
-- **Signal:** the share of empty results followed by a searched selection within 30s fell from ~46% to ~39% over three months.
-- **Why it matters:** the empty-result rate is flat, so this is the empty state getting less helpful, not more empty states.
+- **Signal:** the health dashboard's recovery tile fell from ~46% to ~39% over three months, while the empty-result rate stayed flat.
+- **Caution:** that tile pools both surfaces, and they record different empty states.
+  A change in the rebuild share can move it on its own.
+  Check each surface with query 12 in [refreshing-product-reality](refreshing-product-reality.md) before you call it a worse empty state.
+  Today legacy recovers ~26% and the rebuild ~16%.
 - **Fix direction:** same as above, and measure recovery directly.
   See [measuring-changes](measuring-changes.md).
 
