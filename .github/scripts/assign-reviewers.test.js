@@ -14,7 +14,7 @@ const {
     computeSensitiveOwners,
     sensitiveOwnersToExplain,
     loadLabelRules,
-    matchTeamRules,
+    matchAlwaysRequestedTeams,
     isSubstantive,
     classifyOwners,
     classifyOwnersWithPinned,
@@ -469,7 +469,7 @@ for (const { description, title, files, expected } of [
         expected: AGENT_INFRA_MATCH,
     },
     {
-        description: 'a scope rule without teams requests nobody',
+        description: 'a scope mapped to another label requests nobody',
         title: 'feat(flags): x',
         files: [file('products/feature_flags/backend/api.py', 50)],
         expected: NO_MATCH,
@@ -481,8 +481,8 @@ for (const { description, title, files, expected } of [
         expected: NO_MATCH,
     },
 ]) {
-    test(`matchTeamRules with the shipped config: ${description}`, () => {
-        const { labels, teams } = matchTeamRules(loadLabelRules(), title, TEAM_RULE_RESOLUTIONS, files)
+    test(`matchAlwaysRequestedTeams with the shipped config: ${description}`, () => {
+        const { labels, teams } = matchAlwaysRequestedTeams(loadLabelRules(), title, TEAM_RULE_RESOLUTIONS, files)
         assert.deepEqual({ labels, teams: teams.map((entry) => entry.owner) }, expected)
     })
 }

@@ -40,6 +40,7 @@ const CONFIG = {
     maxTeamsRequested: 5,
     // Marker so we update our own comment in place instead of stacking copies.
     commentMarker: '<!-- auto-assign-reviewers -->',
+    alwaysRequestedTeams: [{ team: 'team-agent-infrastructure', label: 'feature/agent-infra' }],
 }
 
 // Ownership is resolved by the shared hogli resolver (distributed owners.yaml +
@@ -372,30 +373,21 @@ function teamsOwningChanges(resolutionByPath, changedFiles, config = CONFIG) {
     return teams
 }
 
-function matchTeamRules(rules, title, resolutionByPath, changedFiles) {
+function matchAlwaysRequestedTeams(labelRules, title, resolutionByPath, changedFiles, config = CONFIG) {
     const scopes = new Set(parseTitleScopes(title))
-    const owningTeams = teamsOwningChanges(resolutionByPath, changedFiles)
-    const labels = new Set()
-    const teams = new Map()
-
-    for (const rule of rules) {
-        const ruleTeams = rule.teams || []
-        const matches =
-            (rule.scopes || []).some((scope) => scopes.has(String(scope).toLowerCase())) ||
-            ruleTeams.some((team) => owningTeams.has(team))
-        if (ruleTeams.length === 0 || !matches) {
-            continue
-        }
-        for (const label of rule.labels || []) {
-            labels.add(label)
-        }
-        for (const team of ruleTeams) {
-            const resolved = classifyOwner(`@PostHog/${team}`)
-            teams.set(resolved.owner, resolved)
-        }
+    const scopeLabels = new Set(
+        labelRules
+            .filter((rule) => (rule.scopes || []).some((scope) => scopes.has(String(scope).toLowerCase())))
+            .flatMap((rule) => rule.labels || [])
+    )
+    const owningTeams = teamsOwningChanges(resolutionByPath, changedFiles, config)
+    const matched = config.alwaysRequestedTeams.filter(
+        ({ team, label }) => owningTeams.has(team) || scopeLabels.has(label)
+    )
+    return {
+        labels: matched.map(({ label }) => label),
+        teams: matched.map(({ team }) => classifyOwner(`@PostHog/${team}`)),
     }
-
-    return { labels: Array.from(labels), teams: Array.from(teams.values()) }
 }
 
 function isSubstantive(footprint, config = CONFIG) {
@@ -782,11 +774,16 @@ async function main() {
         const footprints = computeOwnerFootprints(resolutionByPath, changedFiles)
         const additionOwners = computeAdditionOwners(resolutionByPath, changedFiles)
         const sensitiveOwners = computeSensitiveOwners(resolutionByPath, changedFiles)
-        const ruleMatch = matchTeamRules(loadLabelRules(), process.env.PR_TITLE, resolutionByPath, changedFiles)
+        const alwaysRequested = matchAlwaysRequestedTeams(
+            loadLabelRules(),
+            process.env.PR_TITLE,
+            resolutionByPath,
+            changedFiles
+        )
         const { requested, demoted } = classifyOwnersWithPinned(footprints, [
             ...additionOwners,
             ...sensitiveOwners,
-            ...ruleMatch.teams,
+            ...alwaysRequested.teams,
         ])
 
         const teams = requested.filter((f) => f.type === 'team').map((f) => f.name)
@@ -801,18 +798,20 @@ async function main() {
         console.info(`Demoted to comment: ${demoted.map((f) => f.owner).join(', ') || 'none'}`)
         console.info(`Owners of additions: ${additionOwners.map((entry) => entry.owner).join(', ') || 'none'}`)
         console.info(`Owners of sensitive paths: ${sensitiveOwners.map((entry) => entry.owner).join(', ') || 'none'}`)
-        console.info(`Teams from label rules: ${ruleMatch.teams.map((entry) => entry.owner).join(', ') || 'none'}`)
+        console.info(
+            `Always requested teams: ${alwaysRequested.teams.map((entry) => entry.owner).join(', ') || 'none'}`
+        )
         console.info()
 
         const { toLabel, toRequest } = isExternal ? partitionExternalTeams(teams) : { toLabel: [], toRequest: teams }
-        await applyLabels([...ruleMatch.labels, ...toLabel.map(teamSlugToLabel).filter(Boolean)])
+        await applyLabels([...alwaysRequested.labels, ...toLabel.map(teamSlugToLabel).filter(Boolean)])
         await assignReviewers(toRequest, users)
 
         const commentBody = buildReviewerComment(
             requested,
             demoted,
             additionOwners,
-            sensitiveOwnersToExplain(sensitiveOwners, footprints, [...additionOwners, ...ruleMatch.teams])
+            sensitiveOwnersToExplain(sensitiveOwners, footprints, [...additionOwners, ...alwaysRequested.teams])
         )
         if (commentBody) {
             await upsertReviewerComment(commentBody)
@@ -838,7 +837,7 @@ module.exports = {
     computeSensitiveOwners,
     sensitiveOwnersToExplain,
     loadLabelRules,
-    matchTeamRules,
+    matchAlwaysRequestedTeams,
     isSubstantive,
     classifyOwners,
     classifyOwnersWithPinned,

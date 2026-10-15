@@ -1,5 +1,5 @@
 {
-    "_comment": "Maps a PR's conventional-commit scope (the part in parens of `type(scope): summary`) to labels the Auto Assign Labels workflow applies. Owned by @PostHog/team-feature-flags via owners.yaml, so mappings can change without editing the workflow or script. Scopes are matched case-insensitively. Labels must already exist in the repo. Add a new object to `rules` to map more scopes. A rule with `teams` (owners.yaml team slugs) also matches a PR that changes a file one of those teams owns. When such a rule matches, the Auto Assign Reviewers workflow requests its teams and applies its labels, whatever the size of the change.",
+    "_comment": "Maps a PR's conventional-commit scope (the part in parens of `type(scope): summary`) to labels the Auto Assign Labels workflow applies. Owned by @PostHog/team-feature-flags via owners.yaml, so mappings can change without editing the workflow or script. Scopes are matched case-insensitively. Labels must already exist in the repo. Add a new object to `rules` to map more scopes.",
     "rules": [
         {
             "scopes": ["flags", "flag", "feature-flags", "feature-flag", "feature_flags", "feature_flag"],
@@ -26,8 +26,7 @@
                 "llm-gateway",
                 "ai-gateway"
             ],
-            "labels": ["feature/agent-infra"],
-            "teams": ["team-agent-infrastructure"]
+            "labels": ["feature/agent-infra"]
         }
     ]
 }
