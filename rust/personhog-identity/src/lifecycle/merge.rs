@@ -56,7 +56,7 @@ use crate::lifecycle::engine::{
     STEP_COMPLETED,
 };
 use crate::pools::{IdentityPools, Lane};
-use crate::warnings::{MergePair, MergeWarnings, MERGE_SAGA};
+use crate::warnings::{effective_event_uuid, MergePair, MergeWarnings, MERGE_SAGA};
 use personhog_common::query_tag;
 
 // Derived from the shared enum so the op-type string cannot drift from
@@ -227,6 +227,9 @@ impl AbortOutcome {
     }
 }
 pub const OUTCOME_ERROR: &str = "error";
+/// Handler-decided outcomes that never reach the saga.
+pub const OUTCOME_SKIPPED_ILLEGAL: &str = "skipped_illegal";
+pub const OUTCOME_ATTACHED: &str = "attached";
 
 /// Per-person row statuses this driver writes. `marked`/`sealed` are the
 /// mark-covered set (the partial unique index); everything else releases
@@ -390,60 +393,97 @@ pub(crate) fn outcome_settled(outcome: &str) -> bool {
     outcome != OUTCOME_SKIPPED_CONFLICT
 }
 
+/// Borrowed views of the frozen request and recorded outcome, so emitting
+/// never clones the row and serde owns the key names.
+#[derive(Deserialize)]
+struct RequestView<'a> {
+    #[serde(borrow)]
+    target_distinct_id: &'a str,
+    #[serde(borrow, default)]
+    creator_event_uuid: &'a str,
+    #[serde(borrow)]
+    sources: Vec<SourceView<'a>>,
+}
+
+#[derive(Deserialize)]
+struct SourceView<'a> {
+    #[serde(borrow)]
+    distinct_id: &'a str,
+    #[serde(borrow, default)]
+    event_uuid: &'a str,
+}
+
+#[derive(Deserialize)]
+struct OutcomeView<'a> {
+    #[serde(borrow, default)]
+    survivor: Option<SurvivorView<'a>>,
+    #[serde(borrow)]
+    results: Vec<RecordView<'a>>,
+}
+
+#[derive(Deserialize)]
+struct SurvivorView<'a> {
+    #[serde(borrow, default)]
+    uuid: Option<&'a str>,
+}
+
+#[derive(Deserialize)]
+struct RecordView<'a> {
+    #[serde(borrow)]
+    distinct_id: &'a str,
+    #[serde(borrow)]
+    outcome: &'a str,
+    #[serde(default)]
+    person_id: Option<i64>,
+    #[serde(default)]
+    person_uuid: Option<Uuid>,
+}
+
 fn emit_terminal_warnings(warnings: &MergeWarnings, op: &OpRow, outcome: &Value) {
     if !warnings.is_enabled() {
         return;
     }
-    let Some(results) = outcome.get("results").and_then(Value::as_array) else {
-        return;
+    let request = match RequestView::deserialize(&op.request) {
+        Ok(request) => request,
+        Err(error) => {
+            tracing::warn!(op_id = %op.op_id, %error, "merge warnings skipped: frozen request did not parse");
+            return;
+        }
     };
-    let Some(target_distinct_id) = op.request.get("target_distinct_id").and_then(Value::as_str)
-    else {
-        return;
+    let recorded = match OutcomeView::deserialize(outcome) {
+        Ok(recorded) => recorded,
+        Err(error) => {
+            tracing::warn!(op_id = %op.op_id, %error, "merge warnings skipped: recorded outcome did not parse");
+            return;
+        }
     };
-    let creator_event_uuid = op
-        .request
-        .get("creator_event_uuid")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let sources = op.request.get("sources").and_then(Value::as_array);
+    let event_uuids: HashMap<&str, &str> = request
+        .sources
+        .iter()
+        .map(|source| (source.distinct_id, source.event_uuid))
+        .collect();
     let claim_abort = MergeOpExecutor::is_claim_abort_outcome(outcome);
-    let survivor_uuid = outcome
-        .get("survivor")
-        .and_then(|s| s.get("uuid"))
-        .and_then(Value::as_str)
-        .and_then(|s| Uuid::parse_str(s).ok());
-    for record in results {
-        let (Some(distinct_id), Some(verdict)) = (
-            record.get("distinct_id").and_then(Value::as_str),
-            record.get("outcome").and_then(Value::as_str),
-        ) else {
-            continue;
-        };
-        let event_uuid = sources
-            .and_then(|sources| {
-                sources
-                    .iter()
-                    .find(|s| s.get("distinct_id").and_then(Value::as_str) == Some(distinct_id))
-            })
-            .and_then(|s| s.get("event_uuid"))
-            .and_then(Value::as_str)
-            .filter(|u| !u.is_empty())
-            .unwrap_or(creator_event_uuid);
+    let survivor_uuid = recorded
+        .survivor
+        .as_ref()
+        .and_then(|survivor| survivor.uuid)
+        .and_then(|uuid| Uuid::parse_str(uuid).ok());
+    for record in &recorded.results {
+        let event_uuid = effective_event_uuid(
+            event_uuids.get(record.distinct_id).copied().unwrap_or(""),
+            request.creator_event_uuid,
+        );
         warnings.emit_verdict(
             op.team_id,
             MERGE_SAGA,
-            verdict,
-            outcome_settled(verdict) || !claim_abort,
+            record.outcome,
+            outcome_settled(record.outcome) || !claim_abort,
             &MergePair {
-                source_distinct_id: distinct_id,
-                target_distinct_id,
+                source_distinct_id: record.distinct_id,
+                target_distinct_id: request.target_distinct_id,
                 event_uuid,
-                source_person_id: record.get("person_id").and_then(Value::as_i64),
-                source_person_uuid: record
-                    .get("person_uuid")
-                    .and_then(Value::as_str)
-                    .and_then(|s| Uuid::parse_str(s).ok()),
+                source_person_id: record.person_id,
+                source_person_uuid: record.person_uuid,
                 survivor_uuid,
             },
         );
@@ -2227,13 +2267,14 @@ mod tests {
     }
 
     #[test]
-    fn terminal_warnings_read_the_recorded_shapes_and_skip_when_disabled() {
+    fn terminal_warnings_read_the_recorded_shapes() {
         let source_uuid = Uuid::new_v4();
+        let survivor_uuid = Uuid::new_v4();
         let request = MergeRequest {
             target_distinct_id: "user-1".to_string(),
             sources: vec![MergeSourceEntry {
                 distinct_id: "anon-1".to_string(),
-                event_uuid: "evt-1".to_string(),
+                event_uuid: String::new(),
             }],
             event_set: serde_json::json!({"plan": "pro"}),
             event_set_once: serde_json::json!({}),
@@ -2243,8 +2284,8 @@ mod tests {
             target_born: false,
         };
         let outcome = serde_json::to_value(MergeOutcome {
-            aborted: true,
-            survivor: None,
+            aborted: false,
+            survivor: Some(serde_json::json!({"id": 9, "uuid": survivor_uuid})),
             results: vec![MergeSourceRecord {
                 distinct_id: "anon-1".to_string(),
                 outcome: OUTCOME_SKIPPED_REFUSED.to_string(),
@@ -2255,8 +2296,6 @@ mod tests {
         .unwrap();
         let row = terminal_row(&request, &outcome);
 
-        emit_terminal_warnings(&MergeWarnings::disabled(), &row, &outcome);
-
         let emitter = Arc::new(CollectingRowEmitter::new());
         emit_terminal_warnings(&MergeWarnings::new(emitter.clone()), &row, &outcome);
         let rows = emitter.rows();
@@ -2266,9 +2305,13 @@ mod tests {
         let details = rows[0].details();
         assert_eq!(details["sourcePersonDistinctId"], "anon-1");
         assert_eq!(details["targetPersonDistinctId"], "user-1");
-        assert_eq!(details["eventUuid"], "evt-1");
+        assert_eq!(
+            details["eventUuid"], "creator",
+            "empty source event falls back"
+        );
         assert_eq!(details["sourcePersonId"], "42");
         assert_eq!(details["otherPersonId"], source_uuid.to_string());
+        assert_eq!(details["personId"], survivor_uuid.to_string());
         assert_eq!(details["outcome"], OUTCOME_SKIPPED_REFUSED);
     }
 

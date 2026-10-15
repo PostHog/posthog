@@ -1,8 +1,10 @@
 //! Direct-row transport for services that know the `team_id`; same
 //! fire-and-forget contract as [`crate::WarningEmitter`]. The throttle key
-//! is `team_id` plus a caller-chosen scope, matching the Node consumers'
-//! `team:type:key` limiter, so one offending entity re-presenting the same
-//! condition warns once per period while a different entity warns at once.
+//! is `team_id` plus a caller-chosen scope, so one offending entity
+//! re-presenting the same condition warns once per period while a
+//! different entity warns at once. Scopes are far more numerous than
+//! capture's tokens, so a caller sizes the throttle's tracked-key cap for
+//! its own cardinality instead of taking the default.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::Duration;
@@ -128,15 +130,6 @@ impl RowWarningEmitter for KafkaRowWarningEmitter {
     fn flush(&self, timeout: Duration) {
         drop(self.producer.flush(timeout));
     }
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-pub struct NoopRowWarningEmitter;
-
-impl RowWarningEmitter for NoopRowWarningEmitter {
-    fn emit(&self, _team_id: i64, _scope: &str, _source: WarningSource, _warning: Warning) {}
-
-    fn flush(&self, _timeout: Duration) {}
 }
 
 #[cfg(test)]
@@ -287,16 +280,5 @@ mod tests {
         assert_ne!(key, throttle_key(7, &format!("{huge}y")));
         assert_ne!(key, throttle_key(8, &huge));
         assert_eq!(key, throttle_key(7, &huge));
-    }
-
-    #[test]
-    fn the_noop_emitter_accepts_everything_silently() {
-        let recorder = DebuggingRecorder::new();
-        let snapshotter = recorder.snapshotter();
-        metrics::with_local_recorder(&recorder, || {
-            NoopRowWarningEmitter.emit(1, "a", SOURCE, warning());
-            NoopRowWarningEmitter.flush(Duration::from_millis(1));
-        });
-        assert!(outcomes(&snapshotter).is_empty());
     }
 }

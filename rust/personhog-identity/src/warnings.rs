@@ -11,8 +11,8 @@ use std::time::Duration;
 use common_ingestion_warnings::serializer::Warning;
 use common_ingestion_warnings::throttle::WarningThrottle;
 use common_ingestion_warnings::{
-    observe_delivery, KafkaRowWarningEmitter, NoopRowWarningEmitter, RowWarningEmitter,
-    WarningSource, WarningType, INGESTION_WARNINGS_EMITTER_ENABLED,
+    observe_delivery, KafkaRowWarningEmitter, RowWarningEmitter, WarningSource, WarningType,
+    INGESTION_WARNINGS_EMITTER_ENABLED,
 };
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::create_threaded_kafka_producer_no_ping;
@@ -20,9 +20,8 @@ use uuid::Uuid;
 
 use crate::lifecycle::merge::{
     OUTCOME_ERROR, OUTCOME_SKIPPED_ALREADY_IDENTIFIED, OUTCOME_SKIPPED_CONFLICT,
-    OUTCOME_SKIPPED_REFUSED,
+    OUTCOME_SKIPPED_ILLEGAL, OUTCOME_SKIPPED_REFUSED,
 };
-use crate::service::merge::OUTCOME_SKIPPED_ILLEGAL;
 
 pub const SERVICE: &str = "personhog-identity";
 const PIPELINE_STEP: &str = "personhog_merge";
@@ -47,10 +46,16 @@ const KAFKA_QUEUE_MESSAGES: u32 = 10_000;
 const KAFKA_MESSAGE_TIMEOUT_MS: u32 = 5_000;
 const TYPE_BUDGET_PERIOD: Duration = Duration::from_secs(1);
 const TYPE_BUDGET_BURST: NonZeroU32 = NonZeroU32::new(60).unwrap();
+/// Keys are per source distinct id, so the crate default (sized for capture's
+/// per-token keys) would fill within the hour a key lives and silence every
+/// team on the pod. The type budgets admit well under this many keys an hour.
+const MAX_TRACKED_SCOPES: usize = 1_000_000;
 const THROTTLE_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 /// The distinct id column's own limit: a legal id is never cut, and an
 /// oversized one is cut before it is copied into details.
 const MAX_DETAIL_ID_CHARS: usize = 400;
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
+const SHUTDOWN_FLUSH: Duration = Duration::from_secs(2);
 
 fn bounded(id: &str) -> &str {
     match id.char_indices().nth(MAX_DETAIL_ID_CHARS) {
@@ -58,8 +63,14 @@ fn bounded(id: &str) -> &str {
         None => id,
     }
 }
-const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
-const SHUTDOWN_FLUSH: Duration = Duration::from_secs(2);
+
+pub fn effective_event_uuid<'a>(event_uuid: &'a str, creator_event_uuid: &'a str) -> &'a str {
+    if event_uuid.is_empty() {
+        creator_event_uuid
+    } else {
+        event_uuid
+    }
+}
 
 pub struct MergePair<'a> {
     pub source_distinct_id: &'a str,
@@ -131,28 +142,23 @@ pub fn illegal_target_warning(pair: &MergePair<'_>) -> Warning {
 
 #[derive(Clone)]
 pub struct MergeWarnings {
-    emitter: Arc<dyn RowWarningEmitter>,
-    enabled: bool,
+    emitter: Option<Arc<dyn RowWarningEmitter>>,
 }
 
 impl MergeWarnings {
     pub fn new(emitter: Arc<dyn RowWarningEmitter>) -> Self {
         Self {
-            emitter,
-            enabled: true,
+            emitter: Some(emitter),
         }
     }
 
     pub fn disabled() -> Self {
-        Self {
-            emitter: Arc::new(NoopRowWarningEmitter),
-            enabled: false,
-        }
+        Self { emitter: None }
     }
 
     /// Lets a caller skip building warnings at all when nothing would send them.
     pub fn is_enabled(&self) -> bool {
-        self.enabled
+        self.emitter.is_some()
     }
 
     pub fn emit_verdict(
@@ -163,26 +169,32 @@ impl MergeWarnings {
         settled: bool,
         pair: &MergePair<'_>,
     ) {
+        let Some(emitter) = &self.emitter else {
+            return;
+        };
         if let Some(warning) = verdict_warning(outcome, settled, pair) {
-            self.emitter
-                .emit(team_id, pair.source_distinct_id, source, warning);
+            emitter.emit(team_id, pair.source_distinct_id, source, warning);
         }
     }
 
     pub fn emit_illegal_target(&self, team_id: i64, source: WarningSource, pair: &MergePair<'_>) {
-        self.emitter.emit(
-            team_id,
-            pair.source_distinct_id,
-            source,
-            illegal_target_warning(pair),
-        );
+        if let Some(emitter) = &self.emitter {
+            emitter.emit(
+                team_id,
+                pair.source_distinct_id,
+                source,
+                illegal_target_warning(pair),
+            );
+        }
     }
 
     /// Blocking; call from a blocking task once every tracked component that
     /// enqueues warnings has drained. The emitter's own task is advisory and
     /// receives shutdown alongside the gRPC server, so it cannot flush last.
     pub fn flush(&self) {
-        self.emitter.flush(SHUTDOWN_FLUSH);
+        if let Some(emitter) = &self.emitter {
+            emitter.flush(SHUTDOWN_FLUSH);
+        }
     }
 }
 
@@ -235,6 +247,12 @@ fn report_emitter_enabled(reason: &'static str, enabled: bool) {
     );
 }
 
+fn throttle() -> WarningThrottle {
+    WarningThrottle::default()
+        .with_max_tracked_keys(MAX_TRACKED_SCOPES)
+        .with_type_budget(TYPE_BUDGET_PERIOD, TYPE_BUDGET_BURST)
+}
+
 pub fn install(settings: &WarningsSettings, handle: Option<lifecycle::Handle>) -> MergeWarnings {
     if !settings.enabled {
         return MergeWarnings::disabled();
@@ -266,12 +284,10 @@ pub fn install(settings: &WarningsSettings, handle: Option<lifecycle::Handle>) -
             return MergeWarnings::disabled();
         }
     };
-    let throttle =
-        WarningThrottle::default().with_type_budget(TYPE_BUDGET_PERIOD, TYPE_BUDGET_BURST);
     let emitter = Arc::new(KafkaRowWarningEmitter::with_throttle(
         producer,
         settings.topic.clone(),
-        throttle,
+        throttle(),
     ));
 
     let background = emitter.clone();
@@ -297,15 +313,17 @@ pub fn install(settings: &WarningsSettings, handle: Option<lifecycle::Handle>) -
 
 #[cfg(test)]
 mod tests {
+    use common_ingestion_warnings::row::throttle_key;
     use common_ingestion_warnings::test_support::CollectingRowEmitter;
+    use common_ingestion_warnings::throttle::{ThrottleDecision, DEFAULT_MAX_TRACKED_KEYS};
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
     use rstest::rstest;
     use serde_json::Value;
 
     use super::*;
     use crate::lifecycle::merge::{
-        OUTCOME_MERGED, OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_MOVE_LIMIT,
+        OUTCOME_ATTACHED, OUTCOME_MERGED, OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_MOVE_LIMIT,
     };
-    use crate::service::merge::OUTCOME_ATTACHED;
 
     const SOURCE_UUID: Uuid = Uuid::from_u128(0x1111_2222_3333_4444_5555_6666_7777_8888);
     const SURVIVOR_UUID: Uuid = Uuid::from_u128(0x9999_aaaa_bbbb_cccc_dddd_eeee_ffff_0000);
@@ -523,5 +541,51 @@ mod tests {
         assert_eq!(config.kafka_producer_message_max_bytes, Some(1_048_576));
         assert!(config.kafka_producer_enable_idempotence.is_none());
         assert!(config.kafka_producer_batch_size.is_none());
+    }
+
+    #[rstest]
+    #[case::hosts_unset("", "hosts_unset")]
+    #[case::no_handle("broker:9092", "no_handle")]
+    fn an_unusable_install_reports_its_reason_on_the_gauge(
+        #[case] hosts: &str,
+        #[case] reason: &str,
+    ) {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let warnings = metrics::with_local_recorder(&recorder, || {
+            install(&settings(true, hosts, "topic"), None)
+        });
+        assert!(!warnings.is_enabled());
+        let gauges: Vec<(String, f64)> = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter(|(key, _, _, _)| key.key().name() == INGESTION_WARNINGS_EMITTER_ENABLED)
+            .map(|(key, _, _, value)| {
+                let reason = key
+                    .key()
+                    .labels()
+                    .find(|label| label.key() == "reason")
+                    .expect("reason label")
+                    .value()
+                    .to_string();
+                let DebugValue::Gauge(value) = value else {
+                    panic!("emitter enabled is a gauge");
+                };
+                (reason, value.into_inner())
+            })
+            .collect();
+        assert_eq!(gauges, vec![(reason.to_string(), 0.0)]);
+    }
+
+    #[test]
+    fn the_throttle_tracks_more_scopes_than_the_shared_default_cap() {
+        let throttle = throttle();
+        let warning = WarningType::CannotMergeAlreadyIdentified;
+        for n in 0..=DEFAULT_MAX_TRACKED_KEYS {
+            let decision = throttle.check(&throttle_key(7, &n.to_string()), warning);
+            assert_ne!(decision, ThrottleDecision::CardinalityCapped, "scope {n}");
+        }
+        assert_eq!(throttle.tracked_keys(), DEFAULT_MAX_TRACKED_KEYS + 1);
     }
 }

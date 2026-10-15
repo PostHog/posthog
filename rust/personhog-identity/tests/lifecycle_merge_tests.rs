@@ -1267,9 +1267,16 @@ async fn the_sweeper_drives_an_abandoned_merge_to_completion() {
 
     let (step, _) = op_row_state(&h.ctx.pool, warn_op_id).await;
     assert_eq!(step, STEP_ABORTED);
-    let rows = h.warning_rows();
+    // The sweep's scan is global, so only rows for this test's team count.
+    let rows: Vec<EmittedRow> = h
+        .warning_rows()
+        .into_iter()
+        .filter(|row| row.team_id == h.ctx.team_id)
+        .collect();
     assert_eq!(
-        h.warned(),
+        rows.iter()
+            .map(|row| (row.warning, row.scope.clone()))
+            .collect::<Vec<_>>(),
         vec![(
             WarningType::CannotMergeAlreadyIdentified,
             "sweep-warn-source".to_string()
@@ -1474,11 +1481,19 @@ async fn a_target_held_by_another_op_aborts_before_mutating_anything() {
     let h = MergeHarness::new().await;
     let target = h.ctx.insert_person_with_distinct_id("held-target").await;
     let source = h.ctx.insert_person_with_distinct_id("held-source").await;
+    let identified = h
+        .ctx
+        .insert_person_with_distinct_id("held-identified")
+        .await;
+    h.set_person(identified, "{}", 0, true).await;
     let foreign_op = h.foreign_mark(target).await;
 
     let op_id = Uuid::now_v7();
     let outcome = h
-        .execute(op_id, &merge_request("held-target", &["held-source"]))
+        .execute(
+            op_id,
+            &merge_request("held-target", &["held-source", "held-identified"]),
+        )
         .await
         .expect("op reaches a terminal step");
 
@@ -1486,24 +1501,42 @@ async fn a_target_held_by_another_op_aborts_before_mutating_anything() {
     assert!(outcome.survivor.is_none());
     assert_eq!(
         result_map(&outcome),
-        HashMap::from([(
-            "held-source".to_string(),
-            OUTCOME_SKIPPED_CONFLICT.to_string()
-        )])
+        HashMap::from([
+            (
+                "held-source".to_string(),
+                OUTCOME_SKIPPED_CONFLICT.to_string()
+            ),
+            (
+                "held-identified".to_string(),
+                OUTCOME_SKIPPED_ALREADY_IDENTIFIED.to_string()
+            ),
+        ])
     );
     let (step, _) = op_row_state(&h.ctx.pool, op_id).await;
     assert_eq!(step, STEP_ABORTED);
 
-    // The world is unchanged: both persons live, ids in place, the foreign
+    // The world is unchanged: every person lives, ids in place, the foreign
     // op's mark untouched, no leader call ever made.
-    for (person, did) in [(target, "held-target"), (source, "held-source")] {
+    for (person, did) in [
+        (target, "held-target"),
+        (source, "held-source"),
+        (identified, "held-identified"),
+    ] {
         let (is_deleted, _, _) = h.person_state(person).await;
         assert!(!is_deleted);
         assert_eq!(h.pdi_state(did).await.0, person);
     }
     assert_eq!(h.op_person_status(foreign_op, target).await, "marked");
     assert!(h.leader.calls().is_empty());
-    assert!(h.warned().is_empty());
+    // The conflict is unsettled (a retry may win the target), but the
+    // identified verdict is final and warns even though the op aborted.
+    assert_eq!(
+        h.warned(),
+        vec![(
+            WarningType::CannotMergeAlreadyIdentified,
+            "held-identified".to_string()
+        )]
+    );
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -2611,7 +2644,7 @@ async fn invalid_merge_requests_are_rejected_before_any_work() {
     let cases: Vec<(&str, MergePersonsRequest, Code)> = vec![
         (
             "zero team",
-            rpc_request(0, "t", &["s"], op),
+            rpc_request(0, "anonymous", &["s"], op),
             Code::InvalidArgument,
         ),
         (

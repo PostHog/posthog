@@ -57,7 +57,7 @@ use tracing::warn;
 
 pub use registry::WarningType;
 pub use request::{emit_request_warning, WarningRequestContext, UNKNOWN_ATTRIBUTION};
-pub use row::{KafkaRowWarningEmitter, NoopRowWarningEmitter, RowWarningEmitter};
+pub use row::{KafkaRowWarningEmitter, RowWarningEmitter};
 pub use throttle::{ThrottleDecision, WarningThrottle};
 
 /// Counter of emission attempts: labels `type` (warning type), `source`

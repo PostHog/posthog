@@ -16,7 +16,7 @@ use serde_json::Value;
 use tonic::Status;
 
 use personhog_proto::personhog::identity::v1::{
-    MergePersonsRequest, MergePersonsResponse, MergeSourceOutcome, MergeSourceResult,
+    MergePersonsRequest, MergePersonsResponse, MergeSource, MergeSourceOutcome, MergeSourceResult,
 };
 use personhog_proto::personhog::types::v1::{Person as ProtoPerson, UpdatePersonPropertiesRequest};
 
@@ -24,20 +24,17 @@ use crate::leader::{PersonStateReader, PropertyWriter};
 use crate::lifecycle::engine::{OpRow, STEP_COMPLETED};
 use crate::lifecycle::merge::{
     outcome_settled, record_conflict, record_outcome_count, MergeOpExecutor, MergeOutcome,
-    MergeRequest, MergeSourceEntry, MergeSourceRecord, OP_TYPE_MERGE, OUTCOME_ERROR,
-    OUTCOME_MERGED, OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_ALREADY_IDENTIFIED,
-    OUTCOME_SKIPPED_CONFLICT, OUTCOME_SKIPPED_MOVE_LIMIT, OUTCOME_SKIPPED_REFUSED,
+    MergeRequest, MergeSourceEntry, MergeSourceRecord, OP_TYPE_MERGE, OUTCOME_ATTACHED,
+    OUTCOME_ERROR, OUTCOME_MERGED, OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_ALREADY_IDENTIFIED,
+    OUTCOME_SKIPPED_CONFLICT, OUTCOME_SKIPPED_ILLEGAL, OUTCOME_SKIPPED_MOVE_LIMIT,
+    OUTCOME_SKIPPED_REFUSED,
 };
 use crate::lifecycle::validation::{
-    is_distinct_id_illegal, is_distinct_id_oversized, is_distinct_id_unmergeable, is_team_id_valid,
-    validate_merge_persons, MAX_MERGE_BATCH_SIZE,
+    is_distinct_id_illegal, is_distinct_id_oversized, validate_merge_persons, UnmergeableId,
+    MAX_MERGE_BATCH_SIZE,
 };
 use crate::storage::{AttachOutcome, IdentityStorage, Person, PersonStub, StubOutcome};
-use crate::warnings::{MergePair, MergeWarnings, MERGE_ENTRANCE};
-
-/// Handler-decided outcomes that never reach the saga.
-pub const OUTCOME_SKIPPED_ILLEGAL: &str = "skipped_illegal";
-pub const OUTCOME_ATTACHED: &str = "attached";
+use crate::warnings::{effective_event_uuid, MergePair, MergeWarnings, MERGE_ENTRANCE};
 
 const MERGE_SOURCES_PER_CALL: &str = "personhog_identity_merge_sources_per_call";
 const MERGE_PHASE_DURATION: &str = "personhog_identity_merge_phase_duration_ms";
@@ -205,39 +202,41 @@ impl MergeEntrance {
         self
     }
 
-    fn emit_unmergeable_id_warnings(&self, request: &MergePersonsRequest) {
-        if !self.warnings.is_enabled()
-            || !is_team_id_valid(request.team_id)
-            || request.sources.len() > MAX_MERGE_BATCH_SIZE
-        {
+    fn emit_rejection_warning(&self, request: &MergePersonsRequest, id: UnmergeableId) {
+        // An illegal target warns once per source, so an over-cap batch is
+        // left out rather than fanned out past the per-call limit.
+        if !self.warnings.is_enabled() || request.sources.len() > MAX_MERGE_BATCH_SIZE {
             return;
         }
-        let target_unmergeable = is_distinct_id_unmergeable(&request.target_distinct_id);
-        for source in &request.sources {
-            let event_uuid = if source.event_uuid.is_empty() {
-                &request.creator_event_uuid
-            } else {
-                &source.event_uuid
-            };
+        let sources: &[MergeSource] = match id {
+            UnmergeableId::Target => &request.sources,
+            UnmergeableId::Source(index) => request
+                .sources
+                .get(index)
+                .map(std::slice::from_ref)
+                .unwrap_or_default(),
+        };
+        for source in sources {
             let pair = MergePair {
                 source_distinct_id: &source.source_distinct_id,
                 target_distinct_id: &request.target_distinct_id,
-                event_uuid,
+                event_uuid: effective_event_uuid(&source.event_uuid, &request.creator_event_uuid),
                 source_person_id: None,
                 source_person_uuid: None,
                 survivor_uuid: None,
             };
-            if target_unmergeable {
-                self.warnings
-                    .emit_illegal_target(request.team_id, MERGE_ENTRANCE, &pair);
-            } else if source.source_distinct_id.contains('\u{0000}') {
-                self.warnings.emit_verdict(
+            match id {
+                UnmergeableId::Target => {
+                    self.warnings
+                        .emit_illegal_target(request.team_id, MERGE_ENTRANCE, &pair)
+                }
+                UnmergeableId::Source(_) => self.warnings.emit_verdict(
                     request.team_id,
                     MERGE_ENTRANCE,
                     OUTCOME_SKIPPED_ILLEGAL,
                     true,
                     &pair,
-                );
+                ),
             }
         }
     }
@@ -262,11 +261,15 @@ impl MergeEntrance {
         request: MergePersonsRequest,
         shape: &mut MergeShape,
     ) -> Result<MergePersonsResponse, Status> {
-        let validated = validate_merge_persons(&request);
-        if validated.is_err() {
-            self.emit_unmergeable_id_warnings(&request);
-        }
-        let (op_id, move_limit) = validated?;
+        let (op_id, move_limit) = match validate_merge_persons(&request) {
+            Ok(validated) => validated,
+            Err(rejection) => {
+                if let Some(id) = rejection.unmergeable {
+                    self.emit_rejection_warning(&request, id);
+                }
+                return Err(rejection.status);
+            }
+        };
         common_metrics::histogram(MERGE_SOURCES_PER_CALL, &[], request.sources.len() as f64);
         let mut event_set = parse_json_map(&request.event_set, "event_set")?;
         let mut event_set_once = parse_json_map(&request.event_set_once, "event_set_once")?;
@@ -452,34 +455,31 @@ impl MergeEntrance {
         for (outcome, count) in inline_counts {
             record_outcome_count(PATH_INLINE, outcome, count);
         }
-        for source in request
-            .sources
-            .iter()
-            .filter(|_| self.warnings.is_enabled())
-        {
-            let Some(outcome) = inline_results.get(&source.source_distinct_id) else {
-                continue;
-            };
-            let source_person = resolved.get(&(request.team_id, source.source_distinct_id.clone()));
-            let event_uuid = if source.event_uuid.is_empty() {
-                &request.creator_event_uuid
-            } else {
-                &source.event_uuid
-            };
-            self.warnings.emit_verdict(
-                request.team_id,
-                MERGE_ENTRANCE,
-                outcome,
-                outcome_settled(outcome),
-                &MergePair {
-                    source_distinct_id: &source.source_distinct_id,
-                    target_distinct_id: &request.target_distinct_id,
-                    event_uuid,
-                    source_person_id: source_person.map(|p| p.id),
-                    source_person_uuid: source_person.map(|p| p.uuid),
-                    survivor_uuid: Some(target_person.uuid),
-                },
-            );
+        if self.warnings.is_enabled() {
+            for source in &request.sources {
+                let Some(outcome) = inline_results.get(&source.source_distinct_id) else {
+                    continue;
+                };
+                let source_person =
+                    resolved.get(&(request.team_id, source.source_distinct_id.clone()));
+                self.warnings.emit_verdict(
+                    request.team_id,
+                    MERGE_ENTRANCE,
+                    outcome,
+                    outcome_settled(outcome),
+                    &MergePair {
+                        source_distinct_id: &source.source_distinct_id,
+                        target_distinct_id: &request.target_distinct_id,
+                        event_uuid: effective_event_uuid(
+                            &source.event_uuid,
+                            &request.creator_event_uuid,
+                        ),
+                        source_person_id: source_person.map(|p| p.id),
+                        source_person_uuid: source_person.map(|p| p.uuid),
+                        survivor_uuid: Some(target_person.uuid),
+                    },
+                );
+            }
         }
 
         if saga_sources.is_empty() {

@@ -448,11 +448,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         detached_drives.shutdown().await;
     });
 
-    monitor.wait().await?;
+    let waited = monitor.wait().await;
 
+    // Flush before the result propagates: a failed component or a timed-out
+    // drain is exactly the shutdown that leaves rows queued.
     if let Err(e) = tokio::task::spawn_blocking(move || warnings_to_flush.flush()).await {
         tracing::warn!(error = %e, "ingestion warnings flush task panicked");
     }
 
+    waited?;
     Ok(())
 }
