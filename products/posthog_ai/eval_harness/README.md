@@ -360,7 +360,8 @@ Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal or project secret key with `off
 The [pilot configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#sql-offline-experiment-pilot) lists the metric names, scorer kinds, and a placeholder mapping.
 Delivery runs in a bounded background queue after local results are saved. Prepared uploads stay in memory, with up to two uploads running concurrently, at most 32 queued or active uploads, and a 60-second deadline per active upload.
 Unfinished uploads pause before infrastructure teardown. After teardown, the harness retries the same prepared objects and identities with fresh deadlines, waiting up to 30 seconds for delivery to finish.
-Both sandboxed and one-shot suites can opt in through `offline_suite`. The [reporting guide](../../../docs/internal/ai-offline-evaluation-reporting.md#enrolling-other-suites-and-richer-results) covers rich scorer outcomes, dataset references, version fields, and shared scorer mappings.
+Both sandboxed and one-shot suites can opt in through `offline_suite`. Rich scorer recording runs only when offline publishing is configured and uploads are allowed.
+The [reporting guide](../../../docs/internal/ai-offline-evaluation-reporting.md#enrolling-other-suites-and-richer-results) covers rich scorer outcomes, external dataset references, version fields, and shared scorer mappings. Hosted datasets are not supported by the harness publisher.
 
 ```bash
 hogli evals sql/eval_sql::eval_sql
@@ -369,7 +370,7 @@ hogli evals sql/eval_sql::eval_sql
 With no publishing configuration, the SQL run reports that offline uploads are disabled.
 Partial or invalid configuration and upload failures produce warnings while Braintrust and legacy reporting continue.
 Successful uploads use separate items for each case and trial; skipped scores and execution errors remain distinct from scores of zero.
-Raw agent logs stay in the existing local and Braintrust outputs; oversized fields are omitted from the new API payload with omission metadata.
+Raw agent logs stay in the existing local and Braintrust outputs. The SDK validates payloads; invalid or oversized optional fields are omitted as a whole, with their names recorded in metadata.
 
 Failed or interrupted uploads and uploads rejected by a full queue are not saved for later retry.
 To try publishing again, correct the configuration or connectivity problem and rerun the suite.

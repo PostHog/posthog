@@ -100,11 +100,12 @@ class BraintrustEngine:
         next(iter(trial_spans.values())).flush()
 
     async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
-        recorder = ScorerRecorder()
+        recorder = ScorerRecorder() if spec.record_scorer_results else None
         trial_spans: dict[str, Span] = {}
 
         async def bridged_task(input: dict[str, Any], hooks: EvalHooks) -> dict[str, Any] | None:
-            recorder.register(hooks.metadata, hooks.trial_index)
+            if recorder is not None:
+                recorder.register(hooks.metadata, hooks.trial_index)
             # Wrap braintrust's hooks so the suite task only ever sees neutral CaseHooks.
             try:
                 return await spec.task(input, _BraintrustCaseHooks(hooks))
@@ -120,7 +121,9 @@ class BraintrustEngine:
             spec.project_name,
             data=cases,
             task=bridged_task,
-            scores=[recorder.wrap(scorer, index) for index, scorer in enumerate(spec.scorers)],
+            scores=[recorder.wrap(scorer, index) for index, scorer in enumerate(spec.scorers)]
+            if recorder is not None
+            else list(spec.scorers),
             trial_count=spec.trial_count,
             # Our global concurrency semaphores are the only limiters that should
             # bind. Braintrust's own per-suite limiter must never gate, so let it

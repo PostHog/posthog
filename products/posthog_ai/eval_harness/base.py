@@ -524,6 +524,7 @@ class _BaseEvalRun:
                     # runs; the metadata is what lets an engine filter or compare by them.
                     metadata=self._experiment_metadata(),
                     on_results=self._report_results,
+                    record_scorer_results=self.offline_publisher is not None,
                 )
             )
             await self._report_results(result)

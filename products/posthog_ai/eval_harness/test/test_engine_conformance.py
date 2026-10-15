@@ -61,6 +61,7 @@ def _spec(
     *,
     scorers: list[Any] | None = None,
     trial_count: int = 1,
+    record_scorer_results: bool = False,
 ) -> ExperimentSpec:
     return ExperimentSpec(
         project_name="conformance",
@@ -71,6 +72,7 @@ def _spec(
         is_public=False,
         no_send_logs=True,
         metadata={},
+        record_scorer_results=record_scorer_results,
     )
 
 
@@ -78,16 +80,17 @@ def _run(engine: BraintrustEngine, spec: ExperimentSpec) -> ExperimentResult:
     return asyncio.run(engine.run_experiment(spec))
 
 
-def test_one_result_per_case_and_trial(engine: BraintrustEngine) -> None:
+@pytest.mark.parametrize("record_scorer_results", [False, True])
+def test_one_result_per_case_and_trial(engine: BraintrustEngine, record_scorer_results: bool) -> None:
     async def task(input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any]:
         return {"good": True}
 
     cases = [CaseSpec(input={"name": name}) for name in ("a", "b", "c")]
-    result = _run(engine, _spec(task, cases, trial_count=2))
+    result = _run(engine, _spec(task, cases, trial_count=2, record_scorer_results=record_scorer_results))
 
     assert len(result.results) == 6
     assert [(case.input["name"], case.trial_index) for case in result.results] == [
-        (name, index) for name in ("a", "b", "c") for index in (0, 1)
+        (name, index if record_scorer_results else None) for name in ("a", "b", "c") for index in (0, 1)
     ]
 
 
@@ -128,19 +131,25 @@ def test_task_exception_becomes_error_and_is_excluded_from_aggregate(engine: Bra
     assert result.summary.scores["maybe"].score == 1.0
 
 
-def test_none_score_preserved_per_case_and_excluded_from_aggregate(engine: BraintrustEngine) -> None:
+@pytest.mark.parametrize("record_scorer_results", [False, True])
+def test_none_score_preserved_per_case_and_excluded_from_aggregate(
+    engine: BraintrustEngine, record_scorer_results: bool
+) -> None:
     async def task(input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any]:
         if input["name"] == "skip":
             return {"skip": True}
         return {"good": input["name"] == "hit"}
 
     cases = [CaseSpec(input={"name": name}) for name in ("hit", "skip", "miss")]
-    result = _run(engine, _spec(task, cases))
+    result = _run(engine, _spec(task, cases, record_scorer_results=record_scorer_results))
 
     by_name = {r.input["name"]: r for r in result.results}
     assert by_name["skip"].scores == {"maybe": None}
-    assert by_name["skip"].scorer_results["maybe"].status == "skipped"
-    assert by_name["skip"].scorer_results["maybe"].reasoning == "Does not apply"
+    if record_scorer_results:
+        assert by_name["skip"].scorer_results["maybe"].status == "skipped"
+        assert by_name["skip"].scorer_results["maybe"].reasoning == "Does not apply"
+    else:
+        assert all(not case.scorer_results for case in result.results)
     # None is excluded, so the mean is over hit (1.0) and miss (0.0).
     assert result.summary.scores["maybe"].score == 0.5
 
@@ -184,7 +193,10 @@ def test_scorer_details_and_errors_stay_with_concurrent_trials(engine: Braintrus
         {"run_metadata": {}},
         {},
     )
-    result = _run(engine, _spec(task, [CaseSpec(input={"name": "same"})], scorers=[scorer], trial_count=3))
+    result = _run(
+        engine,
+        _spec(task, [CaseSpec(input={"name": "same"})], scorers=[scorer], trial_count=3, record_scorer_results=True),
+    )
 
     assert tasks == started == 3
     assert result.summary.scores["judge"].score == 0.5
@@ -220,7 +232,7 @@ def test_judge_failure_preserves_zero_aggregate_and_error_upload(
     scorer = _Judge(
         name="judge", prompt_template="{{output}}", choice_scores={"yes": 1.0, "no": 0.0}, model="test-model"
     )
-    result = _run(engine, _spec(task, [CaseSpec(input={"name": "a"})], scorers=[scorer]))
+    result = _run(engine, _spec(task, [CaseSpec(input={"name": "a"})], scorers=[scorer], record_scorer_results=True))
 
     case = result.results[0]
     assert case.error is None
@@ -275,7 +287,9 @@ def test_explicit_scorer_outcome_keeps_numeric_aggregation_compatible(
     async def task(input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any]:
         return {}
 
-    result = _run(engine, _spec(task, [CaseSpec(input={"name": "a"})], scorers=[_ReportingScorer()]))
+    result = _run(
+        engine, _spec(task, [CaseSpec(input={"name": "a"})], scorers=[_ReportingScorer()], record_scorer_results=True)
+    )
 
     actual = result.results[0].scorer_results["reporting"]
     assert actual.status == outcome.status
@@ -313,12 +327,14 @@ def test_explicit_scorer_outcome_keeps_numeric_aggregation_compatible(
     ],
 )
 @pytest.mark.parametrize("scorer_form", ["sync", "async", "instance", "class"])
+@pytest.mark.parametrize("record_scorer_results", [False, True])
 def test_callable_scorers_keep_their_supported_return_shapes(
     engine: BraintrustEngine,
     score_output: object,
     expected_scores: dict[str, float | None],
     expected_trace_ids: dict[str, str],
     scorer_form: str,
+    record_scorer_results: bool,
 ) -> None:
     calls = 0
 
@@ -351,14 +367,19 @@ def test_callable_scorers_keep_their_supported_return_shapes(
     scorer = {"sync": score, "async": async_score, "instance": _CallableScorer(), "class": _CallableScorer}[scorer_form]
     expected_scores = {scorer_name if name == "score" else name: value for name, value in expected_scores.items()}
     expected_trace_ids = {scorer_name if name == "score" else name: value for name, value in expected_trace_ids.items()}
-    result = _run(engine, _spec(task, [CaseSpec(input={"name": "a"})], scorers=[scorer]))
+    result = _run(
+        engine,
+        _spec(task, [CaseSpec(input={"name": "a"})], scorers=[scorer], record_scorer_results=record_scorer_results),
+    )
 
     assert calls == 1
     assert result.results[0].scores == expected_scores
-    assert {name: outcome.value for name, outcome in result.results[0].scorer_results.items()} == expected_scores
-    assert {
-        name: outcome.evaluator_trace_id for name, outcome in result.results[0].scorer_results.items()
-    } == expected_trace_ids
+    assert {name: outcome.value for name, outcome in result.results[0].scorer_results.items()} == (
+        expected_scores if record_scorer_results else {}
+    )
+    assert {name: outcome.evaluator_trace_id for name, outcome in result.results[0].scorer_results.items()} == (
+        expected_trace_ids if record_scorer_results else {}
+    )
 
 
 def test_engine_does_not_throttle_concurrency(engine: BraintrustEngine) -> None:

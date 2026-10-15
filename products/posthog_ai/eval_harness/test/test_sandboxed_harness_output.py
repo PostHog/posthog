@@ -491,6 +491,7 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     engine.run_experiment.assert_awaited_once()
     engine_spec = engine.run_experiment.call_args.args[0]
     assert engine_spec.no_send_logs is no_send_logs
+    assert engine_spec.record_scorer_results is (enrolled and not no_send_logs and configuration == "valid")
     assert reporter.mean_score() == 1.0
     if no_send_logs:
         event_client.capture.assert_not_called()

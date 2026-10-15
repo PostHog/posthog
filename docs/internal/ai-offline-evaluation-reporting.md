@@ -92,15 +92,16 @@ A `None` score becomes `skipped`; a task error or missing scorer result becomes 
 LLM judge exceptions publish an `error` outcome with code `judge_error`; the existing zero fallback remains in Braintrust and local aggregates.
 A failed scorer does not replace successful results from other scorers on the same case.
 Scorer metadata and `reason` or `rationale` explanations are retained for each trial, including skip reasons and judge errors.
-The shared scorer layer observes return values and exceptions without converting them; Braintrust still owns scorer execution, return-value validation, and numeric aggregation.
+The scorer recorder observes return values and exceptions only when a suite has valid offline publishing configuration and allows uploads. Other runs pass scorers directly to Braintrust.
+Braintrust still owns scorer execution, return-value validation, and numeric aggregation.
 Application and evaluator trace links are included when capture is enabled and the trace and offline destinations match.
 Application and dataset revisions use the commit captured at run start.
 
 Items include available input, output, expected output, and case metadata.
 The publisher excludes `raw_log` from the new API payload; the existing local logs and Braintrust output retain it.
-Fields that exceed payload limits are omitted, with omission details recorded in metadata.
+The SDK validates optional fields and the combined payload as fields are added. An invalid or oversized field is omitted as a whole, with its name recorded in `metadata.omitted_fields`.
+Item payloads prioritize input, output, expected output, then metadata. Output fields are not pruned individually, and accepted fields are not removed to make room for omission diagnostics.
 Invalid optional case keys, dataset references, or trace identifiers are omitted individually, preserving the other cases and scores in the prepared upload.
-Metadata and omission diagnostics have aggregate size limits as well, so many small fields cannot exceed the SDK's item payload limit.
 
 The publisher retains the prepared experiment, items, scorer versions, and result payloads in memory until delivery finishes.
 The SDK owns request validation, batching, acknowledgements, and retries. Transient failures receive up to three retries with the same experiment and item identities.
@@ -119,12 +120,10 @@ Both `SandboxedEval` and `OneShotEval` accept `offline_suite=OfflineEvalSuite(..
 Each suite selects at least one scorer kind and uses the corresponding entries from `POSTHOG_OFFLINE_EVAL_SCORER_VERSIONS`; the shared mapping may include metrics used by other suites.
 Numeric scores can use the domain of their configured scorer version. The API validates bounds and steps; the harness does not restrict every numeric metric to `[0, 1]`.
 
-`OfflineEvalSuite.experiment_options` accepts the SDK's `ExperimentOptions`, including hosted dataset revisions, external dataset identifiers, `prompt_version`, model/application versions, and `run_source`.
+`OfflineEvalSuite.experiment_options` accepts the SDK's `ExperimentOptions` for external dataset identifiers, `prompt_version`, model/application versions, and `run_source`.
 The harness owns the experiment ID, start time, suite key, and expected counts.
 For external datasets, case metadata can supply `dataset_item_identifier` and `dataset_item_version_identifier`.
-For a hosted `dataset_revision_id`, every case must supply a valid `dataset_item_version_id` UUID in its metadata; missing or malformed UUIDs stop preparation with a local error.
-That version must belong to the selected revision; the API checks membership during upload.
-PostHog derives the hosted item identifiers from that version, so the harness omits external identifiers for hosted items and omits hosted version links for external datasets.
+The harness publisher does not support hosted datasets. A non-null `dataset_revision_id` stops preparation with a local error before any upload request.
 
 Ordinary scorers continue returning numeric `Score` values. A scorer can additionally return a typed `ScorerResult` through `Score.result` to publish categorical values or `not_applicable`, explicit errors, reasoning, metadata, timestamps, and evaluator trace references:
 

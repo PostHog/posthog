@@ -146,38 +146,6 @@ class OfflineEvalSettings(BaseModel):
         return settings
 
 
-def _encode(value: object) -> bytes:
-    return json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-
-
-def _bounded_omissions(omitted: Mapping[str, JSONValue]) -> dict[str, JSONValue]:
-    details: dict[str, JSONValue] = {}
-    size = 2
-    excluded = 0
-    for key, value in omitted.items():
-        safe_key = key.encode("utf-8", errors="backslashreplace").decode("utf-8").replace("\x00", "\\0")[:128]
-        if len(details) >= 64 or safe_key in details:
-            excluded += 1
-            continue
-        try:
-            EvaluationItem(metadata={safe_key: value})
-            encoded = _encode(value)
-            if len(encoded) > 1024:
-                raise ValueError
-        except (ValueError, TypeError, UnicodeError, RecursionError):
-            value = "details omitted"
-            encoded = _encode(value)
-        entry_size = len(_encode(safe_key)) + 1 + len(encoded) + bool(details)
-        if size + entry_size > 31 * 1024:
-            excluded += 1
-            continue
-        details[safe_key] = value
-        size += entry_size
-    if excluded:
-        details["additional_omitted_fields"] = excluded
-    return details
-
-
 @frozen
 class OfflineEvalUpload:
     host: str
@@ -203,60 +171,32 @@ class OfflineEvalPublisher:
         self,
         case: CaseResult,
         metadata: Mapping[str, object],
-        omitted: dict[str, JSONValue] | None = None,
+        omitted: list[str],
     ) -> dict[str, JSONValue]:
-        omitted = dict(omitted or {})
         output = case.output
-        if isinstance(output, dict):
-            output = dict(output)
-            if "raw_log" in output:
-                output.pop("raw_log")
-                omitted["output.raw_log"] = "available in local logs and Braintrust"
-        payload: dict[str, JSONValue] = {}
-        for key, value in (("input", case.input), ("output", output), ("expected_output", case.expected)):
+        if isinstance(output, dict) and "raw_log" in output:
+            output = {key: value for key, value in output.items() if key != "raw_log"}
+            omitted.append("output.raw_log")
+        fields = {
+            "input": case.input,
+            "output": output,
+            "expected_output": case.expected,
+            "metadata": {**metadata, "case": case.metadata},
+        }
+        # Reserve fixed omission markers so diagnostics never displace accepted fields.
+        reserved: dict[str, JSONValue] = {"omitted_fields": [*omitted, *fields]}
+        payload: dict[str, JSONValue] = {"metadata": reserved}
+        for key, value in fields.items():
+            candidate = {**payload, key: cast(JSONValue, value)}
+            if key == "metadata":
+                candidate[key] = {**cast(dict[str, JSONValue], value), **reserved}
             try:
-                encoded = _encode(value)
-                if key == "output" and isinstance(value, dict):
-                    value = dict(value)
-                    if not all(isinstance(name, str) for name in value):
-                        raise ValueError
-                    encoded_size = len(encoded)
-                    if encoded_size > 256 * 1024:
-                        field_sizes = {name: len(_encode(field)) for name, field in value.items()}
-                        for name in sorted(field_sizes, key=lambda name: field_sizes[name], reverse=True):
-                            if encoded_size <= 256 * 1024:
-                                break
-                            value.pop(name)
-                            encoded_size -= len(_encode(name)) + 1 + field_sizes[name] + bool(value)
-                            omitted[f"output.{name}"] = {"bytes": field_sizes[name]}
-                else:
-                    encoded_size = len(encoded)
-                if encoded_size > 256 * 1024:
-                    omitted[key] = {"bytes": encoded_size}
-                else:
-                    EvaluationItem(payload={key: value})
-                    payload[key] = value
+                EvaluationItem(payload=candidate)
             except (ValueError, TypeError, UnicodeError, RecursionError):
-                omitted[key] = "not supported by the offline payload API"
-        item_metadata: dict[str, JSONValue] = {}
-        metadata_size = 2
-        for key, value in {**metadata, "case": case.metadata}.items():
-            try:
-                EvaluationItem(metadata={key: cast(JSONValue, value)})
-                value_size = len(_encode(value))
-                if value_size > 64 * 1024:
-                    raise ValueError
-                entry_size = len(_encode(key)) + 1 + value_size + bool(item_metadata)
-                # Leave room for three 256 KiB fields and bounded diagnostics within the SDK's 1 MiB item limit.
-                if metadata_size + entry_size > 128 * 1024:
-                    omitted[f"metadata.{key}"] = "exceeds the aggregate metadata budget"
-                    continue
-                item_metadata[key] = cast(JSONValue, value)
-                metadata_size += entry_size
-            except (ValueError, TypeError, UnicodeError, RecursionError):
-                omitted[f"metadata.{key}"] = "invalid or exceeds 64 KiB"
-        payload["metadata"] = {**item_metadata, "omitted_fields": _bounded_omissions(omitted)}
-        EvaluationItem(payload=payload)
+                omitted.append(key)
+            else:
+                payload = candidate
+        payload["metadata"] = {**cast(dict[str, JSONValue], payload["metadata"]), "omitted_fields": [*omitted]}
         return payload
 
     def _item(
@@ -269,32 +209,12 @@ class OfflineEvalPublisher:
         metadata: Mapping[str, object],
     ) -> EvaluationItem:
         declaration: dict[str, object] = {"id": str(item_id), "trial": str(trial)}
-        omitted: dict[str, JSONValue] = {}
-        dataset_references = {
-            "dataset_item_identifier": case.metadata.get("dataset_item_identifier"),
-            "dataset_item_version_identifier": case.metadata.get("dataset_item_version_identifier"),
-        }
-        version_id = case.metadata.get("dataset_item_version_id")
-        if self.suite.experiment_options.get("dataset_revision_id") is not None:
-            try:
-                if version_id is None:
-                    raise ValueError
-                declaration = EvaluationItem.from_dict({**declaration, "dataset_item_version_id": version_id}).to_dict()
-            except (ValueError, TypeError, UnicodeError, RecursionError):
-                raise OfflineUploadError(
-                    f"Hosted dataset case {name[:128]!r} requires a valid dataset_item_version_id UUID "
-                    "from the experiment's dataset revision"
-                ) from None
-            for key, value in dataset_references.items():
-                if value is not None:
-                    omitted[key] = "derived by PostHog from the hosted item version"
-            dataset_references = {}
-        elif version_id is not None:
-            omitted["dataset_item_version_id"] = "requires an experiment linked to a hosted dataset revision"
+        omitted: list[str] = []
         for key, value in {
             "case_key": name,
             "application_trace_id": case.metadata.get("trace_id") if self.application_trace_ids_enabled else None,
-            **dataset_references,
+            "dataset_item_identifier": case.metadata.get("dataset_item_identifier"),
+            "dataset_item_version_identifier": case.metadata.get("dataset_item_version_identifier"),
         }.items():
             if value is None:
                 continue
@@ -302,7 +222,7 @@ class OfflineEvalPublisher:
             try:
                 EvaluationItem.from_dict(candidate)
             except (ValueError, TypeError, UnicodeError, RecursionError):
-                omitted[key] = "not supported by the offline item API"
+                omitted.append(key)
             else:
                 declaration = candidate
         return EvaluationItem.from_dict({**declaration, "payload": self._item_payload(case, metadata, omitted)})
@@ -337,7 +257,7 @@ class OfflineEvalPublisher:
                     raise ValueError
                 elif kind == "categorical" and not isinstance(value, list):
                     raise ValueError
-            result = EvaluationResult(
+            EvaluationResult(
                 item=item,
                 scorer_version_id=self.settings.scorer_versions[metric],
                 value=value,
@@ -352,53 +272,48 @@ class OfflineEvalPublisher:
                 error_message="Scorer returned an unsupported value or status",
             )
         options: dict[str, object] = {"value": value, "status": outcome.status}
-        omitted: dict[str, JSONValue] = {}
-        for key, optional_value in {
+        fields = {
             "reasoning": outcome.reasoning,
             "metadata": outcome.metadata,
             "error_code": outcome.error_code,
-            "error_message": outcome.error_message[:16000].replace("\x00", "") if outcome.error_message else None,
+            "error_message": outcome.error_message,
             "evaluator_trace_id": outcome.evaluator_trace_id if self.application_trace_ids_enabled else None,
             "evaluated_at": outcome.evaluated_at,
-        }.items():
+        }
+        omitted: list[str] = []
+        for key, optional_value in fields.items():
             if optional_value is None:
                 continue
             candidate = {**options, key: optional_value}
             try:
-                result = EvaluationResult(
-                    item=item,
-                    scorer_version_id=self.settings.scorer_versions[metric],
-                    **cast(ResultOptions, candidate),
-                )
-            except (ValueError, TypeError, UnicodeError, RecursionError):
-                omitted[key] = "invalid or exceeds the offline result payload limit"
-            else:
-                options = candidate
-        if not omitted:
-            return result
-        for field_name in ("metadata", "reasoning", "error_message", None):
-            try:
-                return EvaluationResult(
+                EvaluationResult(
                     item=item,
                     scorer_version_id=self.settings.scorer_versions[metric],
                     **cast(
                         ResultOptions,
                         {
-                            **options,
+                            **candidate,
                             "metadata": {
-                                **cast(dict[str, JSONValue], options.get("metadata", {})),
-                                "omitted_fields": omitted,
+                                **cast(dict[str, JSONValue], candidate.get("metadata", {})),
+                                "omitted_fields": list(fields),
                             },
                         },
                     ),
                 )
-            except ValueError:
-                if field_name is None:
-                    raise
-                if field_name in options:
-                    options.pop(field_name)
-                    omitted[field_name] = "omitted to retain upload diagnostics within the payload limit"
-        raise AssertionError("unreachable")
+            except (ValueError, TypeError, UnicodeError, RecursionError):
+                omitted.append(key)
+            else:
+                options = candidate
+        if omitted:
+            options["metadata"] = {
+                **cast(dict[str, JSONValue], options.get("metadata", {})),
+                "omitted_fields": omitted,
+            }
+        return EvaluationResult(
+            item=item,
+            scorer_version_id=self.settings.scorer_versions[metric],
+            **cast(ResultOptions, options),
+        )
 
     def prepare(
         self,
@@ -411,19 +326,16 @@ class OfflineEvalPublisher:
     ) -> OfflineEvalUpload:
         if not self.suite.scorer_kinds:
             raise OfflineUploadError("An offline evaluation suite must enroll at least one scorer")
+        if self.suite.experiment_options.get("dataset_revision_id") is not None:
+            raise OfflineUploadError("Hosted datasets are not supported by the harness publisher")
         revision = metadata.get("git_sha")
-        dataset: ExperimentOptions = {}
-        if self.suite.experiment_options.get("dataset_revision_id") is None:
-            dataset = {
-                "dataset_source": "repository",
-                "dataset_identifier": self.suite.key,
-                "dataset_revision_identifier": revision if isinstance(revision, str) else None,
-            }
         experiment: ExperimentOptions = {
             "run_source": "ci" if os.getenv("CI") else "local",
             "application_version": revision if isinstance(revision, str) else None,
             "model_version": str(metadata["agent_model"]) if metadata.get("agent_model") is not None else None,
-            **dataset,
+            "dataset_source": "repository",
+            "dataset_identifier": self.suite.key,
+            "dataset_revision_identifier": revision if isinstance(revision, str) else None,
             **self.suite.experiment_options,
             "id": experiment_id,
             "started_at": started_at.isoformat(),

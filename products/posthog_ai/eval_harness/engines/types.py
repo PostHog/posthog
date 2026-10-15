@@ -95,6 +95,7 @@ class ExperimentSpec:
     no_send_logs: bool
     metadata: dict[str, Any]
     on_results: Callable[[ExperimentResult], Awaitable[None]] | None = None
+    record_scorer_results: bool = False
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)

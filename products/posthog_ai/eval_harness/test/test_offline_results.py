@@ -5,7 +5,6 @@ import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
-from typing import Any
 from uuid import UUID
 
 import pytest
@@ -161,41 +160,43 @@ def test_prepare_omits_raw_logs_and_oversized_fields_without_mutating_results() 
     case = _case()
     original_output = {"raw_log": "local trace", "tool_result": "x" * (1100 * 1024), "answer": "There are 3 events"}
     case.output = original_output.copy()
-    case.expected = {"large_fixture": "x" * (300 * 1024)}
+    case.expected = {"large_fixture": "x" * (1100 * 1024)}
     case.metadata["not_json"] = object()
 
     payload = _items(_prepare(_publisher(), [case]))[0].to_dict()["payload"]
 
-    assert payload["output"] == {"answer": "There are 3 events"}
+    assert "output" not in payload
     assert "expected_output" not in payload
     assert set(payload["metadata"]["omitted_fields"]) == {
         "output.raw_log",
-        "output.tool_result",
+        "output",
         "expected_output",
-        "metadata.case",
+        "metadata",
     }
     assert case.output == original_output
 
 
 @parameterized.expand(
     [
-        ("null_output_key", {"invalid\x00key": "x" * (300 * 1024)}, {}),
-        ("null_metadata_key", {}, {"invalid\x00key": "value"}),
-        ("surrogate_metadata_key", {}, {"invalid\ud800key": "value"}),
+        ("null_output_key", {"invalid\x00key": "value"}, {}, "output"),
+        ("null_metadata_key", {}, {"invalid\x00key": "value"}, "metadata"),
+        ("surrogate_metadata_key", {}, {"invalid\ud800key": "value"}, "metadata"),
         (
             "many_output_fields",
             {f"field-{index}-" + "k" * 512: "x" * 1024 for index in range(2000)},
             {},
+            "output",
         ),
         (
             "aggregate_metadata",
             {"details": "x" * (240 * 1024)},
             {f"metadata-{index}": "x" * (60 * 1024) for index in range(8)},
+            "metadata",
         ),
     ]
 )
 def test_prepare_bounds_payload_details_without_losing_scores(
-    _name: str, output: dict[str, object], metadata: dict[str, object]
+    _name: str, output: dict[str, object], metadata: dict[str, object], omitted_field: str
 ) -> None:
     case = _case()
     case.input["prompt"] = "i" * (240 * 1024)
@@ -203,39 +204,29 @@ def test_prepare_bounds_payload_details_without_losing_scores(
     original_output = {**output, "answer": "There are 3 events"}
     case.output = original_output.copy()
 
-    encode_json = json.dumps
-    encoding_calls = 0
-
-    def bounded_encode_json(value: object, **kwargs: Any) -> str:
-        nonlocal encoding_calls
-        encoding_calls += 1
-        assert encoding_calls <= 8 * len(original_output) + 500
-        return encode_json(value, **kwargs)
-
-    with patch.object(json, "dumps", bounded_encode_json):
-        upload = _prepare(_publisher(), [case], metadata)
+    upload = _prepare(_publisher(), [case], metadata)
     payload = _items(upload)[0].to_dict()["payload"]
     omitted = payload["metadata"]["omitted_fields"]
 
-    assert payload["output"]["answer"] == "There are 3 events"
+    if omitted_field == "output":
+        assert "output" not in payload
+    else:
+        assert payload["output"] == original_output
     assert payload["input"] == case.input
     assert payload["expected_output"] == case.expected
     assert all(result.to_dict()["status"] == "ok" for result in upload.results)
-    assert omitted
-    assert all("\x00" not in key and len(key) <= 128 for key in omitted)
-    assert len(json.dumps(omitted, ensure_ascii=False).encode("utf-8")) < 32 * 1024
+    assert omitted == [omitted_field]
     assert len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) < 1024 * 1024
     assert case.output == original_output
 
 
-@parameterized.expand([("hosted_linked", True, True), ("hosted_unlinked", False, True), ("external", True, False)])
-def test_prepare_preserves_rich_results_and_dataset_references(_name: str, link_traces: bool, hosted: bool) -> None:
+@parameterized.expand([("linked", True), ("unlinked", False)])
+def test_prepare_preserves_rich_results_and_dataset_references(_name: str, link_traces: bool) -> None:
     publisher = _publisher(link_traces=link_traces)
     publisher.suite = OfflineEvalSuite(
         key="sql/rich",
         scorer_kinds={"boolean_metric": "categorical", "numeric_metric": "numeric"},
         experiment_options={
-            "dataset_revision_id": EXPERIMENT_ID if hosted else None,
             "prompt_version": "prompt-2",
             "run_source": "scheduled",
         },
@@ -244,7 +235,6 @@ def test_prepare_preserves_rich_results_and_dataset_references(_name: str, link_
     case.metadata.update(
         trace_id="application-trace", dataset_item_identifier="case-1", dataset_item_version_identifier="v2"
     )
-    case.metadata["dataset_item_version_id"] = str(UUID(int=10))
     case.scorer_results = {
         "boolean_metric": ScorerResult(
             status="ok",
@@ -260,29 +250,18 @@ def test_prepare_preserves_rich_results_and_dataset_references(_name: str, link_
     item = _items(upload)[0].to_dict()
     outcome = upload.results[0].to_dict()
     assert item.get("application_trace_id") == ("application-trace" if link_traces else None)
-    if hosted:
-        assert item["dataset_item_version_id"] == str(UUID(int=10))
-        assert "dataset_item_identifier" not in item
-        assert "dataset_item_version_identifier" not in item
-    else:
-        assert item["dataset_item_identifier"] == "case-1"
-        assert item["dataset_item_version_identifier"] == "v2"
-        assert "dataset_item_version_id" not in item
+    assert item["dataset_item_identifier"] == "case-1"
+    assert item["dataset_item_version_identifier"] == "v2"
+    assert "dataset_item_version_id" not in item
     assert outcome["value"] == ["correct"]
     assert outcome["payload"]["reasoning"] == "Matches expected answer"
     assert outcome["payload"]["metadata"] == {"confidence": 0.9}
     assert outcome.get("evaluator_trace_id") == ("judge-trace" if link_traces else None)
     assert outcome["evaluated_at"] == STARTED_AT.isoformat()
     assert upload.results[1].to_dict()["value"] == 35.0
-    if hosted:
-        assert upload.experiment["dataset_revision_id"] == EXPERIMENT_ID
-        assert "dataset_source" not in upload.experiment
-        assert "dataset_identifier" not in upload.experiment
-        assert "dataset_revision_identifier" not in upload.experiment
-    else:
-        assert upload.experiment["dataset_source"] == "repository"
-        assert upload.experiment["dataset_identifier"] == "sql/rich"
-        assert upload.experiment["dataset_revision_identifier"] == "captured-revision"
+    assert upload.experiment["dataset_source"] == "repository"
+    assert upload.experiment["dataset_identifier"] == "sql/rich"
+    assert upload.experiment["dataset_revision_identifier"] == "captured-revision"
     assert upload.experiment["prompt_version"] == "prompt-2"
     assert upload.experiment["run_source"] == "scheduled"
 
@@ -290,18 +269,12 @@ def test_prepare_preserves_rich_results_and_dataset_references(_name: str, link_
     assert _prepare(publisher, [case]).results[1].to_dict()["status"] == "not_applicable"
 
 
-@parameterized.expand([("missing", None), ("malformed", "not-a-uuid"), ("wrong_type", 42)])
-def test_prepare_rejects_missing_or_invalid_required_hosted_references(_name: str, version_id: object) -> None:
+def test_prepare_rejects_hosted_dataset_configuration() -> None:
     publisher = _publisher()
     publisher.suite = replace(SUITE, experiment_options={"dataset_revision_id": EXPERIMENT_ID})
-    healthy, malformed = _case("healthy"), _case("malformed")
-    healthy.metadata["dataset_item_version_id"] = str(UUID(int=10))
-    malformed.metadata["dataset_item_version_id"] = version_id
 
-    with pytest.raises(
-        OfflineUploadError, match="Hosted dataset case 'malformed' requires a valid dataset_item_version_id"
-    ):
-        _prepare(publisher, [healthy, malformed])
+    with pytest.raises(OfflineUploadError, match="Hosted datasets are not supported"):
+        _prepare(publisher, [_case()])
 
 
 def test_prepare_rejects_empty_scorer_enrollment() -> None:
@@ -321,6 +294,7 @@ def test_prepare_rejects_empty_scorer_enrollment() -> None:
         ),
         ("unsupported_metadata", ScorerResult(status="ok", value=0.75, metadata={"details": object()}), "metadata"),
         ("unsupported_reasoning", ScorerResult(status="ok", value=0.75, reasoning="\ud800"), "reasoning"),
+        ("oversized_reasoning", ScorerResult(status="ok", value=0.75, reasoning="x" * (256 * 1024)), "reasoning"),
         (
             "invalid_trace",
             ScorerResult(status="ok", value=0.75, evaluator_trace_id="invalid\x00trace"),
@@ -333,7 +307,7 @@ def test_prepare_rejects_empty_scorer_enrollment() -> None:
         ),
         (
             "diagnostic_room",
-            ScorerResult(status="ok", value=0.75, reasoning="x" * (256 * 1024 - 40), metadata={"details": object()}),
+            ScorerResult(status="ok", value=0.75, reasoning="x" * (256 * 1024 - 256), metadata={"details": object()}),
             "metadata",
         ),
     ]
@@ -349,7 +323,9 @@ def test_prepare_preserves_valid_scores_when_optional_details_cannot_be_uploaded
     assert result["status"] == "ok"
     assert result["value"] == 0.75
     assert "error_code" not in result
-    assert omitted_field in result["payload"]["metadata"]["omitted_fields"]
+    assert result["payload"]["metadata"]["omitted_fields"] == [omitted_field]
+    if scorer_result.reasoning is not None and omitted_field != "reasoning":
+        assert result["payload"]["reasoning"] == scorer_result.reasoning
 
 
 @parameterized.expand([("rate_limit", 429), ("server_error", 503), ("timeout", 408), ("network_error", None)])
@@ -601,7 +577,6 @@ def test_settings_reject_partial_or_ambiguous_configuration(_name: str, override
             "bad\x00version",
             "dataset_item_version_identifier",
         ),
-        ("dataset_version_uuid", "dataset_item_version_id", "not-a-uuid", "dataset_item_version_id"),
         ("trace_identifier", "trace_id", "bad\x00trace", "application_trace_id"),
         ("long_case_key", "name", "x" * 256, "case_key"),
     ]
