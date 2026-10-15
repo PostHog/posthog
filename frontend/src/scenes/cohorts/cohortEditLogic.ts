@@ -1185,6 +1185,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             const workflows = values.usedIn?.workflows
             if (workflows?.total) {
                 actions.openBlockingWorkflowsModal({ action: 'delete', workflows })
+                // Workflows can change in another tab, so refresh what the next delete attempt checks.
+                actions.loadUsedIn()
                 return
             }
             cohortsModel.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })

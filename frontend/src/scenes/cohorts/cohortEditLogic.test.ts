@@ -463,6 +463,23 @@ describe('cohortEditLogic', () => {
             })
         })
 
+        it('deletes on the next attempt once the blocking workflows are gone', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toMatchValues({
+                usedIn: expect.objectContaining({ workflows: blockingWorkflows }),
+            })
+            useMocks({ get: { '/api/projects/:team_id/cohorts/:id/used_in/': mockUsedInResponse } })
+
+            await expectLogic(logic, () => logic.actions.deleteCohort()).toDispatchActions([
+                'deleteCohort',
+                'loadUsedIn',
+                'loadUsedInSuccess',
+            ])
+            await expectLogic(logic, () => logic.actions.deleteCohort()).toDispatchActions([
+                cohortsModel.actionTypes.deleteCohort,
+            ])
+        })
+
         it('does nothing after the blocked save workflow check when the editor has closed', async () => {
             let releaseLookup: () => void = () => {}
             const lookupHeld = new Promise<void>((resolve) => {
