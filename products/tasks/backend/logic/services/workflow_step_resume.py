@@ -67,16 +67,17 @@ def _structured_output_for_run(task_run: TaskRun) -> tuple[dict[str, Any] | None
 def _result_for_run(task_run: TaskRun) -> dict[str, Any]:
     output = task_run.output or {}
     structured, warnings = _structured_output_for_run(task_run)
-    # `output` goes first: the byte cap trims later keys first, and prose can lose its tail while
-    # a structured field cannot.
+    # The byte cap trims later keys first. The small, fixed-size keys lead so a long output never
+    # pushes them out, and `output` comes before prose, which can lose its tail while a structured
+    # field cannot.
     return {
         "run_id": str(task_run.id),
+        "inbox_report": inbox_report_claim_outcome(task_run),
         "output": structured,
         "warnings": warnings or None,
         "final_message": output.get("final_message"),
         "pr_urls": output.get("pr_urls") or ([output["pr_url"]] if output.get("pr_url") else None),
         "error_message": task_run.error_message,
-        "inbox_report": inbox_report_claim_outcome(task_run),
     }
 
 

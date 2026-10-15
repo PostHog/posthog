@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.cdp.backend.workflow_step_resume import RESULT_BYTE_CAP
+from products.cdp.backend.workflow_step_resume import RESULT_BYTE_CAP, cap_value
 from products.tasks.backend.facade.api import update_task_run
 from products.tasks.backend.logic.services.workflow_step_resume import (
     DEFERRED_RESUME_TASK,
@@ -109,6 +109,21 @@ class TestResumeWorkflowStepForRun(BaseTest):
             resume_workflow_step_for_run(run)
 
         assert resume.call_args.kwargs["result"]["inbox_report"] == expected
+
+    def test_the_inbox_report_claim_outcome_survives_the_step_result_cap(self) -> None:
+        long_field = "x" * 1500
+        fields = ("first", "second", "third")
+        run = self._run(
+            state={"inbox_report_claim": {"report_id": "r1", "claimed": False, "reason": "held"}},
+            json_schema={"type": "object", "properties": {field: {"type": "string"} for field in fields}},
+            structured_output=dict.fromkeys(fields, long_field),
+        )
+
+        with patch(_RESUME) as resume:
+            resume_workflow_step_for_run(run)
+
+        capped = cap_value(resume.call_args.kwargs["result"], RESULT_BYTE_CAP)
+        assert capped["inbox_report"] == {"report_id": "r1", "claimed": False, "reason": "held"}
 
     _SCHEMA = {
         "type": "object",
