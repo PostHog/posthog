@@ -36,19 +36,19 @@ export function TraceDialogTreeLines({ row }: { row: TraceDialogRow }): JSX.Elem
                 continues ? (
                     <span
                         key={level}
-                        className="absolute inset-y-0 w-px bg-border-bold"
+                        className="absolute inset-y-0 w-px bg-border-secondary"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ left: indentPx(level) + LINE_OFFSET_PX }}
                     />
                 ) : null
             )}
             <span
-                className="absolute top-0 w-px bg-border-bold"
+                className="absolute top-0 w-px bg-border-secondary"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ left: parentLineX, bottom: row.isLast ? '50%' : 0 }}
             />
             <span
-                className="absolute top-1/2 h-px bg-border-bold"
+                className="absolute top-1/2 h-px bg-border-secondary"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ left: parentLineX, width: indentPx(row.depth) - parentLineX }}
             />
