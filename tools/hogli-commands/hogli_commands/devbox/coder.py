@@ -1497,32 +1497,40 @@ def start_workspace(name: str, parameters: dict[str, str] | None = None, *, verb
 AGENT_READY_TIMEOUT = 960
 AGENT_READY_POLL_INTERVAL = 3
 _AGENT_START_FAILED_STATES = frozenset({"start_error", "start_timeout"})
+_AGENT_SHUTDOWN_STATES = frozenset({"shutting_down", "shutdown_error", "shutdown_timeout", "off"})
 
 
-def _agent_lifecycle_states(workspace: dict[str, Any] | None) -> set[str]:
-    if workspace is None:
-        return set()
-    return {
-        str(agent.get("lifecycle_state", ""))
+def _agents(workspace: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        agent
         for resource in workspace.get("latest_build", {}).get("resources", [])
         for agent in resource.get("agents") or []
-    }
+    ]
 
 
-def wait_for_agent_ready(name: str, *, timeout: int = AGENT_READY_TIMEOUT) -> str | None:
+def wait_for_agent_ready(name: str, *, timeout: int = AGENT_READY_TIMEOUT) -> str:
     """Block until the workspace's startup scripts finish, so "started" means usable.
 
-    Returns ``None`` once the agent is ready, or the state that ended the wait
-    (``start_error``, ``start_timeout``, ``wait_timeout``). The box keeps
-    running in every case, so callers warn rather than fail.
+    Returns the state that ended the wait: ``ready``, a Coder lifecycle state
+    (``start_error``, ``start_timeout``), ``stopped`` when the box shut down,
+    ``agent_timeout`` when the agent never connected, ``unavailable`` when
+    `coder list` did not return the box, or ``wait_timeout``.
     """
     deadline = time.monotonic() + timeout
     while True:
-        states = _agent_lifecycle_states(get_workspace(name))
+        workspace = get_workspace(name)
+        if workspace is None:
+            return "unavailable"
+        agents = _agents(workspace)
+        states = {str(agent.get("lifecycle_state", "")) for agent in agents}
         if states == {"ready"}:
-            return None
+            return "ready"
         if failed := sorted(states & _AGENT_START_FAILED_STATES):
             return failed[0]
+        if states & _AGENT_SHUTDOWN_STATES:
+            return "stopped"
+        if any(agent.get("status") == "timeout" for agent in agents):
+            return "agent_timeout"
         if time.monotonic() >= deadline:
             return "wait_timeout"
         time.sleep(AGENT_READY_POLL_INTERVAL)

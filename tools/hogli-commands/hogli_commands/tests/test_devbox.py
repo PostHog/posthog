@@ -29,7 +29,7 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def agent_ready_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(devbox_cli, "wait_for_agent_ready", lambda name: None)
+    monkeypatch.setattr(devbox_cli, "wait_for_agent_ready", lambda name: "ready")
 
 
 @pytest.fixture
@@ -1358,25 +1358,37 @@ class TestWorkspaceUpdate:
 
 class TestWaitForAgentReady:
     @pytest.mark.parametrize(
-        "lifecycle_states, expected",
+        "agent_polls, expected",
         [
-            (["starting", "starting", "ready"], None),
-            (["starting", "start_error"], "start_error"),
-            (["created", "start_timeout"], "start_timeout"),
-            (["starting"] * 10, "wait_timeout"),
+            ([{"lifecycle_state": "starting"}, {"lifecycle_state": "ready"}], "ready"),
+            ([{"lifecycle_state": "starting"}, {"lifecycle_state": "start_error"}], "start_error"),
+            ([{"lifecycle_state": "created"}, {"lifecycle_state": "start_timeout"}], "start_timeout"),
+            ([{"lifecycle_state": "starting"}, {"lifecycle_state": "shutting_down"}], "stopped"),
+            ([{"lifecycle_state": "created", "status": "timeout"}], "agent_timeout"),
+            ([{"lifecycle_state": "starting"}, None], "unavailable"),
+            ([{"lifecycle_state": "starting"}] * 10, "wait_timeout"),
         ],
-        ids=["ready", "script-failed", "script-timed-out", "never-ready"],
+        ids=[
+            "ready",
+            "script-failed",
+            "script-timed-out",
+            "stopped",
+            "agent-never-connected",
+            "box-gone",
+            "never-ready",
+        ],
     )
     def test_returns_when_startup_scripts_settle(
-        self, monkeypatch: pytest.MonkeyPatch, lifecycle_states: list[str], expected: str | None
+        self, monkeypatch: pytest.MonkeyPatch, agent_polls: list[dict[str, str] | None], expected: str
     ) -> None:
-        polls = iter(lifecycle_states)
+        polls = iter(agent_polls)
         clock = iter(range(0, 1000, 10))
-        monkeypatch.setattr(
-            coder,
-            "get_workspace",
-            lambda name: {"latest_build": {"resources": [{"agents": [{"lifecycle_state": next(polls)}]}]}},
-        )
+
+        def get_workspace(name: str) -> dict[str, object] | None:
+            agent = next(polls)
+            return None if agent is None else {"latest_build": {"resources": [{"agents": [agent]}]}}
+
+        monkeypatch.setattr(coder, "get_workspace", get_workspace)
         monkeypatch.setattr(coder.time, "monotonic", lambda: next(clock))
         monkeypatch.setattr(coder.time, "sleep", lambda seconds: None)
 
