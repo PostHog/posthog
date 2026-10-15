@@ -34,12 +34,3 @@ export function captureInvestigate(
 ): void {
     posthog.capture(`logs missing link investigate ${event}`, { ...context, ...extra })
 }
-
-// pinned: analytics event name and properties. `task_id` joins this event to the PostHog AI
-// `task_run_started` and `task_run_terminated` events, which show whether the task ran and finished.
-export function captureInvestigateTaskCreated(
-    context: MissingLinkEventContext,
-    task: { task_id: string; run_id?: string; auto_submitted: boolean }
-): void {
-    posthog.capture('logs missing link investigate task created', { ...context, ...task })
-}

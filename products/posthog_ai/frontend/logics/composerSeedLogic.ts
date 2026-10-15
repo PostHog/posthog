@@ -7,8 +7,6 @@ export interface ComposerSeed {
     autoSubmit: boolean
     contextItems?: AttachedContextItem[]
     files?: File[]
-    /** Called once with the task this seed creates, so the host can attribute the task to its CTA. */
-    onTaskCreated?: (task: { taskId: string; runId: string | undefined }) => void
 }
 
 // `panelId` keys the seed to a specific embedded composer (e.g. Max's side panel runner), matching the

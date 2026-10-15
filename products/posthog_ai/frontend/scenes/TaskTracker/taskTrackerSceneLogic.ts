@@ -82,7 +82,6 @@ export type { ActiveCreation } from '../../logics/runnerPanelLogic'
 export interface TaskCreateForm {
     description: string
     seedContextItems?: AttachedContextItem[]
-    seedOnTaskCreated?: ComposerSeed['onTaskCreated']
     repositoryConfig: RepositoryConfig
     /** null = no explicit pick; the run launches with the server-resolved default (user preference
      * over project default, else the built-in composer default). An explicit pick applies to this
@@ -533,26 +532,16 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         newTaskData: [
             EMPTY_TASK_FORM as TaskCreateForm,
             {
-                setNewTaskData: (state, { data }) => {
-                    // The seed's extras belong to its prompt, so a changed description drops them.
-                    const keepsSeed = data.description === undefined || data.description === state.description
-                    return {
-                        ...state,
-                        ...data,
-                        seedContextItems:
-                            'seedContextItems' in data
-                                ? data.seedContextItems
-                                : keepsSeed
-                                  ? state.seedContextItems
-                                  : undefined,
-                        seedOnTaskCreated:
-                            'seedOnTaskCreated' in data
-                                ? data.seedOnTaskCreated
-                                : keepsSeed
-                                  ? state.seedOnTaskCreated
-                                  : undefined,
-                    }
-                },
+                setNewTaskData: (state, { data }) => ({
+                    ...state,
+                    ...data,
+                    seedContextItems:
+                        'seedContextItems' in data
+                            ? data.seedContextItems
+                            : data.description !== undefined && data.description !== state.description
+                              ? undefined
+                              : state.seedContextItems,
+                }),
                 resetNewTaskData: () => EMPTY_TASK_FORM,
                 pickPermissionMode: (state, { permissionMode }) => ({ ...state, permissionMode }),
                 applyDefaultPermissionMode: (state) => ({
@@ -844,7 +833,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 ...(props.contextItems ?? values.contextItems),
                 ...(values.newTaskData.seedContextItems ?? []),
             ]
-            const onSeedTaskCreated = values.newTaskData.seedOnTaskCreated
             actions.claimApplyBackTargets(streamKey)
             const stream = runStreamLogic({ streamKey })
             const interaction = runInteractionLogic({
@@ -1090,7 +1078,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // Every composer submits through here, so this is the one place that reaches all of them.
                 todaySpacesLogic.findMounted()?.actions.loadRecentTasks()
                 props.onTaskCreated?.(newTask.id)
-                onSeedTaskCreated?.({ taskId: newTask.id, runId })
             } catch (error) {
                 if (disposables.isDisposed) {
                     return
@@ -1113,7 +1100,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                         actions.setNewTaskData({
                             description: [values.newTaskData.description, ...unsent].join('\n\n'),
                             seedContextItems: values.newTaskData.seedContextItems,
-                            seedOnTaskCreated: values.newTaskData.seedOnTaskCreated,
                         })
                     }
                     actions.clearActiveCreation()
@@ -1181,11 +1167,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
             // Consume-once: clear before applying so a re-entrant dispatch can't double-apply/submit.
             actions.consumeSeed()
-            actions.setNewTaskData({
-                description: seed.prompt,
-                seedContextItems: seed.contextItems,
-                seedOnTaskCreated: seed.onTaskCreated,
-            })
+            actions.setNewTaskData({ description: seed.prompt, seedContextItems: seed.contextItems })
             if (seed.files?.length) {
                 actions.addFiles(seed.files)
             }

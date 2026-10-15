@@ -1133,12 +1133,10 @@ describe('taskTrackerSceneLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        const onTaskCreated = jest.fn()
-        composerSeedLogic().actions.setSeed({ prompt: 'summarize experiment', autoSubmit: true, onTaskCreated })
+        composerSeedLogic().actions.setSeed({ prompt: 'summarize experiment', autoSubmit: true })
         await expectLogic(logic).toFinishAllListeners()
 
         expect(createBody).toMatchObject({ description: 'summarize experiment', repository: null })
-        expect(onTaskCreated.mock.calls).toEqual([[{ taskId: 'new-task', runId: 'run-1' }]])
         expect(logic.values.activeCreation).toMatchObject({ taskId: 'new-task' })
         expect(composerSeedLogic().values.seed).toBeNull()
         expect(createCount).toBe(1)
@@ -1147,7 +1145,6 @@ describe('taskTrackerSceneLogic', () => {
         logic.actions.applyComposerSeed()
         await expectLogic(logic).toFinishAllListeners()
         expect(createCount).toBe(1)
-        expect(onTaskCreated).toHaveBeenCalledTimes(1)
     })
 
     // A seed arriving while a submit is in flight must not start a second concurrent create/run (the two

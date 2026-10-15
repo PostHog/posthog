@@ -62,17 +62,8 @@ describe('missingLinkInvestigateLogic', () => {
         }).toFinishAllListeners()
 
         const seed = composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).values.seed
-        seed?.onTaskCreated?.({ taskId: 'task-1', runId: 'run-1' })
         expect(capture.mock.calls.filter(([event]) => event.startsWith('logs missing link'))).toEqual([
             ['logs missing link investigate clicked', { ...eventContext, option: 'posthog-ai-task', route }],
-            ...(route === 'side-panel-task'
-                ? [
-                      [
-                          'logs missing link investigate task created',
-                          { ...eventContext, task_id: 'task-1', run_id: 'run-1', auto_submitted: expect.any(Boolean) },
-                      ],
-                  ]
-                : []),
         ])
         capture.mockRestore()
         expect({
