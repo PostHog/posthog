@@ -184,6 +184,12 @@ The playground keeps the provider's explanation so users can correct the setting
 
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.
+Backfill activities retry temporary database, DNS, connection, and rate-limit failures up to 5 times within 10 minutes, or within the live time limit when that is longer, with backoff from 10 seconds to one minute.
+A backfill run never treats its last attempt as permanent, so a DNS failure fails the run instead of disabling the evaluation.
+Live evaluation retry budgets remain unchanged.
+Authentication, quota, blocked-endpoint, and permanent request errors retain their existing handling.
+Result emission has a separate retry budget, so retrying emission does not repeat a completed judge call.
+
 An interrupted backfill preserves completed results.
 **Retry remaining** creates a new backfill with the original date range and filters, using the current evaluation settings.
 It preserves usable existing results and retries units without usable results.
