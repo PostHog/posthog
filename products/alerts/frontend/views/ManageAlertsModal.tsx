@@ -151,7 +151,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                 {showVisualEmptyState && (
                     <ProductIntroduction
                         thingName="alert"
-                        titleOverride="Get notified when something you care about happens"
+                        titleOverride="Get notified when it matters"
                         description="Catch a drop in signups, a spike in errors, or an unexpected change in your metrics."
                         customHog={InsightAlertPreview}
                         hogLayout="vertical"
