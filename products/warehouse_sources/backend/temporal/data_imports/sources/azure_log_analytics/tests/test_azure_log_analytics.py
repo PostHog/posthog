@@ -65,6 +65,7 @@ def _queries(requests: list[RecordedRequest]) -> list[str]:
 
 # Every run in this class starts on 2026-10-02, so rows on earlier days fall in closed day windows.
 NOW = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
+RUN_END = "| where TimeGenerated < datetime(2026-10-02T12:00:00.000000Z)"
 WATERMARK_TODAY = {"incremental_field": "TimeGenerated", "db_incremental_field_last_value": "2026-10-02T09:30:00Z"}
 
 
@@ -119,7 +120,7 @@ class TestQueryWalk:
                 "(TimeGenerated == datetime(2026-10-01T10:00:00.1234567Z) and strcmp(_ItemId, 'b') > 0)",
                 "| where TimeGenerated < datetime(2026-10-02T00:00:00Z)",
             ],
-            ["| where TimeGenerated >= datetime(2026-10-02T00:00:00Z)"],
+            ["| where TimeGenerated >= datetime(2026-10-02T00:00:00Z)", RUN_END],
         ]
         assert all(query.endswith("| sort by TimeGenerated asc, _ItemId asc\n| take 2") for query in queries[1:])
         assert [row["_ItemId"] for row in result.rows] == ["a", "b", "c", "d"]
@@ -127,7 +128,7 @@ class TestQueryWalk:
         assert result.saved_states == [
             AzureLogAnalyticsResumeConfig(time_generated="2026-10-01T10:00:00.1234567Z", item_id="b"),
             AzureLogAnalyticsResumeConfig(time_generated="2026-10-02T00:00:00Z"),
-            AzureLogAnalyticsResumeConfig(time_generated="2026-10-02T08:00:00Z", item_id="d"),
+            AzureLogAnalyticsResumeConfig(time_generated="2026-10-02T12:00:00.000000Z"),
         ]
         assert result.committed_states == result.saved_states
         assert result.completed_state is None
@@ -155,7 +156,7 @@ class TestQueryWalk:
                 "| where TimeGenerated >= datetime(2026-10-01T00:00:00Z)",
                 "| where TimeGenerated < datetime(2026-10-02T00:00:00Z)",
             ],
-            ["| where TimeGenerated >= datetime(2026-10-02T00:00:00Z)"],
+            ["| where TimeGenerated >= datetime(2026-10-02T00:00:00Z)", RUN_END],
         ]
         assert [row["_ItemId"] for row in result.rows] == ["z"]
 
@@ -429,15 +430,23 @@ class TestSchemaDiscovery:
             query = request.json()["query"]
             if query.startswith("BasicLogs_CL"):
                 return basic_plan
+            if query.startswith("Restricted"):
+                return ScriptedResponse(
+                    status=403, json={"error": {"code": "InsufficientAccessError", "message": "Insufficient access"}}
+                )
             if query.startswith("Throttled"):
                 return ScriptedResponse(status=429, json={}, headers={"Retry-After": "300"})
             return _page([])
 
-        with scripted_network(respond):
+        with scripted_network(respond) as network:
             permissions = AzureLogAnalyticsSource().get_endpoint_permissions(
-                _config(), team_id=1, endpoints=["AppTraces", "BasicLogs_CL", "Throttled"]
+                _config(), team_id=1, endpoints=["AppTraces", "BasicLogs_CL", "Restricted", "Throttled", "Later_CL"]
             )
 
         assert permissions["AppTraces"] is None
-        assert permissions["Throttled"] is None
         assert permissions["BasicLogs_CL"] is not None and "Basic and Auxiliary" in permissions["BasicLogs_CL"]
+        assert permissions["Restricted"] is not None and "can't read this table" in permissions["Restricted"]
+        # A throttle counts as readable and ends probing, without retries, so setup stays fast.
+        assert permissions["Throttled"] is None and permissions["Later_CL"] is None
+        probed = [r.json()["query"].split(" ")[0] for r in network.requests_log if r.path == QUERY_PATH]
+        assert probed == ["AppTraces", "BasicLogs_CL", "Restricted", "Throttled"]

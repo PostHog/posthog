@@ -38,9 +38,12 @@ MAX_BACKOFF_SECONDS = 60.0
 # One request with its retries and waits holds the worker for five minutes at most (the source
 # contract), so a retry only starts when a full-length attempt still fits in the budget.
 RETRY_BUDGET_SECONDS = 300.0
-MAX_REQUEST_SECONDS = float(sum(REQUEST_TIMEOUT_SECONDS))
 # A page that hits a result-size or execution limit is read again with half as many rows.
 MIN_PAGE_SIZE = 100
+# Permission probes run inside the source setup request, so they are short, never retried, and
+# stop once the total passes this budget.
+PROBE_REQUEST_TIMEOUT_SECONDS = (10, 30)
+PROBE_BUDGET_SECONDS = 60.0
 
 _GUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 # The cursor values are embedded in KQL, so they must keep the exact shape Log Analytics returns.
@@ -142,7 +145,11 @@ class AzureLogAnalyticsClient:
         workspace_id: str,
         logger: FilteringBoundLogger,
         safe_point: Callable[[], None] | None = None,
+        request_timeout: tuple[float, float] = REQUEST_TIMEOUT_SECONDS,
+        max_attempts: int = MAX_RETRY_ATTEMPTS,
     ) -> None:
+        self._request_timeout = request_timeout
+        self._max_attempts = max_attempts
         self._tenant_id = tenant_id.strip()
         self._client_id = client_id.strip()
         self._client_secret = client_secret
@@ -165,7 +172,7 @@ class AzureLogAnalyticsClient:
                 "client_secret": self._client_secret,
                 "scope": TOKEN_SCOPE,
             },
-            timeout=REQUEST_TIMEOUT_SECONDS,
+            timeout=self._request_timeout,
         )
         if not response.ok:
             raise requests.HTTPError(
@@ -190,7 +197,7 @@ class AzureLogAnalyticsClient:
                 url,
                 json={"query": kql},
                 headers={"Authorization": f"Bearer {token}"},
-                timeout=REQUEST_TIMEOUT_SECONDS,
+                timeout=self._request_timeout,
             )
 
             # Tokens last about an hour; a long backfill can outlive one.
@@ -203,7 +210,7 @@ class AzureLogAnalyticsClient:
                 attempt += 1
                 delay = _backoff_seconds(response, attempt)
                 elapsed = time.monotonic() - started
-                if attempt >= MAX_RETRY_ATTEMPTS or elapsed + delay + MAX_REQUEST_SECONDS > RETRY_BUDGET_SECONDS:
+                if attempt >= self._max_attempts or elapsed + delay + sum(self._request_timeout) > RETRY_BUDGET_SECONDS:
                     raise AzureLogAnalyticsRetryableError(
                         f"Azure Log Analytics error (retryable): status={response.status_code}"
                     )
@@ -308,15 +315,16 @@ def build_query(
     return "\n".join(lines)
 
 
-def window_end(after: AzureLogAnalyticsResumeConfig, today: date) -> str | None:
-    """The end of the one-day window the cursor sits in, or None for today's open-ended window.
+def window_end(after: AzureLogAnalyticsResumeConfig, run_start: datetime) -> str:
+    """The end of the one-day window the cursor sits in, capped at the run start.
 
     Each page sorts only the rows left in one day, so a backfill never re-scans the whole table
-    for every page. The last window has no end, so rows stamped in the future still sync.
+    for every page. The cap keeps a row stamped in the future out of this run: as the newest
+    value it would become the watermark and hide every later row with a normal timestamp.
     """
     day = date.fromisoformat(after.time_generated[:10])
-    if day >= today:
-        return None
+    if day >= run_start.date():
+        return _format_datetime_literal(run_start)
     return f"{(day + timedelta(days=1)).isoformat()}T00:00:00Z"
 
 
@@ -342,10 +350,11 @@ def get_rows(
     if after is None:
         return
 
-    today = datetime.now(UTC).date()
+    run_start = datetime.now(UTC)
+    run_end = _format_datetime_literal(run_start)
     page_size = PAGE_SIZE
     while True:
-        before = window_end(after, today)
+        before = window_end(after, run_start)
         try:
             rows = client.query(build_query(table, after, before, page_size))
         except AzureLogAnalyticsPartialResultError:
@@ -353,6 +362,8 @@ def get_rows(
                 raise
             page_size = max(MIN_PAGE_SIZE, page_size // 2)
             logger.debug(f"Azure Log Analytics: {table} page hit a service limit, retrying with {page_size} rows")
+            # The staged cursor covers every yielded row, so the run can hand over between retries.
+            resumable_source_manager.safe_point()
             continue
 
         window_done = len(rows) < page_size
@@ -361,13 +372,8 @@ def get_rows(
             after = AzureLogAnalyticsResumeConfig(
                 time_generated=str(last.get(CURSOR_COLUMN)), item_id=str(last.get(ITEM_ID_FIELD))
             )
-        elif before is not None:
+        else:
             after = AzureLogAnalyticsResumeConfig(time_generated=before)
-        elif rows:
-            last = rows[-1]
-            after = AzureLogAnalyticsResumeConfig(
-                time_generated=str(last.get(CURSOR_COLUMN)), item_id=str(last.get(ITEM_ID_FIELD))
-            )
         for row in rows:
             row.pop(CURSOR_COLUMN, None)
 
@@ -379,7 +385,7 @@ def get_rows(
         else:
             # A day with no rows yields nothing; the pipeline only sees a shutdown at an item or here.
             resumable_source_manager.safe_point()
-        if window_done and before is None:
+        if window_done and before == run_end:
             return
 
 
@@ -390,21 +396,34 @@ def discover_tables(client: AzureLogAnalyticsClient) -> list[str]:
     return [str(row["DataType"]) for row in rows if TABLE_NAME_RE.match(str(row.get("DataType") or ""))]
 
 
-def table_unreadable_reason(client: AzureLogAnalyticsClient, table: str) -> str | None:
-    """Why the query API cannot read `table`, or None when it can.
+def probe_tables(client: AzureLogAnalyticsClient, tables: list[str]) -> dict[str, str | None]:
+    """Why the query API cannot read each table, or None when it can.
 
-    Basic and Auxiliary plan tables are only readable through the search API, and the query API
-    rejects them with a 400. A throttle or an outage is not a reason, so those count as readable.
+    Basic and Auxiliary plan tables are only readable through the search API, so the query API
+    rejects them with a 400, and table-level access control answers 403. A throttle or an outage
+    is not a reason: the table counts as readable, and probing stops so setup stays fast.
     """
-    try:
-        client.query(f"{table} | take 0")
-    except requests.HTTPError as error:
-        if getattr(error.response, "status_code", None) == 400:
-            return f"Log Analytics can't query this table. Basic and Auxiliary plan tables aren't supported.{_error_description(error.response)}"
-        return None
-    except (AzureLogAnalyticsRetryableError, requests.RequestException):
-        return None
-    return None
+    reasons: dict[str, str | None] = dict.fromkeys(tables)
+    started = time.monotonic()
+    for table in tables:
+        if time.monotonic() - started > PROBE_BUDGET_SECONDS:
+            break
+        try:
+            client.query(f"{table} | take 0")
+        except requests.HTTPError as error:
+            status = getattr(error.response, "status_code", None)
+            if status == 400:
+                reasons[table] = (
+                    "Log Analytics can't query this table. Basic and Auxiliary plan tables aren't supported."
+                    f"{_error_description(error.response)}"
+                )
+            elif status == 403:
+                reasons[table] = "The app can't read this table. Give it access to the table, or leave the table out."
+            else:
+                break
+        except (AzureLogAnalyticsRetryableError, requests.RequestException):
+            break
+    return reasons
 
 
 def _probe_failure_message(error: Exception, table: str | None) -> str:
