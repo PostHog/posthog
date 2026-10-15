@@ -450,6 +450,15 @@ def list_symbol_sets(
     return list(rows), total
 
 
+def get_latest_valid_symbol_set(team_id: int) -> ErrorTrackingSymbolSet | None:
+    return (
+        ErrorTrackingSymbolSet.objects.filter(team_id=team_id, storage_ptr__isnull=False)
+        .select_related("release")
+        .order_by(*DEFAULT_SYMBOL_SET_ORDERING)
+        .first()
+    )
+
+
 def get_symbol_set(team_id: int, symbol_set_id: str) -> ErrorTrackingSymbolSet | None:
     return ErrorTrackingSymbolSet.objects.filter(team_id=team_id, id=symbol_set_id).select_related("release").first()
 

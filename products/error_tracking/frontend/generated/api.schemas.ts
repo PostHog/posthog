@@ -2330,6 +2330,11 @@ export interface ErrorTrackingSymbolSetBulkStartUploadResponseApi {
     id_map: ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap
 }
 
+export interface LatestValidSymbolSetResponseApi {
+    /** Newest symbol set with an uploaded source map, or null if none exists. */
+    symbol_set: ErrorTrackingSymbolSetApi | null
+}
+
 export type ErrorTrackingAlertsListParams = {
     /**
      * Number of results to return per page.

@@ -181,6 +181,13 @@ class ErrorTrackingSymbolSetListQuerySerializer(serializers.Serializer):
     )
 
 
+class LatestValidSymbolSetResponseSerializer(serializers.Serializer):
+    symbol_set = ErrorTrackingSymbolSetSerializer(
+        allow_null=True,
+        help_text="Newest symbol set with an uploaded source map, or null if none exists.",
+    )
+
+
 class _SymbolSetDownloadResponseSerializer(serializers.Serializer):
     url = serializers.URLField(
         help_text="Presigned URL to download the source map file. Use immediately; expires after one hour."
@@ -197,7 +204,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     pagination_class = ErrorTrackingSymbolSetPagination
     parser_classes = [MultiPartParser, FileUploadParser]
     throttle_classes = [SymbolSetUploadBurstRateThrottle, SymbolSetUploadSustainedRateThrottle]
-    scope_object_read_actions = ["list", "retrieve", "download"]
+    scope_object_read_actions = ["list", "retrieve", "latest_valid", "download"]
     scope_object_write_actions = [
         "bulk_check_upload",
         "bulk_start_upload",
@@ -229,6 +236,15 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
                 offset=offset,
             ),
         )
+
+    @extend_schema(
+        responses={200: LatestValidSymbolSetResponseSerializer},
+        extensions={"x-internal": True},
+    )
+    @action(methods=["GET"], detail=False, parser_classes=[JSONParser])
+    def latest_valid(self, request: Request, *args, **kwargs) -> Response:
+        symbol_set = symbol_sets_facade.get_latest_valid_symbol_set(self.team.id)
+        return Response(LatestValidSymbolSetResponseSerializer({"symbol_set": symbol_set}).data)
 
     def retrieve(self, request: Request, *args, pk=None, **kwargs) -> Response:
         symbol_set = symbol_sets_facade.get_symbol_set(self.team.id, pk)

@@ -61,6 +61,11 @@ def list_symbol_sets(
     return [_to_symbol_set(row) for row in rows], total
 
 
+def get_latest_valid_symbol_set(team_id: int) -> contracts.ErrorTrackingSymbolSet | None:
+    symbol_set = _logic.get_latest_valid_symbol_set(team_id)
+    return _to_symbol_set(symbol_set) if symbol_set is not None else None
+
+
 def get_symbol_set(team_id: int, symbol_set_id: str) -> contracts.ErrorTrackingSymbolSet | None:
     symbol_set = _logic.get_symbol_set(team_id, symbol_set_id)
     return _to_symbol_set(symbol_set) if symbol_set is not None else None

@@ -1249,6 +1249,41 @@ class TestErrorTracking(APIBaseTest):
             ["source_2", "source_1", "source_0"],
         )
 
+    def test_fetching_latest_valid_symbol_set(self) -> None:
+        url = f"/api/environments/{self.team.id}/error_tracking/symbol_sets/latest_valid"
+
+        empty_response = self.client.get(url)
+
+        assert empty_response.status_code == status.HTTP_200_OK
+        assert empty_response.json() == {"symbol_set": None}
+
+        other_team = self.create_team_with_organization(organization=self.organization)
+        symbol_sets = [
+            ErrorTrackingSymbolSet.objects.create(
+                ref="older_valid", team=self.team, storage_ptr="symbolsets/older_valid"
+            ),
+            ErrorTrackingSymbolSet.objects.create(
+                ref="latest_valid", team=self.team, storage_ptr="symbolsets/latest_valid"
+            ),
+            ErrorTrackingSymbolSet.objects.create(ref="newer_invalid", team=self.team, storage_ptr=None),
+            ErrorTrackingSymbolSet.objects.create(
+                ref="other_team", team=other_team, storage_ptr="symbolsets/other_team"
+            ),
+        ]
+        for index, symbol_set in enumerate(symbol_sets):
+            ErrorTrackingSymbolSet.objects.filter(pk=symbol_set.pk).update(
+                created_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(days=index)
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["symbol_set"]["ref"] == "latest_valid"
+        assert not any(
+            "COUNT(" in query["sql"] and "posthog_errortrackingsymbolset" in query["sql"] for query in queries
+        )
+
     @parameterized.expand(
         [
             ("ref_substring", "chunk-abc123", ["frontend-chunk-abc123"]),
