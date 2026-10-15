@@ -462,8 +462,9 @@ class MessageTemplatesViewSet(
         self._require_transactional_email_flag()
         template = self.get_object()
         was_transactional = template.transactional_hog_flow_id is not None
-        # Access to one workflow lets a member through the viewset's checks, but this creates a new one.
-        if not was_transactional and not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+        # Access to one workflow lets a member through the viewset's checks, but this can create a new one, also
+        # when the linked workflow was deleted.
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
             raise exceptions.PermissionDenied("You need editor access to workflows to make a template transactional.")
         try:
             make_transactional(

@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -157,13 +159,15 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
             )
         self.client.force_login(member)
 
-    def test_editor_access_to_one_workflow_cannot_create_another(self, mock_post, _flag):
+    @parameterized.expand([("unlinked", None), ("linked_to_a_deleted_workflow", uuid4())])
+    def test_editor_access_to_one_workflow_cannot_create_another(self, mock_post, _flag, _name, linked_hog_flow_id):
         self._login_member("viewer@example.com", {None: "viewer", str(self.hog_flow_id): "editor"})
         template = MessageTemplate.objects.create(
             team=self.team,
             name="Welcome",
             content={"email": {"subject": "Welcome", "html": "<p>Hi</p>"}},
             type="email",
+            transactional_hog_flow_id=linked_hog_flow_id,
         )
 
         response = self.client.post(
@@ -172,4 +176,4 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         template.refresh_from_db()
-        assert template.transactional_hog_flow_id is None
+        assert template.transactional_hog_flow_id == linked_hog_flow_id
