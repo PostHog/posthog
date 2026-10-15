@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 
 import { SqlScatterGraphProps } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
@@ -69,8 +69,8 @@ it('selects only visible points after legend toggles and resets zoom when axes c
     act(() => mockChartProps.onAreaSelect!(area))
     fireEvent.click(screen.getByText('Keep only'))
     expect(onKeepOnly).toHaveBeenCalledWith([{ category: 'A', x: 10, y: 20 }])
-    fireEvent.click(screen.getByRole('button', { name: 'Select points' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Zoom area' }))
+    fireEvent.click(within(screen.getByTestId('bi-scatter-selection')).getByText('Select points'))
+    fireEvent.click(screen.getByText('Zoom area'))
     act(() => mockChartProps.onAreaSelect!(area))
     expect(mockChartProps.viewport).toEqual(area)
     view.rerender(
@@ -81,8 +81,8 @@ it('selects only visible points after legend toggles and resets zoom when axes c
         />
     )
     expect(mockChartProps.viewport).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Select points' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Zoom area' }))
+    fireEvent.click(within(screen.getByTestId('bi-scatter-selection')).getByText('Select points'))
+    fireEvent.click(screen.getByText('Zoom area'))
     act(() => mockChartProps.onAreaSelect!(area))
     expect(mockChartProps.viewport).toEqual(area)
     view.rerender(
