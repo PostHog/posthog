@@ -96,7 +96,7 @@ describe('todayShellLogic', () => {
         expect(logic.values.activePane).toBe(pane)
     })
 
-    test.each(['home', 'spaces', 'views', 'products'] as const)(
+    test.each(['spaces', 'views', 'products'] as const)(
         'a second rail click on %s hides the sidebar it opened',
         (pane) => {
             const logic = todayShellLogic()
@@ -110,6 +110,21 @@ describe('todayShellLogic', () => {
             expect(logic.values.sidebarVisible).toBe(false)
         }
     )
+
+    it('never shows a sidebar on Home, so the page takes the full width', () => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.setSidebarOpen(true)
+        logic.actions.setSidebarWidth(300)
+        logic.actions.clickRailPane('home')
+        expect(logic.values.sidebarVisible).toBe(false)
+        expect(logic.values.sidebarBreadcrumbShown).toBe(false)
+        expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
+
+        logic.actions.clickRailPane('products')
+        expect(logic.values.sidebarVisible).toBe(true)
+    })
 
     it('keeps the last pane open on pages that belong to no pane', () => {
         const logic = todayShellLogic()
@@ -127,6 +142,7 @@ describe('todayShellLogic', () => {
         const logic = todayShellLogic()
         logic.mount()
 
+        logic.actions.pickPane('products')
         logic.actions.setSidebarOpen(true)
         logic.actions.setSidebarWidth(10_000)
         expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH + TODAY_SIDEBAR_MAX_WIDTH)
@@ -139,6 +155,7 @@ describe('todayShellLogic', () => {
         const logic = todayShellLogic()
         logic.mount()
 
+        logic.actions.pickPane('products')
         logic.actions.setSidebarOpen(true)
         router.actions.push('/project/1/insights')
         expect(logic.values.sidebarVisible).toBe(true)
@@ -149,7 +166,7 @@ describe('todayShellLogic', () => {
         router.actions.push('/project/1/cohorts')
         expect(logic.values.sidebarVisible).toBe(false)
 
-        logic.actions.pickPane('home')
+        logic.actions.pickPane('views')
         expect(logic.values.sidebarVisible).toBe(true)
     })
     it('keeps the rail on narrow windows and opens the sidebar as a drawer that closes on navigation', () => {
