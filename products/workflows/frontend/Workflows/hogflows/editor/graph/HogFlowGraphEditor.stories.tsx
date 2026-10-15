@@ -3,7 +3,6 @@ import { BindLogic, useValues } from 'kea'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -65,7 +64,6 @@ NarrowWorkflow.parameters = { testOptions: { waitForSelector: '.react-flow__node
 export const WithNavigation: StoryFn = () => <App />
 WithNavigation.parameters = {
     pageUrl: `${urls.workflow(CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW_ID, 'workflow')}?view=graph`,
-    featureFlags: [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW],
     mockDate: '2026-09-04 12:00:00',
     testOptions: {
         waitForSelector: '.react-flow__node',

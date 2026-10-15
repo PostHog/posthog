@@ -12,13 +12,11 @@ import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
 type WorkflowStatusBarProps = WorkflowLogicProps & {
     editorLayout: HogFlowEditorLayout
-    showEditorLayoutToggle: boolean
     onEditorLayoutChange: (layout: HogFlowEditorLayout) => void
 }
 
 export function WorkflowStatusBar({
     editorLayout,
-    showEditorLayoutToggle,
     onEditorLayoutChange,
     ...props
 }: WorkflowStatusBarProps): JSX.Element | null {
@@ -47,27 +45,25 @@ export function WorkflowStatusBar({
     return (
         <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b bg-surface-secondary rounded-t-md flex-wrap">
             <div className="flex items-center gap-3 min-w-0">
-                {showEditorLayoutToggle && (
-                    <LemonSegmentedButton
-                        value={editorLayout}
-                        onChange={onEditorLayoutChange}
-                        size="small"
-                        options={[
-                            {
-                                value: 'simple',
-                                icon: <IconList />,
-                                tooltip: 'List view',
-                                'data-attr': 'workflow-switch-to-simple-view',
-                            },
-                            {
-                                value: 'advanced',
-                                icon: <IconDecisionTree />,
-                                tooltip: 'Graph view',
-                                'data-attr': 'workflow-switch-to-advanced-view',
-                            },
-                        ]}
-                    />
-                )}
+                <LemonSegmentedButton
+                    value={editorLayout}
+                    onChange={onEditorLayoutChange}
+                    size="small"
+                    options={[
+                        {
+                            value: 'simple',
+                            icon: <IconList />,
+                            tooltip: 'List view',
+                            'data-attr': 'workflow-switch-to-simple-view',
+                        },
+                        {
+                            value: 'advanced',
+                            icon: <IconDecisionTree />,
+                            tooltip: 'Graph view',
+                            'data-attr': 'workflow-switch-to-advanced-view',
+                        },
+                    ]}
+                />
                 {showWorkflowStatus &&
                     (isEditingDraftOfLive ? (
                         <LemonTag type="warning">Editing draft</LemonTag>
