@@ -123,6 +123,8 @@ ActivityScope = Literal[
     "DashboardWidget",
     "ProductTour",
     "Ticket",
+    "KnowledgeSource",
+    "KnowledgeLibrary",
     "InstanceSetting",
     "SignalReport",
     "SignalScoutConfig",
