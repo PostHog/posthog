@@ -9,19 +9,24 @@ from django.utils import timezone
 from clickhouse_driver.errors import NetworkError
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.workflows.backend.facade.contracts import DataSuggestionsResult
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.models.workflow_idea import WorkflowIdea as StoredIdea
 from products.workflows.backend.presentation.views.data_suggestion_drafts import validated_draft
 from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow, missing_inputs
 from products.workflows.backend.services.data_suggestions.event_volume import FULL_SCAN_MAX_WEEKLY_EVENTS, weekly_counts
@@ -40,6 +45,7 @@ from products.workflows.backend.services.data_suggestions.service import (
     _generation_lock_key,
     _to_cache,
     build_caller,
+    get_data_suggestions,
     run_data_suggestions,
     start_build,
 )
@@ -293,6 +299,67 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         assert "trial_started" not in dict(suggest_ideas.call_args.kwargs["context"].events)
 
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_stored_card_is_dropped_once_a_workflow_starts_from_its_event(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+        assert [s["trigger_event"] for s in self._list()["suggestions"]] == ["trial_started"]
+
+        HogFlow.objects.create(
+            team=self.team,
+            name="Made by hand",
+            status="draft",
+            trigger={"type": "event", "filters": {"events": [{"id": "trial_started", "type": "events"}]}},
+            actions=[],
+        )
+        assert self._list()["suggestions"] == []
+
+        suggest_ideas.return_value = [_idea("user_registered")]
+        [replacement] = self._list(refresh=True)["suggestions"]
+        built = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_data_suggestions/build/",
+            {"suggestion_id": replacement["id"]},
+            format="json",
+        )
+
+        assert replacement["trigger_event"] == "user_registered"
+        assert built.status_code == 200, built.json()
+
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_long_event_name_is_stored_under_a_key_that_fits(self, suggest_ideas: MagicMock, _flag) -> None:
+        long_event = "checkout " + "x" * 300
+        for index in range(3):
+            _create_event(team=self.team, event=long_event, distinct_id=f"person-{index}")
+        flush_persons_and_events()
+        suggest_ideas.return_value = [_idea(long_event)]
+
+        result = self._list()
+
+        assert [s["trigger_event"] for s in result["suggestions"]] == [long_event]
+        assert len(StoredIdea.objects.for_team(self.team.id).get().key) <= 200
+
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_child_environment_cannot_read_or_change_project_suggestions(
+        self, suggest_ideas: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        [suggestion] = self._list()["suggestions"]
+        child = Team.objects.create(organization=self.organization, name="Staging", parent_team=self.team)
+        flow = HogFlow.objects.create(team=self.team, name="Draft")
+
+        assert get_data_suggestions(team=child).status == "unavailable"
+        for action, extra in [("build", {}), ("dismiss", {}), ("accept", {"hog_flow_id": str(flow.id)})]:
+            response = self.client.post(
+                f"/api/projects/{child.id}/workflow_data_suggestions/{action}/",
+                {"suggestion_id": suggestion["id"], **extra},
+                format="json",
+            )
+            assert response.status_code == 404, (action, response.json())
+        assert StoredIdea.objects.for_team(self.team.id).get().status == "suggested"
+
     @parameterized.expand(
         [
             ("query timeout", ClickHouseQueryTimeOut()),
@@ -310,6 +377,17 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert self._list() == {"status": "unavailable", "suggestions": [], "email_sender_ready": False}
         assert self._list() == {"status": "unavailable", "suggestions": [], "email_sender_ready": False}
         assert execute.call_count == 1
+
+    @patch(f"{SERVICE}.create_ideas", side_effect=OperationalError("server closed the connection"))
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_failure_to_store_the_cards_is_not_retried_on_every_visit(
+        self, suggest_ideas: MagicMock, _create_ideas: MagicMock, _flag
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+
+        assert self._list()["status"] == "unavailable"
+        assert self._list()["status"] == "unavailable"
+        assert suggest_ideas.call_count == 1
 
     @parameterized.expand(
         [
@@ -412,6 +490,85 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         assert self._list(refresh=True) == {"status": "ready", "suggestions": suggestions, "email_sender_ready": False}
         assert self._list() == {"status": "ready", "suggestions": suggestions, "email_sender_ready": False}
+
+    @patch(f"{SERVICE}.classify_event_stages", return_value={"trial_started": "trial"})
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_dismissed_card_stays_gone_after_a_refresh(self, suggest_ideas: MagicMock, _classify, _flag) -> None:
+        suggest_ideas.return_value = [_idea("trial_started"), _idea("query executed")]
+        [dismissed, kept] = self._list()["suggestions"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_data_suggestions/dismiss/",
+            {"suggestion_id": dismissed["id"], "reason": "We send this already"},
+            format="json",
+        )
+
+        assert response.status_code == 204
+        assert [s["id"] for s in self._list(refresh=True)["suggestions"]] == [kept["id"]]
+        idea = StoredIdea.objects.for_team(self.team.id).get(id=dismissed["id"])
+        assert (idea.status, idea.dismiss_reason, idea.source) == (
+            "dismissed",
+            "We send this already",
+            "data_suggestions",
+        )
+
+    @parameterized.expand(
+        [
+            ("an unclaimed draft", "draft", False, False, 204, "accepted"),
+            ("a live workflow", "active", False, False, 400, "suggested"),
+            ("a draft another suggestion already claimed", "draft", True, False, 400, "suggested"),
+            ("a draft this member may only view", "draft", False, True, 400, "suggested"),
+        ]
+    )
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_accept_links_only_an_unclaimed_draft_the_member_can_edit(
+        self,
+        _name: str,
+        flow_status: str,
+        claimed: bool,
+        view_only: bool,
+        status_code: int,
+        idea_status: str,
+        suggest_ideas: MagicMock,
+        _flag,
+    ) -> None:
+        suggest_ideas.return_value = [_idea("trial_started")]
+        [suggestion] = self._list()["suggestions"]
+        flow = HogFlow.objects.create(team=self.team, name="Draft", status=flow_status)
+        if view_only:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            AccessControl.objects.create(
+                team=self.team,
+                resource="hog_flow",
+                resource_id=str(flow.id),
+                access_level="viewer",
+                organization_member=self.organization_membership,
+            )
+        if claimed:
+            StoredIdea.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                key="other",
+                title="Other",
+                rationale="",
+                definition={},
+                status="accepted",
+                hog_flow=flow,
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_data_suggestions/accept/",
+            {"suggestion_id": suggestion["id"], "hog_flow_id": str(flow.id)},
+            format="json",
+        )
+
+        assert response.status_code == status_code
+        assert StoredIdea.objects.for_team(self.team.id).get(id=suggestion["id"]).status == idea_status
+        assert (self._list()["suggestions"] == []) is (idea_status == "accepted")
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")

@@ -3224,6 +3224,18 @@ export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
  */
+export const WorkflowDataSuggestionsAcceptBody = /* @__PURE__ */ zod.object({
+    suggestion_id: zod.string().describe('The id of the suggestion the draft was built from.'),
+    hog_flow_id: zod
+        .uuid()
+        .describe(
+            'The draft workflow created from the built suggestion. It must still be a draft and not linked to another suggestion.'
+        ),
+})
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
 export const workflowDataSuggestionsBuildBodyRetryDefault = false
 export const workflowDataSuggestionsBuildBodySaveDraftDefault = false
 
@@ -3241,6 +3253,20 @@ export const WorkflowDataSuggestionsBuildBody = /* @__PURE__ */ zod.object({
         .describe(
             'Save the built draft in the project and return its workflow_id. Blank settings, like a webhook URL, stay blank and are listed in missing_inputs. Leave it false to get the workflow back without saving.'
         ),
+})
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsDismissBodyReasonMax = 2000
+
+export const WorkflowDataSuggestionsDismissBody = /* @__PURE__ */ zod.object({
+    suggestion_id: zod.string().describe('The id of a suggestion from the list endpoint.'),
+    reason: zod
+        .string()
+        .max(workflowDataSuggestionsDismissBodyReasonMax)
+        .optional()
+        .describe('Optional reason the person gave.'),
 })
 
 /**

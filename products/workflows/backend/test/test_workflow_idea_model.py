@@ -2,8 +2,10 @@ from posthog.test.base import BaseTest
 
 from posthog.models import Team
 
+from products.workflows.backend.facade.contracts import NewWorkflowIdea
 from products.workflows.backend.models import HogFlow
 from products.workflows.backend.models.workflow_idea import WorkflowIdea
+from products.workflows.backend.services.workflow_ideas import create_ideas
 
 
 class TestWorkflowIdeaModel(BaseTest):
@@ -32,3 +34,15 @@ class TestWorkflowIdeaModel(BaseTest):
         assert idea.team_id == self.team.id
         idea.status = WorkflowIdea.Status.ACCEPTED
         idea.save()
+
+    def test_storing_the_same_idea_twice_from_a_child_environment_keeps_one_row(self):
+        child = Team.objects.create(organization=self.organization, name="Staging", parent_team=self.team)
+        item = NewWorkflowIdea(
+            key="signup:signed_up", title="Welcome", rationale="New users stall.", definition={}, evidence={}
+        )
+
+        first = create_ideas(team_id=child.id, items=[item], source="data_suggestions")
+        second = create_ideas(team_id=child.id, items=[item], source="data_suggestions")
+
+        assert (len(first), second) == (1, [])
+        assert WorkflowIdea.objects.for_team(self.team.pk).filter(key="signup:signed_up").count() == 1
