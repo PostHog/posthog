@@ -33,6 +33,10 @@ Building a draft (`_plan_and_build` in `service.py`):
 2. The builder turns the plan into a workflow and rejects plans that do not hold up.
 3. The draft is checked the way the caller's own create request checks it.
 
+Agents use the same endpoints through three MCP tools in `products/workflows/mcp/tools.yaml`: `workflows-data-suggestions-list`, `-get` and `-create`.
+The create tool always sends `save_draft`, so the build task saves the draft itself with the editor's draft rules and returns its `workflow_id`.
+Blank settings come back as `missing_inputs`, for the agent to ask the user about.
+
 ## Files
 
 | File              | What it does                                                                                           |

@@ -263,7 +263,7 @@ jobs:
                         "values": {"${{ matrix.values_key }}": {"sha": "${{ steps.check.outputs.digest }}"}},
                         "release": "${{ matrix.release }}",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": [],
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
