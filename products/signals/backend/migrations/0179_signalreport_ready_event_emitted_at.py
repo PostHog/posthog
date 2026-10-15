@@ -3,12 +3,8 @@
 import django.contrib.postgres.fields
 from django.db import migrations, models
 
-from posthog.migration_helpers import SafeAddIndexConcurrently
-
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [
         ("signals", "0178_signalscoutconfig_autovacuum_scale_factor"),
     ]
@@ -29,16 +25,6 @@ class Migration(migrations.Migration):
             name="ready_event_source_products",
             field=django.contrib.postgres.fields.ArrayField(
                 base_field=models.CharField(max_length=100), blank=True, null=True, size=None
-            ),
-        ),
-        SafeAddIndexConcurrently(
-            model_name="signalreport",
-            index=models.Index(
-                condition=models.Q(
-                    ("ready_event_delivered_at__isnull", True), ("ready_event_emitted_at__isnull", False)
-                ),
-                fields=["ready_event_emitted_at"],
-                name="signals_report_ready_unsent",
             ),
         ),
     ]
