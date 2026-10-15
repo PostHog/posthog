@@ -3710,14 +3710,14 @@ describe('dashboardLogic', () => {
                         logic.actionCreators.setRefreshStatus(groupedInsight.short_id),
                     ])
                     .toFinishAllListeners()
-                    .toMatchValues({
-                        deferredTileRefresh: expect.objectContaining({ tileIds: [], forceRefresh: true }),
-                        refreshStatus: {
-                            [openInsight.short_id]: expect.objectContaining({ refreshed: true }),
-                            [groupedInsight.short_id]: expect.objectContaining({ refreshed: true }),
-                        },
-                        refreshMetrics: { completed: 2, total: 2 },
-                    })
+                await expectLogic(logic).toMatchValues({
+                    deferredTileRefresh: expect.objectContaining({ tileIds: [], forceRefresh: true }),
+                    refreshStatus: {
+                        [openInsight.short_id]: expect.objectContaining({ refreshed: true }),
+                        [groupedInsight.short_id]: expect.objectContaining({ refreshed: true }),
+                    },
+                    refreshMetrics: { completed: 2, total: 2 },
+                })
 
                 await expectLogic(logic, () => {
                     logic.actions.toggleTileGroup('plans')
@@ -3764,7 +3764,64 @@ describe('dashboardLogic', () => {
                 }
             })
 
-            it('keeps a closed group tile waiting when its preload fails, then loads it on the next preload', async () => {
+            it.each([
+                { name: 'waits', preloadInFlight: false },
+                { name: 'is loading', preloadInFlight: true },
+            ])(
+                'keeps the forced load of a closed group that $name when a dashboard update refreshes only stale tiles',
+                async ({ preloadInFlight }) => {
+                    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS], {
+                        [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+                    })
+                    const dashboard = dashboards[5]
+                    const groupedTile = dashboard.tiles[1]
+                    groupedTile.group_key = 'plans'
+                    groupedTile.insight!.cache_target_age = now().add(1, 'hour').toISOString()
+                    // oxlint-disable-next-line react-hooks/rules-of-hooks
+                    useMocks({
+                        get: {
+                            '/api/environments/:team_id/dashboards/5/': () => [
+                                200,
+                                { ...dashboard, customization: { groups: { plans: { collapsed: true } } } },
+                            ],
+                        },
+                    })
+                    await expectLogic(logic, () => {
+                        logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                    }).toFinishAllListeners()
+                    await expectLogic(logic, () => {
+                        logic.actions.triggerDashboardRefresh()
+                    }).toFinishAllListeners()
+
+                    const getInsightWithRetrySpy = jest.spyOn(dashboardUtils, 'getInsightWithRetry')
+                    try {
+                        if (preloadInFlight) {
+                            getInsightWithRetrySpy.mockImplementationOnce(
+                                (...args: Parameters<typeof dashboardUtils.getInsightWithRetry>) =>
+                                    new Promise<never>((_, reject) => {
+                                        args[5]!.signal!.addEventListener('abort', () =>
+                                            reject(new DOMException('Aborted', 'AbortError'))
+                                        )
+                                    })
+                            )
+                            logic.actions.preloadTileGroup('plans')
+                            await expectLogic(logic).toDispatchActions(['setRefreshStatuses'])
+                        }
+
+                        await expectLogic(logic, () => {
+                            logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                        }).toFinishAllListeners()
+                    } finally {
+                        getInsightWithRetrySpy.mockRestore()
+                    }
+
+                    expect(logic.values.deferredTileRefresh).toEqual(
+                        expect.objectContaining({ tileIds: [groupedTile.id], forceRefresh: true })
+                    )
+                }
+            )
+
+            it('keeps a closed group tile waiting when its preload fails, and retries it only when the group opens', async () => {
                 featureFlagLogic.actions.setFeatureFlags(
                     [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS, FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS],
                     {
@@ -3802,18 +3859,25 @@ describe('dashboardLogic', () => {
                         deferredTileRefresh: expect.objectContaining({ tileIds: [groupedTile.id] }),
                         breakdownValuesIncomplete: true,
                     })
+
+                    getInsightWithRetrySpy.mockClear()
+                    await expectLogic(logic, () => {
+                        logic.actions.preloadTileGroup('plans')
+                    }).toFinishAllListeners()
+                    expect(getInsightWithRetrySpy).not.toHaveBeenCalled()
                 } finally {
                     getInsightWithRetrySpy.mockRestore()
                 }
 
                 await expectLogic(logic, () => {
-                    logic.actions.preloadTileGroup('plans')
+                    logic.actions.toggleTileGroup('plans')
                 }).toFinishAllListeners()
                 await expectLogic(logic).toMatchValues({
                     deferredTileRefresh: expect.objectContaining({ tileIds: [] }),
                     refreshStatus: expect.objectContaining({
                         [groupedTile.insight!.short_id]: expect.objectContaining({ refreshed: true }),
                     }),
+                    refreshMetrics: { completed: 2, total: 2 },
                 })
             })
 
@@ -3878,6 +3942,88 @@ describe('dashboardLogic', () => {
                     getInsightWithRetrySpy.mockRestore()
                 }
             })
+
+            it('reports a refresh in which every stale insight waits in a closed group', async () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS], {
+                    [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+                })
+                const dashboard = dashboards[5]
+                for (const tile of dashboard.tiles) {
+                    tile.group_key = 'growth'
+                }
+                // oxlint-disable-next-line react-hooks/rules-of-hooks
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/dashboards/5/': () => [
+                            200,
+                            { ...dashboard, customization: { groups: { growth: { collapsed: true } } } },
+                        ],
+                    },
+                })
+                await expectLogic(logic, () => {
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                }).toFinishAllListeners()
+                const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+                try {
+                    await expectLogic(logic, () => {
+                        logic.actions.triggerDashboardRefresh()
+                    }).toFinishAllListeners()
+
+                    expect(capture).toHaveBeenCalledWith(
+                        'dashboard refreshed',
+                        expect.objectContaining({
+                            force_refresh: true,
+                            tiles_stale_count: 0,
+                            tiles_deferred_count: dashboard.tiles.filter((tile) => !!tile.insight).length,
+                        })
+                    )
+                } finally {
+                    capture.mockRestore()
+                }
+            })
+
+            it.each([
+                { groupState: 'closed', collapsed: true, blocked: true },
+                { groupState: 'open', collapsed: false, blocked: false },
+            ])(
+                'a stale tile in an $groupState group sets blockRefresh to $blocked after a recent refresh',
+                async ({ collapsed, blocked }) => {
+                    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS], {
+                        [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+                    })
+                    const dashboard = dashboards[5]
+                    dashboard.tiles[1].group_key = 'plans'
+                    // oxlint-disable-next-line react-hooks/rules-of-hooks
+                    useMocks({
+                        get: {
+                            '/api/environments/:team_id/dashboards/5/': () => [
+                                200,
+                                { ...dashboard, customization: { groups: { plans: { collapsed } } } },
+                            ],
+                        },
+                    })
+                    await expectLogic(logic, () => {
+                        logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                    }).toFinishAllListeners()
+
+                    const lastRefreshByTile: [DashboardTile, string][] = [
+                        [dashboard.tiles[0], now().toISOString()],
+                        [dashboard.tiles[1], now().subtract(1, 'hour').toISOString()],
+                    ]
+                    for (const [tile, lastRefresh] of lastRefreshByTile) {
+                        await expectLogic(logic, () => {
+                            dashboardsModel.actions.updateDashboardInsight(
+                                { ...tile.insight!, last_refresh: lastRefresh, query: tile.insight!.query ?? null },
+                                undefined,
+                                5
+                            )
+                        }).toFinishAllListeners()
+                    }
+                    logic.actions.updateDashboardLastRefresh(now())
+
+                    expect(logic.values.blockRefresh).toBe(blocked)
+                }
+            )
         })
 
         describe('page visibility', () => {
@@ -5038,7 +5184,32 @@ describe('dashboardLogic', () => {
             fetchRunWidgetsMock.mockRestore()
         })
 
-        it('a stale widget releases the shared refresh block', async () => {
+        it.each([
+            { name: 'a stale widget releases', inClosedGroup: false, blockedOnceStale: false },
+            { name: 'a stale widget in a closed group keeps', inClosedGroup: true, blockedOnceStale: true },
+        ])('$name the shared refresh block', async ({ inClosedGroup, blockedOnceStale }) => {
+            if (inClosedGroup) {
+                featureFlagLogic.actions.setFeatureFlags(
+                    [FEATURE_FLAGS.DASHBOARD_WIDGETS, FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS],
+                    {
+                        [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,
+                        [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+                    }
+                )
+                // oxlint-disable-next-line react-hooks/rules-of-hooks
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/dashboards/5/': () => [
+                            200,
+                            {
+                                ...dashboards[5],
+                                tiles: [...dashboards[5].tiles, { ...WIDGET_TILE, group_key: 'ops' }],
+                                customization: { groups: { ops: { collapsed: true } } },
+                            },
+                        ],
+                    },
+                })
+            }
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -5054,7 +5225,7 @@ describe('dashboardLogic', () => {
                 expect(logic.values.blockRefresh).toBe(true)
 
                 await jest.advanceTimersByTimeAsync(60_100)
-                expect(logic.values.blockRefresh).toBe(false)
+                expect(logic.values.blockRefresh).toBe(blockedOnceStale)
             } finally {
                 jest.useRealTimers()
             }
@@ -5245,6 +5416,62 @@ describe('dashboardLogic', () => {
             logic.actions.abortAnyRunningQuery()
 
             expect(widgetLoadOptions?.signal?.aborted).toBe(true)
+        })
+
+        it('restarts a widget load that previewing filters aborts while every insight sits in a closed group', async () => {
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.DASHBOARD_WIDGETS, FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS],
+                {
+                    [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,
+                    [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true,
+                }
+            )
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/5/': () => [
+                        200,
+                        {
+                            ...dashboards[5],
+                            tiles: [
+                                ...dashboards[5].tiles.map((tile) => ({ ...tile, group_key: 'plans' })),
+                                WIDGET_TILE,
+                            ],
+                            customization: { groups: { plans: { collapsed: true } } },
+                        },
+                    ],
+                },
+            })
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            let widgetLoadStarted = (): void => {}
+            const widgetLoadInFlight = new Promise<void>((resolve) => {
+                widgetLoadStarted = resolve
+            })
+            fetchRunWidgetsMock.mockClear()
+            fetchRunWidgetsMock.mockImplementationOnce(
+                (_projectId, _dashboardId, _tileIds, options) =>
+                    new Promise((_, reject) => {
+                        options?.signal?.addEventListener('abort', () =>
+                            reject(new DOMException('Aborted', 'AbortError'))
+                        )
+                        widgetLoadStarted()
+                    })
+            )
+            logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+            await widgetLoadInFlight
+
+            await expectLogic(logic, () => {
+                logic.actions.setDates('-7d', null)
+                logic.actions.previewDashboardChanges()
+            }).toFinishAllListeners()
+
+            expect(fetchRunWidgetsMock).toHaveBeenCalledTimes(2)
+            expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]).toEqual(
+                expect.objectContaining({ loading: false, error: null })
+            )
         })
 
         it('does not fetch run_widgets on public placement', async () => {
