@@ -210,6 +210,7 @@ export namespace Schemas {
         materializationMode: MaterializationMode | null;
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
         mergeFederatedAggregateJoins: boolean | null;
+        negatedPersonFiltersNotIn: boolean | null;
         optimizeJoinedFilters: boolean | null;
         optimizeProjections: boolean | null;
         parserMode: ParserMode | null;
@@ -227,6 +228,7 @@ export namespace Schemas {
         timings: boolean | null;
         typeAwareCastSimplification: boolean | null;
         useMaterializedViews: boolean | null;
+        useNewEventsCluster: boolean | null;
         useNewEventsSchema: boolean | null;
         usePreaggregatedIntermediateResults: boolean | null;
         usePreaggregatedTableTransforms: boolean | null;
@@ -4225,6 +4227,7 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         version?: (number | null) | undefined;
     };
+    export type ExecutionTarget = "default" | "managed_trino";
     export type HogQLFilters = Partial<{
         breakdownFilter: BreakdownFilter | null;
         compareFilter: CompareFilter | null;
@@ -4383,6 +4386,7 @@ export namespace Schemas {
     };
     export type HogQLQuery = {
         connectionId?: (string | null) | undefined;
+        executionTarget?: (ExecutionTarget | null) | undefined;
         explain?: (boolean | null) | undefined;
         filters?: (HogQLFilters | null) | undefined;
         kind?: string | undefined;
@@ -4435,6 +4439,7 @@ export namespace Schemas {
         tags: QueryLogTags | null;
         version: number | null;
     }>;
+    export type Alias = { label: string; value?: (string | null) | undefined };
     /**
      * * `first_touch` - First Touch
      * * `last_touch` - Last Touch
@@ -4617,6 +4622,7 @@ export namespace Schemas {
         groups: Array<BICategoryGroup>;
         kind?: string | undefined;
         other: string;
+        preserveUngrouped?: (boolean | null) | undefined;
     };
     export type BILocalFieldDefinition3 = {
         expression: string;
@@ -4650,6 +4656,7 @@ export namespace Schemas {
         datePart?: (DatePart | null) | undefined;
         expression: string;
         id: string;
+        label?: (string | null) | undefined;
         localDefinition?:
             | (
                   | BILocalFieldDefinition1
@@ -4681,6 +4688,7 @@ export namespace Schemas {
         customExpression?: (string | null) | undefined;
         enabled?: (boolean | null) | undefined;
         field: BIField;
+        label?: (string | null) | undefined;
         operator: BIFilterOperator;
         value: string;
         valueTo?: (string | null) | undefined;
@@ -4694,7 +4702,14 @@ export namespace Schemas {
         levels: Array<BIField>;
         name: string;
     };
+    export type HierarchyDrillPathItem = {
+        filterIds: Array<string>;
+        hierarchyId: string;
+        nextField: BIField;
+        previousField: BIField;
+    };
     export type BIQueryLimit = 100 | 1000 | 10000 | 50000;
+    export type MemberAliase = { aliases: Array<Alias>; field: BIField };
     export type MissingDates = "gap" | "zero";
     export type Operator2 =
         | "equals"
@@ -4709,6 +4724,7 @@ export namespace Schemas {
     export type BIResultFilter = {
         enabled?: (boolean | null) | undefined;
         id: string;
+        label?: (string | null) | undefined;
         measureIndex: number;
         operator: Operator2;
         value: string;
@@ -4777,8 +4793,10 @@ export namespace Schemas {
         dateRange?: (DateRange | null) | undefined;
         filters: Array<BIFilter>;
         hierarchies?: (Array<BIHierarchy> | null) | undefined;
+        hierarchyDrillPath?: (Array<HierarchyDrillPathItem> | null) | undefined;
         limit: BIQueryLimit;
         localFields?: (Array<BIField> | null) | undefined;
+        memberAliases?: (Array<MemberAliase> | null) | undefined;
         missingDates?: (MissingDates | null) | undefined;
         resultFilterGroup?: (BIConditionGroup | null) | undefined;
         resultFilters?: (Array<BIResultFilter> | null) | undefined;
@@ -8968,16 +8986,6 @@ export namespace Schemas {
      * * `opt_in` - Opt In
      */
     export type EmailTrackingConsentModeEnum = "off" | "opt_out" | "opt_in";
-    /**
-     * * `duckdb` - duckdb
-     * * `postgres` - postgres
-     * * `mysql` - mysql
-     * * `snowflake` - snowflake
-     * * `redshift` - redshift
-     * * `clickhouse` - clickhouse
-     * * `motherduck` - motherduck
-     * * `trino` - trino
-     */
     export type EngineEnum =
         | "duckdb"
         | "postgres"
@@ -9260,6 +9268,9 @@ export namespace Schemas {
                          * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
                          */
                         prompt: string;
+                        judge_method?:
+                            | (("llm" | "decision") | null)
+                            | undefined;
                     }
                   | {
                         /**
@@ -9361,23 +9372,24 @@ export namespace Schemas {
          * An evaluation that scores LLM generations, traces, or sessions.
          */
         target_config?:
-            | (
-                  | {
-                        /**
-                         * Wait a fixed window after the first matching generation, then evaluate.
-                         */
-                        strategy: "fixed_window";
-                        window_seconds?: number | undefined;
-                    }
-                  | {
-                        /**
-                         * Evaluate once the unit has had no new activity for the quiet period.
-                         */
-                        strategy: "inactivity";
-                        quiet_period_seconds?: number | undefined;
-                        max_age_seconds?: number | undefined;
-                    }
-              )
+            | Partial<{
+                  /**
+                   * 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'.
+                   */
+                  strategy: "fixed_window" | "inactivity";
+                  /**
+                   * fixed_window only. Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+                   */
+                  window_seconds: number;
+                  /**
+                   * inactivity only. Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
+                   */
+                  quiet_period_seconds: number;
+                  /**
+                   * inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+                   */
+                  max_age_seconds: number;
+              }>
             | undefined;
         /**
          * An evaluation that scores LLM generations, traces, or sessions.
@@ -19175,7 +19187,10 @@ export namespace Schemas {
         status_reason_detail: string | null;
         evaluation_type: EvaluationTypeEnum;
         evaluation_config:
-            | { prompt: string }
+            | {
+                  prompt: string;
+                  judge_method?: (("llm" | "decision") | null) | undefined;
+              }
             | { source: string }
             | Partial<{ source: "user_messages" }>;
         output_type: OutputTypeEnum;
@@ -19194,13 +19209,12 @@ export namespace Schemas {
         }>;
         conditions: Array<EvaluationCondition>;
         target: EvaluationTargetEnum;
-        target_config:
-            | { strategy: "fixed_window"; window_seconds?: number | undefined }
-            | {
-                  strategy: "inactivity";
-                  quiet_period_seconds?: number | undefined;
-                  max_age_seconds?: number | undefined;
-              };
+        target_config: Partial<{
+            strategy: "fixed_window" | "inactivity";
+            window_seconds: number;
+            quiet_period_seconds: number;
+            max_age_seconds: number;
+        }>;
         model_configuration: ModelConfiguration | null;
         created_at: string;
         updated_at: string;
@@ -22851,6 +22865,33 @@ export namespace Endpoints {
                 pr_state: "open" | "draft" | "merged" | "closed";
                 repository: string;
                 search: string;
+                sources: Array<
+                    | "autoresearch"
+                    | "error_tracking"
+                    | "eval_clusters"
+                    | "experiments"
+                    | "hogdesk"
+                    | "image_builder"
+                    | "loop"
+                    | "mcp_analytics"
+                    | "onboarding"
+                    | "posthog_ai"
+                    | "posthog_desktop"
+                    | "posthog_mobile"
+                    | "posthog_web"
+                    | "review_hog"
+                    | "scout_suggestions"
+                    | "session_summaries"
+                    | "signal_report"
+                    | "signals_chat"
+                    | "signals_scout"
+                    | "slack"
+                    | "space_setup"
+                    | "support_queue"
+                    | "support_reply"
+                    | "task_analysis"
+                    | "workflow"
+                >;
                 stage: string;
                 status:
                     | "not_started"

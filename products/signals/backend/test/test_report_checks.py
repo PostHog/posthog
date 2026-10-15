@@ -6,7 +6,9 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -17,7 +19,7 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Organization, PropertyDefinition, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -44,6 +46,7 @@ from products.signals.backend.report_check_agent import (
 )
 from products.signals.backend.report_check_authoring import (
     CheckCreationError,
+    arm_pending_checks,
     cancel_check,
     create_check,
     create_checks_from_specs,
@@ -56,6 +59,7 @@ from products.signals.backend.report_check_execution import (
     evaluate_check_value,
     expire_overdue_checks,
     measure_check,
+    park_report_checks_on_reopen,
     record_check_verdict,
     resolve_check_query,
     run_due_report_checks,
@@ -762,6 +766,67 @@ class TestReportCheckExecution(APIBaseTest):
         self.report.save(update_fields=["status"])
 
         assert collect_due_checks(timezone.now()) == []
+
+    def test_a_tick_reuses_gate_discovery_and_ignores_monitoring_without_candidate_checks(self) -> None:
+        now = timezone.now()
+        unrelated_org = Organization.objects.create(name="Other monitoring organization")
+        unrelated_team = Team.objects.create(organization=unrelated_org)
+        unrelated_report = SignalReport.objects.create(
+            team=unrelated_team, status=SignalReport.Status.MONITORING, title="Other verification"
+        )
+        SignalReportCheck.objects.for_team(unrelated_team.id).create(
+            team=unrelated_team,
+            report=unrelated_report,
+            title="Cancelled verification",
+            kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+            config=_threshold_config(),
+            status=SignalReportCheck.Status.CANCELLED,
+            next_run_at=now,
+            expires_at=now + timedelta(days=30),
+        )
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True
+        ) as evaluate:
+            run_due_report_checks(now=now)
+        evaluate.assert_not_called()
+
+        checks = [self._check() for _ in range(3)]
+        SignalReport.objects.filter(team_id=self.team.id, id=self.report.id).update(
+            status=SignalReport.Status.MONITORING, monitoring_started_at=now
+        )
+        with (
+            patch(
+                "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True
+            ) as evaluate,
+            patch(_MEASURE) as measure,
+        ):
+            run_due_report_checks(now=now)
+        measure.assert_not_called()
+        assert [call.args[1] for call in evaluate.call_args_list] == [str(self.organization.id)]
+        for check in checks:
+            check.refresh_from_db()
+            assert check.status == SignalReportCheck.Status.PENDING
+
+    def test_parking_a_report_batch_reads_its_team_gate_once(self) -> None:
+        checks = [self._check() for _ in range(3)]
+        SignalReport.objects.filter(team_id=self.team.id, id=self.report.id).update(status=SignalReport.Status.READY)
+        with (
+            patch(
+                "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True
+            ) as evaluate,
+            CaptureQueriesContext(connection) as queries,
+        ):
+            assert park_report_checks_on_reopen(
+                team_id=self.team.id, report_id=str(self.report.id), now=timezone.now()
+            ) == len(checks)
+        team_reads = [
+            query for query in queries if query["sql"].startswith("SELECT") and 'FROM "posthog_team"' in query["sql"]
+        ]
+        assert len(team_reads) == 1
+        assert evaluate.call_count == 1
+        for check in checks:
+            check.refresh_from_db()
+            assert check.status == SignalReportCheck.Status.PENDING
 
     @parameterized.expand([("cancelled",), ("reopened",), ("resolved_again",), ("redispatched",)])
     def test_a_check_invalidated_while_its_query_ran_records_nothing(self, reason: str) -> None:
@@ -1884,15 +1949,33 @@ class TestCheckResultTool(APIBaseTest):
                 {"config": {"instructions": "x", "skill_name": _OTHER_SKILL}},
                 True,
             ),
+            ("monitoring_disabled", {"dispatched_at": None, "next_run_at": timezone.now()}, False, False),
+            (
+                "monitoring_unavailable",
+                {"dispatched_at": None, "next_run_at": timezone.now()},
+                False,
+                RuntimeError("flag service unavailable"),
+            ),
         ]
     )
-    def test_a_check_this_run_may_answer_is_recorded(self, _name, overrides, bind_run) -> None:
+    def test_a_check_this_run_may_answer_is_recorded(
+        self, _name, overrides, bind_run, flag_result: bool | Exception | None = None
+    ) -> None:
+        if flag_result is not None:
+            SignalReport.objects.filter(id=self.report.id).update(status=SignalReport.Status.MONITORING)
         check = self._check(**overrides)
         if bind_run:
             self.scout_run.metadata = {"check_id": str(check.id)}
             self.scout_run.save(update_fields=["metadata"])
 
-        result = self._record(check)
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            return_value=flag_result if isinstance(flag_result, bool) else False,
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+        ):
+            (listed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+            assert listed.run_state == ("due" if check.dispatched_at is None else "queued")
+            result = self._record(check)
 
         assert result.check_status == SignalReportCheck.Status.FAILED
 
@@ -1901,6 +1984,7 @@ class TestCheckResultTool(APIBaseTest):
             ("its_report_is_ready", SignalReport.Status.READY, timedelta(days=30)),
             ("its_report_is_suppressed", SignalReport.Status.SUPPRESSED, timedelta(days=30)),
             ("its_horizon_passed", SignalReport.Status.RESOLVED, -timedelta(minutes=1)),
+            ("its_report_is_monitoring", SignalReport.Status.MONITORING, timedelta(days=30)),
         ]
     )
     def test_a_due_check_the_coordinator_would_not_dispatch_is_paused(self, _name, report_status, expires_in) -> None:
@@ -1908,10 +1992,11 @@ class TestCheckResultTool(APIBaseTest):
         now = timezone.now()
         check = self._check(dispatched_at=None, next_run_at=now - timedelta(hours=1), expires_at=now + expires_in)
 
-        (listed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
-        assert listed.run_state == "paused"
-        with self.assertRaises(InvalidCheckResultError):
-            self._record(check)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            (listed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+            assert listed.run_state == "paused"
+            with self.assertRaises(InvalidCheckResultError):
+                self._record(check)
 
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.ACTIVE
@@ -1986,9 +2071,9 @@ class TestPendingChecks(APIBaseTest):
         super().setUp()
         self.report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Fix")
 
-    def _pending(self, **overrides) -> SignalReportCheck:
+    def _pending(self, *, report: SignalReport | None = None, **overrides) -> SignalReportCheck:
         return create_check(
-            report=self.report,
+            report=report or self.report,
             title="Checkout errors stay low",
             kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
             config=_threshold_config(),
@@ -2001,6 +2086,58 @@ class TestPendingChecks(APIBaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             self.report.status = SignalReport.Status.RESOLVED
             self.report.save(update_fields=["status"])
+
+    @parameterized.expand(
+        [("enabled", True), ("disabled", False), ("unavailable", RuntimeError("flag service unavailable"))]
+    )
+    def test_monitoring_checks_wait_for_manual_finish_or_use_the_resolved_fallback(
+        self, _name: str, flag_result: bool | Exception
+    ) -> None:
+        reports = [self.report] + [
+            SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title=f"Fix {index}")
+            for index in range(2)
+        ]
+        checks = [self._pending(report=report) for report in reports]
+        check = checks[0]
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            with self.captureOnCommitCallbacks(execute=True):
+                for report in reports:
+                    report.save(
+                        update_fields=report.transition_to(
+                            SignalReport.Status.MONITORING, monitoring_started_at=timezone.now()
+                        )
+                    )
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.PENDING
+        now = timezone.now()
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            return_value=flag_result if isinstance(flag_result, bool) else False,
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+        ) as evaluate:
+            with patch(_MEASURE) as measure:
+                run_due_report_checks(now=now)
+                measure.assert_not_called()
+            assert evaluate.call_count == 1
+            for pending in checks:
+                pending.refresh_from_db()
+                assert pending.status == (
+                    SignalReportCheck.Status.PENDING if flag_result is True else SignalReportCheck.Status.ACTIVE
+                )
+                assert pending.measurement_start_at == (None if flag_result is True else now)
+            check.refresh_from_db()
+            if flag_result is True:
+                assert check.status == SignalReportCheck.Status.PENDING
+                assert collect_due_checks(now + timedelta(days=35)) == []
+                with self.captureOnCommitCallbacks(execute=True):
+                    self.report.save(update_fields=self.report.transition_to(SignalReport.Status.RESOLVED))
+                check.refresh_from_db()
+            else:
+                assert check.measurement_start_at == now
+            assert check.status == SignalReportCheck.Status.ACTIVE
+            assert {due.id for due in collect_due_checks(check.next_run_at + timedelta(minutes=1))} == {
+                pending.id for pending in ([check] if flag_result is True else checks)
+            }
 
     def test_a_pending_check_is_never_due_while_its_report_is_unresolved(self) -> None:
         self._pending()
@@ -2017,6 +2154,12 @@ class TestPendingChecks(APIBaseTest):
             self.report.save(update_fields=self.report.transition_to(SignalReport.Status.RESOLVED))
             self.report.save(update_fields=self.report.transition_to(report_status))
 
+        assert (
+            arm_pending_checks(
+                team_id=self.team.id, report_id=self.report.id, resolved_at=timezone.now(), monitoring_enabled=False
+            )
+            == 0
+        )
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.PENDING
         assert check.measurement_start_at is None
@@ -2139,10 +2282,19 @@ class TestPendingChecks(APIBaseTest):
         assert valid.measurement_start_at is not None
         assert valid.next_run_at == metric_check_ready_at(_PAGEVIEWS, self.team, valid.measurement_start_at)
 
-    def test_a_pending_check_retires_when_its_report_never_resolves(self) -> None:
+    @parameterized.expand([("open", False), ("monitoring_disabled", True)])
+    def test_a_pending_check_retires_when_its_report_never_resolves(self, _name: str, monitoring: bool) -> None:
         check = self._pending()
+        if monitoring:
+            with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+                self.report.save(
+                    update_fields=self.report.transition_to(
+                        SignalReport.Status.MONITORING, monitoring_started_at=timezone.now()
+                    )
+                )
 
-        assert expire_overdue_checks(timezone.now() + MAX_CHECK_HORIZON + timedelta(minutes=1)) == 1
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False):
+            assert run_due_report_checks(now=timezone.now() + MAX_CHECK_HORIZON + timedelta(minutes=1)).expired == 1
 
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.EXPIRED

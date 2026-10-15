@@ -1455,8 +1455,8 @@ jobs:
     # Main image plus the inbox-ranking dependency group, for the inbox ranking training code
     # location. Nothing depends on this job, and continue-on-error keeps the run green, so a
     # failure here never blocks the main image publish or its deploy dispatches.
-    # The `ml-image-digest` output is the digest of posthog-dagster-ml:<sha>. A code location
-    # dispatch that runs this image reads it as needs.dagster_ml_build.outputs.ml-image-digest.
+    # The `ml-image-digest` output is the digest of posthog-dagster-ml:<sha>. The job dispatches
+    # that digest to PostHog/charts, which reloads the ML code location in Dagster+.
     dagster_ml_build:
         name: Build and push Dagster ML image
         needs: posthog_build
@@ -1543,6 +1543,49 @@ jobs:
               run: |
                   echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
                   echo "ML image digest: $DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Get deployer token
+              id: deployer
+              if: steps.image.outputs.digest != ''
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
+
+            - name: get PR labels
+              id: labels
+              if: steps.deployer.outputs.token != ''
+              continue-on-error: true
+              uses: ./.github/actions/get-pr-labels
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            # Moves the ML code location in Dagster+ to this image. The payload carries the
+            # digest, never a tag, so the location runs exactly the image this job built.
+            - name: Trigger Dagster ML Code Location Reload
+              if: steps.deployer.outputs.token != ''
+              continue-on-error: true
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: restart_dagster_ml_code_location
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "dagster-ml-code-location",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ toJson(steps.labels.outputs.labels || '[]') }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
 
             - name: Warn when the ML image failed
               if: failure()
