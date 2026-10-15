@@ -178,6 +178,7 @@ from products.tasks.backend.repository_config_analytics import (
     repositories_differ,
 )
 from products.tasks.backend.visibility import (
+    PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
     TEAM_READABLE_ORIGIN_PRODUCTS,
     scout_trial_visibility_q,
     task_control_q,
@@ -6927,11 +6928,16 @@ TASK_LIST_ORDERINGS: dict[str, tuple[str, ...]] = {
 DEFAULT_TASK_LIST_ORDERING = "-created_at"
 
 #: Sources the task list filters on, in the words of the desktop source filter. A first-party client
-#: names the user-created tasks it made. Any other source names an origin product.
+#: names the user-created tasks it made. Any other source names an origin product. The list never
+#: shows product-private tasks, so their origin products are not offered.
 TASK_LIST_SOURCES: frozenset[str] = frozenset(
     {
         *TaskClientProvenance.values,
-        *(product for product in Task.OriginProduct.values if product != Task.OriginProduct.USER_CREATED),
+        *(
+            product
+            for product in Task.OriginProduct.values
+            if product != Task.OriginProduct.USER_CREATED and product not in PRODUCT_PRIVATE_ORIGIN_PRODUCTS
+        ),
     }
 )
 
@@ -6945,6 +6951,9 @@ def _task_sources_q(sources: list[str]) -> Q:
             matches |= user_created & ~Q(
                 client_provenance__in=[TaskClientProvenance.POSTHOG_MOBILE, TaskClientProvenance.POSTHOG_WEB]
             )
+        elif source == TaskClientProvenance.POSTHOG_WEB:
+            # PostHog AI runs in the web app, so the desktop app shows its tasks as web tasks too.
+            matches |= (user_created & Q(client_provenance=source)) | Q(origin_product=Task.OriginProduct.POSTHOG_AI)
         elif source in TaskClientProvenance.values:
             matches |= user_created & Q(client_provenance=source)
         else:

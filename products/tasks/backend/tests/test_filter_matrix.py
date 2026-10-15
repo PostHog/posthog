@@ -235,6 +235,7 @@ class TestTaskListFilterMatrix(TestCase):
             ("exclude_origin_product", "signal_scout"),
             ("sources", "signal_scout"),
             ("sources", "user_created"),
+            ("sources", "business_knowledge"),
         ]
     )
     def test_rejects_unknown_values(self, param: str, value: str) -> None:
@@ -259,20 +260,44 @@ class TestTaskListFilterMatrix(TestCase):
             (
                 "desktop_includes_unknown_client",
                 ["posthog_desktop"],
-                ["peter_mention_me", "peter_plain", "peter_i_commented", "adam_pinned_by_me", "peter_legacy_mention"],
+                ["peter_mention_me", "peter_plain", "peter_i_commented", "adam_pinned_by_me"],
             ),
             ("mobile", ["posthog_mobile"], ["mine_peter_commented"]),
-            ("client_and_origin_product", ["posthog_web", "slack"], ["adam_mention_peter", "peter_slack_mention_me"]),
+            (
+                "web_includes_posthog_ai",
+                ["posthog_web", "slack"],
+                ["adam_mention_peter", "peter_legacy_mention", "peter_slack_mention_me"],
+            ),
             ("origin_product", ["signals_scout"], ["scout_in_channel"]),
+            ("json_encoded", '["posthog_mobile", "signals_scout"]', ["mine_peter_commented", "scout_in_channel"]),
+            ("comma_joined", "posthog_mobile,signals_scout", ["mine_peter_commented", "scout_in_channel"]),
+            (
+                "empty_value_applies_no_filter",
+                "",
+                [
+                    "peter_mention_me",
+                    "peter_plain",
+                    "peter_slack_mention_me",
+                    "adam_mention_peter",
+                    "mine_peter_commented",
+                    "scout_in_channel",
+                    "peter_i_commented",
+                    "adam_pinned_by_me",
+                    "peter_legacy_mention",
+                ],
+            ),
         ]
     )
-    def test_sources(self, _name: str, sources: list[str], expected: list[str]) -> None:
+    def test_sources(self, _name: str, sources: list[str] | str, expected: list[str]) -> None:
         for key, provenance in (
             ("peter_plain", "posthog_desktop"),
             ("mine_peter_commented", "posthog_mobile"),
             ("adam_mention_peter", "posthog_web"),
         ):
             Task.objects.filter(id=self.tasks[key].id).update(client_provenance=provenance)
+        Task.objects.filter(id=self.tasks["peter_legacy_mention"].id).update(
+            origin_product=Task.OriginProduct.POSTHOG_AI
+        )
 
         assert self._list(sources=sources) == self._ids(*expected)
 

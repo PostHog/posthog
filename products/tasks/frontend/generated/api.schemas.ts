@@ -5431,7 +5431,7 @@ export type TasksListParams = {
      */
     search?: string
     /**
-     * Only tasks from any of these sources. Repeat the parameter for each source. 'posthog_desktop', 'posthog_mobile' and 'posthog_web' match user-created tasks by the client that created them, and a user-created task from no other known client counts as desktop. Any other value matches the task's origin product.
+     * Only tasks from any of these sources. Repeat the parameter for each source, or send one comma-joined value or a JSON array. 'posthog_desktop', 'posthog_mobile' and 'posthog_web' match user-created tasks by the client that created them, and a user-created task from no other known client counts as desktop. 'posthog_web' also matches PostHog AI tasks. Any other value matches the task's origin product.
      */
     sources?: TasksListSourcesItem[]
     /**
@@ -5535,9 +5535,7 @@ export const TasksListPrState = {
 } as const
 
 /**
- * * `account_audit` - account_audit
  * * `autoresearch` - autoresearch
- * * `business_knowledge` - business_knowledge
  * * `error_tracking` - error_tracking
  * * `eval_clusters` - eval_clusters
  * * `experiments` - experiments
@@ -5545,7 +5543,6 @@ export const TasksListPrState = {
  * * `image_builder` - image_builder
  * * `loop` - loop
  * * `mcp_analytics` - mcp_analytics
- * * `metrics_import` - metrics_import
  * * `onboarding` - onboarding
  * * `posthog_ai` - posthog_ai
  * * `posthog_desktop` - posthog_desktop
@@ -5567,9 +5564,7 @@ export const TasksListPrState = {
 export type TasksListSourcesItem = (typeof TasksListSourcesItem)[keyof typeof TasksListSourcesItem]
 
 export const TasksListSourcesItem = {
-    AccountAudit: 'account_audit',
     Autoresearch: 'autoresearch',
-    BusinessKnowledge: 'business_knowledge',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     Experiments: 'experiments',
@@ -5577,7 +5572,6 @@ export const TasksListSourcesItem = {
     ImageBuilder: 'image_builder',
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
-    MetricsImport: 'metrics_import',
     Onboarding: 'onboarding',
     PosthogAi: 'posthog_ai',
     PosthogDesktop: 'posthog_desktop',

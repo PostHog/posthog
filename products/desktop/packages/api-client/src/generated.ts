@@ -22859,9 +22859,7 @@ export namespace Endpoints {
                 repository: string;
                 search: string;
                 sources: Array<
-                    | "account_audit"
                     | "autoresearch"
-                    | "business_knowledge"
                     | "error_tracking"
                     | "eval_clusters"
                     | "experiments"
@@ -22869,7 +22867,6 @@ export namespace Endpoints {
                     | "image_builder"
                     | "loop"
                     | "mcp_analytics"
-                    | "metrics_import"
                     | "onboarding"
                     | "posthog_ai"
                     | "posthog_desktop"
