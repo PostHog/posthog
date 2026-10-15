@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -102,7 +102,7 @@ class TestRefreshAfterLoad(SimpleTestCase):
         assert self.ensure_stored.call_count == inserts
 
     def test_a_failed_day_does_not_block_the_newer_days_of_its_step(self) -> None:
-        failed = SimpleNamespace(ready=False, errors=["Code: 241. Memory limit exceeded"])
+        failed = SimpleNamespace(ready=False, errors=["Code: 241. Memory limit exceeded"], timed_out=False)
         stored = SimpleNamespace(ready=True, errors=[])
         self.ensure_stored.side_effect = lambda *args, since, **kwargs: (
             failed if since < datetime(2026, 10, 5, tzinfo=UTC) else stored
@@ -116,8 +116,10 @@ class TestRefreshAfterLoad(SimpleTestCase):
             if call.args[0] == ci_precompute.STORED_RUNS
         ]
         step = (datetime(2026, 10, 4, tzinfo=UTC), _NOW)
-        days = [(_NOW - timedelta(days=n + 1), _NOW - timedelta(days=n)) for n in range(10)]
-        assert runs_spans == [step, *days, (datetime(2026, 10, 4, tzinfo=UTC), _NOW - timedelta(days=10))]
+        days = [
+            (datetime(2026, 10, day, tzinfo=UTC), datetime(2026, 10, day + 1, tzinfo=UTC)) for day in range(13, 3, -1)
+        ]
+        assert runs_spans == [step, (datetime(2026, 10, 14, tzinfo=UTC), _NOW), *days]
 
     @parameterized.expand(
         [
@@ -125,9 +127,9 @@ class TestRefreshAfterLoad(SimpleTestCase):
                 "seventy_days_of_history",
                 "2026-08-05T10:00:00Z",
                 [
-                    (datetime(2026, 9, 14, 12, tzinfo=UTC), _NOW),
-                    (datetime(2026, 8, 15, 12, tzinfo=UTC), datetime(2026, 9, 14, 12, tzinfo=UTC)),
-                    (datetime(2026, 8, 5, tzinfo=UTC), datetime(2026, 8, 15, 12, tzinfo=UTC)),
+                    (datetime(2026, 9, 15, tzinfo=UTC), _NOW),
+                    (datetime(2026, 8, 16, tzinfo=UTC), datetime(2026, 9, 15, tzinfo=UTC)),
+                    (datetime(2026, 8, 5, tzinfo=UTC), datetime(2026, 8, 16, tzinfo=UTC)),
                 ],
             ),
             ("no_rows", None, []),

@@ -110,7 +110,7 @@ class _StoredCiSource:
     token: str
     floor_placeholder: str | None
     stored_source: Callable[[StoredCiReader, str | None], str | None]
-    raw_source: Callable[["CuratedGitHubSource", bool], str]
+    raw_source: Callable[["CuratedGitHubSource"], str]
 
 
 def _runs_source(token: str, floor_placeholder: str | None) -> _StoredCiSource:
@@ -118,7 +118,7 @@ def _runs_source(token: str, floor_placeholder: str | None) -> _StoredCiSource:
         token=token,
         floor_placeholder=floor_placeholder,
         stored_source=StoredCiReader.runs,
-        raw_source=lambda curated, floored: curated._raw_run_source(started_floor=floored),
+        raw_source=lambda curated: curated._raw_run_source(started_floor=floor_placeholder is not None),
     )
 
 
@@ -127,7 +127,7 @@ def _job_costs_source(token: str, floor_placeholder: str | None) -> _StoredCiSou
         token=token,
         floor_placeholder=floor_placeholder,
         stored_source=StoredCiReader.job_costs,
-        raw_source=lambda curated, floored: curated._raw_job_cost_source(created_floor=floored),
+        raw_source=lambda curated: curated._raw_job_cost_source(created_floor=floor_placeholder is not None),
     )
 
 
@@ -136,7 +136,7 @@ _FLOORED_JOBS = _StoredCiSource(
     token="__FLOORED_CI_JOBS__",
     floor_placeholder="job_created_floor",
     stored_source=StoredCiReader.jobs,
-    raw_source=lambda curated, floored: curated._raw_jobs_source(created_floor=floored),
+    raw_source=lambda curated: curated._raw_jobs_source(created_floor=True),
 )
 _FLOORED_JOB_COSTS = _job_costs_source("__FLOORED_CI_JOB_COSTS__", "job_created_floor")
 _HISTORY_RUNS = _runs_source("__CI_RUNS_HISTORY__", None)
@@ -578,7 +578,7 @@ class CuratedGitHubSource:
         """``sql`` with every stand-in CI source read from the raw tables."""
         for source in _STORED_CI_SOURCES:
             if source.token in sql:
-                sql = sql.replace(source.token, source.raw_source(self, source.floor_placeholder is not None))
+                sql = sql.replace(source.token, source.raw_source(self))
         return sql
 
     def _with_stored_ci_sources(self, sql: str, placeholders: dict[str, ast.Expr]) -> str | None:

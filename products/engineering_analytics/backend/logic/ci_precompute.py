@@ -6,13 +6,15 @@ repository created on one day. A refresh after a data load computes only the day
 or too old, so its cost follows the new data and not the history.
 
 Every day from the first raw row of a repository is stored. So a read keyed by pull request number,
-which has no floor, can take the stored rows too. Each refresh finds the first row again, so a
-backfill of older rows reaches the stored days on the next load.
+which has no floor, can take the stored rows too. A refresh finds the first row once a day, so a
+backfill of older rows reaches the stored days within a day.
 """
 
 import time
+from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from itertools import batched, zip_longest
 from uuid import UUID
 
 from django.core.cache import cache
@@ -34,6 +36,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     TtlSchedule,
     ensure_precomputed,
+    get_daily_windows,
     parse_ttl_schedule,
 )
 from products.engineering_analytics.backend.logic.queries._workflow_filters import JOB_FLOOR_SLACK_ON_RUN_STARTED
@@ -60,6 +63,9 @@ _BACKFILL_STEP = timedelta(days=30)
 # The time one table of one repository has to start its inserts, and the time a whole refresh has.
 # A refresh that runs out of either keeps the days it stored, and the next load continues from there.
 _REFRESH_BUDGET_SECONDS = 4 * 60
+# How long a refresh trusts the day of the oldest raw row it found. A backfill of older rows reaches the
+# stored days within this time.
+_HISTORY_START_SECONDS = 24 * 60 * 60
 _TASK_BUDGET_SECONDS = 20 * 60
 # A budget only stops new inserts, so a running insert can pass it. The mark that a refresh runs
 # must last as long as the task can, or a second refresh of the team starts next to the first.
@@ -200,8 +206,7 @@ def _history_start_key(stored: StoredRows, team: Team, source: JobSourceTables) 
 
 def history_start(stored: StoredRows, team: Team, source: JobSourceTables) -> datetime | None:
     """The UTC day of the oldest raw row of one repository, as the last refresh found it, or None."""
-    start = cache.get(_history_start_key(stored, team, source))
-    return start if isinstance(start, datetime) else None
+    return cache.get(_history_start_key(stored, team, source))
 
 
 def _find_history_start(stored: StoredRows, team: Team, source: JobSourceTables, database: Database) -> datetime | None:
@@ -217,8 +222,7 @@ def _find_history_start(stored: StoredRows, team: Team, source: JobSourceTables,
         start = datetime.strptime(str(first_created)[:10], "%Y-%m-%d").replace(tzinfo=UTC)
     except ValueError:
         return None
-    # No expiry: each refresh finds the first day again, and a team no one reads keeps its stored days.
-    cache.set(_history_start_key(stored, team, source), start, timeout=None)
+    cache.set(_history_start_key(stored, team, source), start, timeout=_HISTORY_START_SECONDS)
     return start
 
 
@@ -228,15 +232,10 @@ class _Span:
     until: datetime
 
 
-def _newest_first(start: datetime, until: datetime | None = None, length: timedelta = _BACKFILL_STEP) -> list[_Span]:
-    """The spans from ``start`` to ``until``, or to now, newest first, ``length`` long."""
-    spans = []
-    until = until or datetime.now(UTC)
-    while until > start:
-        since = max(start, until - length)
-        spans.append(_Span(since=since, until=until))
-        until = since
-    return spans
+def _steps(start: datetime, until: datetime, days: int) -> list[_Span]:
+    """The UTC days from ``start`` to ``until``, newest first, ``days`` to a span."""
+    windows = reversed(get_daily_windows(start, until))
+    return [_Span(since=chunk[-1][0], until=min(chunk[0][1], until)) for chunk in batched(windows, days, strict=False)]
 
 
 def ensure_stored(
@@ -324,13 +323,13 @@ def _refresh(team: Team) -> bool:
         trigger="engineering_analytics",
     )
     deadline = time.monotonic() + _TASK_BUDGET_SECONDS
-    spans: list[tuple[StoredRows, JobSourceTables, list[_Span]]] = []
+    steps: list[list[tuple[StoredRows, JobSourceTables, _Span]]] = []
     for source in sources:
         for stored in (STORED_RUNS, STORED_JOBS):
             if time.monotonic() >= deadline:
                 return failed
             try:
-                start = _find_history_start(stored, team, source, database)
+                start = history_start(stored, team, source) or _find_history_start(stored, team, source, database)
             except Exception:
                 logger.warning(
                     "engineering_analytics_ci_history_start_failed",
@@ -343,45 +342,43 @@ def _refresh(team: Team) -> bool:
                 failed = True
                 continue
             if start is not None:
-                spans.append((stored, source, _newest_first(start)))
+                now = datetime.now(UTC)
+                steps.append([(stored, source, span) for span in _steps(start, now, _BACKFILL_STEP.days)])
     # Every table of every repository stores its newest step before any stores an older one, so the
     # backfill of one long history does not hold back the recent days of the others.
-    while spans:
-        for span in list(spans):
-            stored, source, steps = span
-            if not steps:
-                spans.remove(span)
-                continue
-            step = steps.pop(0)
-            if time.monotonic() >= deadline:
-                return failed
-            result = ensure_stored(
-                stored,
-                team,
-                source,
-                since=step.since,
-                until=step.until,
-                database=database,
-                run_inserts=True,
-                wait_timeout_seconds=min(_REFRESH_BUDGET_SECONDS, deadline - time.monotonic()),
-            )
-            if not result.ready:
-                logger.warning(
-                    "engineering_analytics_ci_precompute_incomplete",
-                    team_id=team.pk,
-                    table=str(stored.table),
-                    source_id=source.source_id,
-                    repository=source.repository,
-                    errors=result.errors,
-                )
-                if result.timed_out:
-                    spans.remove(span)
-                    continue
-                failed = True
-                # The framework stores the days of a span oldest first and stops at the first day that
-                # fails, so the newer days of a failed span are stored one at a time.
-                if step.until - step.since > timedelta(days=1):
-                    steps[0:0] = _newest_first(step.since, step.until, timedelta(days=1))
+    queue = deque(item for step in zip_longest(*steps) for item in step if item)
+    while queue:
+        if time.monotonic() >= deadline:
+            return failed
+        stored, source, span = queue.popleft()
+        result = ensure_stored(
+            stored,
+            team,
+            source,
+            since=span.since,
+            until=span.until,
+            database=database,
+            run_inserts=True,
+            wait_timeout_seconds=min(_REFRESH_BUDGET_SECONDS, deadline - time.monotonic()),
+        )
+        if result.ready:
+            continue
+        logger.warning(
+            "engineering_analytics_ci_precompute_incomplete",
+            team_id=team.pk,
+            table=str(stored.table),
+            source_id=source.source_id,
+            repository=source.repository,
+            errors=result.errors,
+        )
+        if result.timed_out:
+            queue = deque(item for item in queue if item[:2] != (stored, source))
+            continue
+        failed = True
+        # The framework stores the days of a span oldest first and stops at the first day that fails,
+        # so the newer days of a failed span are stored one at a time.
+        if span.until - span.since > timedelta(days=1):
+            queue.extendleft((stored, source, day) for day in reversed(_steps(span.since, span.until, 1)))
     return failed
 
 
