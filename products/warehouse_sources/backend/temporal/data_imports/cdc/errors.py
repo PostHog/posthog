@@ -37,6 +37,7 @@ class CDCErrorCategory(enum.StrEnum):
     WAL_DECODE_ERROR = "wal_decode_error"
     TRANSACTION_TOO_LARGE = "transaction_too_large"
     RESERVED_COLUMN_CONFLICT = "reserved_column_conflict"
+    MASKED_KEY_CONFLICT = "masked_key_conflict"
     UNKNOWN = "unknown"
 
 
@@ -80,6 +81,14 @@ class CDCReservedColumnError(Exception):
     For the history table's validity columns it is raised on every path, from the SCD2 stamp
     itself: Delta refuses the duplicate name at write time anyway, and failing before the writer
     names the column instead of a qualified field in a schema error.
+    """
+
+
+class CDCMaskedKeyError(Exception):
+    """A table masks a column that capture resolved as its primary key.
+
+    Non-retryable: the conflict is in the table's configuration, so replaying re-fails. Capture
+    cannot hash a merge key, and it must not write the masked column to the buffer in plaintext.
     """
 
 
@@ -164,6 +173,11 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "Rename the column on your database, or choose another sync method for that table.",
         False,
     ),
+    CDCErrorCategory.MASKED_KEY_CONFLICT: (
+        "A table masks a column that is its primary key, and a primary key can't be masked. "
+        "Remove the column from the table's masked columns, then re-enable change data capture.",
+        False,
+    ),
     CDCErrorCategory.UNKNOWN: (
         "Change data capture hit an unexpected error. PostHog will retry automatically — if it "
         "persists, check the source's sync logs or contact support.",
@@ -202,6 +216,8 @@ def classify_cdc_error(exc: BaseException, adapter: CDCSourceAdapter | None) -> 
             return cdc_error_info(CDCErrorCategory.TRANSACTION_TOO_LARGE)
         if isinstance(err, CDCReservedColumnError):
             return cdc_error_info(CDCErrorCategory.RESERVED_COLUMN_CONFLICT)
+        if isinstance(err, CDCMaskedKeyError):
+            return cdc_error_info(CDCErrorCategory.MASKED_KEY_CONFLICT)
         if adapter is not None:
             info = adapter.classify_error(err)
             if info is not None:

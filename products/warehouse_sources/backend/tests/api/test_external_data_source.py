@@ -3358,6 +3358,7 @@ class TestExternalDataSource(APIBaseTest):
                     "cdc_table_mode": "consolidated",
                     "incremental_sync_blocked": None,
                     "enabled_columns": None,
+                    "masked_columns": None,
                     "row_filters": None,
                     "row_filter_columns": None,
                     "available_columns": [],
@@ -5359,6 +5360,72 @@ class TestExternalDataSource(APIBaseTest):
             assert "primary_key_columns" not in schema.sync_type_config
         else:
             assert schema.sync_type_config["primary_key_columns"] == expected_persisted
+
+    @parameterized.expand(
+        [
+            ("mask_is_saved", ["email"], status.HTTP_201_CREATED, ["email"]),
+            ("empty_list_masks_nothing", [], status.HTTP_201_CREATED, None),
+            ("mask_on_the_detected_primary_key", ["id"], status.HTTP_400_BAD_REQUEST, "can't be masked"),
+            ("mask_on_an_unknown_column", ["nope"], status.HTTP_400_BAD_REQUEST, "Unknown columns"),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    def test_create_postgres_validates_and_persists_masked_columns(
+        self,
+        _name: str,
+        masked_columns: list[str],
+        expected_status: int,
+        expected: list[str] | str | None,
+        mock_get_source,
+    ):
+        _configure_source_mock_versioning(mock_get_source)
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        source_mock.has_managed_hogql_schema = False
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        payload = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        parsed_config.to_dict.return_value = payload
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="events",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False), ("email", "text", True)],
+                foreign_keys=[],
+                detected_primary_keys=["id"],
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "payload": {
+                    **payload,
+                    "schemas": [
+                        {"name": "events", "should_sync": True, "sync_type": None, "masked_columns": masked_columns}
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == expected_status, response.content
+        schemas = ExternalDataSchema.objects.filter(team_id=self.team.pk, name="events")
+        if expected_status == status.HTTP_201_CREATED:
+            assert schemas.get().masked_columns == expected
+        else:
+            assert isinstance(expected, str) and expected in response.json()["message"]
+            assert not schemas.exists()
 
     @parameterized.expand(
         [
