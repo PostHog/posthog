@@ -9,12 +9,15 @@ logs on the platform.
 rather than duplicates, and a later comparison can line the two stacks up per alert.
 """
 
+from typing import Final
+
 import structlog
 
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
 from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, PlatformAlertUpsert, SourceKind
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.logs.backend.models import LogsAlertConfiguration
 
 logger = structlog.get_logger(__name__)
@@ -56,6 +59,17 @@ def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
         next_check_at=alert.next_check_at,
         snooze_until=alert.snooze_until,
     )
+
+
+# A muted logs alert is a state of its own. On the platform a mute only silences notifications,
+# so the copy keeps checking with the snooze carried on `snooze_until`. Firing states have no entry,
+# because a firing alert stays with logs until it resolves.
+PLATFORM_HANDOVER_STATE: Final[dict[str, PlatformAlertState]] = {
+    LogsAlertConfiguration.State.NOT_FIRING: PlatformAlertState.NOT_FIRING,
+    LogsAlertConfiguration.State.SNOOZED: PlatformAlertState.NOT_FIRING,
+    LogsAlertConfiguration.State.ERRORED: PlatformAlertState.ERRORED,
+    LogsAlertConfiguration.State.BROKEN: PlatformAlertState.BROKEN,
+}
 
 
 def _is_team_sampled(team_id: int, sample_percent: int) -> bool:

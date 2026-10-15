@@ -5,13 +5,13 @@ import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout, MAX_EXPERIMENT_VARIANTS } fr
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { SeriesNode, isActionsSeriesNode, isEventsSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
     Breakdown,
     CachedNewExperimentQueryResponse,
-    EventsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
     ExperimentFunnelMetricStep,
@@ -39,7 +39,6 @@ import {
     ExperimentMetricMathType,
     FeatureFlagBasicType,
     FeatureFlagType,
-    FilterType,
     FunnelConversionWindowTimeUnit,
     FunnelVizType,
     MultivariateFlagVariant,
@@ -75,7 +74,7 @@ export function filterLowMultipleVariant<T extends { variant: string; percentage
 
 /**
  * Resolves the effective multi-variant handling, applying the backend default when unset.
- * See posthog/hogql_queries/experiments/exposure_query_logic.py (default = `EXCLUDE`).
+ * See products/experiments/backend/hogql_queries/exposure_query_logic.py (default = `EXCLUDE`).
  */
 export function resolveMultipleVariantHandling(
     handling: 'exclude' | 'first_seen' | undefined
@@ -699,70 +698,44 @@ export function getExperimentMetricFromInsight(insight: InsightModel | null): Ex
     return undefined
 }
 
-/**
- * Used when setting a custom exposure criteria
- */
-export function exposureConfigToFilter(exposure_config: ExperimentExposureConfig): FilterType {
-    if (exposure_config.kind === NodeKind.ExperimentEventExposureConfig) {
-        return {
-            events: [
-                {
-                    id: exposure_config.event,
-                    name: exposure_config.event,
-                    kind: NodeKind.EventsNode,
-                    type: 'events',
-                    properties: exposure_config.properties,
-                } as EventsNode,
-            ],
-            actions: [],
-            data_warehouse: [],
-        }
+export function exposureConfigToSeries(exposureConfig: ExperimentExposureConfig): SeriesNode[] {
+    if (exposureConfig.kind === NodeKind.ExperimentEventExposureConfig) {
+        return [
+            {
+                kind: NodeKind.EventsNode,
+                event: exposureConfig.event,
+                name: exposureConfig.event,
+                properties: exposureConfig.properties,
+            },
+        ]
     }
-    if (exposure_config.kind === NodeKind.ActionsNode) {
-        return {
-            events: [],
-            actions: [
-                {
-                    id: exposure_config.id,
-                    name: exposure_config.name || '',
-                    kind: NodeKind.ActionsNode,
-                    type: 'actions' as const,
-                    properties: exposure_config.properties,
-                },
-            ],
-            data_warehouse: [],
-        }
+    if (exposureConfig.kind === NodeKind.ActionsNode) {
+        return [exposureConfig]
     }
-
-    return {}
+    return []
 }
 
 /**
- * Used when setting a custom exposure criteria
+ * Only an event or an action can mark exposure, so any other series gives no config.
  */
-export function filterToExposureConfig(entity: Record<string, any> | undefined): ExperimentExposureConfig | undefined {
-    if (!entity) {
-        return undefined
-    }
-
-    // Check type first since ActionFilter may set kind incorrectly
-    if (entity.type === 'actions') {
-        return {
-            kind: NodeKind.ActionsNode,
-            id: entity.id,
-            name: entity.name,
-            properties: entity.properties,
-        }
-    }
-
-    if (entity.type === 'events' || entity.kind === NodeKind.EventsNode) {
+export function seriesToExposureConfig(series: SeriesNode[]): ExperimentExposureConfig | undefined {
+    const [node] = series
+    if (isEventsSeriesNode(node)) {
         return {
             kind: NodeKind.ExperimentEventExposureConfig,
-            event: entity.id,
-            properties: entity.properties,
+            // "All events" leaves `event` null, which the API rejects as an exposure event.
+            event: node.event as string,
+            properties: node.properties ?? [],
         }
     }
-
+    if (isActionsSeriesNode(node)) {
+        return {
+            kind: NodeKind.ActionsNode,
+            id: node.id,
+            name: node.name,
+            properties: node.properties,
+        }
+    }
     return undefined
 }
 
@@ -1260,26 +1233,3 @@ export const metricResults =
             metricIndex: index,
         }))
     }
-
-/**
- * {@link metricResults} over both sections' arrays, picking one. Kept for the legacy per-metric
- * results path and its selectors.
- */
-export function getOrderedMetricsWithResults(
-    experiment: Experiment,
-    primaryMetricsResults: CachedNewExperimentQueryResponse[],
-    primaryMetricsResultsErrors: any[],
-    secondaryMetricsResults: CachedNewExperimentQueryResponse[],
-    secondaryMetricsResultsErrors: any[],
-    isSecondary: boolean
-): Array<{
-    metric: ExperimentMetric
-    result: any
-    error: any
-    displayIndex: number
-    metricIndex: number
-}> {
-    return isSecondary
-        ? metricResults(experiment)(secondaryMetricsResults, secondaryMetricsResultsErrors, 'secondary')
-        : metricResults(experiment)(primaryMetricsResults, primaryMetricsResultsErrors, 'primary')
-}

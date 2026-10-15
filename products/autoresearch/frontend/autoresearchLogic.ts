@@ -136,10 +136,14 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
     }),
     reducers({
         // Apply a successful row action at once, so the row cannot offer a stale action while the list reloads.
-        pipelines: {
-            pipelineUpdated: (state, { pipeline }) => state.map((row) => (row.id === pipeline.id ? pipeline : row)),
-            pipelineRemoved: (state, { id }) => state.filter((row) => row.id !== id),
-        },
+        // Give the default here too: this reducer registers before the loader, so without it the list starts as null.
+        pipelines: [
+            [] as AutoresearchPipelineApi[],
+            {
+                pipelineUpdated: (state, { pipeline }) => state.map((row) => (row.id === pipeline.id ? pipeline : row)),
+                pipelineRemoved: (state, { id }) => state.filter((row) => row.id !== id),
+            },
+        ],
         mutatingPipelineIds: [
             {} as Record<string, boolean>,
             {

@@ -1,7 +1,7 @@
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -20,8 +20,10 @@ from posthog.temporal.alerts.admission import admit_evaluation_slots
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import due_checks, list_configurations, record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
     AlertEventKind,
     IncidentAction,
+    PlatformAlertOutcome,
     PlatformConfigurationSnapshot,
     SourceBatchEvaluation,
     SourceKind,
@@ -30,6 +32,7 @@ from products.alerts_platform.backend.facade.lifecycle import AlertState
 from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
+from products.logs.backend.alert_signal_emitter import PlatformAlertSignal, notified_alerts_for_platform
 from products.logs.backend.alert_source_cycle import (
     BATCH_QUERY_BUDGET_SECONDS,
     INFLIGHT_KEY,
@@ -42,6 +45,7 @@ from products.logs.backend.temporal.alert_evaluate import (
     EVALUATE_SCHEDULE_TO_CLOSE,
     EVALUATE_START_TO_CLOSE,
     EVALUATION_BUDGET,
+    platform_signals,
 )
 
 _MODULE = "products.logs.backend.alert_source_cycle"
@@ -140,9 +144,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
         """
         record_outcomes(self.team.id, evaluation.outcomes, self.cutoff)
 
-    @parameterized.expand([("without_a_paging_destination", False), ("with_a_paging_destination", True)])
-    def test_a_breaching_configuration_fires_and_records_its_own_state(self, _name: str, paged: bool) -> None:
-        configuration = self._configuration()
+    @parameterized.expand(
+        [
+            ("without_a_paging_destination", False, "source"),
+            ("with_a_paging_destination", True, "source"),
+            ("owned_by_the_platform", False, "platform"),
+        ]
+    )
+    def test_a_breaching_configuration_fires_and_records_its_own_state(
+        self, _name: str, paged: bool, owner: str
+    ) -> None:
+        configuration = self._configuration(owner=owner)
         if paged:
             self._add_incident_destination(configuration)
 
@@ -150,11 +162,14 @@ class TestLogsAlertEvaluation(APIBaseTest):
         self._record(evaluation)
 
         assert [(o.kind, o.value) for o in evaluation.outcomes] == [(AlertEventKind.FIRING, 500.0)]
-        assert [(d.sends_messages, d.incident_actions) for d in evaluation.deliveries] == [
-            (True, {"": IncidentAction.TRIGGER} if paged else {})
+        assert [(d.sends_messages, d.incident_actions, d.owned_by_platform) for d in evaluation.deliveries] == [
+            (True, {"": IncidentAction.TRIGGER} if paged else {}, owner == "platform")
         ]
         # The event a PagerDuty destination subscribes to, so the trigger reaches it.
         assert evaluation.deliveries[0].event_ids_by_incident_action["trigger"] == "$logs_alert_incident_opened"
+        source_alert_url = evaluation.deliveries[0].source_alert_url
+        assert source_alert_url is not None
+        assert source_alert_url.endswith(f"/logs/alerts/{self._legacy_ids[configuration.id]}")
         with team_scope(self.team.id):
             alert = platform_testing.alert_for(configuration.id)
             assert alert is not None
@@ -164,6 +179,18 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # The schedule advanced, so the next tick does not rediscover this configuration.
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
+
+    def test_checks_that_can_share_a_query_carry_one_schedule_group(self) -> None:
+        same_a = self._configuration(name="A")
+        same_b = self._configuration(name="B")
+        longer_window = self._configuration(name="C", source_config={"condition": {**CONDITION, "window_minutes": 60}})
+        more_periods = self._configuration(name="D", evaluation_periods=3, datapoints_to_alarm=1)
+
+        evaluation, _ = self._run(same_a, same_b, longer_window, more_periods)
+
+        group = {o.configuration_id: o.schedule_group for o in evaluation.outcomes}
+        assert group[same_a.id] == group[same_b.id]
+        assert len({group[same_a.id], group[longer_window.id], group[more_periods.id]}) == 3
 
     @parameterized.expand([("below_a_high_bound", 1000, "below"), ("above_zero", 0, "above")])
     def test_a_backfilled_alert_evaluates_against_the_bound_it_was_copied_with(
@@ -303,15 +330,18 @@ class TestLogsAlertEvaluation(APIBaseTest):
             ("filter_group", {"condition": CONDITION, "filterGroup": {"type": "nonsense"}}),
             ("unknown_operator", {"condition": {**CONDITION, "threshold_operator": "equals"}}),
             ("zero_window", {"condition": {**CONDITION, "window_minutes": 0}}),
+            ("null_filter_values", {"condition": CONDITION, "filterGroup": {"type": "AND", "values": None}}),
         ]
     )
     def test_a_broken_config_stops_being_discovered(self, _name: str, source_config: dict[str, Any]) -> None:
         configuration = self._configuration(source_config=source_config)
+        healthy = self._configuration(name="Healthy")
 
-        evaluation, query = self._run(configuration)
+        evaluation, query = self._run(configuration, healthy)
         self._record(evaluation)
 
-        query.assert_not_called()
+        queried = {check.id for call in query.call_args_list for check in call.kwargs["alerts"]}
+        assert queried == {healthy.id}
         with team_scope(self.team.id):
             alert = platform_testing.alert_for(configuration.id)
             assert alert is not None
@@ -492,3 +522,87 @@ class TestEvaluationTimeoutLadder(SimpleTestCase):
         assert (EVALUATE_SCHEDULE_TO_CLOSE - EVALUATE_START_TO_CLOSE).total_seconds() >= BATCH_QUERY_BUDGET_SECONDS / 2
         # The platform's own timeout holds both activities and still leaves room for the deliveries.
         assert source_evaluation_timeout(SourceKind.LOGS) > EVALUATION_BUDGET
+
+
+def _outcome(kind: AlertEventKind, *, notified: bool = True) -> PlatformAlertOutcome:
+    return PlatformAlertOutcome(
+        configuration_id=UUID("01936a2e-0000-7000-8000-000000000001"),
+        evaluation_key="slot:x|window:y",
+        kind=kind,
+        new_state="firing",
+        notified=notified,
+        consecutive_failures=5 if kind == AlertEventKind.BROKEN else 0,
+        value=500.0 if kind == AlertEventKind.FIRING else None,
+    )
+
+
+def _delivery_for(*, owned_by_platform: bool, sends_messages: bool = True) -> AlertDeliveryRequest:
+    return AlertDeliveryRequest(
+        source=SourceKind.LOGS,
+        team_id=1,
+        configuration_id="01936a2e-0000-7000-8000-000000000001",
+        evaluation_key="slot:x|window:y",
+        destination_alert_id="legacy-1",
+        event_ids_by_kind={},
+        owned_by_platform=owned_by_platform,
+        sends_messages=sends_messages,
+    )
+
+
+class TestPlatformAlertSignals(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("a_platform_owned_firing", AlertEventKind.FIRING, True, True, True, [("firing", 500, 0)]),
+            ("a_platform_owned_auto_disable", AlertEventKind.BROKEN, False, True, True, [("broken", None, 5)]),
+            ("a_firing_the_logs_stack_still_owns", AlertEventKind.FIRING, True, False, True, []),
+            ("a_broken_config_held_back", AlertEventKind.BROKEN, False, True, False, []),
+            ("a_resolve", AlertEventKind.RESOLVED, True, True, True, []),
+        ]
+    )
+    def test_only_announced_firings_and_auto_disables_of_platform_owned_alerts_signal(
+        self,
+        _name: str,
+        kind: AlertEventKind,
+        notified: bool,
+        owned: bool,
+        sends_messages: bool,
+        expected: list[tuple[Any, ...]],
+    ) -> None:
+        evaluation = SourceBatchEvaluation(
+            outcomes=(_outcome(kind, notified=notified),),
+            deliveries=(_delivery_for(owned_by_platform=owned, sends_messages=sends_messages),),
+        )
+
+        signals = platform_signals(evaluation)
+
+        assert all(signal.alert_id == "legacy-1" for signal in signals)
+        assert [(s.action, s.result_count, s.consecutive_failures) for s in signals] == expected
+
+
+class TestPlatformAlertSignalFacts(APIBaseTest):
+    def test_a_signal_carries_the_logs_alert_as_it_is_and_skips_a_deleted_one(self) -> None:
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team, name="API errors", filters={"serviceNames": ["api"]}, threshold_count=10, window_minutes=5
+        )
+
+        notified = notified_alerts_for_platform(
+            self.team.id,
+            [
+                PlatformAlertSignal(
+                    alert_id=str(alert.id),
+                    action="firing",
+                    result_count=500,
+                    consecutive_failures=0,
+                    evaluation_key="k-1",
+                ),
+                PlatformAlertSignal(
+                    alert_id=str(uuid4()), action="firing", result_count=1, consecutive_failures=0, evaluation_key="k-1"
+                ),
+            ],
+        )
+
+        assert [(n.alert_id, n.alert_name, n.threshold_count, n.result_count, n.filters) for n in notified] == [
+            (str(alert.id), "API errors", 10, 500, {"serviceNames": ["api"]})
+        ]
+        # A retried emission of the same announcement must not start a second signal.
+        assert notified[0].idempotency_key == f"{alert.id}:firing:k-1"

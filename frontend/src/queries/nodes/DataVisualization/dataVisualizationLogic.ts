@@ -41,13 +41,16 @@ import {
     DashboardFilter,
     ConditionalFormattingRule,
     VisualizationNode,
+    NodeKind,
     HeatmapSettings,
     HogQLVariable,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, DashboardType } from '~/types'
 
+import { getBIAutoChartType } from 'products/business_intelligence/frontend/biEditorTypes'
 import {
+    getBISeriesSettings,
     getBIVisualizationResponse,
     getBIVisualizationSource,
 } from 'products/business_intelligence/frontend/biQueryResults'
@@ -123,6 +126,7 @@ export interface DataVisualizationLogicProps {
     insightLoading?: boolean
     dashboardId?: DashboardType['id']
     loadPriority?: number
+    retainResponseOnUnmount?: boolean
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
     filtersOverride?: DashboardFilter | null
@@ -906,7 +910,8 @@ export interface dataVisualizationLogicMeta {
             response: AnyResponseType | null,
             columns: Column[],
             chartSettings: ChartSettings,
-            effectiveVisualizationType: ChartDisplayType
+            effectiveVisualizationType: ChartDisplayType,
+            query: VisualizationNode
         ) => AxisSeries<number | null>[]
         xData: (
             selectedXAxis: string | null,
@@ -938,7 +943,11 @@ export interface dataVisualizationLogicMeta {
             visualizationType: ChartDisplayType,
             autoVisualizationType: ChartDisplayType
         ) => ChartDisplayType
-        autoVisualizationType: (columns: Column[], response: AnyResponseType | null) => ChartDisplayType
+        autoVisualizationType: (
+            columns: Column[],
+            response: AnyResponseType | null,
+            query: VisualizationNode
+        ) => ChartDisplayType
         needsHogVm: (
             visualizationType: ChartDisplayType,
             effectiveVisualizationType: ChartDisplayType,
@@ -973,6 +982,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 query: getBIVisualizationSource(props.query),
                 dataNodeCollectionId: props.dataNodeCollectionId,
                 loadPriority: props.loadPriority,
+                retainResponseOnUnmount: props.retainResponseOnUnmount,
                 variablesOverride: props.variablesOverride,
                 filtersOverride: props.filtersOverride,
                 limitContext: props.limitContext,
@@ -992,6 +1002,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         actions: [
             dataNodeLogic({
                 cachedResults: props.cachedResults,
+                retainResponseOnUnmount: props.retainResponseOnUnmount,
                 key: props.key,
                 query: getBIVisualizationSource(props.query),
                 dataNodeCollectionId: props.dataNodeCollectionId,
@@ -1481,7 +1492,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (query: VisualizationNode): boolean => query.tableSettings?.transpose ?? false,
         ],
         yData: [
-            (s) => [s.selectedYAxis, s.response, s.columns, s.chartSettings, s.effectiveVisualizationType],
+            (s) => [s.selectedYAxis, s.response, s.columns, s.chartSettings, s.effectiveVisualizationType, s.query],
             (
                 ySeries: (SelectedYAxis | null)[] | null,
                 response:
@@ -1501,7 +1512,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     | import('~/queries/schema/schema-general').TraceSpansQueryResponse,
                 columns: Column[],
                 chartSettings: ChartSettings,
-                visualizationType: ChartDisplayType
+                visualizationType: ChartDisplayType,
+                query: VisualizationNode
             ): AxisSeries<number | null>[] => {
                 if (!response || ySeries === null || ySeries.length === 0) {
                     return [EmptyYAxisSeries]
@@ -1552,7 +1564,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                     return showNullsAsZero ? 0 : null
                                 }
                             }),
-                            settings: series.settings,
+                            settings: getBISeriesSettings(query, series.settings),
                         }
                     })
                     .filter((series): series is AxisSeries<number | null> => Boolean(series))
@@ -1857,16 +1869,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
         effectiveVisualizationType: [
             (s) => [s.visualizationType, s.autoVisualizationType],
-            (visualizationType: ChartDisplayType, autoVisualizationType: ChartDisplayType): ChartDisplayType => {
-                if (visualizationType === ChartDisplayType.Auto) {
-                    return autoVisualizationType
-                }
-
-                return visualizationType
-            },
+            (visualizationType: ChartDisplayType, autoVisualizationType: ChartDisplayType): ChartDisplayType =>
+                visualizationType === ChartDisplayType.Auto ? autoVisualizationType : visualizationType,
         ],
         autoVisualizationType: [
-            (s) => [s.columns, s.response],
+            (s) => [s.columns, s.response, s.query],
             (
                 columns: Column[],
                 response:
@@ -1883,8 +1890,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     | import('~/queries/schema/schema-general').SessionsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
-                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse
-            ): ChartDisplayType => getAutoVisualizationType(columns, rowCountFromResponse(response)),
+                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse,
+                query: VisualizationNode
+            ): ChartDisplayType =>
+                query.kind === NodeKind.BIVisualizationNode
+                    ? getBIAutoChartType(query.config)
+                    : getAutoVisualizationType(columns, rowCountFromResponse(response)),
         ],
         // The Hog VM and its crypto polyfills are large, so only a table that shows formatting rules loads them.
         // Auto resolves to a table until columns arrive, so it waits for them before it decides.

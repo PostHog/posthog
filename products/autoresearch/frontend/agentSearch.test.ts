@@ -62,6 +62,48 @@ describe('buildAgentSearch', () => {
             [2, 3, 6],
         ])
     })
+
+    it.each([
+        [
+            'the agent headline when there is one',
+            'Fewer features',
+            'Tried fewer features.',
+            'Dropped 12 features. AUC fell.',
+            'Fewer features',
+        ],
+        [
+            'the agent summary when there is no headline',
+            null,
+            'Tried fewer features.',
+            'Dropped 12 features. AUC fell.',
+            'Tried fewer features.',
+        ],
+        [
+            'the first sentence of the description otherwise',
+            undefined,
+            null,
+            'Dropped 12 features (v1.2). AUC fell.',
+            'Dropped 12 features (v1.2).',
+        ],
+        [
+            'the first clause of the description, cut to length',
+            null,
+            null,
+            `Dropped ${'very '.repeat(12)}weak features, AUC fell.`,
+            `Dropped ${'very '.repeat(10).trim()}…`,
+        ],
+        [
+            'the whole description when it has no sentence end',
+            undefined,
+            undefined,
+            'Dropped 12 features',
+            'Dropped 12 features',
+        ],
+    ])('shows %s as the one-line summary', (_, headline, summary, agent_description, expected) => {
+        const it = { ...iteration(0, 'kept', 0.7), headline, summary, agent_description } as IterationTrailApi
+        const { points } = buildAgentSearch([run('run-1', '2026-01-01T00:00:00Z', [it])], null)
+        expect(points[0].summary).toEqual(expected)
+    })
 })
 
 describe('experimentLogGroups', () => {
@@ -73,6 +115,23 @@ describe('experimentLogGroups', () => {
             [2, [3, 0]],
             [1, [1, 0]],
         ])
+    })
+
+    it.each([
+        [
+            'the run headline',
+            { headline: 'Recency won', reader_summary: 'Recent visits mattered. More later.' },
+            'Recency won',
+        ],
+        [
+            'the first sentence of the reader summary',
+            { headline: null, reader_summary: 'Recent visits mattered. More later.' },
+            'Recent visits mattered.',
+        ],
+        ['the run number', {}, 'Run 1'],
+    ])('falls back to %s', (_, overrides, expected) => {
+        const runs = [run('run-1', '2026-01-01T00:00:00Z', [], overrides as Partial<AutoresearchTrainingRunApi>)]
+        expect(experimentLogGroups(runs, buildAgentSearch(runs, null), 'all')[0].headline).toEqual(expected)
     })
 })
 
@@ -86,8 +145,26 @@ describe('latestAgentNotes', () => {
         ]
         expect(latestAgentNotes(runs)).toEqual({
             runNumber: 1,
+            readerSummary: '',
+            nextSteps: [],
             distillation: 'Recency wins',
             recommendedNext: 'Try sessions',
+        })
+    })
+
+    it('reads the plain notes for people when a run left only those', () => {
+        const runs = [
+            run('run-1', '2026-01-01T00:00:00Z', [], {
+                reader_summary: 'Recent visits predict a purchase best.',
+                next_steps: ['Add session length', ' '],
+            } as Partial<AutoresearchTrainingRunApi>),
+        ]
+        expect(latestAgentNotes(runs)).toEqual({
+            runNumber: 1,
+            readerSummary: 'Recent visits predict a purchase best.',
+            nextSteps: ['Add session length'],
+            distillation: '',
+            recommendedNext: '',
         })
     })
 })

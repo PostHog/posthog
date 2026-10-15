@@ -15,6 +15,8 @@ export interface SearchPoint {
     iterationNumber: number
     status: AutoresearchIterationStatusEnumApi
     holdoutScore: number | null
+    /** One plain line for people: the agent's `headline`, else its `summary`, else the first clause of its description. */
+    summary: string
     agentDescription: string
     modelSpec: IterationTrailApiModelSpec
     /** Best kept holdout AUC before this experiment, across all earlier runs too. */
@@ -45,14 +47,48 @@ export type ExperimentLogFilter = 'all' | 'kept' | 'discarded' | 'crashed'
 export interface ExperimentLogGroup {
     run: AutoresearchTrainingRunApi
     runNumber: number
+    /** The run's `headline`, else the first sentence of its `reader_summary`, else "Run N". */
+    headline: string
     /** Newest first, after the filter. */
     entries: SearchPoint[]
 }
 
 export interface AgentNotes {
     runNumber: number
+    /** Plain sentences for people. Empty when the agent wrote none. */
+    readerSummary: string
+    nextSteps: string[]
     distillation: string
     recommendedNext: string
+}
+
+/** Fields for people that older runs and iterations do not have. */
+interface ReaderFields {
+    headline?: string | null
+    summary?: string | null
+    reader_summary?: string | null
+    next_steps?: string[] | null
+}
+
+function firstSentence(text: string): string {
+    const trimmed = text.trim()
+    const match = trimmed.match(/^.*?[.!?](?=\s|$)/s)
+    return match ? match[0] : trimmed
+}
+
+const HEADLINE_MAX_LENGTH = 60
+
+function firstClause(text: string): string {
+    const clause = firstSentence(text).split(/[,;:]\s/)[0]
+    if (clause.length <= HEADLINE_MAX_LENGTH) {
+        return clause
+    }
+    return `${clause.slice(0, HEADLINE_MAX_LENGTH).replace(/\s+\S*$/, '')}…`
+}
+
+function runHeadline(run: AutoresearchTrainingRunApi, runNumber: number): string {
+    const { headline, reader_summary } = run as ReaderFields
+    return headline?.trim() || firstSentence(reader_summary ?? '') || `Run ${runNumber}`
 }
 
 function oldestFirst(runs: AutoresearchTrainingRunApi[]): AutoresearchTrainingRunApi[] {
@@ -103,6 +139,10 @@ export function buildAgentSearch(
                 iterationNumber: it.iteration_number,
                 status: it.status,
                 holdoutScore: score,
+                summary:
+                    (it as ReaderFields).headline?.trim() ||
+                    (it as ReaderFields).summary?.trim() ||
+                    firstClause(it.agent_description ?? ''),
                 agentDescription: it.agent_description ?? '',
                 modelSpec: it.model_spec,
                 bestBefore,
@@ -151,6 +191,7 @@ export function experimentLogGroups(
         .map((run, index) => ({
             run,
             runNumber: index + 1,
+            headline: runHeadline(run, index + 1),
             entries: [...(pointsByRun.get(run.id) ?? [])].reverse(),
         }))
         .reverse()
@@ -160,12 +201,20 @@ export function experimentLogGroups(
 export function latestAgentNotes(trainingRuns: AutoresearchTrainingRunApi[]): AgentNotes | null {
     const ordered = oldestFirst(trainingRuns)
     for (let i = ordered.length - 1; i >= 0; i--) {
-        const summary = ordered[i].summary
-        if (ordered[i].status === 'completed' && (summary?.distillation || summary?.recommended_next)) {
+        const run = ordered[i]
+        const { summary } = run
+        const readerSummary = (run as ReaderFields).reader_summary?.trim() ?? ''
+        const nextSteps = ((run as ReaderFields).next_steps ?? []).filter((step) => step.trim())
+        if (
+            run.status === 'completed' &&
+            (readerSummary || nextSteps.length || summary?.distillation || summary?.recommended_next)
+        ) {
             return {
                 runNumber: i + 1,
-                distillation: summary.distillation,
-                recommendedNext: summary.recommended_next,
+                readerSummary,
+                nextSteps,
+                distillation: summary?.distillation ?? '',
+                recommendedNext: summary?.recommended_next ?? '',
             }
         }
     }

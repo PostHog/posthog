@@ -284,7 +284,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "ai_training_opt_in_history_display",
         "trigger_deletion_display",
     ]
-    search_fields = ("name", "members__email", "team__api_token")
+    search_fields = ("id", "name", "members__email", "team__api_token")
     list_display = (
         "id",
         "name",

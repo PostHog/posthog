@@ -318,7 +318,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                         <SceneMenuBarSubMenu label="Export">
                             <SceneMenuBarItem
                                 disabled={(canCaptureImage && isCapturingImage) || !!pngExportDisabledReason}
-                                tooltip={pngExportDisabledReason}
+                                tooltip={pngExportDisabledReason ?? undefined}
                                 onClick={() =>
                                     canCaptureImage
                                         ? downloadImage(captureTarget)
@@ -450,7 +450,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                     {showMetalytics && (
                         <Button
                             type="button"
-                            variant="ghost"
+                            variant="default"
                             size="sm"
                             left
                             onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}

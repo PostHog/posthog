@@ -1,20 +1,24 @@
 """GitHub `pull_request` deliveries of the PostHog GitHub App, routed by action.
 
-- `opened` / `synchronize`: an automatic review (`automatic_reviews.py`).
-- `labeled` with the `reviewhog` label: a label review (`label_reviews.py`).
+- `opened` / `synchronize` / `ready_for_review`: an automatic review (`automatic_reviews.py`).
+- `labeled` with the `posthog-review` label (or the legacy `reviewhog` label): a label review (`label_reviews.py`).
 
 The webhook handler runs inside the request, so this module only parses the payload, reads the
 cached ownership summary, and queues a Celery task. The task checks ownership and the rules again.
 """
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 from posthog.dataclasses import frozen
 
 from products.review_hog.backend.ownership import OwnedRepositoryPrefilter, RepositoryRef
 
-REVIEWHOG_LABEL = "reviewhog"
-AUTOMATIC_REVIEW_ACTIONS = frozenset({"opened", "synchronize"})
+REVIEW_LABEL = "posthog-review"
+LEGACY_REVIEW_LABEL = "reviewhog"
+REVIEW_LABELS = frozenset({REVIEW_LABEL, LEGACY_REVIEW_LABEL})
+# Authors and automation apply this label to opt a pull request out of automatic reviews.
+SKIP_AGENT_REVIEW_LABEL = "skip-agent-review"
+AUTOMATIC_REVIEW_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review"})
 
 
 def _mapping(value: object) -> Mapping[str, object]:
@@ -36,6 +40,16 @@ def _text(value: object) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
+def _label_names(value: object) -> list[object]:
+    if not isinstance(value, list):
+        return []
+    return [_mapping(label).get("name") for label in value]
+
+
+def has_skip_agent_review_label(labels: Iterable[object]) -> bool:
+    return any(isinstance(label, str) and label.strip().lower() == SKIP_AGENT_REVIEW_LABEL for label in labels)
+
+
 @frozen
 class PullRequestEvent:
     """The parts of an open, same-repository pull request delivery that ReviewHog acts on."""
@@ -48,6 +62,8 @@ class PullRequestEvent:
     author_login: str
     head_sha: str
     head_branch: str
+    draft: bool = False
+    skip_agent_review: bool = False
     # Set on `labeled` deliveries only.
     label_name: str | None = None
     sender_login: str | None = None
@@ -86,6 +102,8 @@ class PullRequestEvent:
             author_login=author_login.lower(),
             head_sha=head_sha,
             head_branch=_text(head.get("ref")) or "",
+            draft=pull_request.get("draft") is True,
+            skip_agent_review=has_skip_agent_review_label(_label_names(pull_request.get("labels"))),
             label_name=_text(_mapping(payload.get("label")).get("name")),
             sender_login=_text(sender.get("login")),
             sender_is_bot=sender.get("type") == "Bot",
@@ -99,7 +117,7 @@ class PullRequestEvent:
 
     @property
     def is_label_request(self) -> bool:
-        return self.action == "labeled" and (self.label_name or "").lower() == REVIEWHOG_LABEL
+        return self.action == "labeled" and (self.label_name or "").lower() in REVIEW_LABELS
 
 
 def accept_pull_request_event(payload: Mapping[str, object]) -> None:
@@ -122,6 +140,8 @@ def accept_pull_request_event(payload: Mapping[str, object]) -> None:
             pr_number=event.pr_number,
             head_sha=event.head_sha,
             github_repo_id=event.github_repo_id,
+            draft=event.draft,
+            skip_agent_review=event.skip_agent_review,
         )
         return
     process_label_event.delay(

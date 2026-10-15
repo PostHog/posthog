@@ -980,7 +980,7 @@ class PersonVersionFloorResult:
 
 
 def _retry_lost_race(fn: Callable[[], _T]) -> _T:
-    """Retry ``fn`` only on a lost race; every other error, including the INTERNAL lock timeout, propagates."""
+    """Retry ``fn`` only on a lost race. Every other error, including the DEADLINE_EXCEEDED lock timeout, propagates."""
     for attempt in range(1, VERSION_FLOOR_ATTEMPTS):
         try:
             return fn()

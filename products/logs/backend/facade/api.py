@@ -6,8 +6,23 @@ from products.logs.backend import alert_incidents, platform_alert_backfill
 from products.logs.backend.alert_state_machine import FIRING_STATES, IncidentCloseReason, IncidentEdge, incident_edge
 from products.logs.backend.alert_utils import next_allowed_check_at
 from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.natural_language_query import (
+    NaturalLanguageQueryFailed,
+    NaturalLanguageQueryUnavailable,
+    is_valid_date,
+    translate_natural_language_query,
+)
 
-__all__ = ["close_incident_before_delete", "close_incident_on_commit", "follow_logs_alert", "next_allowed_check_at"]
+__all__ = [
+    "NaturalLanguageQueryFailed",
+    "NaturalLanguageQueryUnavailable",
+    "close_incident_before_delete",
+    "close_incident_on_commit",
+    "follow_logs_alert",
+    "is_valid_date",
+    "next_allowed_check_at",
+    "translate_natural_language_query",
+]
 
 
 def _close_if_subscribed(*, team_id: int, alert_id: str, reason: IncidentCloseReason) -> None:

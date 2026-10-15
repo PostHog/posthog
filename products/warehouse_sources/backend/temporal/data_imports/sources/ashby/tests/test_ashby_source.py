@@ -1,7 +1,10 @@
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.source import AshbySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ashby import AshbySourceConfig
 
 
@@ -23,48 +26,49 @@ class TestAshbySource:
             (400, None, False, "boom"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.ashby.source.check_access")
     def test_validate_credentials(
         self,
-        mock_check: mock.MagicMock,
         status: int,
         schema_name: str | None,
         expected_valid: bool,
         expected_message: str | None,
     ) -> None:
-        mock_check.return_value = (status, "boom")
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+        response = (
+            ScriptedResponse(json={"success": False, "errors": ["boom"]})
+            if status == 400
+            else ScriptedResponse(status=status, json={"success": True})
+        )
+        with scripted_network([response]):
+            is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
         assert is_valid is expected_valid
         assert message == expected_message
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.ashby.source.check_access")
-    def test_validate_credentials_probes_schema_path_when_given(self, mock_check: mock.MagicMock) -> None:
-        mock_check.return_value = (200, None)
-        self.source.validate_credentials(self.config, self.team_id, schema_name="candidates")
-        mock_check.assert_called_once_with("ashby-key", "candidate.list")
+    def test_validate_credentials_probes_schema_path_when_given(self) -> None:
+        with scripted_network([ScriptedResponse(json={"success": True})]) as network:
+            self.source.validate_credentials(self.config, self.team_id, schema_name="candidates")
+        assert network.requests_log[0].path == "/candidate.list"
+        assert network.requests_log[0].headers["authorization"] == "Basic YXNoYnkta2V5Og=="
 
     @pytest.mark.parametrize(
         "schema_name, expected_path",
-        [("application_history", "application.list"), ("interview_stages", "interviewPlan.list")],
+        [("application_history", "/application.list"), ("interview_stages", "/interviewPlan.list")],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.ashby.source.check_access")
     def test_validate_credentials_probes_the_parent_of_a_fanned_out_schema(
-        self, mock_check: mock.MagicMock, schema_name: str, expected_path: str
+        self, schema_name: str, expected_path: str
     ) -> None:
         # The child methods need a parent id, so probing them directly always fails.
-        mock_check.return_value = (200, None)
-        self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
-        mock_check.assert_called_once_with("ashby-key", expected_path)
+        with scripted_network([ScriptedResponse(json={"success": True})]) as network:
+            self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+        assert network.requests_log[0].path == expected_path
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.ashby.source.check_access")
-    def test_validate_credentials_uses_default_probe_without_schema(self, mock_check: mock.MagicMock) -> None:
-        mock_check.return_value = (200, None)
-        self.source.validate_credentials(self.config, self.team_id)
-        mock_check.assert_called_once_with("ashby-key", "department.list")
+    def test_validate_credentials_uses_default_probe_without_schema(self) -> None:
+        with scripted_network([ScriptedResponse(json={"success": True})]) as network:
+            self.source.validate_credentials(self.config, self.team_id)
+        assert network.requests_log[0].path == "/department.list"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.ashby.source.check_access")
-    def test_validate_credentials_rejects_unknown_schema_without_probing(self, mock_check: mock.MagicMock) -> None:
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name="not_a_table")
+    def test_validate_credentials_rejects_unknown_schema_without_probing(self) -> None:
+        with scripted_network([]) as network:
+            is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name="not_a_table")
         assert is_valid is False
         assert message == "Unknown Ashby schema 'not_a_table'"
-        mock_check.assert_not_called()
+        assert network.requests_log == []

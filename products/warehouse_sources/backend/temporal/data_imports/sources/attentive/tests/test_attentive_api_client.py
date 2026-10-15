@@ -1,30 +1,10 @@
-from typing import Any
-
 import pytest
-from unittest import mock
-
-import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.attentive import api_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     scripted_network,
 )
-
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.attentive.api_client"
-
-
-def _response(status_code: int = 200, body: Any = None) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.status_code = status_code
-    resp.json.return_value = body if body is not None else {}
-    if status_code >= 400:
-        error = requests.HTTPError(response=resp)
-        resp.raise_for_status.side_effect = error
-    else:
-        resp.raise_for_status.return_value = None
-    return resp
-
 
 URL = "https://ph.example/webhook"
 WEBHOOKS = "/v1/webhooks"
@@ -43,23 +23,20 @@ class TestEventsForResources:
 
 
 class TestValidateCredentials:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_invalid_token(self, mock_session):
-        mock_session.return_value.get.return_value = _response(401)
-
-        ok, error = api_client.validate_credentials("key")
+    def test_invalid_token(self):
+        with scripted_network([ScriptedResponse(status=401)]) as network:
+            ok, error = api_client.validate_credentials("key")
 
         assert ok is False
         assert "rejected your API key" in (error or "")
+        assert [request.path for request in network.requests_log] == ["/v2/me"]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_falls_back_to_v1_me_on_404(self, mock_session):
-        mock_session.return_value.get.side_effect = [_response(404), _response(200)]
-
-        ok, _error = api_client.validate_credentials("key")
+    def test_falls_back_to_v1_me_on_404(self):
+        with scripted_network([ScriptedResponse(status=404), ScriptedResponse(status=200)]) as network:
+            ok, _error = api_client.validate_credentials("key")
 
         assert ok is True
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
+        urls = [request.url for request in network.requests_log]
         assert urls == ["https://api.attentivemobile.com/v2/me", "https://api.attentivemobile.com/v1/me"]
 
 

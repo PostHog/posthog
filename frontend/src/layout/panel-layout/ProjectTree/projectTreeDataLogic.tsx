@@ -15,6 +15,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
@@ -1073,6 +1074,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         item_name: shortcutItem.path,
                     })
                     lemonToast.success('Added to starred')
+                    // The API returns the existing shortcut when the item is already starred, so
+                    // appending it unconditionally would show the same star twice until a reload.
+                    if (values.shortcutData.some((shortcut) => shortcut.id === response.id)) {
+                        return values.shortcutData
+                    }
                     return [...values.shortcutData, response]
                 },
                 reorderShortcuts: async ({ orderedIds }) => {
@@ -1583,11 +1589,23 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 users: Record<string, UserBasicType>,
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
+                // Hide a starred product while its flag is off, but keep the star so it comes back with the flag.
+                const productIsEnabled = (product: FileSystemImport): boolean =>
+                    !product.flag || !!(featureFlags as Record<string, boolean>)[product.flag]
+                const products = getDefaultTreeProducts()
+                const enabledProductHrefs = new Set(products.filter(productIsEnabled).map((product) => product.href))
+                const hiddenProductHrefs = new Set(
+                    products
+                        .filter((product) => product.href && !enabledProductHrefs.has(product.href))
+                        .map((product) => product.href)
+                )
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const newShortcutData = []
                     for (const shortcut of shortcutData.filter(
-                        // only remove shortcuts that are group view shortcuts when CRM iteration one is enabled
-                        (shortcut) => !(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && isGroupViewShortcut(shortcut))
+                        (shortcut) =>
+                            // only remove shortcuts that are group view shortcuts when CRM iteration one is enabled
+                            !(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && isGroupViewShortcut(shortcut)) &&
+                            !(shortcut.type !== 'folder' && !shortcut.ref && hiddenProductHrefs.has(shortcut.href))
                     )) {
                         const shortcutTreeItem = convertFileSystemEntryToTreeDataItem({
                             root: 'shortcuts://',
@@ -1672,7 +1690,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     convertFileSystemEntryToTreeDataItem({
                         root: protocol,
                         imports: imports
-                            .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
+                            .filter((f) => isFileSystemImportFlagEnabled(f, featureFlags))
                             .map((i) => ({
                                 ...i,
                                 protocol,
@@ -1760,7 +1778,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         .filter((p): p is FileSystemImport => p !== null)
 
                     const imports = selectedProducts
-                        .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
+                        .filter((f) => isFileSystemImportFlagEnabled(f, featureFlags))
                         .map((i) => ({
                             ...i,
                             protocol: 'custom-products://',

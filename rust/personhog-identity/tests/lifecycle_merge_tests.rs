@@ -1749,6 +1749,7 @@ impl MergeHarness {
             MergeEntrance::new(
                 storage,
                 self.leader.clone(),
+                self.leader.clone(),
                 MergeOpExecutor::new(
                     engine,
                     MergeDriver::new(
@@ -1774,6 +1775,7 @@ impl MergeHarness {
             },
             MergeEntrance::new(
                 self.ctx.storage.clone(),
+                self.leader.clone(),
                 self.leader.clone(),
                 MergeOpExecutor::new(
                     engine,
@@ -2435,6 +2437,134 @@ async fn a_call_that_lost_the_birth_race_does_not_stamp_its_creator() {
 }
 
 #[tokio::test]
+async fn a_source_the_leader_marks_identified_is_not_an_eligible_survivor_while_the_row_lags() {
+    // The identity row still says unidentified; only the leader has flipped it.
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("lag-ident-source")
+        .await;
+    h.leader.set_sealed_identified(source, true);
+
+    let request = rpc_request(
+        h.ctx.team_id,
+        "lag-target",
+        &["lag-ident-source"],
+        Uuid::now_v7(),
+    );
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("call succeeds")
+        .into_inner();
+
+    let survivor = response.survivor.as_ref().expect("survivor present");
+    assert_ne!(survivor.id, source);
+    assert_eq!(
+        survivor.uuid,
+        person_uuid(h.ctx.team_id, "lag-target").to_string()
+    );
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![(
+            "lag-ident-source".to_string(),
+            MergeSourceOutcome::SkippedAlreadyIdentified
+        )]
+    );
+    assert_eq!(h.leader.identified_reads(), vec![source]);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_source_destroyed_on_the_leader_is_skipped_and_the_target_is_born() {
+    // The identity row still resolves the source; the leader has destroyed it.
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let source = h.ctx.insert_person_with_distinct_id("dead-source").await;
+    h.leader.declare_dead(h.ctx.team_id, source).await;
+
+    let request = rpc_request(
+        h.ctx.team_id,
+        "dead-target",
+        &["dead-source"],
+        Uuid::now_v7(),
+    );
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("call succeeds")
+        .into_inner();
+
+    let survivor = response.survivor.as_ref().expect("survivor present");
+    assert_eq!(
+        survivor.uuid,
+        person_uuid(h.ctx.team_id, "dead-target").to_string()
+    );
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![("dead-source".to_string(), MergeSourceOutcome::Error)]
+    );
+    assert_eq!(h.leader.identified_reads(), vec![source]);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_failed_leader_read_fails_the_call_and_attaches_nothing() {
+    // The identity row says unidentified; the row alone must not clear the source.
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("readfail-source")
+        .await;
+    h.leader.fail_next(
+        Rpc::IdentifiedRead,
+        source,
+        Status::unavailable("leader down"),
+    );
+
+    let op_id = Uuid::now_v7();
+    let request = rpc_request(
+        h.ctx.team_id,
+        "readfail-target",
+        &["readfail-source"],
+        op_id,
+    );
+    let status = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect_err("a failed leader read fails the call");
+    assert_eq!(status.code(), Code::Unavailable);
+    assert!(h.leader.scripted_drained(Rpc::IdentifiedRead, source));
+
+    let target_rows: i64 = sqlx::query_scalar(&format!(
+        "SELECT count(*) FROM {} WHERE team_id = $1 AND distinct_id = $2",
+        h.ctx.tables.person_distinct_id
+    ))
+    .bind(h.ctx.team_id as i32)
+    .bind("readfail-target")
+    .fetch_one(&h.ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(target_rows, 0);
+    let op_count: i64 = sqlx::query_scalar(&format!(
+        "SELECT count(*) FROM {} WHERE op_id = $1",
+        h.ctx.tables.lifecycle_op
+    ))
+    .bind(op_id)
+    .fetch_one(&h.ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(op_count, 0);
+    assert!(h.leader.calls().is_empty());
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
 async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_target() {
     let h = MergeHarness::new().await;
     let service = h.service();
@@ -2474,7 +2604,7 @@ async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_targ
             MergeSourceOutcome::SkippedAlreadyIdentified
         )]
     );
-    // Establishment birthed the target, so the abort delivery stamps its
+    // Establishment birthed the target, so the inline delivery stamps its
     // creating event.
     let born_properties: serde_json::Value = if survivor.properties.is_empty() {
         serde_json::json!({})
@@ -2489,8 +2619,8 @@ async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_targ
     assert_eq!(h.pdi_state("elig-ident-source").await.0, source);
     let (source_deleted, _, _) = h.person_state(source).await;
     assert!(!source_deleted);
-    // The refused pair aborts the saga, so the abort delivery flips the
-    // newborn through the leader.
+    // The refused pair never reaches the saga, so the inline delivery
+    // flips the newborn through the leader.
     assert_eq!(
         h.leader.calls(),
         vec![LeaderCall::PropertyPush {
@@ -2909,7 +3039,7 @@ async fn a_move_limited_source_skips_while_the_rest_merge_through_the_rpc() {
 }
 
 #[tokio::test]
-async fn an_identified_source_abort_still_delivers_the_events_writes() {
+async fn an_identified_source_settles_inline_and_still_delivers_the_events_writes() {
     let h = MergeHarness::new().await;
     let service = h.service();
     let target = h
@@ -2933,14 +3063,14 @@ async fn an_identified_source_abort_still_delivers_the_events_writes() {
     let response = service
         .merge_persons(Request::new(request.clone()))
         .await
-        .expect("an aborted op still answers OK")
+        .expect("a skipped pair still answers OK")
         .into_inner();
 
-    // The skip is an answer, not an error. The saga never folds, so the
-    // event's $set and the identified flip are delivered through the
-    // ordinary write surface instead, and the answer carries the person
-    // they landed on — the same person ingestion continues the event with
-    // when it refuses a merge.
+    // The skip is an answer, not an error. No saga folds, so the event's
+    // $set and the identified flip are delivered through the ordinary
+    // write surface instead, and the answer carries the person they landed
+    // on — the same person ingestion continues the event with when it
+    // refuses a merge.
     assert_eq!(
         rpc_outcomes(&response),
         vec![(
@@ -2958,10 +3088,17 @@ async fn an_identified_source_abort_still_delivers_the_events_writes() {
     );
     let (source_deleted, _, _) = h.person_state(source).await;
     assert!(!source_deleted);
+    // The pre-filter settles the pair at the entrance: no op row, no
+    // claim, no fence.
+    let op_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM lifecycle_op WHERE op_id = $1")
+        .bind(op_id)
+        .fetch_one(&h.ctx.pool)
+        .await
+        .expect("count op rows");
+    assert_eq!(op_rows, 0);
 
-    // The abort is recorded: a retry reproduces the answer instead of
-    // re-running classification, and re-drives the delivery (the same
-    // at-least-once semantics as the inline branch).
+    // Nothing is recorded, so a retry re-classifies and delivers again:
+    // the same at-least-once semantics as every other inline answer.
     let retry = service
         .merge_persons(Request::new(request))
         .await
@@ -2992,7 +3129,9 @@ async fn a_failed_abort_delivery_errors_the_call_and_the_retry_delivers() {
         .ctx
         .insert_person_with_distinct_id("rpc-abort-fail-source")
         .await;
-    h.set_person(source, r#"{"plan": "pro"}"#, 3, true).await;
+    // Only the leader's sealed state carries the flip, so the entrance's
+    // pre-filter lets the pair through and the saga aborts at seal time.
+    h.leader.set_sealed_identified(source, true);
     h.leader.fail_next(
         Rpc::PropertyPush,
         target,
@@ -3032,8 +3171,14 @@ async fn a_failed_abort_delivery_errors_the_call_and_the_retry_delivers() {
             MergeSourceOutcome::SkippedAlreadyIdentified
         )]
     );
+    let pushes: Vec<LeaderCall> = h
+        .leader
+        .calls()
+        .into_iter()
+        .filter(|call| matches!(call, LeaderCall::PropertyPush { .. }))
+        .collect();
     assert_eq!(
-        h.leader.calls(),
+        pushes,
         vec![LeaderCall::PropertyPush {
             person_id: target,
             is_identified: Some(true),

@@ -291,6 +291,24 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
         logger.debug(f"Error while reporting heartbeat timeout: {e}", exc_info=e)
 
 
+def count_worker_deaths(inputs: "ImportDataActivityInputs", logger: FilteringBoundLogger) -> int:
+    """Times a worker died on this run without raising. `report_heartbeat_timeout` records each one."""
+    try:
+        from products.warehouse_sources.backend.models.oom_event import (  # noqa: PLC0415 — Django models must not be imported at this activity module's load time
+            ExternalDataSchemaOOMEvent,
+        )
+
+        return (
+            ExternalDataSchemaOOMEvent.objects.for_team(inputs.team_id)
+            .filter(schema_id=inputs.schema_id, run_id=inputs.run_id)
+            .count()
+        )
+    except Exception as e:
+        # The count only makes a read more careful, so a read of it that fails must not fail the sync.
+        logger.debug(f"Could not count worker deaths for schema {inputs.schema_id}: {e}", exc_info=e)
+        return 0
+
+
 async def handle_non_retryable_error(
     team_id: int,
     source_id: str,
@@ -803,7 +821,8 @@ async def update_incremental_field_values(
     last_value = get_incremental_field_value(schema, pa_table)
 
     if last_value is not None:
-        if (last_incremental_field_value is None) or (last_value > last_incremental_field_value):
+        last_advanced = (last_incremental_field_value is None) or (last_value > last_incremental_field_value)
+        if last_advanced:
             last_incremental_field_value = last_value
 
         if resource.sort_mode == "asc":
@@ -819,18 +838,27 @@ async def update_incremental_field_values(
 
         if resource.sort_mode == "desc":
             earliest_value = get_incremental_field_value(schema, pa_table, aggregate="min")
-
-            if earliest_incremental_field_value is None or earliest_value < earliest_incremental_field_value:
+            earliest_advanced = (
+                earliest_incremental_field_value is None or earliest_value < earliest_incremental_field_value
+            )
+            if earliest_advanced:
                 earliest_incremental_field_value = earliest_value
                 await logger.adebug(f"{log_prefix}Updating incremental_field_earliest_value with {earliest_value}")
-                if staging_run_uuid is not None:
+
+            if staging_run_uuid is not None:
+                # The high-water mark is staged with every checkpoint so a resumed attempt can inherit it
+                # (see `staged_run_last_value`). Staging is not promotion: the loader promotes the
+                # watermark only when the final batch of the run completes the job.
+                if last_advanced or earliest_advanced:
                     await database_sync_to_async_pool(schema.stage_incremental_field_value)(
-                        staging_run_uuid, None, earliest_value
+                        staging_run_uuid,
+                        last_incremental_field_value,
+                        earliest_value if earliest_advanced else None,
                     )
-                else:
-                    await database_sync_to_async_pool(schema.update_incremental_field_value)(
-                        earliest_value, type="earliest"
-                    )
+            elif earliest_advanced:
+                await database_sync_to_async_pool(schema.update_incremental_field_value)(
+                    earliest_value, type="earliest"
+                )
 
     return IncrementalFieldValues(
         last_value=last_incremental_field_value, earliest_value=earliest_incremental_field_value

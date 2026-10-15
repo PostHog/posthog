@@ -7,7 +7,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
-from tenacity import wait_none
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_functions.aws_step_functions import (
     AwsStepFunctionsClient,
@@ -20,6 +19,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_f
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_functions.settings import API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_functions.source import (
     AwsStepFunctionsSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsstepfunctions import (
@@ -71,26 +76,24 @@ def source_items(source: SourceResponse) -> Generator[list[dict[str, Any]]]:
     [("us-east-1", "amazonaws.com"), ("eu-west-1", "amazonaws.com"), ("cn-north-1", "amazonaws.com.cn")],
 )
 @pytest.mark.parametrize("token", [None, "example-session-token"])
-def test_signed_request(
-    config: AwsStepFunctionsSourceConfig, session: MagicMock, region: str, suffix: str, token: str | None
-) -> None:
+def test_signed_request(config: AwsStepFunctionsSourceConfig, region: str, suffix: str, token: str | None) -> None:
     config.region = region
     config.aws_session_token = token
-    session.post.return_value = response(200, {"stateMachines": []})
-    client = AwsStepFunctionsClient(config, API_VERSION)
-    client.request("ListStateMachines", {"maxResults": 1})
-    args, kwargs = session.post.call_args
-    assert args == (f"https://states.{region}.{suffix}/",)
-    assert json.loads(kwargs["data"]) == {"maxResults": 1}
-    headers = kwargs["headers"]
-    assert headers["X-Amz-Target"] == "AWSStepFunctions.ListStateMachines"
-    assert headers["Content-Type"] == "application/x-amz-json-1.0"
-    assert f"/{region}/states/aws4_request" in headers["Authorization"]
-    assert "x-amz-target" in headers["Authorization"]
-    assert headers.get("X-Amz-Security-Token") == token
-    assert headers["X-Amz-Date"]
-    assert kwargs["allow_redirects"] is False
-    assert kwargs["timeout"] == 60
+    with scripted_network([ScriptedResponse(json={"stateMachines": []})]) as network:
+        client = AwsStepFunctionsClient(config, API_VERSION)
+        assert client.request("ListStateMachines", {"maxResults": 1}) == {"stateMachines": []}
+        client.close()
+    request = network.requests_log[0]
+    assert len(network.requests_log) == 1
+    assert request.url == f"https://states.{region}.{suffix}/"
+    assert request.json() == {"maxResults": 1}
+    assert request.headers["x-amz-target"] == "AWSStepFunctions.ListStateMachines"
+    assert request.headers["content-type"] == "application/x-amz-json-1.0"
+    assert f"/{region}/states/aws4_request" in request.headers["authorization"]
+    assert "x-amz-target" in request.headers["authorization"]
+    assert request.headers.get("x-amz-security-token") == token
+    assert request.headers["x-amz-date"]
+    assert request.read_timeout == 60
 
 
 def install_pages(session: MagicMock) -> None:
@@ -212,31 +215,42 @@ def test_credentials_error_mapping(
         (403, {}, {"x-amzn-ErrorType": "AccessDeniedException:http"}, "AccessDeniedException"),
         (500, {}, {}, "HTTP 500"),
         (400, [], {}, "HTTP 400"),
-        (302, {}, {}, "HTTP 302"),
+        (302, {}, {"Location": "https://example.com/redirect"}, "HTTP 302"),
     ],
 )
 def test_transport_errors(
     config: AwsStepFunctionsSourceConfig,
-    session: MagicMock,
     status: int,
     body: object,
     headers: dict[str, str],
     code: str,
 ) -> None:
-    session.post.return_value = response(status, body, headers)
-    with pytest.raises(AwsStepFunctionsError) as error:
-        AwsStepFunctionsClient(config, API_VERSION).request("ListStateMachines", {})
+    with scripted_network(always(ScriptedResponse(status=status, json=body, headers=headers))) as network:
+        client = AwsStepFunctionsClient(config, API_VERSION)
+        with pytest.raises(AwsStepFunctionsError) as error:
+            client.request("ListStateMachines", {})
+        client.close()
     assert error.value.code == code
-    session.post.assert_called_once()
+    assert {request.path for request in network.requests_log} == {"/"}
+    assert {request.headers["x-amz-target"] for request in network.requests_log} == {
+        "AWSStepFunctions.ListStateMachines"
+    }
 
 
-def test_body_throttle_retries_with_a_new_signature(config: AwsStepFunctionsSourceConfig, session: MagicMock) -> None:
-    session.post.side_effect = [response(400, {"__type": "ThrottlingException"}), response(200, {"stateMachines": []})]
-    client = AwsStepFunctionsClient(config, API_VERSION)
-    with patch.object(client.signer, "add_auth", wraps=client.signer.add_auth) as sign:
-        result = client.request.retry_with(wait=wait_none())(client, "ListStateMachines", {})  # type: ignore[attr-defined]
+def test_body_throttle_retries_with_a_new_signature(config: AwsStepFunctionsSourceConfig) -> None:
+    with scripted_network(
+        [
+            ScriptedResponse(status=400, json={"__type": "ThrottlingException"}),
+            ScriptedResponse(json={"stateMachines": []}),
+        ]
+    ) as network:
+        client = AwsStepFunctionsClient(config, API_VERSION)
+        result = client.request("ListStateMachines", {})
+        client.close()
     assert result == {"stateMachines": []}
-    assert sign.call_count == 2
+    assert len(network.requests_log) == 2
+    assert all(request.headers["authorization"].startswith("AWS4-HMAC-SHA256 ") for request in network.requests_log)
+    assert all(request.headers["x-amz-date"] for request in network.requests_log)
 
 
 @pytest.mark.parametrize("code", ["ServiceUnavailable", "UnknownError"])
@@ -259,51 +273,86 @@ def test_validation_propagates_transient_and_unknown_errors(
     ],
 )
 def test_invalid_config_does_not_send_credentials(
-    config: AwsStepFunctionsSourceConfig, session: MagicMock, field: str, value: str, message: str
+    config: AwsStepFunctionsSourceConfig, field: str, value: str, message: str
 ) -> None:
     setattr(config, field, value)
-    valid, reason = validate_credentials(config, None, API_VERSION)
+    with scripted_network([]) as network:
+        valid, reason = validate_credentials(config, None, API_VERSION)
     assert not valid
     assert reason is not None and message in reason
-    session.post.assert_not_called()
+    assert network.requests_log == []
 
 
 @pytest.mark.parametrize("schema_name", [None, "state_machines", "executions", "execution_history"])
 def test_permission_probe_walks_to_standard_execution(
-    config: AwsStepFunctionsSourceConfig, session: MagicMock, schema_name: str | None
+    config: AwsStepFunctionsSourceConfig, schema_name: str | None
 ) -> None:
-    install_pages(session)
-    assert validate_credentials(config, schema_name, API_VERSION) == (True, None)
-    calls = session.post.call_args_list
+    answers = [
+        ScriptedResponse(
+            json={
+                "stateMachines": [
+                    {"stateMachineArn": EXPRESS, "type": "EXPRESS"},
+                    {"stateMachineArn": SM1, "type": "STANDARD"},
+                ],
+                "nextToken": "m2",
+            }
+        )
+    ]
+    if schema_name in ("executions", "execution_history"):
+        answers.append(ScriptedResponse(json={"executions": [{"executionArn": EXECUTIONS[0]}]}))
+    if schema_name == "execution_history":
+        answers.append(ScriptedResponse(json={"events": [{"id": 1}]}))
+    with scripted_network(answers) as network:
+        assert validate_credentials(config, schema_name, API_VERSION) == (True, None)
+    calls = network.requests_log
     if schema_name in (None, "state_machines"):
         assert len(calls) == 1
     elif schema_name == "executions":
-        assert calls[-1].kwargs["headers"]["X-Amz-Target"].endswith(".ListExecutions")
+        assert calls[-1].headers["x-amz-target"].endswith(".ListExecutions")
+        assert calls[-1].json() == {"stateMachineArn": SM1, "maxResults": 1}
     else:
-        assert calls[-1].kwargs["headers"]["X-Amz-Target"].endswith(".GetExecutionHistory")
+        assert calls[-1].headers["x-amz-target"].endswith(".GetExecutionHistory")
+        assert calls[-1].json() == {
+            "executionArn": EXECUTIONS[0],
+            "maxResults": 1,
+            "includeExecutionData": False,
+            "reverseOrder": False,
+        }
 
 
 @pytest.mark.parametrize("schema_name", ["executions", "execution_history"])
-def test_probe_handles_empty_and_express_only_accounts(
-    config: AwsStepFunctionsSourceConfig, session: MagicMock, schema_name: str
-) -> None:
-    session.post.side_effect = [
-        response(200, {"stateMachines": [{"stateMachineArn": EXPRESS, "type": "EXPRESS"}], "nextToken": "next"}),
-        response(200, {"stateMachines": []}),
-    ]
-    assert validate_credentials(config, schema_name, API_VERSION) == (True, None)
-    assert len(session.post.call_args_list) == 2
+def test_probe_handles_empty_and_express_only_accounts(config: AwsStepFunctionsSourceConfig, schema_name: str) -> None:
+    with scripted_network(
+        [
+            ScriptedResponse(
+                json={"stateMachines": [{"stateMachineArn": EXPRESS, "type": "EXPRESS"}], "nextToken": "next"}
+            ),
+            ScriptedResponse(json={"stateMachines": []}),
+        ]
+    ) as network:
+        assert validate_credentials(config, schema_name, API_VERSION) == (True, None)
+    assert len(network.requests_log) == 2
+    assert [request.json().get("nextToken") for request in network.requests_log] == [None, "next"]
 
 
-def test_unknown_schema_and_version_fail_before_network(
-    config: AwsStepFunctionsSourceConfig, session: MagicMock
-) -> None:
-    assert validate_credentials(config, "missing", API_VERSION) == (False, "Unknown AWS Step Functions table: missing")
-    with pytest.raises(ValueError, match="Unknown AWS Step Functions table"):
-        aws_step_functions_source(config, "missing", API_VERSION, manager())
-    with pytest.raises(ValueError, match="Unsupported AWS Step Functions API version"):
-        AwsStepFunctionsClient(config, "1900-01-01")
-    session.post.assert_not_called()
+def test_unknown_schema_and_version_fail_before_network(config: AwsStepFunctionsSourceConfig) -> None:
+    with scripted_network([]) as network:
+        assert validate_credentials(config, "missing", API_VERSION) == (
+            False,
+            "Unknown AWS Step Functions table: missing",
+        )
+    assert network.requests_log == []
+
+    driver = SourceDriver(AwsStepFunctionsSource(), config)
+    missing = driver.run("missing", [])
+    assert isinstance(missing.raised, ValueError)
+    assert "Unknown AWS Step Functions table" in str(missing.raised)
+    assert missing.requests == []
+
+    unsupported = driver.run("state_machines", [], api_version="1900-01-01")
+    assert isinstance(unsupported.raised, ValueError)
+    assert "Unsupported AWS Step Functions API version" in str(unsupported.raised)
+    assert unsupported.requests == []
 
 
 def test_normalization_preserves_nested_details() -> None:

@@ -1,36 +1,34 @@
 from datetime import UTC, date, datetime
+from typing import Any
 
-import pytest
 import time_machine
-from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times import new_york_times
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newyorktimes import (
+    NewYorkTimesSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.new_york_times import (
     ARTICLE_SEARCH_MAX_PAGES,
     NewYorkTimesResumeConfig,
+    NewYorkTimesRetryableError,
     _format_begin_date,
-    get_rows,
-    new_york_times_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.source import NewYorkTimesSource
 
 
-class _FakeResumableManager:
-    def __init__(self, state: NewYorkTimesResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[NewYorkTimesResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> NewYorkTimesResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: NewYorkTimesResumeConfig) -> None:
-        self.saved.append(data)
+def _driver(article_search_query: str | None = None) -> SourceDriver:
+    return SourceDriver(
+        NewYorkTimesSource(), NewYorkTimesSourceConfig(api_key="KEY", article_search_query=article_search_query)
+    )
 
 
 class TestFormatBeginDate:
@@ -57,146 +55,111 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
-        response = MagicMock()
-        response.status_code = status_code
-        session = MagicMock()
-        session.get.return_value = response
-        with patch.object(new_york_times, "make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             assert validate_credentials("KEY") is expected
+        assert network.requests_log[0].path == "/svc/mostpopular/v2/viewed/1.json"
+        assert network.requests_log[0].param("api-key") == "KEY"
 
     def test_network_error_is_invalid(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with patch.object(new_york_times, "make_tracked_session", return_value=session):
+        with scripted_network([requests.ConnectionError("boom")]):
             assert validate_credentials("KEY") is False
-
-
-def _mock_response(status_code: int, body: dict) -> MagicMock:
-    response = MagicMock()
-    response.status_code = status_code
-    response.ok = 200 <= status_code < 300
-    response.json.return_value = body
-    return response
 
 
 class TestGetRowsSnapshot:
     def test_single_request_yields_results(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _mock_response(200, {"results": [{"uri": "u1"}, {"uri": "u2"}]})
-        with patch.object(new_york_times, "make_tracked_session", return_value=session):
-            batches = list(
-                get_rows("KEY", "top_stories", MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
-            )
-        assert batches == [[{"uri": "u1"}, {"uri": "u2"}]]
-        assert session.get.call_count == 1
+        result = _driver().run("top_stories", [ScriptedResponse(json={"results": [{"uri": "u1"}, {"uri": "u2"}]})])
+
+        assert result.raised is None
+        assert result.items == [[{"uri": "u1"}, {"uri": "u2"}]]
+        assert result.paths == ["/svc/topstories/v2/home.json"]
 
 
 class TestGetRowsArticleSearch:
     @staticmethod
-    def _docs(n: int, start: int = 0) -> dict:
+    def _docs(n: int, start: int = 0) -> dict[str, object]:
         return {"response": {"docs": [{"_id": f"a{start + i}"} for i in range(n)]}}
 
     def test_pages_until_short_page_and_saves_state(self) -> None:
         # A full page (10) then a short page (2) → two fetches, then stop.
-        session = MagicMock()
-        session.get.side_effect = [
-            _mock_response(200, self._docs(10, 0)),
-            _mock_response(200, self._docs(2, 10)),
-        ]
-        manager = _FakeResumableManager()
-        with (
-            patch.object(new_york_times, "make_tracked_session", return_value=session),
-            patch.object(new_york_times.time, "sleep"),
-            time_machine.travel("2026-07-02", tick=False),
-        ):
-            batches = list(
-                get_rows("KEY", "article_search", MagicMock(), manager)  # type: ignore[arg-type]
+        with time_machine.travel("2026-07-02", tick=False):
+            result = _driver().run(
+                "article_search",
+                [ScriptedResponse(json=self._docs(10, 0)), ScriptedResponse(json=self._docs(2, 10))],
             )
-        assert len(batches) == 2
-        assert len(batches[0]) == 10
-        assert len(batches[1]) == 2
+
+        assert result.raised is None
+        assert [len(batch) for batch in result.items] == [10, 2]
+        assert result.params("page") == ["0", "1"]
         # State saved after each yielded page, advancing the page cursor with a stable begin_date.
-        assert [s.page for s in manager.saved] == [1, 2]
-        assert all(s.begin_date == "20260602" for s in manager.saved)
+        assert result.saved_states == [
+            NewYorkTimesResumeConfig(page=1, begin_date="20260602"),
+            NewYorkTimesResumeConfig(page=2, begin_date="20260602"),
+        ]
+        assert result.committed_states == [NewYorkTimesResumeConfig(page=1, begin_date="20260602")]
 
     def test_respects_page_cap(self) -> None:
         # Always-full pages must stop at the 100-page hard cap rather than loop forever.
-        session = MagicMock()
-        session.get.return_value = _mock_response(200, self._docs(10, 0))
-        with (
-            patch.object(new_york_times, "make_tracked_session", return_value=session),
-            patch.object(new_york_times.time, "sleep"),
-            time_machine.travel("2026-07-02", tick=False),
-        ):
-            batches = list(
-                get_rows("KEY", "article_search", MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
-            )
-        assert len(batches) == ARTICLE_SEARCH_MAX_PAGES
-        assert session.get.call_count == ARTICLE_SEARCH_MAX_PAGES
+        with time_machine.travel("2026-07-02", tick=False):
+            result = _driver().run("article_search", always(ScriptedResponse(json=self._docs(10, 0))))
+
+        assert result.raised is None
+        assert len(result.items) == ARTICLE_SEARCH_MAX_PAGES
+        assert len(result.requests) == ARTICLE_SEARCH_MAX_PAGES
+        assert result.params("page") == [str(page) for page in range(ARTICLE_SEARCH_MAX_PAGES)]
 
     def test_resumes_from_saved_page_and_window(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _mock_response(200, {"response": {"docs": []}})
-        manager = _FakeResumableManager(NewYorkTimesResumeConfig(page=7, begin_date="20250101"))
-        with (
-            patch.object(new_york_times, "make_tracked_session", return_value=session),
-            patch.object(new_york_times.time, "sleep"),
-        ):
-            list(get_rows("KEY", "article_search", MagicMock(), manager))  # type: ignore[arg-type]
-        called_url = session.get.call_args_list[0].args[0]
-        assert "page=7" in called_url
-        assert "begin_date=20250101" in called_url
+        result = _driver().run(
+            "article_search",
+            [ScriptedResponse(json={"response": {"docs": []}})],
+            resume_state=NewYorkTimesResumeConfig(page=7, begin_date="20250101"),
+        )
+
+        assert result.raised is None
+        assert result.params("page") == ["7"]
+        assert result.params("begin_date") == ["20250101"]
 
     def test_passes_query_and_sort(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _mock_response(200, {"response": {"docs": []}})
-        with (
-            patch.object(new_york_times, "make_tracked_session", return_value=session),
-            patch.object(new_york_times.time, "sleep"),
-            time_machine.travel("2026-07-02", tick=False),
-        ):
-            list(
-                get_rows(
-                    "KEY",
-                    "article_search",
-                    MagicMock(),
-                    _FakeResumableManager(),  # type: ignore[arg-type]
-                    query="climate",
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
-                )
+        with time_machine.travel("2026-07-02", tick=False):
+            result = _driver("climate").run(
+                "article_search",
+                [ScriptedResponse(json={"response": {"docs": []}})],
+                incremental_field="pub_date",
+                db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
             )
-        called_url = session.get.call_args_list[0].args[0]
-        assert "sort=oldest" in called_url
-        assert "q=climate" in called_url
-        assert "begin_date=20260601" in called_url
+
+        assert result.raised is None
+        assert result.params("sort") == ["oldest"]
+        assert result.params("q") == ["climate"]
+        assert result.params("begin_date") == ["20260601"]
 
 
 class TestFetchPageRetry:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
     def test_retryable_statuses_retry(self, _name: str, status_code: int) -> None:
-        bad = _mock_response(status_code, {})
-        good = _mock_response(200, {"results": []})
-        session = MagicMock()
-        session.get.side_effect = [bad, good]
-        with patch.object(new_york_times._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            result = new_york_times._fetch_page(session, "https://api.nytimes.com/x", {}, MagicMock())
-        assert result == {"results": []}
-        assert session.get.call_count == 2
+        result = _driver().run(
+            "top_stories",
+            [ScriptedResponse(status=status_code), ScriptedResponse(json={"results": [{"uri": "u1"}]})],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"uri": "u1"}]
+        assert result.paths == ["/svc/topstories/v2/home.json"] * 2
+
+    @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
+    def test_persistent_retryable_status_raises_retryable_error(self, _name: str, status_code: int) -> None:
+        result = _driver().run("top_stories", always(ScriptedResponse(status=status_code)))
+
+        assert isinstance(result.raised, NewYorkTimesRetryableError)
 
     def test_client_error_raises_without_leaking_api_key(self) -> None:
         # The api-key rides in the query string; a client-error must never surface it in the raised
         # message (it's stored on the schema and shown to users). The message must still start with the
         # non-retryable-error key prefix so the sync stops instead of retrying forever.
-        session = MagicMock()
-        response = requests.Response()
-        response.status_code = 401
-        response.reason = "Unauthorized"
-        session.get.return_value = response
-        url = new_york_times._build_url("/svc/mostpopular/v2/viewed/7.json", "SECRETKEY", {})
-        with pytest.raises(requests.HTTPError) as exc_info:
-            new_york_times._fetch_page(session, url, {}, MagicMock())
-        message = str(exc_info.value)
+        driver = SourceDriver(NewYorkTimesSource(), NewYorkTimesSourceConfig(api_key="SECRETKEY"))
+        result = driver.run("top_stories", [ScriptedResponse(status=401)])
+
+        assert isinstance(result.raised, requests.HTTPError)
+        message = str(result.raised)
         assert "SECRETKEY" not in message
         assert message.startswith("401 Client Error: Unauthorized for url: https://api.nytimes.com")
 
@@ -212,7 +175,11 @@ class TestSourceResponse:
         ]
     )
     def test_response_metadata(self, endpoint: str, primary_keys: list[str], partition_key: str) -> None:
-        response = new_york_times_source("KEY", endpoint, MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
+        body: dict[str, Any] = {"response": {"docs": []}} if endpoint == "article_search" else {"results": []}
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.partition_keys == [partition_key]

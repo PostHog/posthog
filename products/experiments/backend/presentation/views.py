@@ -68,6 +68,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
+from products.experiments.backend.facade.api import get_experiment_health_findings
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
     migrate_experiment as migrate_legacy_experiment,
@@ -94,6 +95,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
+    ExperimentHealthSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
     ExperimentMetricsRecalculationJobSerializer,
@@ -518,6 +520,10 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
+        if self.action == "health":
+            # The facade reads the experiment again with the joins its checks need, so the object lookup
+            # here only checks access.
+            queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
         if self.action == "list":
             # ExperimentBasicSerializer omits metrics/saved_metrics, so drop the saved-metric
             # prefetch and defer the heavy JSON columns. The ?event= filter reads metrics via its
@@ -884,6 +890,23 @@ class EnterpriseExperimentsViewSet(
         service = ExperimentService(team=self.team, user=request.user)
         target = service.get_cleanup_repository_target(experiment)
         return Response(ExperimentFlagCleanupTargetSerializer(target).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentHealthSerializer,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
+    def health(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Health check findings for this experiment: problems in its configuration and its feature flag
+        that keep it from producing trustworthy results, each with a fix.
+
+        The checks here read the experiment, its flag and its linked metrics. The checks that read
+        exposures come with the exposure query.
+        """
+        experiment: Experiment = self.get_object()
+        findings = get_experiment_health_findings(team_id=self.team_id, experiment_id=experiment.id)
+        return Response(ExperimentHealthSerializer({"findings": findings}).data)
 
     @validated_request(
         query_serializer=ExperimentActivityQuerySerializer,
