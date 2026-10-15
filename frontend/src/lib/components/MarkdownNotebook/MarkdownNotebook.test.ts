@@ -9146,6 +9146,31 @@ ${' '}
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${pastedMarkdown}`)
     })
 
+    it.each([
+        ['edit', 'copy'],
+        ['view', 'copy'],
+        ['edit', 'cut'],
+    ] as const)('leaves %s mode %s of text within a table cell to the browser', (mode, eventType) => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: '| Name | Count |\n| --- | --- |\n| Page**view** event | 12 |',
+                mode,
+                onChange,
+            })
+        )
+        const cell = container.querySelectorAll('.MarkdownNotebook__table-cell-content')[2] as HTMLElement
+        selectTextAcrossNodes(getFirstTextNode(cell), 2, getFirstTextNode(cell.querySelector('strong')!), 4)
+        expect(window.getSelection()?.toString()).toBe('geview')
+
+        const clipboardData = { setData: jest.fn() }
+        const defaultAllowed = fireEvent[eventType](cell, { clipboardData })
+
+        expect(defaultAllowed).toBe(true)
+        expect(clipboardData.setData).not.toHaveBeenCalled()
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
     it('copies selected tables as markdown', () => {
         const markdown = `| Name | Count |
 | --- | --- |

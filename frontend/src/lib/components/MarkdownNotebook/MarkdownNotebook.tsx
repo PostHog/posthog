@@ -3543,6 +3543,14 @@ function MarkdownNotebookEditor({
             return
         }
 
+        const tableCell = getSelectedInlineEditableElementOfType(
+            notebookRef.current,
+            'MarkdownNotebook__table-cell-content'
+        )
+        if (tableCell && isSelectionInsideElement(selection, tableCell)) {
+            return
+        }
+
         const notebookElement = notebookRef.current
         const markdown = notebookElement
             ? getSelectedNotebookMarkdown(
@@ -3580,6 +3588,14 @@ function MarkdownNotebookEditor({
 
         const selection = window.getSelection()
         if (getComponentNodeForSelection(selection, documentRef.current.nodes, blockRefs.current)) {
+            return
+        }
+
+        const tableCell = getSelectedInlineEditableElementOfType(
+            notebookRef.current,
+            'MarkdownNotebook__table-cell-content'
+        )
+        if (tableCell && isSelectionInsideElement(selection, tableCell)) {
             return
         }
 
