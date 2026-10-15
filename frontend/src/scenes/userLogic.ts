@@ -14,6 +14,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { clearPendingVerificationEmail } from 'scenes/authentication/shared/verificationCode'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { setGroupIfChanged, setPersonPropertiesIfChanged } from '~/loadPostHogJS'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, NotificationSettings, OrganizationBasicType, UserRole, UserTheme, UserType } from '~/types'
 
@@ -741,7 +742,7 @@ export const userLogic = kea<userLogicType>([
 
                 if (posthog) {
                     posthog.identify(user.distinct_id)
-                    posthog.people.set({
+                    setPersonPropertiesIfChanged(posthog, {
                         email: user.anonymize_data ? null : user.email,
                         realm: user.realm,
                     })
@@ -751,7 +752,7 @@ export const userLogic = kea<userLogicType>([
                     })
 
                     if (user.team) {
-                        posthog.group('project', user.team.uuid, {
+                        setGroupIfChanged(posthog, 'project', user.team.uuid, {
                             id: user.team.id,
                             uuid: user.team.uuid,
                             name: user.team.name,
@@ -763,7 +764,7 @@ export const userLogic = kea<userLogicType>([
                     }
 
                     if (user.organization) {
-                        posthog.group('organization', user.organization.id, {
+                        setGroupIfChanged(posthog, 'organization', user.organization.id, {
                             id: user.organization.id,
                             name: user.organization.name,
                             slug: user.organization.slug,
@@ -775,7 +776,7 @@ export const userLogic = kea<userLogicType>([
                         })
 
                         if (user.organization.customer_id) {
-                            posthog.group('customer', user.organization.customer_id)
+                            setGroupIfChanged(posthog, 'customer', user.organization.customer_id)
                         }
                     }
                 }

@@ -212,6 +212,23 @@ export function yieldToMain(): Promise<void> {
     })
 }
 
+let bootIdle: Promise<void> | null = null
+
+/**
+ * Resolves when the browser is first idle after boot, so requests that no first paint needs wait
+ * for the scene. After that it resolves at once.
+ */
+export function waitForBootIdle(): Promise<void> {
+    bootIdle ??= new Promise((resolve) => {
+        if (typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(() => resolve(), { timeout: 3000 })
+        } else {
+            setTimeout(resolve, 200)
+        }
+    })
+    return bootIdle
+}
+
 export function createSliceYielder(budgetMs: number = 10): (beforeYield?: () => void) => Promise<boolean> {
     let sliceStart = performance.now()
     return async (beforeYield?: () => void): Promise<boolean> => {

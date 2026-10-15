@@ -20,6 +20,7 @@ class TestHomeFolder(APIBaseTest):
         response = self.client.post(self.url)
         self.assertEqual(response.status_code, 200, response.json())
         self.assertEqual(response.json()["path"], "Users/Alex Example")
+        self.assertTrue(response.json()["created"])
         folder = FileSystem.objects.get(team=self.team, id=response.json()["id"])
         self.assertEqual(folder.depth, 2)
         self.assertTrue(FileSystem.objects.filter(team=self.team, path="Users", type="folder").exists())
@@ -27,7 +28,7 @@ class TestHomeFolder(APIBaseTest):
             FileSystemShortcut.objects.get(team=self.team, user=self.user).ref,
             folder.path,
         )
-        self.assertEqual(self.client.post(self.url).json(), response.json())
+        self.assertEqual(self.client.post(self.url).json(), {**response.json(), "created": False})
         self.assertEqual(FileSystem.objects.filter(team=self.team, path=folder.path).count(), 1)
         self.assertEqual(FileSystemShortcut.objects.filter(team=self.team, user=self.user).count(), 1)
 
@@ -54,6 +55,7 @@ class TestHomeFolder(APIBaseTest):
         response = self.client.post(self.url)
         self.assertEqual(response.status_code, 200, response.json())
         self.assertEqual(response.json()["id"], str(folder.id))
+        self.assertFalse(response.json()["created"])
         self.assertFalse(FileSystemShortcut.objects.filter(team=self.team, user=self.user).exists())
 
     def test_same_name_users_get_separate_folders(self) -> None:
