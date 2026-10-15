@@ -10,14 +10,15 @@
 //!
 //! The S3/PVC disaster-recovery e2e
 //! ([`s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant_left`]) additionally
-//! needs an S3-compatible store (MinIO / SeaweedFS). Point it at one with:
+//! needs an S3-compatible store (SeaweedFS). Point it at one with:
 //!
 //! ```sh
 //! export KAFKA_HOSTS=localhost:9092
-//! export CHECKPOINT_S3_ENDPOINT=http://localhost:19000   # MinIO; or :8333 for SeaweedFS
-//! export CHECKPOINT_S3_BUCKET=cohort-checkpoints          # must already exist
-//! export CHECKPOINT_S3_ACCESS_KEY_ID=...                  # MinIO/SeaweedFS creds
-//! export CHECKPOINT_S3_SECRET_ACCESS_KEY=...
+//! export CHECKPOINT_S3_ENDPOINT=http://localhost:8333    # dev `seaweedfs` service (replay profile)
+//! export CHECKPOINT_S3_BUCKET=posthog                     # must already exist
+//! export CHECKPOINT_S3_REGION=us-east-1
+//! export CHECKPOINT_S3_ACCESS_KEY_ID=any                  # open access: any credentials work
+//! export CHECKPOINT_S3_SECRET_ACCESS_KEY=any
 //! cargo test -p cohort-stream-processor --test events_consumer -- --ignored s3_restore
 //! ```
 //!
@@ -1163,7 +1164,7 @@ fn s3_restore_config(
     );
     env.insert("CHECKPOINT_S3_PREFIX".into(), prefix.to_string());
     env.insert("CHECKPOINT_S3_FORCE_PATH_STYLE".into(), "true".into());
-    // S3 connection from the runner's environment (MinIO/SeaweedFS).
+    // S3 connection from the runner's environment (SeaweedFS in dev and CI).
     for key in [
         "CHECKPOINT_S3_BUCKET",
         "CHECKPOINT_S3_ENDPOINT",
