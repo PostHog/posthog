@@ -2031,7 +2031,7 @@ export interface RepoOverviewApi {
      */
     merge_queue_billable_minutes_prev: number | null
     /**
-     * Slice of billable_minutes from jobs that ran on the Depot CI engine (ci_engine = depot_ci); null when the job-level source isn't synced.
+     * Slice of billable_minutes from jobs that ran on the Depot CI engine; null when the job-level source isn't synced.
      * @nullable
      */
     depot_ci_billable_minutes: number | null

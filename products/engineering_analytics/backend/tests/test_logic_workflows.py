@@ -296,6 +296,7 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # included: the merge population that triggered the spend) while the median keeps the
         # locked bots/drafts-excluded recipe, plus job-backed billable minutes, with every
         # chart series empty. The default call keeps the series for the UI.
+
         # 180s, unlike the 120s merge-queue job, so the Depot CI slice cannot pass by reading the queue slice.
         depot_started, depot_completed = _ago_with_duration(2, 180)
         self._create_depot_table(
