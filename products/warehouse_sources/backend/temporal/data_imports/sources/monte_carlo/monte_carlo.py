@@ -41,6 +41,10 @@ DBT_TEST_RESULTS_OVERLAP = timedelta(days=2)
 JOB_EXECUTIONS_OVERLAP = timedelta(days=1)
 
 
+# (after, before) bounds of one time-range query.
+Window = tuple[datetime, datetime]
+
+
 class MonteCarloRetryableError(Exception):
     pass
 
@@ -268,7 +272,7 @@ def _resumed_windows(
     resume: MonteCarloResumeConfig | None,
     logger: FilteringBoundLogger,
     name: str,
-) -> tuple[list[tuple[datetime, datetime]], str | None]:
+) -> tuple[list[Window], str | None]:
     """Windows to walk from `start` (or the resumed window) to now, plus the cursor to resume the first one from."""
     resume_cursor: str | None = None
     pinned_before: datetime | None = None
