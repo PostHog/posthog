@@ -48,7 +48,7 @@ from posthog.products import is_product_module
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
 from products.authz.backend.facade import api as authz
 from products.authz.backend.facade.enums import ResourceType
 
@@ -394,8 +394,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         if self.scope_object == "dashboard":
             return filter_dashboard_queryset(self.request.user, queryset)
-        if self.scope_object == "insight":
-            return filter_resource_queryset(self.request.user, queryset, ResourceType.INSIGHT)
+        if self.scope_object in ACCESS_CONTROL_RESOURCES:
+            return filter_resource_queryset(self.request.user, queryset, ResourceType(self.scope_object))
 
         # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
         include_all_if_admin = self.request.GET.get("admin_include_all") == "true"

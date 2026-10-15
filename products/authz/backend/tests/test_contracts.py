@@ -5,7 +5,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.authz.backend.facade.contracts import Resource, ResourceIds, Subject
+from products.authz.backend.facade.contracts import ObjectIds, Resource, Subject
 from products.authz.backend.facade.enums import ResourceType
 
 PROJECT = Resource(type=ResourceType.PROJECT, id="1")
@@ -31,16 +31,16 @@ class TestSubject(SimpleTestCase):
 class TestResourceIds(SimpleTestCase):
     @parameterized.expand(
         [
-            ("only", ResourceIds(ids=frozenset({"1"}), complete=True), True, False, False),
-            ("except", ResourceIds(ids=frozenset({"1"}), complete=True, excluded=True), False, True, True),
-            ("all", ResourceIds(ids=frozenset(), complete=True, excluded=True), True, True, True),
-            ("none", ResourceIds(ids=frozenset(), complete=True), False, False, False),
-            ("creator", ResourceIds(ids=frozenset(), complete=True, creator_exempt=True), False, False, True),
-            ("capped_creator", ResourceIds(ids=frozenset(), complete=False, creator_exempt=True), False, False, False),
+            ("only", ObjectIds(ids=frozenset({"1"}), complete=True), True, False, False),
+            ("except", ObjectIds(ids=frozenset({"1"}), complete=True, excluded=True), False, True, True),
+            ("all", ObjectIds(ids=frozenset(), complete=True, excluded=True), True, True, True),
+            ("none", ObjectIds(ids=frozenset(), complete=True), False, False, False),
+            ("creator", ObjectIds(ids=frozenset(), complete=True, creator_exempt=True), False, False, True),
+            ("capped_creator", ObjectIds(ids=frozenset(), complete=False, creator_exempt=True), False, False, False),
         ]
     )
     def test_membership_and_creator_exemption(
-        self, _name: str, result: ResourceIds, first: bool, other: bool, own: bool
+        self, _name: str, result: ObjectIds, first: bool, other: bool, own: bool
     ) -> None:
         assert result.allows("1") is first
         assert result.allows("2", created_by_user_id=None, subject_user_id=1) is other

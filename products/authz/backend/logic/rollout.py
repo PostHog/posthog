@@ -9,7 +9,7 @@ from posthog.ph_client import get_feature_flag_or_none
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
-from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
+from ..facade.contracts import CheckRequest, Context, ObjectIds, Resource, Subject
 from ..facade.enums import Action, ResourceType
 from . import authorization, legacy_authorization
 
@@ -100,7 +100,7 @@ def permissions(resource: Resource, subject: Subject | None, context: Context | 
     return frozenset(action for action, allowed in zip(actions, results, strict=True) if allowed)
 
 
-def list_resources(
+def list_objects(
     resource: Resource,
     action: Action,
     subject: Subject | None,
@@ -108,26 +108,26 @@ def list_resources(
     limit: int | None,
     creator_exempt: bool = False,
     user_access_control: UserAccessControl | None = None,
-) -> ResourceIds:
+) -> ObjectIds:
     authorization.validate_context(context)
     authorization.actor_key(subject)
     org_id = _organization_id(resource, user_access_control)
     is_share_link = subject is not None and subject.share_link_id is not None
     rollout_mode = "v2" if is_share_link else mode(org_id, resource.type)
 
-    def legacy() -> ResourceIds:
-        return legacy_authorization.list_resources(
+    def legacy() -> ObjectIds:
+        return legacy_authorization.list_objects(
             resource, action, subject, context, limit, creator_exempt, user_access_control
         )
 
-    def openfga() -> ResourceIds:
-        return authorization.list_resources(resource, action, subject, context, limit)
+    def openfga() -> ObjectIds:
+        return authorization.list_objects(resource, action, subject, context, limit)
 
     primary, secondary = (openfga, legacy) if rollout_mode == "v2" else (legacy, openfga)
     result = primary()
     if rollout_mode == "v1" or is_share_link:
         return result
-    comparison: ResourceIds | None = None
+    comparison: ObjectIds | None = None
     try:
         comparison = secondary()
     except Exception as error:

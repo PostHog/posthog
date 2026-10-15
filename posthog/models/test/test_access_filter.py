@@ -5,7 +5,7 @@ from parameterized import parameterized
 from posthog.models import Team, User
 from posthog.models.access_filter import apply_filter, filter_q
 
-from products.authz.backend.facade.contracts import ResourceIds
+from products.authz.backend.facade.contracts import ObjectIds
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -30,7 +30,7 @@ class TestQuerysetAccessFilter(BaseTest):
         ]
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         FeatureFlag.objects.create(team=other_team, key="other-project", created_by=self.user)
-        result = ResourceIds(
+        result = ObjectIds(
             ids=frozenset({str(flags[0].pk)}) if complete else frozenset(),
             excluded=excluded,
             complete=complete,

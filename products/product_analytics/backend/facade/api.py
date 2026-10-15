@@ -130,6 +130,10 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
 
 
+def active_authorization_insight_ids(team_id: int, ids: Collection[str]) -> frozenset[str]:
+    return logic.active_authorization_insight_ids(team_id, ids)
+
+
 def authorization_insights(team_id: int, insight_ids: Collection[int] | None = None) -> list[AuthorizationInsight]:
     return logic.authorization_insights(team_id, insight_ids)
 

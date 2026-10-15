@@ -162,9 +162,9 @@ class TestOpenFgaDashboardMirror(BaseTest):
             action in expected for action in actions
         ]
         assert api.permissions(resource=resource, subject=actor) == expected
-        listed = api.list_resources(resource=self._resource(), action=Action.VIEW, subject=actor)
+        listed = api.list_objects(resource=self._resource(), action=Action.VIEW, subject=actor)
         assert listed.complete
-        assert listed.allows(str(id)) == (Action.VIEW in expected)
+        assert (str(id) in listed.ids) == (Action.VIEW in expected)
 
     def test_viewer_default_with_member_editor_grant_on_only_one_dashboard(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):
@@ -180,19 +180,18 @@ class TestOpenFgaDashboardMirror(BaseTest):
         self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["editor"])
         for dashboard_id in (self.second_dashboard_id, third_dashboard_id):
             self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["viewer"], dashboard_id=dashboard_id)
-        viewable = api.list_resources(resource=self._resource(), action=Action.VIEW, subject=self.subject)
-        assert viewable.complete and all(
-            viewable.allows(str(id)) for id in (self.dashboard_id, self.second_dashboard_id, third_dashboard_id)
+        viewable = api.list_objects(resource=self._resource(), action=Action.VIEW, subject=self.subject)
+        assert viewable.complete and viewable.ids == frozenset(
+            str(id) for id in (self.dashboard_id, self.second_dashboard_id, third_dashboard_id)
         )
-        editable = api.list_resources(resource=self._resource(), action=Action.EDIT, subject=self.subject)
-        assert editable.complete and editable.allows(str(self.dashboard_id))
-        assert not editable.allows(str(self.second_dashboard_id))
+        editable = api.list_objects(resource=self._resource(), action=Action.EDIT, subject=self.subject)
+        assert editable.complete and editable.ids == frozenset({str(self.dashboard_id)})
         self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["viewer"], subject=Subject(user_id=another_reader.id))
 
         self._grant(None)
         self._assert_dashboard_permissions(DASHBOARD_PERMISSIONS["viewer"])
-        editable = api.list_resources(resource=self._resource(), action=Action.EDIT, subject=self.subject)
-        assert editable.complete and not editable.allows(str(self.dashboard_id))
+        editable = api.list_objects(resource=self._resource(), action=Action.EDIT, subject=self.subject)
+        assert editable.complete and not editable.ids
 
     def test_playlist_category_inherits_recording_grants_and_revocations(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):
@@ -246,7 +245,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
         self._grant("viewer", resource="insight", resource_id=insight.id)
         assert api.check(resource=resource, action=Action.VIEW, subject=self.subject)
         assert not api.check(resource=resource, action=Action.EDIT, subject=self.subject)
-        listed = api.list_resources(resource=insight_resource, action=Action.VIEW, subject=self.subject)
+        listed = api.list_objects(resource=insight_resource, action=Action.VIEW, subject=self.subject)
         assert listed.complete and listed.ids == frozenset({str(insight.id)})
 
         self._grant("editor", resource="insight", resource_id=insight.id)
@@ -334,7 +333,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
                     action=Action.VIEW,
                     subject=subject,
                 )
-                listed = api.list_resources(
+                listed = api.list_objects(
                     resource=Resource(type=ResourceType.INSIGHT, project_id=self.team.id),
                     action=Action.VIEW,
                     subject=subject,
@@ -448,9 +447,8 @@ class TestOpenFgaDashboardMirror(BaseTest):
         assert api.permissions(resource=self._resource(self.dashboard_id), subject=self.subject) == frozenset(
             {Action.VIEW}
         )
-        listed = api.list_resources(resource=self._resource(), action=Action.VIEW, subject=self.subject)
-        assert listed.complete and listed.allows(str(self.dashboard_id))
-        assert not listed.allows(str(self.second_dashboard_id))
+        listed = api.list_objects(resource=self._resource(), action=Action.VIEW, subject=self.subject)
+        assert listed.complete and listed.ids == frozenset({str(self.dashboard_id)})
         assert not api.check(resource=self._resource(), action=Action.CREATE, subject=self.subject)
 
         self._grant("editor")
@@ -480,8 +478,10 @@ class TestOpenFgaDashboardMirror(BaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             other_team = Team.objects.create(organization=self.organization, name="Other project")
             dashboard_testing.create_dashboard(team_id=other_team.id, created_by_id=self.user.id)
-        listed = api.list_resources(resource=self._resource(), action=Action.VIEW, subject=self.subject)
-        assert listed.complete and all(listed.allows(str(id)) for id in (self.dashboard_id, self.second_dashboard_id))
+        listed = api.list_objects(resource=self._resource(), action=Action.VIEW, subject=self.subject)
+        assert listed.complete and listed.ids == frozenset({str(self.dashboard_id), str(self.second_dashboard_id)})
+        capped = api.list_objects(resource=self._resource(), action=Action.VIEW, subject=self.subject, limit=1)
+        assert not capped.complete and not capped.ids
         assert not api.check(
             resource=self._resource(self.dashboard_id, other_team.id), action=Action.VIEW, subject=self.subject
         )
@@ -489,6 +489,14 @@ class TestOpenFgaDashboardMirror(BaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             dashboard_testing.set_dashboard_deleted(team_id=self.team.id, dashboard_id=self.dashboard_id, deleted=True)
         assert self._check(Action.EDIT)
+        assert (
+            str(self.dashboard_id)
+            not in api.list_objects(
+                resource=Resource(type=ResourceType.DASHBOARD, project_id=self.team.id),
+                action=Action.VIEW,
+                subject=self.subject,
+            ).ids
+        )
         with self.captureOnCommitCallbacks(execute=True):
             dashboard_testing.set_dashboard_deleted(team_id=self.team.id, dashboard_id=self.dashboard_id, deleted=False)
         assert self._check(Action.EDIT)
@@ -953,7 +961,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
                 for id in sorted(expected_ids)
             ]
         ) == [True] * len(expected_ids)
-        listed = api.list_resources(
+        listed = api.list_objects(
             resource=self._resource(), action=Action.VIEW, subject=self.subject, limit=len(expected_ids)
         )
-        assert listed.complete and all(listed.allows(str(id)) for id in expected_ids)
+        assert listed.complete and listed.ids == frozenset(str(id) for id in expected_ids)

@@ -8,7 +8,7 @@ from parameterized import parameterized
 from structlog.testing import capture_logs
 
 from products.authz.backend.facade import api
-from products.authz.backend.facade.contracts import CheckRequest, Resource, ResourceIds, Subject
+from products.authz.backend.facade.contracts import CheckRequest, ObjectIds, Resource, Subject
 from products.authz.backend.facade.enums import Action, ResourceType
 
 
@@ -73,7 +73,7 @@ class TestAuthorizationRollout(SimpleTestCase):
         [
             (f"{variant}_{operation}", variant, operation)
             for variant in ("v1-shadow-log", "v2")
-            for operation in ("check", "list_resources")
+            for operation in ("check", "list_objects")
         ]
     )
     def test_comparison_error_does_not_change_authoritative_decision(
@@ -81,7 +81,7 @@ class TestAuthorizationRollout(SimpleTestCase):
     ) -> None:
         primary = "authorization" if variant == "v2" else "legacy_authorization"
         secondary = "legacy_authorization" if variant == "v2" else "authorization"
-        listed = ResourceIds(ids=frozenset({"1"}), complete=True)
+        listed = ObjectIds(ids=frozenset({"1"}), complete=True)
         with (
             patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value=variant),
             patch(
@@ -94,7 +94,7 @@ class TestAuthorizationRollout(SimpleTestCase):
             if operation == "check":
                 assert api.check(resource=self.resource, action=Action.VIEW, subject=self.subject)
             else:
-                assert api.list_resources(resource=self.resource, action=Action.VIEW, subject=self.subject) == listed
+                assert api.list_objects(resource=self.resource, action=Action.VIEW, subject=self.subject) == listed
         assert logs[0]["event"] == ("authz_shadow_check_failed" if operation == "check" else "authz_shadow_list_failed")
         assert logs[1]["matches"] is None
 
@@ -147,17 +147,15 @@ class TestAuthorizationRollout(SimpleTestCase):
 
     @parameterized.expand([("v1", "v1"), ("shadow", "v1-shadow-log"), ("v2", "v2")])
     def test_lists_use_the_same_rollout_mode(self, _name: str, variant: str) -> None:
-        v1 = ResourceIds(ids=frozenset({"1"}), complete=True)
-        v2 = ResourceIds(ids=frozenset(), complete=False)
+        v1 = ObjectIds(ids=frozenset({"1"}), complete=True)
+        v2 = ObjectIds(ids=frozenset(), complete=False)
         with (
             patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value=variant),
-            patch("products.authz.backend.logic.legacy_authorization.list_resources", autospec=True, return_value=v1),
-            patch(
-                "products.authz.backend.logic.authorization.list_resources", autospec=True, return_value=v2
-            ) as openfga,
+            patch("products.authz.backend.logic.legacy_authorization.list_objects", autospec=True, return_value=v1),
+            patch("products.authz.backend.logic.authorization.list_objects", autospec=True, return_value=v2) as openfga,
             capture_logs() as logs,
         ):
-            assert api.list_resources(resource=self.resource, action=Action.VIEW, subject=self.subject) == (
+            assert api.list_objects(resource=self.resource, action=Action.VIEW, subject=self.subject) == (
                 v2 if variant == "v2" else v1
             )
         if variant == "v1":

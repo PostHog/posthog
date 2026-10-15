@@ -288,31 +288,21 @@ Create the flag with these variant keys before testing a rollout.
 
 - `check` supports a single action or an ordered batch of requests.
 - `permissions` uses the same routed checks to return the supported actions the user can take.
-- `list_resources` returns a project-scoped `ResourceIds` filter.
-  With `excluded=False`, only `ids` are allowed; with `excluded=True`, everything except `ids` is allowed.
-  Django adapters apply the filter to an already tenant-scoped queryset before pagination.
-  `complete=False` denies every row, including rows created by the subject.
-  The default cap is 1,000 IDs; `limit` changes it.
-  Read lists use sparse object overrides when access is granted at the resource level.
-  Dashboard write lists evaluate the full permission, including collaborator restrictions.
+- `list_objects` returns authorized dashboard or insight IDs scoped to the requested project.
+  Legacy mode evaluates the existing object and collaborator checks; OpenFGA mode streams authorized IDs.
+  A supplied limit returns an empty, incomplete result if exceeded.
+- HogQL uses `list_objects(action=Action.QUERY)` and ordinary API lists use `list_objects(action=Action.LIST)` to request a project-scoped filter.
+  `excluded=False` includes only the returned IDs; `excluded=True` excludes those IDs.
+  A permitted `creator_exempt` adds creator-owned rows within the existing tenant scope.
+  Incomplete filters deny every row. Query filters default to a 1,000-ID cap; `limit` overrides it.
+  Existing view and write callers retain the PoC's inclusion-only results.
+  The existing viewset list hook applies the filter through `posthog/models/access_filter.py` before pagination.
+  Custom actions and individual-object checks keep their existing enforcement paths.
 - `dangerous_query_relation` always checks OpenFGA directly for debugging, independently of the rollout flag.
 
-The OpenFGA pilot supports dashboards and insights, their resource types, projects, organizations, and roles.
+The pilot supports dashboard and insight objects, their resource types, projects, organizations, and roles.
 It does not replace API scope checks, reauthentication, or other request-specific enforcement.
 Shadow comparisons run synchronously after the authoritative check.
-
-The feature-flag viewset uses `AuthzViewSetMixin` and `posthog.models.access_filter.apply_filter`.
-The adapter uses the same SDK result for queryset filtering and per-object permissions.
-
-The OpenFGA model implements most-specific resolution.
-Within one policy, a member rule wins over the highest matching role, which wins over the policy's default.
-An explicit `none` counts as a rule and prevents fallback.
-An object's policy takes precedence over the resource category's policy, regardless of which subject supplied either rule.
-Project membership still gates access; creator and organization-admin grants remain separate exceptions.
-
-Shadow list comparisons report `matches=null` when the engines use different inclusion/exclusion or creator representations.
-Comparing those representations requires object IDs and creator data; raw set equality cannot establish permission parity.
-
 `authz_decision_comparison` logs both decisions, whether they match, the rollout mode, and the user/resource identifiers.
 `authz_resource_list_comparison` logs counts, completeness, and whether the results match, without logging the returned IDs.
 A failed comparison logs an error type and a comparison with `matches=null`; it does not change the authoritative result.

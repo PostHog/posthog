@@ -1,4 +1,4 @@
-"""Apply an authz `ResourceIds` result to a Django QuerySet.
+"""Apply an authz `ObjectIds` result to a Django QuerySet.
 
 The result carries the decision; this module only translates it. It knows the column names,
 which the authz facade must not, so it lives next to the ORM instead of inside the product.
@@ -8,13 +8,13 @@ from typing import TypeVar
 
 from django.db.models import Model, Q, QuerySet
 
-from products.authz.backend.facade.contracts import ResourceIds
+from products.authz.backend.facade.contracts import ObjectIds
 
 M = TypeVar("M", bound=Model)
 
 
 def filter_q(
-    result: ResourceIds,
+    result: ObjectIds,
     *,
     id_field: str = "id",
     creator_field: str | None = "created_by",
@@ -38,7 +38,7 @@ def filter_q(
 
 def apply_filter(
     queryset: QuerySet[M],
-    result: ResourceIds,
+    result: ObjectIds,
     *,
     id_field: str = "id",
     creator_field: str | None = "created_by",

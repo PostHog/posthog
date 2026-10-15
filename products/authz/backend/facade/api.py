@@ -87,7 +87,7 @@ def permissions(
     return rollout.permissions(resource, subject, context)
 
 
-def list_resources(
+def list_objects(
     *,
     resource: contracts.Resource,
     action: Action,
@@ -96,19 +96,15 @@ def list_resources(
     limit: int | None = None,
     creator_exempt: bool = False,
     user_access_control: UserAccessControl | None = None,
-) -> contracts.ResourceIds:
-    """Return the `resource.type` resources in its project that the subject may take the action on.
+) -> contracts.ObjectIds:
+    """Return project-scoped IDs for the requested action.
 
-    The result names the few resources that differ from the rest: the allowed ones, or with `excluded`
-    the denied ones. Translate it into the caller's query language, or use `result.allows(id)`
-    for one object. Set `creator_exempt` when the rows have a creator
-    column and the subject keeps its own rows. When `complete` is False the list was capped, so fail
-    closed and return nothing.
-
-    Pass the request's `user_access_control` when you hold one outside an `authorization_session`, so
-    the legacy rules are not loaded again. It goes away once every caller runs inside a session.
+    LIST and QUERY return an inclusion or exclusion filter for rows. A complete result with
+    `excluded=True` allows every ID except those returned. Other actions retain inclusion-only IDs.
+    An incomplete result allows nothing. `creator_exempt` requests a creator predicate only when
+    the selected engine permits it. `user_access_control` reuses the caller's legacy rule preload.
     """
-    return rollout.list_resources(resource, action, subject, context, limit, creator_exempt, user_access_control)
+    return rollout.list_objects(resource, action, subject, context, limit, creator_exempt, user_access_control)
 
 
 def list_subjects(

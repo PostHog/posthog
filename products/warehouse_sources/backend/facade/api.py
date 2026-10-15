@@ -88,7 +88,6 @@ __all__ = [
     "resolve_object_by_name",
     "direct_access_table_ids",
     "allowed_table_ids",
-    "queryable_table_ids",
     "all_queryable_tables",
     "all_queryable_table_columns",
     "list_tables_for_source",
@@ -472,10 +471,6 @@ def direct_access_table_ids(team_id: int) -> set[UUID]:
         .values_list("id", flat=True)
     )
     return set(rows)
-
-
-def queryable_table_ids(team_id: int) -> frozenset[UUID]:
-    return frozenset(_DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id).values_list("id", flat=True))
 
 
 def allowed_table_ids(

@@ -180,7 +180,6 @@ from posthog.schema_enums import (
     PersonsOnEventsMode,
     SessionTableVersion,
 )
-from posthog.scopes import APIScopeObject
 from posthog.synthetic_user import SyntheticUser
 from posthog.week_start_day import WeekStartDay
 
@@ -741,10 +740,7 @@ def _compute_system_table_access_decision(
     from posthog.models.organization import OrganizationMembership  # noqa: PLC0415
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
-    from products.access_control.backend.facade.user_access_control import (  # noqa: PLC0415
-        NO_ACCESS_LEVEL,
-        UserAccessControl,
-    )
+    from products.access_control.backend.facade.user_access_control import UserAccessControl  # noqa: PLC0415
 
     scoped_tables = _scoped_system_tables()
     allowed_system_table_names = frozenset(allowed_system_tables or ())
@@ -777,22 +773,23 @@ def _compute_system_table_access_decision(
     if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
         return user_access_control, unentitled
 
-    # Resources the user holds object-level grants on despite having no resource-level access. REST
-    # serves those routes and narrows the rows to the grants; the printer guard does the same, so the
-    # table stays queryable here instead of disappearing (see build_access_control_guard).
-    allowlisted_scopes = user_access_control.allowlisted_resource_ids_by_scope
+    from products.authz.backend.facade import api as authz  # noqa: PLC0415
+    from products.authz.backend.facade.contracts import Resource, Subject  # noqa: PLC0415
+    from products.authz.backend.facade.enums import Action, ResourceType  # noqa: PLC0415
 
     denied: set[str] = set(unentitled)
     for name, table in scoped_tables.items():
-        access_scope = cast(APIScopeObject, table.access_scope)
-        access = user_access_control.access_level_for_resource(access_scope)
-        if access and access.access_level != NO_ACCESS_LEVEL:
-            continue  # User has access, keep it
-        # Keep the table only when the guard can actually narrow its rows to the grant, so a table
-        # whose ids don't key those grants (resource_level_access_only) still fails closed.
-        if access_scope in allowlisted_scopes and table.access_control_id is not None:
-            continue
-        denied.add(name)
+        result = authz.list_objects(
+            resource=Resource(type=ResourceType(cast(str, table.access_scope)), project_id=team.id),
+            action=Action.QUERY,
+            subject=Subject(user_id=user.pk),
+            user_access_control=user_access_control,
+        )
+        # A table whose rows the guard cannot narrow (no id column) only stays when nothing is restricted.
+        if not result.complete or not (result.ids or result.excluded):
+            denied.add(name)
+        elif result.restricts and table.access_control_id is None:
+            denied.add(name)
 
     return user_access_control, denied
 

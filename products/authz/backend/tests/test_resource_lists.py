@@ -27,7 +27,7 @@ class TestOpenFgaResourceLists(SimpleTestCase):
         self.enterContext(patch("products.authz.backend.logic.authorization.organization_id", return_value=self.org_id))
         self.enterContext(patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value="v2"))
         self.legacy = self.enterContext(
-            patch("products.authz.backend.logic.legacy_authorization.list_resources", autospec=True)
+            patch("products.authz.backend.logic.legacy_authorization.list_objects", autospec=True)
         )
 
     def stream(self, ids: list[str]) -> MagicMock:
@@ -36,7 +36,7 @@ class TestOpenFgaResourceLists(SimpleTestCase):
         self.fga_client.streamed_list_objects.return_value = stream
         return stream
 
-    @parameterized.expand([("view", Action.VIEW), ("list", Action.LIST), ("query", Action.QUERY)])
+    @parameterized.expand([("query", Action.QUERY), ("list", Action.LIST)])
     def test_default_allow_excludes_denied_overrides(self, _name: str, action: Action) -> None:
         self.fga_client.check.return_value.allowed = True
         self.stream([self.prefix + "1", self.prefix + "2", f"dashboard:{self.org_id}/2/3"])
@@ -44,29 +44,25 @@ class TestOpenFgaResourceLists(SimpleTestCase):
             SimpleNamespace(allowed=False, error=None),
             SimpleNamespace(allowed=True, error=None),
         ]
-        result = api.list_resources(resource=self.resource, action=action, subject=self.subject)
+        result = api.list_objects(resource=self.resource, action=action, subject=self.subject)
         assert result.complete and result.excluded
         assert not result.allows("1")
         assert result.allows("2") and result.allows("3")
 
     @parameterized.expand(
-        [("edit", Action.EDIT), ("delete", Action.DELETE), ("share", Action.SHARE), ("manage", Action.MANAGE_ACCESS)]
+        [
+            (f"{action}_{allowed}", action, allowed)
+            for action in (Action.QUERY, Action.LIST)
+            for allowed in (False, True)
+        ]
     )
-    def test_write_lists_use_the_full_object_permission(self, _name: str, action: Action) -> None:
-        self.fga_client.check.return_value.allowed = True
-        self.stream([self.prefix + "2"])
-        result = api.list_resources(resource=self.resource, action=action, subject=self.subject, creator_exempt=True)
-        assert result.complete and not result.excluded
-        assert result.allows("2")
-        assert not result.allows("1", created_by_user_id=1, subject_user_id=1)
-        assert self.fga_client.streamed_list_objects.call_args.args[0].relation == f"can_{action}"
-
-    @parameterized.expand([("grants", False), ("overrides", True)])
-    def test_capped_lists_fail_closed_and_close_stream(self, _name: str, category_allowed: bool) -> None:
+    def test_capped_lists_fail_closed_and_close_stream(
+        self, _name: str, action: Action, category_allowed: bool
+    ) -> None:
         self.fga_client.check.return_value.allowed = category_allowed
         stream = self.stream([self.prefix + "1", self.prefix + "2"])
-        result = api.list_resources(
-            resource=self.resource, action=Action.VIEW, subject=self.subject, limit=1, creator_exempt=True
+        result = api.list_objects(
+            resource=self.resource, action=action, subject=self.subject, limit=1, creator_exempt=True
         )
         assert not result.complete
         assert not result.allows("1", created_by_user_id=1, subject_user_id=1)
@@ -75,8 +71,8 @@ class TestOpenFgaResourceLists(SimpleTestCase):
     def test_project_denial_does_not_gain_a_creator_exemption(self) -> None:
         self.fga_client.check.return_value.allowed = False
         self.stream([])
-        result = api.list_resources(
-            resource=self.resource, action=Action.VIEW, subject=self.subject, creator_exempt=True
+        result = api.list_objects(
+            resource=self.resource, action=Action.QUERY, subject=self.subject, creator_exempt=True
         )
         assert not result.allows("1", created_by_user_id=1, subject_user_id=1)
 
@@ -84,14 +80,14 @@ class TestOpenFgaResourceLists(SimpleTestCase):
         self.fga_client.check.return_value.allowed = True
         self.stream([])
         with patch.object(authorization, "ready_state", side_effect=[b"ready:1", b"ready:2"]):
-            result = api.list_resources(resource=self.resource, action=Action.VIEW, subject=self.subject)
+            result = api.list_objects(resource=self.resource, action=Action.QUERY, subject=self.subject)
         assert not result.complete and not result.allows("1")
 
     def test_share_link_lists_use_fga_without_legacy_shadow(self) -> None:
         self.fga_client.check.return_value.allowed = False
         self.stream([self.prefix + "2"])
         with patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value="v1"):
-            result = api.list_resources(resource=self.resource, action=Action.VIEW, subject=Subject(share_link_id=7))
+            result = api.list_objects(resource=self.resource, action=Action.QUERY, subject=Subject(share_link_id=7))
         assert result.complete and result.allows("2") and not result.allows("1")
         assert self.fga_client.streamed_list_objects.call_args.args[0].user == "share_link:7"
         self.legacy.assert_not_called()

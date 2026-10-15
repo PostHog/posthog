@@ -118,7 +118,7 @@ class DeleteRelationshipRequest:
 
 
 @dataclass(frozen=True, kw_only=True)
-class ResourceIds:
+class ObjectIds:
     """The resources of one type a subject may act on, as the short list that differs from the rest.
 
     `excluded=False`: `ids` are the only resources allowed. `excluded=True`: every resource except `ids`
