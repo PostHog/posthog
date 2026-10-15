@@ -381,7 +381,9 @@ function reportFor(briefing: DemoBriefing, anchor: Date): ReportView {
 function itemFor(briefing: DemoBriefing, anchor: Date): InboxItem {
     const hasAgent = briefing.kind === 'decision' || briefing.kind === 'pr_ready'
     const task = taskFor(briefing)
-    const pullRequestUrl = workFor(briefing).pullRequests?.[0]?.url
+    const pullRequest = workFor(briefing).pullRequests?.[0]
+    const pullRequestUrl = pullRequest?.url
+    const pullRequestState = pullRequest?.state
     return {
         id: briefing.id,
         reportId: briefing.id,
@@ -397,6 +399,7 @@ function itemFor(briefing: DemoBriefing, anchor: Date): InboxItem {
         ...(hasAgent ? { agent: { ...DEMO_AGENT } } : {}),
         ...(task?.stage ? { progressLabel: task.stage } : {}),
         ...(pullRequestUrl ? { pullRequestUrl } : {}),
+        ...(pullRequestState ? { pullRequestState } : {}),
     }
 }
 

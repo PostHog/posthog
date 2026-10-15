@@ -5,7 +5,7 @@ import { track } from '@/lib/analytics'
 import { formatRelativeAgo } from '@/lib/dates'
 import { pullRequestNumber } from '@/model/adapters/report'
 import { sourceInfo } from '@/model/sources'
-import type { InboxItem } from '@/model/types'
+import type { InboxItem, PullRequestView } from '@/model/types'
 import { IconTile } from '@/ui/IconTile'
 import { GitBranchIcon } from '@/ui/icons/GitBranchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
@@ -19,6 +19,37 @@ import { useRowMenuTrigger } from './useRowMenuTrigger'
 const MARK_READ_ACTION: AccessibilityActionInfo = { name: 'mark_read', label: 'Mark as read' }
 const MARK_UNREAD_ACTION: AccessibilityActionInfo = { name: 'mark_unread', label: 'Mark as unread' }
 const PR_ICON_SIZE = 11
+
+interface BadgeColors {
+    text: string
+    border: string
+}
+
+// Matches the web inbox: green for open, purple for merged, gray for draft, closed and unknown.
+const PR_STATE_COLORS: Partial<Record<PullRequestView['state'], BadgeColors>> = {
+    open: { text: colors.diffGreen, border: colors.diffGreenBorder },
+    merged: { text: colors.purple, border: colors.purpleBorder },
+}
+const PR_STATE_LABELS: Partial<Record<PullRequestView['state'], string>> = {
+    open: 'open',
+    merged: 'merged',
+}
+
+function badgeColors(state: PullRequestView['state'] | undefined, muted: boolean): BadgeColors {
+    const stateColors = muted || !state ? undefined : PR_STATE_COLORS[state]
+    if (stateColors) {
+        return stateColors
+    }
+    return { text: muted ? colors.tertiary : colors.secondary, border: colors.border }
+}
+
+function prLabel(prNumber: number | undefined, state: PullRequestView['state'] | undefined): string {
+    if (prNumber === undefined) {
+        return ''
+    }
+    const stateWord = state ? PR_STATE_LABELS[state] : undefined
+    return `, PR #${prNumber}${stateWord ? ` ${stateWord}` : ''}`
+}
 
 interface InboxRowProps {
     item: InboxItem
@@ -56,6 +87,7 @@ export const InboxRow = memo(function InboxRow({
     const when =
         item.state === 'snoozed' && item.snoozeLabel ? item.snoozeLabel : formatRelativeAgo(item.updatedAt, now)
     const prNumber = item.pullRequestUrl ? pullRequestNumber(item.pullRequestUrl) : undefined
+    const badge = badgeColors(item.pullRequestState, muted)
     return (
         <SwipeToReadRow onMarkRead={() => swipe(true)} onMarkUnread={() => swipe(false)}>
             {(pressBlocked) => (
@@ -70,7 +102,7 @@ export const InboxRow = memo(function InboxRow({
                     }}
                     pressedBackground={colors.sunken}
                     style={styles.row}
-                    accessibilityLabel={`${item.title}, ${item.sourceLabel}${prNumber === undefined ? '' : `, PR #${prNumber}`}, ${when}${!item.read ? ', unread' : ''}${item.needsInput ? ', needs your input' : ''}`}
+                    accessibilityLabel={`${item.title}, ${item.sourceLabel}${prLabel(prNumber, item.pullRequestState)}, ${when}${!item.read ? ', unread' : ''}${item.needsInput ? ', needs your input' : ''}`}
                     testID={`inbox-row-${item.reportId}`}
                 >
                     <IconTile muted={muted} needsInput={item.needsInput}>
@@ -90,13 +122,12 @@ export const InboxRow = memo(function InboxRow({
                             <View style={styles.dot} />
                             {prNumber === undefined ? null : (
                                 <>
-                                    <View style={styles.prBadge} testID={`inbox-pr-${item.reportId}`}>
-                                        <GitBranchIcon
-                                            size={PR_ICON_SIZE}
-                                            strokeWidth={2}
-                                            color={muted ? colors.tertiary : colors.secondary}
-                                        />
-                                        <Text style={[styles.prText, muted && styles.mutedTitle]} numberOfLines={1}>
+                                    <View
+                                        style={[styles.prBadge, { borderColor: badge.border }]}
+                                        testID={`inbox-pr-${item.reportId}`}
+                                    >
+                                        <GitBranchIcon size={PR_ICON_SIZE} strokeWidth={2} color={badge.text} />
+                                        <Text style={[styles.prText, { color: badge.text }]} numberOfLines={1}>
                                             #{prNumber}
                                         </Text>
                                     </View>
@@ -162,14 +193,12 @@ const styles = StyleSheet.create({
         flexShrink: 0,
         paddingHorizontal: 5,
         borderWidth: 1,
-        borderColor: colors.border,
         borderRadius: radii.pill,
     },
     prText: {
         ...type.meta,
         lineHeight: 14,
         fontWeight: '500',
-        color: colors.secondary,
     },
     dot: {
         width: 3,

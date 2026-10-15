@@ -463,6 +463,10 @@ export function primaryPullRequestUrl(report: SignalReportApi): string | undefin
     return primaryPullRequest(report)?.url ?? report.implementation_pr_url ?? undefined
 }
 
+export function primaryPullRequestState(report: SignalReportApi): PullRequestView['state'] | undefined {
+    return pullRequestView(primaryPullRequest(report))?.state
+}
+
 function pullRequestView(pr: ReportPullRequestApi | undefined): PullRequestView | undefined {
     if (!pr) {
         return undefined

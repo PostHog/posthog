@@ -64,6 +64,8 @@ export interface InboxItem {
     snoozeLabel?: string
     /** The report's primary pull request, known from the list payload before the report detail loads. */
     pullRequestUrl?: string
+    /** That pull request's state, when the list payload carries it. */
+    pullRequestState?: PullRequestView['state']
 }
 
 export interface Headline {

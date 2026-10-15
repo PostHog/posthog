@@ -92,7 +92,7 @@ Sizing a glyph does not change its button's tap target, which stays at least 44p
 
 ## Screens and states
 
-- **Inbox**: header with Refresh and More, rows (source · `#123` PR tag when the report has a PR · time),
+- **Inbox**: header with Refresh and More, rows (source · `#123` PR tag when the report has a PR, green when open, purple when merged, gray otherwise · time),
   pull to refresh, floating nav pill (Home selected,
   Chats, Products) and the Chat button. Chats in the pill opens the Chats screen; the Chat button
   opens a new chat sheet. Products opens the project's product library in the web app, and is
