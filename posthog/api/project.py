@@ -1404,26 +1404,24 @@ class ProjectBackwardCompatSerializer(
             team.name = validated_data["name"]
             updated_team_fields.append("name")
 
-        with transaction.atomic():
-            # Save the Project row before the guard below, and lock Project before Team: the
-            # tags save and the move-project action take the same order, and the reverse order
-            # can deadlock.
-            if updated_project_fields:
-                instance.save(update_fields=updated_project_fields)
-            with refuse_stale_logs_settings_change(
-                team, team_before_update["logs_settings"], validated_data.get("logs_settings")
-            ):
-                # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
-                if conversations_lock_applied:
-                    locked_conversations = merge_conversations_settings_locked(
-                        team, validated_data, patch_conversations_settings, updated_team_fields
-                    )
-                    # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
-                    team_before_update["conversations_settings"] = locked_conversations["conversations_settings"]
-                    team_before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
-                elif updated_team_fields:
-                    # auto_now fields only refresh when included in update_fields
-                    team.save(update_fields=[*updated_team_fields, "updated_at"])
+        with refuse_stale_logs_settings_change(
+            team, team_before_update["logs_settings"], validated_data.get("logs_settings")
+        ):
+            # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
+            if conversations_lock_applied:
+                locked_conversations = merge_conversations_settings_locked(
+                    team, validated_data, patch_conversations_settings, updated_team_fields
+                )
+                # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
+                team_before_update["conversations_settings"] = locked_conversations["conversations_settings"]
+                team_before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
+            elif updated_team_fields:
+                # auto_now fields only refresh when included in update_fields
+                team.save(update_fields=[*updated_team_fields, "updated_at"])
+        # After the guard, so a refused change saves nothing, and outside its transaction, so no
+        # request locks Team before Project.
+        if updated_project_fields:
+            instance.save(update_fields=updated_project_fields)
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         team_after_update = team.__dict__.copy()
