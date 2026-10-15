@@ -35,7 +35,8 @@ logger = structlog.get_logger(__name__)
 
 # Matches the AI task step's output fields, so a field name is always addressable as `variables.<name>`.
 MAX_FIELDS = 20
-FIELD_NAME_PATTERN = r"^[A-Za-z_][A-Za-z0-9_]{0,63}$"
+# \Z, not $: Python's $ also matches before a trailing newline, which the worker's pattern rejects.
+FIELD_NAME_PATTERN = r"^[A-Za-z_][A-Za-z0-9_]{0,63}\Z"
 MAX_INSTRUCTION_LENGTH = 500
 
 

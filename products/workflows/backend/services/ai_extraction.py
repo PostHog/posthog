@@ -20,7 +20,8 @@ EXTRACTION_MODEL = "claude-haiku-5-5"
 # nodejs/src/cdp/async-functions/extract.ts so the worker receives the 503.
 EXTRACTION_TIMEOUT_SECONDS = 8.0
 EXTRACTION_MAX_TOKENS = 4096
-# Workflow variables share a 5 KB budget, so a long text value would fail the step that stores it.
+# Workflow variables share a 5 KB budget. This cap bounds one text value; several long values can still
+# exceed the budget, and the step that stores them then fails.
 MAX_TEXT_VALUE_CHARS = 1000
 _TOOL_NAME = "record_fields"
 

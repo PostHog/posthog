@@ -246,6 +246,7 @@ class TestWorkflowExtractionRequestValidation(SimpleTestCase):
             ("name_with_spaces", {"output_fields": [{**FIELDS[0], "name": "pr url"}]}),
             ("name_starting_with_a_digit", {"output_fields": [{**FIELDS[0], "name": "1st"}]}),
             ("name_with_surrounding_spaces", {"output_fields": [{**FIELDS[0], "name": " pr_url "}]}),
+            ("name_with_a_trailing_newline", {"output_fields": [{**FIELDS[0], "name": "pr_url\n"}]}),
             ("unknown_type", {"output_fields": [{**FIELDS[0], "type": "date"}]}),
             ("blank_instruction", {"output_fields": [{**FIELDS[0], "instruction": " "}]}),
             ("long_instruction", {"output_fields": [{**FIELDS[0], "instruction": "x" * 501}]}),
