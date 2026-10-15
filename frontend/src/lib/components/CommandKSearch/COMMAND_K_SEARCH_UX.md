@@ -96,6 +96,7 @@ The input is always in exactly one mode, decided from the token under the cursor
   2. In-memory lists, filtered on every keystroke: **Products**, **Data management**, **People**, **Health**, **Misc**, **Settings** (with a Dark mode / Light mode row for "dark", "light", "theme", "appearance"), **Create new**.
   3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag), **Support tickets** (3+ characters or a ticket number), **Persons**, **Groups**.
   4. **Ask PostHog AI**.
+- An in-memory row that matches only by a search keyword is hidden when another in-memory section has a row whose name starts with the query. The section order stays fixed, so this keeps "Models" from showing below products that only list "model" in their keywords.
 - With any filter (a chip, or a valid `key:value` still being typed), only **Results** and **Ask PostHog AI** show, because filters apply only to objects.
 
 ## Smart filters

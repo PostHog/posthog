@@ -200,6 +200,30 @@ export interface SectionsInput {
 const filterLocal = (source: LocalSource, items: SearchItem[], query: string): SearchItem[] =>
     source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)
 
+const nameStartsWith = (item: SearchItem, query: string): boolean =>
+    [item.displayName, item.name].some((name) => name?.toLowerCase().startsWith(query))
+
+/**
+ * Sections keep a fixed order, so a keyword-only hit in an early section renders above an item
+ * whose name starts with the query. When another section has such a name match, the keyword-only
+ * hits go away, so the item the person typed shows first.
+ */
+function filterLocalSources(local: LocalLists, query: string): Record<LocalSource, SearchItem[]> {
+    const filtered = Object.fromEntries(
+        LOCAL_SOURCES.map((source) => [source, filterLocal(source, local[source], query)])
+    ) as Record<LocalSource, SearchItem[]>
+    const normalized = query.trim().toLowerCase()
+    const sourcesWithNameMatch = LOCAL_SOURCES.filter((source) =>
+        filtered[source].some((item) => nameStartsWith(item, normalized))
+    )
+    for (const source of LOCAL_SOURCES) {
+        if (sourcesWithNameMatch.some((other) => other !== source)) {
+            filtered[source] = filtered[source].filter((item) => !item.matchedSearchKeyword)
+        }
+    }
+    return filtered
+}
+
 export function buildSections(input: SectionsInput): CommandKSection[] {
     const { mode, context, local, remote, remoteQueries, localQuery } = input
     if (mode === 'empty') {
@@ -237,8 +261,9 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
     }
     sections.push(input.suggestions, remoteSectionFor('results'))
     if (mode !== 'value' && localQuery) {
+        const filteredLocal = filterLocalSources(local, localQuery)
         for (const source of LOCAL_SOURCES) {
-            const filtered = filterLocal(source, local[source], localQuery)
+            const filtered = filteredLocal[source]
             const themeItem = source === 'settings' ? input.themeItem : null
             const rows = themeItem
                 ? itemRows(source, [themeItem, ...filtered], SECONDARY_LIMIT + 1)
