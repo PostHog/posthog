@@ -7,7 +7,7 @@ from django.conf import settings
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, ast, property_to_expr
+from posthog.hogql.property import GROUP_KEY_PATTERN, action_to_expr, ast, property_to_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.dataclasses import frozen
@@ -31,6 +31,42 @@ DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
 # The warehouse consumer writes the row's table name under this key. Keep it equal to
 # DWH_SOURCE_TABLE_PROPERTY in nodejs/src/cdp/schema/hogflow.ts.
 WAREHOUSE_SOURCE_TABLE_PROPERTY = "$source_table"
+
+
+class FilterPropertyReferences(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.references: dict[str, list[str | None]] = {}
+
+    def visit_field(self, node: ast.Field) -> None:
+        chain: list[str | int] = list(node.chain)
+        if chain and chain[0] == "events":
+            chain = chain[1:]
+        root = chain[0] if chain else None
+        if isinstance(root, str):
+            if root == "elements_chain" or root.startswith("elements_chain_"):
+                chain = ["properties", "$elements_chain", *chain[1:]]
+            elif GROUP_KEY_PATTERN.fullmatch(root):
+                chain = ["properties", *chain]
+        if chain == ["pdi"]:
+            chain[0] = "person"
+        elif chain[:2] == ["pdi", "person"]:
+            chain = chain[1:]
+        scope: str | None = None
+        path: list[str | int] = []
+        if chain and chain[0] == "properties":
+            scope, path = "event", chain[1:]
+        elif chain and chain[0] == "person" and (len(chain) == 1 or chain[1] == "properties"):
+            scope, path = "person", chain[2:]
+        elif chain and isinstance(chain[0], str) and chain[0] in {f"group_{i}" for i in range(5)}:
+            if len(chain) == 1 or chain[1] == "properties":
+                scope, path = "group:" + chain[0].removeprefix("group_"), chain[2:]
+        if scope is not None:
+            name = ".".join(str(part) for part in path) if path else None
+            values = self.references.setdefault(scope, [])
+            if name not in values:
+                values.append(name)
+        super().visit_field(node)
 
 
 class _NestedPropertyKeyResolver(CloningVisitor):
@@ -624,6 +660,7 @@ def compile_filters_bytecode(
     actions: Optional[dict[int, Action]] = None,
     cohort_membership_supported: bool = False,
     allowed_cohort_ids: Optional[set[int]] = None,
+    include_property_dependencies: bool = False,
 ) -> dict:
     filters = filters or {}
     try:
@@ -631,6 +668,10 @@ def compile_filters_bytecode(
         if SelectFinder.has_select(expr):
             raise Exception("Select queries are not allowed in filters")
 
+        references = None
+        if include_property_dependencies or "mcp_property_dependencies" in filters:
+            references = FilterPropertyReferences()
+            references.visit(expr)
         expr = _LowerConstantMembership().visit(expr)
         compiled = _compile_against_runtime(expr, team, cohort_membership_supported, allowed_cohort_ids)
         if compiled.unknown_roots and filters.get("source") in DATA_WAREHOUSE_SOURCES:
@@ -675,6 +716,8 @@ def compile_filters_bytecode(
         if context.errors:
             error_messages = "; ".join(e.message for e in context.errors if e.message)
             raise Exception(f"Filter compilation errors: {error_messages}")
+        if references is not None:
+            filters["mcp_property_dependencies"] = references.references
         if "bytecode_error" in filters:
             del filters["bytecode_error"]
     except CohortInlineError as e:

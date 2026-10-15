@@ -1218,6 +1218,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
                 team,
                 cohort_membership_supported=cohort_membership_supported,
                 allowed_cohort_ids=validated_cohort_ids,
+                include_property_dependencies=bool(self.context.get("allow_mcp_event_subscription")),
             )
             # Uncompilable filters are only fatal when the function will run (stay enabled).
             # Callers that allow saving anyway (e.g. disabling/deleting a hog function) opt out

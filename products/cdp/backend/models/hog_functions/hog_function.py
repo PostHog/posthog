@@ -96,7 +96,7 @@ TYPES_THAT_CAN_RERUN = (
 DRAFT_ONLY_UPDATE_FIELDS = frozenset({"draft", "draft_updated_at", "draft_encrypted_inputs"})
 
 
-DERIVED_FILTER_KEYS = {"bytecode", "bytecode_error", "bytecode_contract"}
+DERIVED_FILTER_KEYS = {"bytecode", "bytecode_error", "bytecode_contract", "mcp_property_dependencies"}
 
 
 def _is_draft_only_save(update_fields: Optional[Iterable[str]]) -> bool:
@@ -314,11 +314,12 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         # filters no longer describe.
         if previous_bytecode is not None and _raw_filters(compiled) == _raw_filters(previous):
             compiled["bytecode"] = previous_bytecode
-            # The stamp belongs to the bytecode it was compiled with, so it travels with it.
-            if "bytecode_contract" in previous:
-                compiled["bytecode_contract"] = previous["bytecode_contract"]
-            else:
-                compiled.pop("bytecode_contract", None)
+            # The runtime stamp and permission dependencies must describe the retained program.
+            for key in ("bytecode_contract", "mcp_property_dependencies"):
+                if key in previous:
+                    compiled[key] = previous[key]
+                else:
+                    compiled.pop(key, None)
             logger.warning(
                 "hog_function_filters_kept_previous_bytecode",
                 hog_function_id=str(self.pk),
