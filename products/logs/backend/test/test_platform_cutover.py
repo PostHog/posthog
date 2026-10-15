@@ -16,7 +16,7 @@ from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 from products.logs.backend.alert_destinations import LOGS_ALERT_EVENT_IDS
-from products.logs.backend.cutover_gate import CutoverRefused, GateRefusal
+from products.logs.backend.cutover_gate import CutoverRefused, GateRefusal, TeamGate
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import platform_upsert_of
 from products.logs.backend.platform_cutover import CutoverSkip, cut_over_team
@@ -247,6 +247,17 @@ class TestPlatformCutover(APIBaseTest):
         assert set(
             LogsAlertConfiguration.objects.filter(id__in=[held.id, quiet.id]).values_list("owner", flat=True)
         ) == {"source"}
+
+    def test_a_destination_edited_after_the_gate_keeps_its_alert(self) -> None:
+        alert = self._alert()
+        self._destination(alert.id, "template-webhook", WEBHOOK_INPUTS, {"hog": "fetch('https://relay.example.com')"})
+
+        with patch.object(TeamGate, "refusals", return_value=()), patch(LEGACY_BODY_FLAG, return_value=True):
+            (result,) = cut_over_team(self.team.id, now=NOW)
+
+        assert result.skipped == CutoverSkip.DESTINATION_CHANGED
+        alert.refresh_from_db()
+        assert alert.owner == "source"
 
     @parameterized.expand([("enabled", True), ("disabled", False)])
     def test_an_unbound_destination_keeps_the_whole_team(self, _name: str, enabled: bool) -> None:

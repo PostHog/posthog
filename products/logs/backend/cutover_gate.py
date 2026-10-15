@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from functools import cached_property
 from uuid import UUID
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.alerts.backend.facade.contracts import DestinationBucket, DestinationEligibility
+from products.alerts.backend.facade.contracts import DestinationBucket
 from products.alerts.backend.facade.destinations import (
     bucket_for,
     classify_alert_destinations,
@@ -53,56 +54,56 @@ class CutoverRefused(Exception):
         self.refusals = refusals
 
 
-def destination_refusals(team_id: int) -> tuple[DestinationRefusal, ...]:
-    """Every destination that stops this team moving, or nothing when all of them can move."""
-    refusals: list[DestinationRefusal] = []
-    webhook_template_id = destination_template_id(DestinationType.WEBHOOK)
-    ready_webhooks: list[tuple[DestinationEligibility, UUID]] = []
-    unbound = unbound_alert_destinations(team_id=team_id, allowed_event_ids=LOGS_ALERT_EVENT_IDS, include_disabled=True)
-    # Disabled alerts and disabled destinations count too, because a person can enable either after the move.
-    alert_ids = LogsAlertConfiguration.objects.filter(team_id=team_id).order_by("created_at", "id")
-    for alert_id in alert_ids.values_list("id", flat=True):
+class TeamGate:
+    """One team's destination checks. The unbound lookup and the webhook body flag are read once per team."""
+
+    def __init__(self, team_id: int) -> None:
+        self.team_id = team_id
+        self._unbound = unbound_alert_destinations(
+            team_id=team_id, allowed_event_ids=LOGS_ALERT_EVENT_IDS, include_disabled=True
+        )
+        self._webhook_template_id = destination_template_id(DestinationType.WEBHOOK)
+
+    def refusals(self) -> tuple[DestinationRefusal, ...]:
+        """Every destination that stops this team moving, or nothing when all of them can move."""
+        refusals: list[DestinationRefusal] = []
+        # Disabled alerts and disabled destinations count too, because a person can enable either after the move.
+        alerts = LogsAlertConfiguration.objects.filter(team_id=self.team_id).order_by("created_at", "id")
+        for alert_id in alerts.values_list("id", flat=True):
+            refusals.extend(self.alert_refusals(alert_id))
+        refusals.extend(
+            DestinationRefusal(hog_function_id=function_id, alert_id=None, bucket=None, reason=GateRefusal.UNBOUND)
+            for function_id in self._unbound
+        )
+        return tuple(refusals)
+
+    def alert_refusals(self, alert_id: UUID, *, lock: bool = False) -> list[DestinationRefusal]:
+        """One alert's refusals. `lock` keeps its destinations locked until the caller's transaction ends."""
+        refusals: list[DestinationRefusal] = []
         for destination in classify_alert_destinations(
-            team_id=team_id, alert_id=str(alert_id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+            team_id=self.team_id, alert_id=str(alert_id), allowed_event_ids=LOGS_ALERT_EVENT_IDS, lock=lock
         ):
             # A function that excludes one alert id also matches that alert here. It is refused once, as unbound.
-            if destination.hog_function_id in unbound:
+            if destination.hog_function_id in self._unbound:
                 continue
-            refusal = _bucket_refusal(destination, alert_id)
-            if refusal is not None:
-                refusals.append(refusal)
-            elif destination.template_id == webhook_template_id:
-                ready_webhooks.append((destination, alert_id))
-    refusals.extend(
-        DestinationRefusal(hog_function_id=function_id, alert_id=None, bucket=None, reason=GateRefusal.UNBOUND)
-        for function_id in unbound
-    )
-    if ready_webhooks:
-        body_refusal = _webhook_body_refusal(team_id)
-        if body_refusal is not None:
-            refusals.extend(
-                DestinationRefusal(
-                    hog_function_id=destination.hog_function_id,
-                    alert_id=alert_id,
-                    bucket=bucket_for(destination),
-                    reason=body_refusal,
+            bucket = bucket_for(destination)
+            if bucket not in _READY_BUCKETS:
+                reason: GateRefusal | None = GateRefusal.NOT_READY
+            elif destination.template_id == self._webhook_template_id:
+                reason = self._webhook_body_refusal
+            else:
+                reason = None
+            if reason is not None:
+                refusals.append(
+                    DestinationRefusal(
+                        hog_function_id=destination.hog_function_id, alert_id=alert_id, bucket=bucket, reason=reason
+                    )
                 )
-                for destination, alert_id in ready_webhooks
-            )
-    return tuple(refusals)
+        return refusals
 
-
-def _bucket_refusal(destination: DestinationEligibility, alert_id: UUID) -> DestinationRefusal | None:
-    bucket = bucket_for(destination)
-    if bucket in _READY_BUCKETS:
-        return None
-    return DestinationRefusal(
-        hog_function_id=destination.hog_function_id, alert_id=alert_id, bucket=bucket, reason=GateRefusal.NOT_READY
-    )
-
-
-def _webhook_body_refusal(team_id: int) -> GateRefusal | None:
-    keeps_legacy_body = keeps_legacy_webhook_body(Team.objects.get(id=team_id))
-    if keeps_legacy_body is None:
-        return GateRefusal.WEBHOOK_BODY_UNKNOWN
-    return None if keeps_legacy_body else GateRefusal.NEW_WEBHOOK_BODY
+    @cached_property
+    def _webhook_body_refusal(self) -> GateRefusal | None:
+        keeps_legacy_body = keeps_legacy_webhook_body(Team.objects.get(id=self.team_id))
+        if keeps_legacy_body is None:
+            return GateRefusal.WEBHOOK_BODY_UNKNOWN
+        return None if keeps_legacy_body else GateRefusal.NEW_WEBHOOK_BODY
