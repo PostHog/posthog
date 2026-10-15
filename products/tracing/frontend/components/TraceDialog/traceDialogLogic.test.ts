@@ -136,6 +136,26 @@ describe('traceDialogLogic', () => {
             .toMatchValues({ traceSpansFailed: false })
     })
 
+    it('selects a span when collapsing it hides the selection, and lists only spans on screen', async () => {
+        const child = (spanId: string, parentSpanId: string): Span => ({
+            ...span(spanId),
+            parent_span_id: parentSpanId,
+        })
+        getTraceSpy.mockResolvedValueOnce({
+            results: [{ ...span('ROOT'), is_root_span: true }, child('A', 'ROOT'), child('A1', 'A')],
+            hasMore: false,
+            nextOffset: null,
+        })
+        await expectLogic(logic, () => {
+            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'A1' })
+        }).toDispatchActions(['loadTraceSpansSuccess'])
+
+        logic.actions.toggleSpanCollapsed('A')
+
+        expect(logic.values.selectedSpanId).toBe('A')
+        expect(logic.values.flatSpans.map((node) => node.span.span_id)).toEqual(['ROOT', 'A'])
+    })
+
     it('clears the failure once a retry succeeds', async () => {
         getTraceSpy.mockRejectedValueOnce(new Error('boom'))
         await expectLogic(logic, () => {
