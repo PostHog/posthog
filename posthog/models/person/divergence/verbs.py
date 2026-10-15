@@ -45,6 +45,12 @@ class VerbError(Exception):
 
 
 @frozen
+class RowKey:
+    kind: str
+    key: str
+
+
+@frozen
 class VerbAction:
     verb: str
     team_id: int
@@ -91,7 +97,7 @@ def load_rows(
     groups: Sequence[str] = (),
     keys: Sequence[str] = (),
     limit: int | None = None,
-    skip: Iterable[tuple[str, str]] = (),
+    skip: Iterable[RowKey] = (),
 ) -> list[dict[str, Any]]:
     """The report rows that name `verb`, optionally only those in `groups` or with `keys`, at most `limit`."""
     path = scan_dir / team_scan.REPORT_FILE
@@ -102,7 +108,7 @@ def load_rows(
     with path.open() as handle:
         for line in handle:
             row = json.loads(line)
-            if row["verb"] != verb or (row["kind"], row["key"]) in skipped:
+            if row["verb"] != verb or RowKey(kind=row["kind"], key=row["key"]) in skipped:
                 continue
             if wanted_groups and row["group"] not in wanted_groups:
                 continue
@@ -114,14 +120,14 @@ def load_rows(
     return rows
 
 
-def done_keys(actions_path: Path) -> set[tuple[str, str]]:
+def done_keys(actions_path: Path) -> set[RowKey]:
     """Keys whose last recorded outcome in an actions file needs nothing more."""
-    last: dict[tuple[str, str], str] = {}
+    last: dict[RowKey, str] = {}
     if actions_path.exists():
         with actions_path.open() as handle:
             for line in handle:
                 action = json.loads(line)
-                last[(action["kind"], action["key"])] = action["outcome"]
+                last[RowKey(kind=action["kind"], key=action["key"])] = action["outcome"]
     return {key for key, outcome in last.items() if outcome in DONE_OUTCOMES}
 
 
