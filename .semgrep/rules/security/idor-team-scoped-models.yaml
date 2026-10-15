@@ -1126,6 +1126,7 @@ rules:
                         |MarketingAnalyticsGoalMapping
                         |MaterializedColumnSlot
                         |MCPAnalyticsSubmission
+                        |MCPEventSubscription
                         |MCPMeasuredStats
                         |MCPOAuthState
                         |MCPServerInstallation
