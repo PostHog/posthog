@@ -1,9 +1,12 @@
 // These tests check the workflows under .github/workflows, not the planner. A failure here means a
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
-import { readdirSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { evaluateValue, planFunctions } from '../src/expressions.ts'
 import {
     type Outcome,
     type Scenario,
@@ -283,7 +286,12 @@ const EXPECTATIONS: Expectation[] = [
                 changes: { filter: pathsFilter({ backend: true, legacy: false }) },
                 'turbo-discover': {
                     discover: {
-                        outputs: { run_legacy: 'false', matrix: '[{"group":"a"}]', mode: '', selection: '{"json_targets_files":""}' },
+                        outputs: {
+                            run_legacy: 'false',
+                            matrix: '[{"group":"a"}]',
+                            mode: '',
+                            selection: '{"json_targets_files":""}',
+                        },
                     },
                 },
             },
@@ -294,7 +302,15 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
         {
             runs: ['django_tests'],
-            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'sdk-major-guard', 'check-migrations', 'dynamic-ci-filter'],
+            skipped: [
+                'changes',
+                'django',
+                'turbo-tests',
+                'repo-checks',
+                'sdk-major-guard',
+                'check-migrations',
+                'dynamic-ci-filter',
+            ],
         }
     ),
     backend(
@@ -328,7 +344,14 @@ const EXPECTATIONS: Expectation[] = [
     backend(
         { name: 'master push', github: push() },
         {
-            runs: ['changes', 'repo-checks', 'sdk-major-guard', 'check-migrations', 'mirror-schema-cache', 'django_tests'],
+            runs: [
+                'changes',
+                'repo-checks',
+                'sdk-major-guard',
+                'check-migrations',
+                'mirror-schema-cache',
+                'django_tests',
+            ],
             skipped: [
                 'dynamic-ci-filter',
                 'detect-snapshot-mode',
@@ -339,13 +362,6 @@ const EXPECTATIONS: Expectation[] = [
                 'build_django_matrix',
                 'test-selection-verdict',
             ],
-        }
-    ),
-    backend(
-        { name: 'hourly schedule', github: schedule() },
-        {
-            runs: ['changes', 'turbo-tests', 'django', 'django_tests'],
-            skipped: ['repo-checks', 'sdk-major-guard', 'check-migrations', 'check-openapi-types', 'mirror-schema-cache'],
         }
     ),
     backend(
@@ -482,16 +498,37 @@ const E2E_DISPATCH: Scenario = {
 }
 
 const STEP_EXPECTATIONS: StepExpectation[] = [
+    ...[
+        { name: 'known fallback', selective: '', changedFiles: '', fork: false },
+        { name: 'empty source selection', selective: 'true', changedFiles: '', fork: false },
+        { name: 'selective PR', selective: 'true', changedFiles: 'src/example.ts', fork: false },
+        { name: 'selective fork PR', selective: 'true', changedFiles: 'src/example.ts', fork: true },
+    ].flatMap(({ name, selective, changedFiles, fork }) =>
+        ['setup-gh-token', 'selector-install'].map((step) => ({
+            file: 'ci-frontend.yml',
+            job: 'select-jest-tests',
+            step,
+            scenario: {
+                name,
+                github: pullRequest({ fork }),
+                steps: {
+                    ...allFiltersChanged(workflow('ci-frontend.yml')),
+                    'select-jest-tests': { prepare: { outputs: { selective, changed_files: changedFiles } } },
+                },
+            },
+            runs: selective === 'true' && changedFiles !== '' && (step === 'selector-install' || !fork),
+        }))
+    ),
+    {
+        file: 'ci-frontend.yml',
+        job: 'changes',
+        step: 'filter',
+        scenario: { name: 'hourly schedule', github: schedule() },
+        runs: false,
+    },
     ...PINNED_WORKFLOWS.flatMap((file) => [
         { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
         { file, job: 'changes', step: 'filter', scenario: { name: 'master push', github: push() }, runs: false },
-        {
-            file,
-            job: 'changes',
-            step: 'filter',
-            scenario: { name: 'hourly schedule', github: schedule() },
-            runs: false,
-        },
         { file, job: 'changes', step: 'app-token', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
         {
             file,
@@ -516,6 +553,47 @@ const namedJobs = (file: string): Set<string> =>
 
 describe('.github/workflows run plans', () => {
     it.each([
+        ['failed install', 'failure', 'src/example.ts', 'full'],
+        ['empty source selection', 'skipped', '', 'selective'],
+        ['successful install', 'success', 'src/example.ts', 'selective'],
+    ])('Jest selection after %s', (_name, installOutcome, changedFiles, mode) => {
+        const script = workflow('ci-frontend.yml').jobs['select-jest-tests']?.steps?.find(
+            (step) => step.id === 'classify'
+        )?.run
+        if (!script) {
+            throw new Error('Missing Jest matrix classification script')
+        }
+        const directory = mkdtempSync(path.join(os.tmpdir(), 'jest-selection-'))
+        const output = path.join(directory, 'output')
+        const fallback = path.join(directory, 'fallback')
+        try {
+            writeFileSync(fallback, 'mode=full\nshould_run=true\n')
+            const result = spawnSync(
+                'bash',
+                [
+                    '-e',
+                    '-c',
+                    `node() { printf 'mode=selective\\nshould_run=false\\n' >> "$GITHUB_OUTPUT"; }\n${script.replaceAll('/tmp/jest-selection-fallback', fallback)}`,
+                ],
+                {
+                    encoding: 'utf8',
+                    env: {
+                        PATH: process.env.PATH,
+                        SELECTIVE: 'true',
+                        INSTALL_OUTCOME: installOutcome,
+                        CHANGED_FILES: changedFiles,
+                        GITHUB_OUTPUT: output,
+                    },
+                }
+            )
+            expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' })
+            expect(readFileSync(output, 'utf8')).toBe(`mode=${mode}\nshould_run=${mode === 'full'}\n`)
+        } finally {
+            rmSync(directory, { recursive: true, force: true })
+        }
+    })
+
+    it.each([
         ['new bump', workflowDispatch(), 'bump', 'success', 'pass', true, false],
         ['missing image', workflowDispatch(), 'bump', 'failure', 'pass', false, false],
         ['failed gateway', workflowDispatch(), 'bump', 'success', 'broken', false, false],
@@ -536,29 +614,81 @@ describe('.github/workflows run plans', () => {
             },
         })
         expect(plan.errors).toEqual([])
-        const steps = plan.jobs['update-sandbox-agent-version'].steps
+        const steps = plan.jobs['update-sandbox-agent-version']?.steps ?? []
         expect(steps.find((step) => step.id === 'commit')?.runs).toBe(action === 'bump')
         expect(steps.find((step) => step.id === 'enqueue')?.runs).toBe(enqueue)
         expect(steps.find((step) => step.id === 'nightly-smoke')?.runs).toBe(nightly)
     })
 
     it('Phrocs executes tests even when setup-go restores a warm build cache', () => {
-        const testStep = workflow('ci-phrocs.yml').jobs.test.steps?.find((step) => step.name === 'Run tests')
+        const testStep = workflow('ci-phrocs.yml').jobs.test?.steps?.find((step) => step.name === 'Run tests')
         expect(testStep?.run).toMatch(/\bgo test\s+-count=1\b/)
     })
 
-    it('Backend CI runs once every hour and keeps the events_json leg on one of its crons', () => {
-        const backend = workflow('ci-backend.yml')
-        const crons = (backend.on as { schedule: { cron: string }[] }).schedule.map((entry) => entry.cron)
-        const cronHours = (field: string): number[] =>
-            field.startsWith('*/')
-                ? [...Array(24).keys()].filter((hour) => hour % Number(field.slice(2)) === 0)
-                : field.split(',').map(Number)
+    it('Backend CI runs once every hour, on Depot CI only', () => {
+        const crons = (file: string): string[] =>
+            ((loadWorkflow(path.join(REPO_ROOT, file)).on as { schedule?: { cron: string }[] }).schedule ?? []).map(
+                (entry) => entry.cron
+            )
 
-        expect(crons).toContain(backend.env?.EVENTS_JSON_SCHEDULE)
-        expect(crons.flatMap((cron) => cronHours(cron.split(' ')[1])).sort((a, b) => a - b)).toEqual([
-            ...Array(24).keys(),
+        expect(crons('.depot/workflows/ci-backend.yml')).toEqual([
+            '23 */3 * * *',
+            '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *',
         ])
+        expect(crons('.github/workflows/ci-backend.yml')).toEqual([])
+    })
+
+    it.each(['refs/heads/master', ''])('the hourly Depot run keeps master coverage with ref %j', (ref) => {
+        const depot = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'))
+        const plan = planWorkflow(depot, {
+            name: 'hourly schedule',
+            github: { ...schedule(), ref },
+            steps: {
+                ...allFiltersChanged(depot),
+                ...backendSelectors,
+                'wait-for-handoff': { handoff: { outputs: { handed_off: 'true' } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        const running = new Set(runningJobs(plan))
+        const perCommit = ['repo-checks', 'sdk-major-guard', 'check-migrations', 'check-openapi-types']
+        expect({
+            didNotRun: ['changes', 'turbo-tests', 'django', 'django_tests', 'report-test-timings'].filter(
+                (id) => !running.has(id)
+            ),
+            didNotSkip: perCommit.filter((id) => plan.jobs[id]?.result !== 'skipped'),
+            filterRuns: plan.jobs.changes?.steps.find((step) => step.id === 'filter')?.runs,
+            productTimings: plan.jobs['turbo-tests']?.steps.find((step) => step.name === 'Upload timing data')?.runs,
+        }).toEqual({ didNotRun: [], didNotSkip: [], filterRuns: false, productTimings: true })
+    })
+
+    it('the scheduled Depot hand-off succeeds without a GitHub receipt', () => {
+        const depot = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'))
+        const script = depot.jobs['wait-for-handoff']?.steps?.find((step) => step.id === 'handoff')?.run
+        expect(script).toBeTypeOf('string')
+        const directory = mkdtempSync(path.join(os.tmpdir(), 'depot-handoff-'))
+        const output = path.join(directory, 'output')
+        try {
+            const result = spawnSync('/bin/bash', ['-c', String(script)], {
+                env: { EVENT: 'schedule', IS_FORK: 'false', GITHUB_OUTPUT: output },
+                encoding: 'utf8',
+            })
+            expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' })
+            expect(readFileSync(output, 'utf8')).toContain('handed_off=true')
+        } finally {
+            rmSync(directory, { recursive: true, force: true })
+        }
+    })
+
+    it.each([
+        ['23 */3 * * *', true],
+        ['23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *', false],
+    ])('the events_json leg follows the scheduled trigger %s', (cron, runs) => {
+        const depot = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'))
+        const step = depot.jobs.build_django_matrix?.steps?.find((step) => step.id === 'build')
+        const github = { ...schedule(), event: { schedule: cron } }
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        expect(evaluateValue(step?.env?.RUN_JSON_TARGETS, { github }, functions)).toBe(runs)
     })
 
     it.each([
@@ -577,7 +707,7 @@ describe('.github/workflows run plans', () => {
             },
         })
         expect(plan.errors).toEqual([])
-        expect(plan.jobs['code-quality'].steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
+        expect(plan.jobs['code-quality']?.steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
     })
 
     it.each(['success', 'failure'] as const)(
@@ -597,10 +727,41 @@ describe('.github/workflows run plans', () => {
                 },
             })
             expect(plan.errors).toEqual([])
-            expect(plan.jobs.build.steps.find((step) => step.name === 'Report sccache counters')?.runs).toBe(true)
-            expect(plan.jobs.build.result).toBe(outcome)
+            expect(plan.jobs.build?.steps.find((step) => step.name === 'Report sccache counters')?.runs).toBe(true)
+            expect(plan.jobs.build?.result).toBe(outcome)
         }
     )
+
+    it.each([
+        ['frontend PR', pullRequest(), false, true, 'false', 'skipped', false],
+        ['frontend merge queue', mergeQueue(), false, true, 'true', 'success', false],
+        ['hobby PR', pullRequest(), true, false, 'true', 'success', true],
+        ['hobby merge queue', mergeQueue(), true, false, 'true', 'success', false],
+        ['unrelated merge queue', mergeQueue(), false, false, 'false', 'skipped', false],
+    ] as const)('Docker image build on %s', (name, github, hobby, buildInputs, shouldBuild, result, publish) => {
+        const wf = workflow('container-images-ci.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: { changes: { filter: pathsFilter({ hobby, build_inputs: buildInputs }) } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.outputs.should_build).toBe(shouldBuild)
+        expect(plan.jobs.posthog_build?.result).toBe(result)
+        const build = wf.jobs.posthog_build?.steps?.find((step) => step.id === 'build')
+        if (result === 'success') {
+            const functions = planFunctions({
+                dependenciesSucceeded: true,
+                dependenciesFailed: false,
+                cancelled: false,
+            })
+            expect(evaluateValue(build?.with?.['push-image'], { github }, functions)).toBe(publish)
+            expect(evaluateValue(build?.with?.['pr-number'], { github }, functions)).toBe(publish ? 1 : '')
+        }
+        expect(plan.jobs.posthog_build?.steps.find((step) => step.name === 'Container image digest')?.runs).toBe(
+            result === 'success' && publish
+        )
+    })
 
     it.each(PINNED_WORKFLOWS)('%s names every conditional job in an expectation row', (file) => {
         const unnamed = Object.entries(workflow(file).jobs)

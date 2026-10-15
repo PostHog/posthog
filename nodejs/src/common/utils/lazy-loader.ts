@@ -1,7 +1,7 @@
 import { Attributes } from '@opentelemetry/api'
 import { Counter, Gauge } from 'prom-client'
 
-import { instrumentFn, setSpanAttributes } from '~/common/tracing/tracing-utils'
+import { instrumentFn, setSpanAttributes, withTracingSpan } from '~/common/tracing/tracing-utils'
 
 import { defaultConfig } from '../config/config'
 import { logger } from './logger'
@@ -109,7 +109,7 @@ type LazyLoaderMap<T> = Record<string, T | null | undefined>
  * How a `loadViaCache` call was served: every key from the cache, by invoking the loader, or by
  * waiting on a load another caller already had in flight.
  */
-export type LazyLoaderSpanOutcome = 'all_cached' | 'loaded' | 'waited_pending'
+export type LazyLoaderSpanOutcome = 'loaded' | 'waited_pending'
 
 /**
  * A cached value together with the deadlines that govern it. These live on one object so that
@@ -233,7 +233,7 @@ export class LazyLoader<T> {
      * If the value is older than the refreshAge, it is loaded from the database.
      */
     private async loadViaCache(keys: string[], options?: LoadOptions): Promise<Record<string, T | null>> {
-        return await instrumentFn({ key: `lazyLoader.loadViaCache`, tag: this.options.name }, async () => {
+        return await instrumentFn({ key: `lazyLoader.loadViaCache`, tag: this.options.name, span: false }, async () => {
             // No prototype, for the same reason as the cache: keys are caller-supplied, and this
             // object is handed back to callers who may iterate or spread it.
             const results: Record<string, T | null> = Object.create(null)
@@ -276,24 +276,31 @@ export class LazyLoader<T> {
 
             if (keysToLoad.size === 0) {
                 lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
-                setSpanAttributes(this.spanAttributes(keys, keysToLoad, 'all_cached'))
                 return results
             }
 
             lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
 
-            // A span that only waits on another caller's in-flight load has no query child of its
-            // own, so record the distinction here or it looks like a slow cache lookup.
-            const allPending = Array.from(keysToLoad).every((key) => this.pendingLoads[key] !== undefined)
-            setSpanAttributes(this.spanAttributes(keys, keysToLoad, allPending ? 'waited_pending' : 'loaded'))
+            // Only a miss gets a span: with one span per lookup, hits outnumber every other span in a trace.
+            return await withTracingSpan(
+                'instrumented_function',
+                'lazyLoader.loadViaCache',
+                { tag: this.options.name },
+                async () => {
+                    // A span that only waits on another caller's in-flight load has no query child of its
+                    // own, so record the distinction here or it looks like a slow cache lookup.
+                    const allPending = Array.from(keysToLoad).every((key) => this.pendingLoads[key] !== undefined)
+                    setSpanAttributes(this.spanAttributes(keys, keysToLoad, allPending ? 'waited_pending' : 'loaded'))
 
-            await this.load(Array.from(keysToLoad), options)
+                    await this.load(Array.from(keysToLoad), options)
 
-            for (const key of keys) {
-                results[key] = this.cache[key]?.value ?? null
-            }
+                    for (const key of keys) {
+                        results[key] = this.cache[key]?.value ?? null
+                    }
 
-            return results
+                    return results
+                }
+            )
         })
     }
 

@@ -538,12 +538,6 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
             .describe(
                 'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
             ),
-        dag_id: zod
-            .uuid()
-            .nullish()
-            .describe(
-                'DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.'
-            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -645,12 +639,6 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
-            ),
-        dag_id: zod
-            .uuid()
-            .nullish()
-            .describe(
-                'DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.'
             ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
@@ -755,12 +743,6 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
-            ),
-        dag_id: zod
-            .uuid()
-            .nullish()
-            .describe(
-                'DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.'
             ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
@@ -880,12 +862,6 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
-            ),
-        dag_id: zod
-            .uuid()
-            .nullish()
-            .describe(
-                'DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.'
             ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
@@ -1029,12 +1005,6 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
             .nullish()
             .describe(
                 'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
-            ),
-        dag_id: zod
-            .uuid()
-            .nullish()
-            .describe(
-                'DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.'
             ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })

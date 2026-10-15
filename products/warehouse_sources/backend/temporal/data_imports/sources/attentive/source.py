@@ -6,6 +6,7 @@ import orjson
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,7 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:
@@ -70,6 +71,14 @@ class AttentiveSource(
     SimpleSource[AttentiveSourceConfig],
     WebhookSource[AttentiveSourceConfig],
 ):
+    codebase_detection = detect(
+        script_hosts=("cdn.attn.tv",),
+        npm=("@attentive-mobile/attentive-react-native-sdk",),
+        cocoapods=("ATTNSDKFramework", "attentive-ios-sdk"),
+        maven=("com.attentive:attentive-android-sdk",),
+        swiftpm=("github.com/attentive-mobile/attentive-ios-sdk",),
+    )
+
     api_docs_url = "https://docs.attentive.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

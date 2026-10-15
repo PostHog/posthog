@@ -75,6 +75,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
     EXTRACT_BATCH_MAX_BYTES,
     fetch_row_batches,
+    page_rows_after_worker_deaths,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SQLSourceImplementation,
@@ -96,6 +97,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    ClientDeadlineExceededError,
+    client_side_deadline,
+    deadline_cursor_factory,
+    deadline_server_cursor_factory,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import XminUnsupportedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables import (
@@ -123,6 +130,39 @@ SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
 SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 
 METADATA_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
+
+# Client-side limit on each statement of the setup phase, which runs before the first row is read.
+# It sits one minute above the server limit, so it acts only when the server limit did not. See
+# `client_deadline` for the cases where that happens.
+SETUP_STATEMENT_CLIENT_DEADLINE_SECONDS = METADATA_STATEMENT_TIMEOUT_MS / 1000 + 60
+# `EXPLAIN` only plans the query, so one that is still running after this long waits on a lock or on
+# a server that stopped answering. The plan goes to a debug log line and nothing else needs it.
+EXPLAIN_CLIENT_DEADLINE_SECONDS = 60
+# Client-side limit on each round trip of the connection that reads the rows: one keyset page, the
+# `DECLARE` of a server cursor, one `FETCH`. It is a limit on one silent wait, not on the read, so a
+# long read that keeps returning rows never reaches it. One minute above the server limit, like the
+# setup limit, because the first `FETCH` of a sorted read is permitted to use the full server limit.
+STREAM_STATEMENT_CLIENT_DEADLINE_SECONDS = SYNC_STATEMENT_TIMEOUT_MS / 1000 + 60
+# The session statements that open a streaming connection do no work on the server.
+STREAM_SESSION_SETUP_CLIENT_DEADLINE_SECONDS = 60
+# The exact `COUNT(*)` of a read with no incremental filter scans the full table, on each attempt,
+# before the first row is read. Its result feeds the progress display and the billing limit check
+# only, so a count that is not done by this time gives way to the catalog estimate.
+UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS = 60
+
+_STREAM_SERVER_CURSOR = deadline_server_cursor_factory(STREAM_STATEMENT_CLIENT_DEADLINE_SECONDS)
+
+# libpq options that end a connection whose peer went away. Keepalives find a dead peer on an idle
+# socket in about 80 seconds. `tcp_user_timeout` (milliseconds) does the same for data that the
+# peer never acknowledges. Both stay quiet while the peer answers at the TCP level, so neither
+# ends a statement that the server is still working on.
+_TCP_LIVENESS_KWARGS: dict[str, int] = {
+    "keepalives": 1,
+    "keepalives_idle": 30,
+    "keepalives_interval": 10,
+    "keepalives_count": 5,
+    "tcp_user_timeout": 60_000,
+}
 
 # Rows the row-size probe aims to measure. Enough for a stable p95 and a meaningful widest row,
 # few enough that `octet_length(t::text)` — which de-toasts every value — stays cheap on a table
@@ -288,6 +328,15 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # ("password authentication failed", "SASL authentication failed"), and exclude the volatile
     # millisecond value.
     "authentication did not complete within",
+    # A Neon-style proxy reports its own internal round trip to the control plane (used to route,
+    # authenticate, or wake the compute while establishing the connection) failing with the bare,
+    # generic "ERROR: Control plane request failed" — unlike the specific, actionable control-plane
+    # rejections already handled in `get_non_retryable_errors` (exceeded quota, allow-listed IP,
+    # disabled branch, ...), which all carry their own detailed wording. The generic form means the
+    # round trip itself broke (a transient blip reaching the control plane), not that it returned a
+    # customer-fixable rejection, so a fresh connect after backoff typically succeeds — the same
+    # transient class as the scale-to-zero wake timeout above.
+    "control plane request failed",
     # Supavisor authenticates a tenant with no static user record by running an `auth_query` against
     # the tenant's own backend database to fetch/cache the password secret used to validate the
     # client's credentials. If that secret isn't cached yet (e.g. right after Supavisor starts
@@ -946,10 +995,7 @@ def _connect_to_postgres(
             sslrootcert="/tmp/no.txt",
             sslcert="/tmp/no.txt",
             sslkey="/tmp/no.txt",
-            keepalives=1,
-            keepalives_idle=30,
-            keepalives_interval=10,
-            keepalives_count=5,
+            **_TCP_LIVENESS_KWARGS,
             options=options,
             **kwargs,
         )
@@ -2448,6 +2494,16 @@ def _column_is_not_null(table: Table[PostgreSQLColumn], column_name: str) -> boo
     return any(is_not_null(column.nullable) for column in table.columns if column.name == column_name)
 
 
+def _is_uuid_column(table: Table[PostgreSQLColumn], column_name: str) -> bool:
+    """Whether a keyset checkpoint can hold `column_name` as a uuid.
+
+    The Arrow type of a uuid column is string, which a checkpoint refuses because the order of text
+    depends on a collation. Postgres compares uuid values byte by byte, with no collation. The value
+    goes into the checkpoint as text, and Postgres reads that text back as the same uuid.
+    """
+    return any(column.data_type.lower() == "uuid" for column in table.columns if column.name == column_name)
+
+
 def _build_keyset_query(
     schema: str,
     table_name: str,
@@ -2566,7 +2622,8 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
         # Debug-only, best-effort: EXPLAIN may use syntax the source rejects (e.g. TABLESAMPLE
         # on CockroachDB), so swallow failures.
         query_with_explain = sql.SQL("EXPLAIN {}").format(query)
-        cursor.execute(query_with_explain)
+        with client_side_deadline(cursor.connection, EXPLAIN_CLIENT_DEADLINE_SECONDS):
+            cursor.execute(query_with_explain)
         rows = cursor.fetchall()
         explain_result: str = ""
         # Build up a single string of the EXPLAIN output
@@ -2594,7 +2651,8 @@ def _check_keyset_page_plan(cursor: psycopg.Cursor, query: sql.Composed, logger:
     is what says whether widening the seek past the flag is safe.
     """
     try:
-        cursor.execute(sql.SQL("EXPLAIN {}").format(query))
+        with client_side_deadline(cursor.connection, EXPLAIN_CLIENT_DEADLINE_SECONDS):
+            cursor.execute(sql.SQL("EXPLAIN {}").format(query))
         plan = "\n".join(str(column) for row in cursor.fetchall() for column in row)
     except Exception as e:
         # Best-effort, exactly like `_explain_query`: a failed EXPLAIN must never fail the page.
@@ -2827,7 +2885,11 @@ def resolve_postgres_keyset(
         # Were it reached, the SELECT would omit the key and the seek would fail looking it up in the
         # cursor description, so fall back to the server cursor rather than crash the read.
         return PostgresKeyset(reason=f"primary_key_not_projected:{missing[0]}")
-    unorderable = [key for key in primary_keys if not is_orderable_keyset_type(arrow_schema.field(key).type)]
+    unorderable = [
+        key
+        for key in primary_keys
+        if not is_orderable_keyset_type(arrow_schema.field(key).type) and not _is_uuid_column(full_table, key)
+    ]
     if unorderable:
         # Seeking in-process on this key stays fine: one connection, one collation, one process. What
         # it cannot do is survive the trip through Redis, where the ordering assumption would have to
@@ -3034,11 +3096,21 @@ def _get_rows_to_sync(
     logger: FilteringBoundLogger,
     *,
     should_use_incremental_field: bool = False,
+    estimate_on_timeout: Callable[[], int | None] | None = None,
 ) -> int:
+    """Count the rows this run reads. The result feeds progress and the billing limit check only.
+
+    A count with no incremental filter gets `UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS`. When it is
+    not done by then, the result is `estimate_on_timeout()`, or 0 (unknown) without one.
+    """
     try:
         _explain_query(cursor, count_query, logger)
         logger.debug(f"Running query: {count_query.as_string()}")
-        cursor.execute(count_query)
+        if should_use_incremental_field:
+            cursor.execute(count_query)
+        else:
+            with client_side_deadline(cursor.connection, UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS):
+                cursor.execute(count_query)
         row = cursor.fetchone()
 
         if row is None:
@@ -3051,6 +3123,16 @@ def _get_rows_to_sync(
         logger.debug(f"_get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
 
         return int(rows_to_sync)
+    except ClientDeadlineExceededError as e:
+        if should_use_incremental_field:
+            raise
+        if cursor.connection.broken or cursor.connection.closed:
+            # The cancel request had no effect and the socket was shut down. No statement can run
+            # on this connection, so the estimate and the remaining setup cannot run either.
+            raise
+        estimate = estimate_on_timeout() if estimate_on_timeout is not None else None
+        logger.debug(f"_get_rows_to_sync: COUNT not done in time ({e}). Using the estimate: {estimate}")
+        return estimate or 0
     except psycopg.errors.QueryCanceled as e:
         # QueryCanceled means the COUNT was cancelled — usually the statement_timeout, but possibly a
         # lock_timeout or an admin cancel (we don't inspect which). On incremental syncs re-raise:
@@ -3561,6 +3643,7 @@ def postgres_source(
     is_xmin: bool = False,
     xmin_cursor: Optional[SourceCursorManager[XminCursor]] = None,
     activity_attempt: int = 1,
+    worker_deaths: int = 0,
     resumable_source_manager: Optional[ResumableSourceManager[KeysetResumeState]] = None,
 ) -> SourceResponse:
     table_name = table_names[0]
@@ -3595,10 +3678,7 @@ def postgres_source(
                     sslrootcert="/tmp/no.txt",
                     sslcert="/tmp/no.txt",
                     sslkey="/tmp/no.txt",
-                    keepalives=1,
-                    keepalives_idle=30,
-                    keepalives_interval=10,
-                    keepalives_count=5,
+                    **_TCP_LIVENESS_KWARGS,
                     options=FORCE_UTF8_CLIENT_ENCODING,
                 )
             except psycopg.OperationalError as e:
@@ -3618,6 +3698,7 @@ def postgres_source(
             # read-replica recovery conflict on a slow COUNT(*), or syntax the source rejects like
             # TABLESAMPLE on CockroachDB — can't poison the rest. Replaces the per-probe savepoints.
             conn.autocommit = True
+            conn.cursor_factory = deadline_cursor_factory(SETUP_STATEMENT_CLIENT_DEADLINE_SECONDS)
             return conn
 
         # A hot-standby recovery conflict ("conflict with recovery") cancels or terminates the probe
@@ -3809,6 +3890,13 @@ def postgres_source(
                                     count_query,
                                     logger,
                                     should_use_incremental_field=should_use_incremental_field,
+                                    # The estimate covers the full table, so it stands in only
+                                    # for a count of the full table.
+                                    estimate_on_timeout=(
+                                        (lambda: _estimated_row_count(cursor, schema, table_name, logger))
+                                        if xmin_bounds is None
+                                        else None
+                                    ),
                                 )
 
                             if _role_subject_to_rls(cursor, schema, table_name, logger):
@@ -3987,10 +4075,7 @@ def postgres_source(
                         sslcert="/tmp/no.txt",
                         sslkey="/tmp/no.txt",
                         cursor_factory=cursor_factory,
-                        keepalives=1,
-                        keepalives_idle=30,
-                        keepalives_interval=10,
-                        keepalives_count=5,
+                        **_TCP_LIVENESS_KWARGS,
                         options=FORCE_UTF8_CLIENT_ENCODING,
                     )
                 except psycopg.OperationalError as e:
@@ -4029,16 +4114,24 @@ def postgres_source(
                 # arrive as YYYY-MM-DD regardless of the server's configured DateStyle.
                 # A non-ISO source (e.g. German/SQL/Postgres styles) would otherwise send
                 # "04/01/2022" or "15.01.2024", which the Safe*Loaders can't parse.
+                connection.server_cursor_factory = _STREAM_SERVER_CURSOR
                 try:
                     # Use psycopg.Cursor directly to bypass cursor_factory (which may be
                     # ServerCursor and requires a `name` arg, breaking an unnamed cursor()).
-                    with psycopg.Cursor(connection) as setup_cursor:
+                    with (
+                        client_side_deadline(connection, STREAM_SESSION_SETUP_CLIENT_DEADLINE_SECONDS),
+                        psycopg.Cursor(connection) as setup_cursor,
+                    ):
                         setup_cursor.execute(sql.SQL("SET DateStyle TO 'ISO, MDY'"))
                         setup_cursor.execute(
                             sql.SQL("SET statement_timeout = {timeout}").format(
                                 timeout=sql.Literal(SYNC_STATEMENT_TIMEOUT_MS)
                             )
                         )
+                except ClientDeadlineExceededError:
+                    # A server that does not answer a `SET` does not answer the read either.
+                    _safe_close_connection(connection)
+                    raise
                 except Exception as e:
                     logger.debug(f"Failed to set statement_timeout on sync connection: {e}")
                 # The SET above opens an implicit transaction in psycopg's default
@@ -4047,7 +4140,12 @@ def postgres_source(
                 # chunking) would otherwise hit "can't change autocommit state:
                 # connection in transaction". SET statement_timeout has session scope,
                 # so committing preserves it.
-                connection.commit()
+                try:
+                    with client_side_deadline(connection, STREAM_SESSION_SETUP_CLIENT_DEADLINE_SECONDS):
+                        connection.commit()
+                except ClientDeadlineExceededError:
+                    _safe_close_connection(connection)
+                    raise
                 return connection
 
             def refreshed_projection() -> TableProjection[PostgreSQLColumn]:
@@ -4062,7 +4160,10 @@ def postgres_source(
                     with _connect_with_dropped_retry(get_connection, logger) as probe_connection:
                         # `get_connection` may bind ServerCursor as the factory, which needs a
                         # name, so take an unnamed client cursor directly.
-                        with psycopg.Cursor(probe_connection) as probe_cursor:
+                        with (
+                            client_side_deadline(probe_connection, STREAM_STATEMENT_CLIENT_DEADLINE_SECONDS),
+                            psycopg.Cursor(probe_connection) as probe_cursor,
+                        ):
                             fresh_table = _get_table(probe_cursor, schema, table_name, logger)
                 except Exception as e:
                     logger.debug(f"Could not re-read the catalog before streaming: {e}", exc_info=e)
@@ -4215,7 +4316,9 @@ def postgres_source(
                                 if keyset_primary_keys is not None and last_key is not None and not plan_checked:
                                     plan_checked = True
                                     _check_keyset_page_plan(cursor, query_with_limit_sql, logger)
-                                cursor.execute(query_with_limit_sql)
+                                # A client cursor reads the full page inside `execute`.
+                                with client_side_deadline(connection, STREAM_STATEMENT_CLIENT_DEADLINE_SECONDS):
+                                    cursor.execute(query_with_limit_sql)
 
                                 page_columns = [column.name for column in cursor.description or []]
                                 rows: list[tuple[Any, ...]] = cursor.fetchall()
@@ -4341,10 +4444,18 @@ def postgres_source(
                 try:
                     # A page is one statement and it is resident in full, so it is sized like any
                     # other fetch. A batch then spans as many pages as its byte budget holds.
+                    # A seek page is also a round trip, so only a run of wide rows shrinks it, and
+                    # a worker death halves it. A LIMIT/OFFSET walk is the fallback on a replica
+                    # that cancels reads, and it scans its whole offset on every page, so it keeps
+                    # the more careful sizing and its page.
+                    seeks = keyset_primary_keys is not None
                     for rows in fetch_row_batches(
                         fetch_page,
                         max_rows=chunk_size,
-                        max_page_rows=fetch_page_rows,
+                        max_page_rows=(
+                            page_rows_after_worker_deaths(fetch_page_rows, worker_deaths) if seeks else fetch_page_rows
+                        ),
+                        size_pages_by_average=seeks,
                     ):
                         batch_last_key = keyset_key_of(rows[-1]) if keyset_primary_keys is not None else None
 

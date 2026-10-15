@@ -12,7 +12,7 @@
 
 <!-- For each change a person can notice, say what they will now see or do differently, not only the code path that does it. Mark the rest as mechanical so a reviewer knows nothing user-visible is hiding in it. -->
 
-<!-- If there are frontend changes, please include screenshots. -->
+<!-- If there are frontend changes, please include screenshots. For a new interaction that one screenshot cannot show, a short GIF or animated WebP of the flow can replace the after screenshot. -->
 <!-- PostHog employees: `hogli pr:upload-image <file>` uploads to the public PostHog/pr-assets repo and prints markdown to paste here. Never upload customer data, secrets, or internal info. -->
 
 <!-- If a reference design was involved, include a link to the relevant Figma frame! -->
@@ -67,7 +67,6 @@
 <!-- Keep this short: 1-3 short paragraphs or a handful of bullets — not an exhaustive log. Include:
      - link to session and the tool names used, but do not include tool call results.
      - skills invoked: always explicitly call out any repo-provided or public skills (e.g. /django-migrations, /improving-drf-endpoints) that were invoked while producing this PR. This helps reviewers judge where and how the code was shaped by an agent.
-     - CodeRabbit CLI pass (local tasks only): each finding and its disposition (fixed, or rejected with the reason), or why the local pass was skipped (CLI missing, signed out with no person available, setup declined, or rate limited). Cloud and CI skips need no entry. The findings only appeared in the terminal, so this is their only record.
      - decisions made along the way: what changed across the session. The reason the shipped design beats the obvious alternative goes in Changes instead, where a reviewer will actually see it.
      - anything else that helps reviewers
      Write reviewer-facing prose. Do not paste user prompts verbatim — paraphrase the intent in your own words.
@@ -87,9 +86,8 @@
 - Public OSS repo: no internal customers, incidents, or operational metrics.
 - Stack instead of stuffing: if the diff holds two or more separable steps (migration then behavior, rename then rewrite), open a stack rather than one big PR. See AGENTS.md, "Stacked PRs" and /stacking-prs.
 - Simplify before opening: if your agent has a behavior-preserving cleanup pass (Claude Code: `/simplify`), run it on a non-trivial diff before final tests and preflight, since it edits the tree. Skip it for small mechanical changes.
-- Review before opening: if `POSTHOG_TASK_RUN_ID` or `CI` is set, skip the local pass without probing `cr`, loading the skill, or announcing the skip. Otherwise invoke `/reviewing-with-coderabbit` to check the CLI and offer setup or a skip when a person can answer. Open the PR either way.
 - Draft by default: open new PRs as drafts (`gh pr create --draft`) — drafts run only a narrow CI subset and save runner credits. Fix CI and run affected tests locally before marking ready for review.
-- Labels: apply `skip-agent-review` for trivial/chore PRs that don't need Copilot or Greptile review.
+- Labels: apply `skip-agent-review` for trivial/chore PRs that don't need an automatic review.
 - When a human directed the work, the PR must be attributable to that person, even if agent-assisted.
 - If a human directed this work, assign them as the PR assignee (the DRI) — actually set the assignee, don't just name them here. Leave a PR unassigned only when it is fully autonomous with no human driver (set Autonomy to "Fully autonomous").
 - Never write a GitHub @mention or username you have not verified this session. Resolve a real handle from `gh api user` (current user) or the PR's actual author/assignee via `gh pr view --json author,assignees` — never infer a handle from a display name.

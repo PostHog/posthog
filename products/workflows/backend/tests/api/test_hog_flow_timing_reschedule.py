@@ -3,14 +3,13 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
-
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
-TASK_PATH = "products.workflows.backend.presentation.views.hog_flow.reschedule_hog_flow_timing"
+TASK_PATH = "products.workflows.backend.services.hog_flow_writes.reschedule_hog_flow_timing"
 
 
 def _actions(delay_duration: str = "7d", webhook_url: str = "https://example.com") -> list[dict]:

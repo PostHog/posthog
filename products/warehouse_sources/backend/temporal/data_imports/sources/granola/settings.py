@@ -1,10 +1,17 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+# Granola caps the notes page_size at 30; use the max to keep request volume low against the
+# 5 req/s sustained / 25-per-5s burst rate limit.
+PAGE_SIZE = 30
 
-@dataclass
+
+@dataclass(frozen=True)
 class GranolaEndpointConfig:
     name: str
     path: str
@@ -15,6 +22,10 @@ class GranolaEndpointConfig:
     partition_key: Optional[str] = None
     # Maps an advertised incremental field name to the server-side query param that filters on it.
     incremental_query_params: dict[str, str] = field(default_factory=dict)
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    page_size: int = PAGE_SIZE
+    default_incremental_field: Optional[str] = None
+    fanout: Optional[DependentEndpointConfig] = None
 
 
 def _datetime_field(name: str) -> IncrementalField:
@@ -44,6 +55,26 @@ GRANOLA_ENDPOINTS: dict[str, GranolaEndpointConfig] = {
         name="folders",
         path="/v1/folders",
         data_key="folders",
+    ),
+    # https://docs.granola.ai/api-reference/get-transcript
+    # One row per transcript item, fanned out over the notes listing. Items carry no id, and the
+    # endpoint has no server-side time filter, so this is full refresh only.
+    "transcripts": GranolaEndpointConfig(
+        name="transcripts",
+        path="/v1/notes/{note_id}/transcript",
+        data_key="transcript",
+        partition_key="start_time",
+        primary_keys=["note_id", "start_time", "end_time"],
+        page_size=100,
+        fanout=DependentEndpointConfig(
+            parent_name="notes",
+            resolve_param="note_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "note_id"},
+            # A note deleted between the listing and the transcript fetch 404s; skip it.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
 }
 

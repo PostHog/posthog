@@ -87,6 +87,7 @@ django.setup()
 
 from django.conf import settings
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.temporal.ai.slack_app import POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE
@@ -606,6 +607,7 @@ class Command:
                     user_id=ctx.user_id,
                     context=context,
                     origin_product=tasks_facade.TaskOriginProduct.SLACK,
+                    priority=Priority.BATCH,
                 )
             )
             if result.repository is None:

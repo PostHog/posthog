@@ -54,11 +54,10 @@ SLOT_ERRORS_COUNTER = Counter(
     labelnames=["operation"],
 )
 
-# Only refusals carry a team label, so the series count stays bounded by the teams that were refused.
 DROPS_COUNTER = Counter(
     "posthog_query_router_drops_total",
-    "Queries the query router refused, by team.",
-    labelnames=["pool", "query_class", "team_id"],
+    "Queries the query router refused.",
+    labelnames=["pool", "query_class"],
 )
 
 WAIT_SECONDS_HISTOGRAM = Histogram(
@@ -103,18 +102,19 @@ _RETRY_AFTER_SECONDS = (3, 8)
 # string.format('%.0f'), because Lua numbers are doubles and Lua prints a large number in scientific
 # notation.
 _TRY_ENTER_LUA = """
-local now = tonumber(ARGV[1])
-local slot = ARGV[2]
-local my_class = tonumber(ARGV[3])
-local rank = ARGV[4]
-local rank_class_multiplier = tonumber(ARGV[5])
-local limit = tonumber(ARGV[6])
-local ttl_ms = tonumber(ARGV[7])
-local stale_ms = tonumber(ARGV[8])
-local enforcing = ARGV[9] == '1'
-local first_attempt = ARGV[10] == '1'
-local window_ms = tonumber(ARGV[11])
-local wait_budget_ms = tonumber(ARGV[12])
+local server_time = redis.call('TIME')
+local now = tonumber(server_time[1]) * 1000 + math.floor(tonumber(server_time[2]) / 1000)
+local slot = ARGV[1]
+local my_class = tonumber(ARGV[2])
+local rank = ARGV[3]
+local rank_class_multiplier = tonumber(ARGV[4])
+local limit = tonumber(ARGV[5])
+local ttl_ms = tonumber(ARGV[6])
+local stale_ms = tonumber(ARGV[7])
+local enforcing = ARGV[8] == '1'
+local first_attempt = ARGV[9] == '1'
+local window_ms = tonumber(ARGV[10])
+local wait_budget_ms = tonumber(ARGV[11])
 local waiting = KEYS[5]
 local waiting_seen = KEYS[6]
 local durations = KEYS[7]
@@ -139,7 +139,7 @@ if first_attempt then
     for i = 1, 4 do
         redis.call('ZREMRANGEBYSCORE', arrivals, rank_of(i, 0), '(' .. rank_of(i, now - window_ms))
     end
-    redis.call('ZADD', arrivals, rank, slot)
+    redis.call('ZADD', arrivals, rank_of(my_class, now), slot)
 end
 
 local total = 0
@@ -206,6 +206,16 @@ if redis.call('ZREM', KEYS[1], ARGV[1]) == 1 then
 end
 redis.call('ZREM', KEYS[2], ARGV[1])
 redis.call('ZREM', KEYS[3], ARGV[1])
+return 0
+"""
+
+
+_RENEW_LUA = """
+local server_time = redis.call('TIME')
+local expires_at = tonumber(server_time[1]) * 1000 + math.floor(tonumber(server_time[2]) / 1000) + tonumber(ARGV[1])
+for i = 2, #ARGV do
+    redis.call('ZADD', KEYS[1], 'XX', expires_at, ARGV[i])
+end
 return 0
 """
 
@@ -301,6 +311,7 @@ class QueryRouter:
         self._redis = redis_client
         self._try_enter_script = redis_client.register_script(_TRY_ENTER_LUA)
         self._remove_script = redis_client.register_script(_REMOVE_LUA)
+        self._renew_script = redis_client.register_script(_RENEW_LUA)
         self._last_error_logged_at: float | None = None
         # Query threads add and remove slots while the renewal thread reads them.
         self._held_slots: set[_Slot] = set()
@@ -356,7 +367,6 @@ class QueryRouter:
                 arrivals_key(slot.pool),
             ],
             args=[
-                int(self.get_time() * 1000),
                 slot.slot_id,
                 int(slot.query_class),
                 rank,
@@ -463,9 +473,7 @@ class QueryRouter:
             )
         if decision.outcome in _DROPPED_OUTCOMES:
             retry_after = random.randint(*_RETRY_AFTER_SECONDS)
-            DROPS_COUNTER.labels(
-                pool=slot.pool.value, query_class=_class_label(slot.query_class), team_id=str(team_id or "")
-            ).inc()
+            DROPS_COUNTER.labels(pool=slot.pool.value, query_class=_class_label(slot.query_class)).inc()
             logger.info(
                 "query_router_dropped",
                 pool=slot.pool.value,
@@ -588,15 +596,14 @@ class QueryRouter:
     def renew_slots(self) -> None:
         with self._held_slots_lock:
             held_slots = list(self._held_slots)
-        expires_at_ms = int(self.get_time() * 1000) + _SLOT_TTL_SECONDS * 1000
-        expiries_by_key: defaultdict[str, dict[str | bytes, int]] = defaultdict(dict)
+        slots_by_key: defaultdict[str, list[str]] = defaultdict(list)
         for slot in held_slots:
-            expiries_by_key[running_key(slot.pool, slot.query_class)][slot.slot_id] = expires_at_ms
-        for key, expiries in expiries_by_key.items():
+            slots_by_key[running_key(slot.pool, slot.query_class)].append(slot.slot_id)
+        for key, slot_ids in slots_by_key.items():
             try:
                 # XX updates only the slots still in Redis, so a slot released after the snapshot above
                 # stays released.
-                self._redis.zadd(key, expiries, xx=True)
+                self._renew_script(keys=[key], args=[_SLOT_TTL_SECONDS * 1000, *slot_ids])
             except RedisError:
                 self._record_slot_error("renew")
 

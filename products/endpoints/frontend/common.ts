@@ -2,7 +2,7 @@ import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
-/** Must match ENDPOINT_NAME_REGEX in products/endpoints/backend/api.py */
+/** Must match ENDPOINT_NAME_REGEX in products/endpoints/backend/constants.py */
 const ENDPOINT_NAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/
 
 export function validateEndpointName(name: string): string | undefined {

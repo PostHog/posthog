@@ -7,7 +7,6 @@ import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { SelectableCard } from 'scenes/experiments/components/SelectableCard'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
@@ -20,6 +19,7 @@ import { AnyEntityNode, ExperimentTrendsQuery, InsightQueryNode, NodeKind } from
 import { commonActionFilterProps } from '~/scenes/experiments/Metrics/Selectors'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
+import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
 import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from 'products/experiments/frontend/constants'
 
 export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {

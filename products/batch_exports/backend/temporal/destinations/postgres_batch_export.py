@@ -37,7 +37,6 @@ from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
-    BatchExportSchema,
     PostgresBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
@@ -332,10 +331,16 @@ class PostgreSQLClient:
     @contextlib.asynccontextmanager
     async def connect(
         self,
+        *,
+        is_error_retryable: typing.Callable[[Exception], bool] | None = None,
     ) -> typing.AsyncIterator[typing.Self]:
         """Context manager for a PostgreSQL connection, backed by `psycopg`.
 
         Connection parameters are set when initializing a client.
+
+        `is_error_retryable` lets a caller stop the connect retries early on an error it knows
+        fails the same way every time. The `PostgreSQLConnectionError` raised then keeps that
+        error as its `__cause__`. Without it, every `OperationalError` is retried.
         """
         max_attempts = 5
         connect: typing.Callable[..., typing.Awaitable[psycopg.AsyncConnection]] = (
@@ -343,6 +348,7 @@ class PostgreSQLClient:
                 psycopg.AsyncConnection.connect,
                 max_attempts=max_attempts,
                 retryable_exceptions=(psycopg.OperationalError, psycopg.errors.ConnectionTimeout),
+                is_exception_retryable=is_error_retryable or (lambda _: True),
             )
         )
 
@@ -855,11 +861,11 @@ class PostgreSQLConsumer(Consumer):
 
 
 def _get_table_fields(
-    model: BatchExportModel | BatchExportSchema | None,
+    model: BatchExportModel | None,
     record_batch_schema: pa.Schema,
 ) -> Fields:
     """Extract table field definitions from model and schema."""
-    if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+    if model is None or model.name == "events":
         table_fields: Fields = [
             ("uuid", "VARCHAR(200)"),
             ("event", "VARCHAR(200)"),
@@ -892,7 +898,7 @@ class MergeSettings(typing.NamedTuple):
 
 
 def _get_merge_settings(
-    model: BatchExportModel | BatchExportSchema | None,
+    model: BatchExportModel | None,
 ) -> MergeSettings:
     requires_merge = False
     merge_key: Fields = []
@@ -970,11 +976,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
     )
 
     async with Heartbeater():
-        model: BatchExportModel | BatchExportSchema | None = None
-        if inputs.batch_export_schema is None:
-            model = inputs.batch_export_model
-        else:
-            model = inputs.batch_export_schema
+        model = inputs.batch_export_model
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_POSTGRES_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -1206,7 +1208,6 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
-            batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=postgres_default_fields(),
             integration_id=inputs.integration_id,

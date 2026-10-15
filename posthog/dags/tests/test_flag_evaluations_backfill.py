@@ -38,6 +38,10 @@ from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE, FLA
 
 TEAM_ONE, TEAM_TWO, TEAM_THREE = 1, 2, 3
 
+# Neither value is the flag_evaluations default. A copy that drops the column stores a different value.
+PERSON_CREATED_AT = datetime(2025, 6, 1, 12, 30, 45, tzinfo=UTC)
+PERSON_MODE = "propertyless"
+
 
 @frozen
 class SourceEvent:
@@ -48,6 +52,7 @@ class SourceEvent:
     event: str = FLAG_EVALUATIONS_SOURCE_EVENT
     # The age of the row's Kafka create time (_timestamp), when that differs from the event's age.
     kafka_time_age: timedelta | None = None
+    person_properties: str = json.dumps({"email": "flag-caller@example.com"})
 
     @property
     def uuid(self) -> UUID:
@@ -65,6 +70,9 @@ class StoredRow:
     response: str
     session_id: str
     person_id: UUID
+    person_properties: str
+    person_created_at: datetime
+    person_mode: str
     inserted_at_is_timestamp: bool
 
 
@@ -88,12 +96,17 @@ def copied(event: SourceEvent) -> StoredRow:
         response=str(event.properties["$feature_flag_response"]),
         session_id=str(event.properties["$session_id"]),
         person_id=uuid5(NAMESPACE_URL, event.distinct_id),
+        person_properties=event.person_properties or "{}",
+        person_created_at=PERSON_CREATED_AT,
+        person_mode=PERSON_MODE,
         inserted_at_is_timestamp=True,
     )
 
 
 INSIDE_RECENT = flag_called("inside_recent", TEAM_ONE, timedelta(days=2, hours=12))
-INSIDE_TEAM_THREE = flag_called("inside_team_three", TEAM_THREE, timedelta(days=30))
+# The events column has no DEFAULT. An events row inserted without person properties holds ''.
+# The copy must store '{}' instead, the value that the flag_evaluations DEFAULT and the MV store.
+INSIDE_TEAM_THREE = replace(flag_called("inside_team_three", TEAM_THREE, timedelta(days=30)), person_properties="")
 # The default one-hour lag limit and the five-minute delivery timeout put the cutoff 65 minutes before the check.
 # A row that ingestion produced two hours ago is older than the cutoff, so the job copies it.
 INSIDE_OLD = replace(flag_called("inside_old", TEAM_TWO, timedelta(days=60)), kafka_time_age=timedelta(hours=2))
@@ -145,6 +158,11 @@ KAFKA_PATH_ROW = SourceEvent(label="kafka_path_row", team_id=TEAM_ONE, age=timed
 KAFKA_ROW_IN_ITS_EVENT_SECOND = SourceEvent(
     label="kafka_row_in_its_event_second", team_id=TEAM_ONE, age=timedelta(0), properties={}
 )
+# Its own label gives it its own uuid and distinct_id. Two copies of one event would share the sort key.
+# A merge would then collapse them.
+SECOND_KAFKA_ROW_IN_ITS_EVENT_SECOND = replace(
+    KAFKA_ROW_IN_ITS_EVENT_SECOND, label="second_kafka_row_in_its_event_second"
+)
 
 SAME_UUID_OTHER_TEAM = replace(INSIDE_RECENT, team_id=TEAM_TWO)
 
@@ -158,6 +176,9 @@ def forked(event: SourceEvent) -> StoredRow:
         response="",
         session_id="",
         person_id=uuid5(NAMESPACE_URL, event.distinct_id),
+        person_properties="{}",
+        person_created_at=datetime(1970, 1, 1, tzinfo=UTC),
+        person_mode="full",
         inserted_at_is_timestamp=True,
     )
 
@@ -176,6 +197,9 @@ def seed_source_events(cluster: ClickhouseCluster, now: datetime, events: list[S
             event.distinct_id,
             now - event.age,
             uuid5(NAMESPACE_URL, event.distinct_id),
+            event.person_properties,
+            PERSON_CREATED_AT,
+            PERSON_MODE,
             now - (event.age if event.kafka_time_age is None else event.kafka_time_age),
         )
         for event in events
@@ -184,7 +208,8 @@ def seed_source_events(cluster: ClickhouseCluster, now: datetime, events: list[S
     def insert(client: Client) -> None:
         client.execute(
             f"""INSERT INTO {EVENTS_DATA_TABLE()}
-            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id, _timestamp)
+            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id,
+             person_properties, person_created_at, person_mode, _timestamp)
             VALUES""",
             rows,
         )
@@ -234,11 +259,17 @@ def seed_kafka_path_row(
 
 
 def stored_rows(cluster: ClickhouseCluster) -> Counter[StoredRow]:
-    labels = {event.uuid: event.label for event in [*SOURCE_EVENTS, KAFKA_ROW_IN_ITS_EVENT_SECOND]}
+    labels = {
+        event.uuid: event.label
+        for event in [*SOURCE_EVENTS, KAFKA_ROW_IN_ITS_EVENT_SECOND, SECOND_KAFKA_ROW_IN_ITS_EVENT_SECOND]
+    }
 
-    def select(client: Client) -> list[tuple[UUID, str, str, str, UUID, int]]:
+    def select(client: Client) -> list[tuple[UUID, str, str, str, UUID, str, datetime, str, int]]:
+        # The driver returns a naive datetime unless the column type names a time zone.
+        # toTimeZone names one, so person_created_at compares equal to the aware PERSON_CREATED_AT.
         return client.execute(
-            """SELECT uuid, flag_key, response, session_id, person_id, inserted_at = timestamp
+            """SELECT uuid, flag_key, response, session_id, person_id, person_properties,
+                toTimeZone(person_created_at, 'UTC'), person_mode, inserted_at = timestamp
             FROM flag_evaluations
             WHERE uuid != %(kafka_path_row)s""",
             {"kafka_path_row": KAFKA_PATH_ROW.uuid},
@@ -251,11 +282,22 @@ def stored_rows(cluster: ClickhouseCluster) -> Counter[StoredRow]:
             response=response,
             session_id=session_id,
             person_id=person_id,
+            person_properties=person_properties,
+            person_created_at=person_created_at,
+            person_mode=person_mode,
             inserted_at_is_timestamp=bool(inserted_at_is_timestamp),
         )
-        for uuid, flag_key, response, session_id, person_id, inserted_at_is_timestamp in cluster.any_host_by_role(
-            select, NodeRole.DATA
-        ).result()
+        for (
+            uuid,
+            flag_key,
+            response,
+            session_id,
+            person_id,
+            person_properties,
+            person_created_at,
+            person_mode,
+            inserted_at_is_timestamp,
+        ) in cluster.any_host_by_role(select, NodeRole.DATA).result()
     )
 
 
@@ -446,11 +488,12 @@ def test_backfill_names_the_day_when_a_blocking_run_starts_during_its_copy(
 ) -> None:
     now = datetime.now(UTC)
     on_first_copied_day = replace(INSIDE_RECENT, age=age_at_noon(now, days_ago=2))
-    kafka_row_on_first_copied_day = replace(KAFKA_ROW_IN_ITS_EVENT_SECOND, age=on_first_copied_day.age)
     seed_source_events(cluster, now, [on_first_copied_day])
     seed_kafka_path_row(cluster, now)
-    for partition, offset in [(0, 1), (1, 0)]:
-        seed_kafka_path_row(cluster, now, kafka_row_on_first_copied_day, partition, offset, delivery_delay=timedelta(0))
+    kafka_rows = [(KAFKA_ROW_IN_ITS_EVENT_SECOND, 0, 1), (SECOND_KAFKA_ROW_IN_ITS_EVENT_SECOND, 1, 0)]
+    for event, partition, offset in kafka_rows:
+        on_day = replace(event, age=on_first_copied_day.age)
+        seed_kafka_path_row(cluster, now, on_day, partition, offset, delivery_delay=timedelta(0))
     instance = dagster.DagsterInstance.ephemeral()
     copy_day = ShardBackfill.copy_day
 
@@ -469,12 +512,13 @@ def test_backfill_names_the_day_when_a_blocking_run_starts_during_its_copy(
     assert failure.step_failure_data.error is not None
     message = failure.step_failure_data.error.message
     assert "started while" in message
-    assert stored_rows(cluster) == Counter({copied(on_first_copied_day): 1, forked(KAFKA_ROW_IN_ITS_EVENT_SECOND): 2})
+    forked_rows = [forked(event) for event, _, _ in kafka_rows]
+    assert stored_rows(cluster) == Counter([copied(on_first_copied_day), *forked_rows])
 
     [repair_delete] = re.findall(r"`(DELETE FROM [^`]+)`", message)
     cluster.map_one_host_per_shard(lambda client: client.execute(repair_delete)).result()
 
-    assert stored_rows(cluster) == Counter({forked(KAFKA_ROW_IN_ITS_EVENT_SECOND): 2})
+    assert stored_rows(cluster) == Counter(forked_rows)
 
 
 @pytest.mark.parametrize(

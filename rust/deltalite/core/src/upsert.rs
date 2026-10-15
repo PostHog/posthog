@@ -61,6 +61,7 @@ use crate::limits::{
 };
 use crate::pkset::PkSet;
 use crate::schema::{cast_to_schema, unknown_columns};
+use crate::smallfile::{fetch_small_file, reads_whole, SmallFileStore};
 use crate::writer::StreamingWriter;
 
 /// One logical group of work: a partition value (or the whole table when unpartitioned).
@@ -1638,23 +1639,50 @@ fn target_file(v: &LogicalFileView) -> TargetFile {
 /// Open a Parquet stream builder for `f`. A footer the probe already parsed is reused
 /// without I/O; otherwise the footer is read with [`FOOTER_SIZE_HINT`] so it arrives in
 /// one round trip.
+///
+/// A file no larger than the hint is read whole in one request (see
+/// `crate::smallfile`). The fetch permit for those bytes is taken before the request and
+/// returned with the builder; it is the reader's one fetch permit for this file, so the
+/// caller must not take another.
 pub(crate) async fn open_builder(
     store: &Arc<dyn ObjectStore>,
     f: &TargetFile,
-) -> Result<ParquetRecordBatchStreamBuilder<ParquetObjectReader>> {
+    budgets: &Budgets,
+) -> Result<(
+    ParquetRecordBatchStreamBuilder<ParquetObjectReader>,
+    Option<FetchPermit>,
+)> {
     let path = Path::parse(&f.path)
         .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
-    let reader = ParquetObjectReader::new(store.clone(), path).with_file_size(f.size);
     if let Some(meta) = &f.metadata {
+        let reader = ParquetObjectReader::new(store.clone(), path).with_file_size(f.size);
         let arrow_meta = ArrowReaderMetadata::try_new(meta.clone(), Default::default())?;
-        return Ok(ParquetRecordBatchStreamBuilder::new_with_metadata(
-            reader, arrow_meta,
+        return Ok((
+            ParquetRecordBatchStreamBuilder::new_with_metadata(reader, arrow_meta),
+            None,
         ));
     }
-    Ok(
+    if reads_whole(f.size, FOOTER_SIZE_HINT as u64) {
+        let fetch = budgets.acquire_fetch(f.size as usize).await?;
+        if let Some(file) = fetch_small_file(store, &path, f.size).await? {
+            let store: Arc<dyn ObjectStore> =
+                Arc::new(SmallFileStore::new(store.clone(), path.clone(), file));
+            let reader = ParquetObjectReader::new(store, path).with_file_size(f.size);
+            return Ok((
+                ParquetRecordBatchStreamBuilder::new(
+                    reader.with_footer_size_hint(FOOTER_SIZE_HINT),
+                )
+                .await?,
+                Some(fetch),
+            ));
+        }
+    }
+    let reader = ParquetObjectReader::new(store.clone(), path).with_file_size(f.size);
+    Ok((
         ParquetRecordBatchStreamBuilder::new(reader.with_footer_size_hint(FOOTER_SIZE_HINT))
             .await?,
-    )
+        None,
+    ))
 }
 
 /// Drop files whose Add-action stats prove they hold no match: min/max disjointness on
@@ -1885,7 +1913,7 @@ async fn probe_file(
     opts: &UpsertOptions,
     budgets: &Budgets,
 ) -> Result<(bool, Arc<ParquetMetaData>)> {
-    let builder = open_builder(store, f).await?;
+    let (builder, held_fetch) = open_builder(store, f, budgets).await?;
     let metadata = builder.metadata().clone();
     let file_schema = builder.schema().clone();
 
@@ -1930,12 +1958,17 @@ async fn probe_file(
     }
 
     // Fetch budget before any data is fetched; held until the stream is gone.
-    let fetch = budgets
-        .acquire_fetch(max_row_group_fetch_bytes(
-            builder.metadata(),
-            Some(&projection),
-        ))
-        .await?;
+    let fetch = match held_fetch {
+        Some(fetch) => fetch,
+        None => {
+            budgets
+                .acquire_fetch(max_row_group_fetch_bytes(
+                    builder.metadata(),
+                    Some(&projection),
+                ))
+                .await?
+        }
+    };
     let mask = ProjectionMask::roots(builder.parquet_schema(), projection);
     let batch_rows = byte_bounded_batch_rows(
         builder.metadata(),
@@ -2055,12 +2088,17 @@ async fn filter_file(
     budgets: Budgets,
     tx: mpsc::UnboundedSender<(RecordBatch, BudgetPermit)>,
 ) -> Result<FileOutcome> {
-    let builder = open_builder(&store, &f).await?;
+    let (builder, held_fetch) = open_builder(&store, &f, &budgets).await?;
     // Reserve the compressed bytes the reader will hold before it fetches any data.
     // Taken once per file and before any decode budget (see `Budgets::acquire_fetch`).
-    let fetch = budgets
-        .acquire_fetch(max_row_group_fetch_bytes(builder.metadata(), None))
-        .await?;
+    let fetch = match held_fetch {
+        Some(fetch) => fetch,
+        None => {
+            budgets
+                .acquire_fetch(max_row_group_fetch_bytes(builder.metadata(), None))
+                .await?
+        }
+    };
     let batch_rows = byte_bounded_batch_rows(
         builder.metadata(),
         INITIAL_DECODE_ESTIMATE_BYTES,
@@ -2637,6 +2675,45 @@ mod tests {
         let batches = Arc::new(vec![int_batch(&[1])]);
         let err = plan_partition_sources(&batches, Some("p")).unwrap_err();
         assert!(matches!(err, Error::SchemaMismatch(_)), "{err}");
+    }
+
+    // ---- small files ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn a_small_file_is_fetched_only_under_its_fetch_permit() {
+        let batch = int_batch(&[1, 2, 3]);
+        let mut encoded = Vec::new();
+        let mut writer =
+            parquet::arrow::ArrowWriter::try_new(&mut encoded, batch.schema(), None).unwrap();
+        writer.write(&batch).unwrap();
+        writer.close().unwrap();
+        let store: Arc<dyn ObjectStore> = Arc::new(object_store::memory::InMemory::new());
+        let file = TargetFile {
+            size: encoded.len() as u64,
+            ..target_file(None)
+        };
+        object_store::ObjectStoreExt::put(
+            store.as_ref(),
+            &Path::from(file.path.as_str()),
+            encoded.into(),
+        )
+        .await
+        .unwrap();
+        let limits = Arc::new(ProcessLimits::with_fetch(1, 1, 1 << 20, 1 << 20));
+        let budgets = Budgets::new(1 << 20, 8 * 1024, limits);
+
+        let whole_budget = budgets.acquire_fetch(usize::MAX).await.unwrap();
+        let blocked = tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            open_builder(&store, &file, &budgets),
+        )
+        .await;
+        assert!(blocked.is_err(), "the open must wait for the fetch budget");
+
+        drop(whole_budget);
+        let (builder, fetch) = open_builder(&store, &file, &budgets).await.unwrap();
+        assert!(fetch.is_some(), "the reader holds the permit for the file");
+        assert_eq!(builder.metadata().file_metadata().num_rows(), 3);
     }
 
     // ---- stats-based pruning ---------------------------------------------------------

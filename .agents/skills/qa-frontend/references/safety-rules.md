@@ -76,6 +76,8 @@ Evidence upload publishes local-stack screenshots, demo reels, and demo videos t
 
 Get explicit approval for the upload set in the same gate as the PR comment. Show the user the list of files about to be uploaded and what each one shows. Do not upload first and ask later; the upload is the disclosure. The command's `--yes` flag exists as a speed bump for exactly this reason - passing it is a statement that the user approved this exact upload set.
 
+One exception: a feature reel made only from Storybook stills follows the screenshot rule in `/writing-pr-descriptions`, because Storybook renders mock data. `references/feature-reel.md` has the check to run before that upload. A reel from the running app keeps this gate.
+
 ## Autonomous Fix Bounds
 
 Autonomous fixes may only modify files that were already changed in the PR. Downgrade to comment-only if a plausible fix needs a new file or a file outside the original PR diff.

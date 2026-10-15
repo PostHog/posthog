@@ -92,6 +92,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.clock = FakeClock()
+        self.enterContext(patch("time.time", self.clock.time))
         self.redis = get_client()
         self.router = QueryRouter(redis_client=self.redis, get_time=self.clock.time, sleep=self.clock.sleep)
         self.get_settings = self._start_patch(
@@ -181,8 +182,8 @@ class TestQueryRouterAdmission(SimpleTestCase):
         for waiter in waiters:
             waiter.finish()
 
-    def test_waiter_is_dropped_after_its_max_wait_and_counted_for_its_team(self) -> None:
-        drops = ("posthog_query_router_drops_total", {"pool": "offline", "query_class": "background", "team_id": "42"})
+    def test_waiter_is_dropped_after_its_max_wait_and_counted(self) -> None:
+        drops = ("posthog_query_router_drops_total", {"pool": "offline", "query_class": "background"})
         drops_before = _sample_value(*drops)
         self._finish()
         started_at = self.clock.now
@@ -294,6 +295,22 @@ class TestQueryRouterAdmission(SimpleTestCase):
                     self.router.renew_slots()
             with self._admit(QueryClass.BACKGROUND) as admission:
                 assert admission.outcome == next_outcome
+
+    @parameterized.expand([(120, False), (-120, False), (120, True), (-120, True)])
+    def test_slot_expiry_uses_server_time_despite_caller_clock_skew(self, skew: int, renew: bool) -> None:
+        self.get_settings.return_value = router_settings(mode=RouterMode.OBSERVE, limit=SMALL_LIMIT)
+        self.router.get_time = lambda: self.clock.time() + skew
+        other = QueryRouter(redis_client=self.redis, get_time=self.clock.time, sleep=self.clock.sleep)
+        with self._admit(QueryClass.BACKGROUND):
+            if renew:
+                self.clock.now += _SLOT_TTL_SECONDS - 1
+                self.router.renew_slots()
+            self.clock.now += _SLOT_TTL_SECONDS - 1
+            with other.admit(pool=Pool.OFFLINE, query_class=QueryClass.API) as admission:
+                assert admission.outcome == AdmissionOutcome.WOULD_WAIT
+            self.clock.now += 2
+            with other.admit(pool=Pool.OFFLINE, query_class=QueryClass.API) as admission:
+                assert admission.outcome == AdmissionOutcome.ADMITTED
 
     def test_renewal_never_adds_a_slot_that_is_not_in_redis(self) -> None:
         with self._admit(QueryClass.API):

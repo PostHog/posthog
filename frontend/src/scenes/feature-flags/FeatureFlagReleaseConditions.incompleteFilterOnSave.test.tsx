@@ -7,7 +7,13 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
-import { FeatureFlagGroupType, FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    FeatureFlagFilters,
+    FeatureFlagGroupType,
+    FeatureFlagType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
@@ -22,7 +28,7 @@ const INCOMPLETE_FILTER_MESSAGE = 'Add a value or remove this filter'
 
 // A property picked from the taxonomic list starts with a null value, and the form blocks the save
 // while that half-built row is on the flag.
-function buildFilters(planValue: string | null = null): FeatureFlagType['filters'] {
+function buildFilters(planValue: string | null = null): FeatureFlagFilters {
     const groups: FeatureFlagGroupType[] = [
         {
             properties: [

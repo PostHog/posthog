@@ -7,6 +7,7 @@ import type { ChannelTaskRecord } from "./channelTaskSchemas";
 import type {
   CanvasActionDefinition,
   CanvasActionResult,
+  CanvasAvailability,
   CanvasConnectorCallResult,
   CanvasDraft,
   CanvasSource,
@@ -50,6 +51,8 @@ export interface IDashboardsService {
   listAll(): Promise<DashboardRecord[]>;
   get(id: string): Promise<DashboardRecord | null>;
   publishProject(input: PublishProjectInput): Promise<PublishProjectResult>;
+  // Why a canvas would not open, for the surface that has to explain it.
+  availability(id: string): Promise<CanvasAvailability>;
   // Everything needed to open a canvas, in one round trip.
   view(id: string): Promise<CanvasView>;
   create(input: {

@@ -12,7 +12,12 @@ from products.data_warehouse.backend.logic.external_data_source.notifications im
     get_team_ids_with_recent_sync_failures,
     notify_external_data_sync_failures,
 )
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataDestination,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 
 pytestmark = [
     pytest.mark.django_db,
@@ -112,6 +117,42 @@ class TestNotifyExternalDataSyncFailures:
         assert items[0]["schema_name"] == expected_display
         # ...but the deep link always keeps using the raw identifier.
         assert f"?schema={quote(name)}" in items[0]["url"]
+
+    @pytest.mark.parametrize(
+        "error,destination_deleted,expect_destination",
+        [
+            ("Analytics PG: Destination configuration error. Bad host", False, True),
+            ("Charge failed: Analytics PG: connection reset", False, True),
+            ("Analytics PG: Destination configuration error. Bad host", True, False),
+            ("Other PG: connection reset", False, False),
+            ("Invalid API key", False, False),
+        ],
+    )
+    def test_names_the_destination_that_failed(self, error, destination_deleted, expect_destination):
+        team, source = _create_team_and_source()
+        destination = ExternalDataDestination.objects.for_team(team.pk).create(
+            team=team,
+            type=ExternalDataDestination.Type.POSTGRES,
+            name="Analytics PG",
+            deleted=destination_deleted,
+        )
+        ExternalDataSchema.objects.create(
+            name="Charge", team=team, source=source, status=ExternalDataSchema.Status.FAILED, latest_error=error
+        )
+
+        with patch(SENDER_PATH) as mock_sender:
+            notify_external_data_sync_failures(team.pk)
+
+        (_, items) = mock_sender.call_args.args
+        assert items[0]["error"] == error
+        if expect_destination:
+            assert items[0]["destination_name"] == "Analytics PG"
+            assert items[0]["destination_url"].endswith(
+                f"/project/{team.pk}/data-management/warehouse-destinations?destination={destination.id}"
+            )
+        else:
+            assert items[0]["destination_name"] is None
+            assert items[0]["destination_url"] is None
 
     @pytest.mark.parametrize(
         "status,should_sync,deleted",

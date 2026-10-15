@@ -32,7 +32,7 @@ export function isApprovalRequiredError(error: { status?: number; data?: any } |
     return error?.status === 409 && Boolean(error?.data?.change_request_id)
 }
 
-/** Infrastructure-level failures where the gateway couldn't reach the backend. */
+/** Potentially transient failures; a gateway error does not prove that the backend did no work. */
 const TRANSIENT_GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504])
 
 function isTransientGatewayStatus(status: number | undefined): boolean {
@@ -94,6 +94,9 @@ export function isScopeNotFoundError(error: unknown): boolean {
     const detail = failure.detail ?? failure.data?.detail
     return typeof detail === 'string' && SCOPE_NOT_FOUND_DETAILS.has(detail)
 }
+
+/** DRF code of a security access rule refusal (products/security). Keep in sync with the backend. */
+export const ACCESS_BLOCKED_ERROR_CODE = 'access_blocked'
 
 /** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
 const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
@@ -168,7 +171,7 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  * - 404 `Project not found.` / `Organization not found.` — the scope in the URL is gone, so every
  *   request under it fails the same way. The scene routing takes the user off that URL, and until
  *   it does, a poll on the dead scope would otherwise file one exception per tick.
- * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
+ * - 502/503/504 are gateway or upstream failures. The backend may already have started the request.
  *
  * Left unreported for a second reason, that there is nothing to fix:
  * - a `fetch` the browser never completed. No request reached us, so no code of ours failed, and
@@ -243,6 +246,10 @@ export function readableErrorMessage(error: unknown): string | undefined {
 }
 
 export class ApiError extends Error {
+    /** Numeric capacity hints can be used for automatic retries without relying on server or device clocks. */
+    readonly retryAfterSeconds: number | null
+    /** An absolute deadline keeps rerenders and remounts from restarting a capacity cooldown. */
+    readonly retryAfterTimestamp: number | null
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
     /** Django REST Framework `code` - used in downstream error handling. */
@@ -268,6 +275,11 @@ export class ApiError extends Error {
         this.code = data?.code || null
         this.link = data?.link || null
         this.attr = data?.attr || null
+        const retryAfter = status === 503 ? headers?.get('Retry-After') : null
+        const seconds = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) : NaN
+        this.retryAfterSeconds = Number.isSafeInteger(seconds) ? seconds : null
+        const retryAfterTimestamp = this.retryAfterSeconds !== null ? Date.now() + this.retryAfterSeconds * 1000 : NaN
+        this.retryAfterTimestamp = Number.isSafeInteger(retryAfterTimestamp) ? retryAfterTimestamp : null
     }
 
     static async fromResponse(response: Response, fallbackMessage?: string): Promise<ApiError> {

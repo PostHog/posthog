@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product reminders
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product reminders
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Reminders
 feature: reminders
 url_prefix: /
@@ -86,6 +84,3 @@ tools:
         description: >
             List your reminders in the current project, including their schedule, status (active/completed/errored), and
             next fire time.
-    reminders-update:
-        operation: reminders_update
-        enabled: false

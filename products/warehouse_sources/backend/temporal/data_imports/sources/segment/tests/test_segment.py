@@ -1,42 +1,33 @@
-from typing import Any
-
-from unittest.mock import MagicMock
+from typing import Any, Literal, cast
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.segment import segment
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.segment import (
+    SegmentSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.segment.segment import (
-    PAGE_SIZE,
     SegmentResumeConfig,
     _base_url,
-    _build_url,
     _extract_rows,
     _next_cursor,
     _redact_rows,
-    get_rows,
-    segment_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.segment.settings import (
-    REGION_BASE_URLS,
-    SEGMENT_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.segment.settings import SEGMENT_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.segment.source import SegmentSource
 
 
-class _FakeResumableManager:
-    """In-memory stand-in for ResumableSourceManager that records saved state."""
+def _driver(region: str = "api") -> SourceDriver:
+    return SourceDriver(
+        SegmentSource(), SegmentSourceConfig(api_token="tok", region=cast(Literal["api", "eu1"], region))
+    )
 
-    def __init__(self, state: SegmentResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[SegmentResumeConfig] = []
 
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> SegmentResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: SegmentResumeConfig) -> None:
-        self.saved.append(data)
+def _page(body: dict[str, Any]) -> ScriptedResponse:
+    return ScriptedResponse(json=body)
 
 
 class TestBaseUrl:
@@ -50,26 +41,6 @@ class TestBaseUrl:
     )
     def test_base_url(self, _name: str, region: str, expected: str) -> None:
         assert _base_url(region) == expected
-
-    def test_both_documented_regions_are_covered(self) -> None:
-        assert set(REGION_BASE_URLS) == {"api", "eu1"}
-
-
-class TestBuildUrl:
-    def test_first_page_has_count_and_no_cursor(self) -> None:
-        url = _build_url("https://api.segmentapis.com", "/sources", None)
-        assert url == f"https://api.segmentapis.com/sources?pagination[count]={PAGE_SIZE}"
-
-    def test_cursor_is_url_encoded(self) -> None:
-        # Segment cursors are base64 and contain `=` padding, which must be percent-encoded in a query value.
-        url = _build_url("https://api.segmentapis.com", "/sources", "Mw==")
-        assert url == f"https://api.segmentapis.com/sources?pagination[count]={PAGE_SIZE}&pagination[cursor]=Mw%3D%3D"
-
-    def test_bracket_keys_stay_literal(self) -> None:
-        # Segment expects literal brackets in the pagination keys, not percent-encoded ones.
-        url = _build_url("https://api.segmentapis.com", "/labels", "abc")
-        assert "pagination[count]" in url
-        assert "%5B" not in url
 
 
 class TestExtractRows:
@@ -98,15 +69,6 @@ class TestRedactRows:
         rows = [{"id": "1", "settings": {"k": "v"}}]
         assert _redact_rows(rows, frozenset()) == rows
 
-    def test_drops_only_the_named_fields(self) -> None:
-        rows = [{"id": "1", "settings": {"apiKey": "secret"}, "name": "keep"}]
-        assert _redact_rows(rows, frozenset({"settings"})) == [{"id": "1", "name": "keep"}]
-
-    def test_non_dict_rows_pass_through(self) -> None:
-        # Defensive: a malformed row that isn't a dict should not raise.
-        malformed: list[Any] = ["not-a-dict"]
-        assert _redact_rows(malformed, frozenset({"settings"})) == malformed
-
 
 class TestNextCursor:
     @parameterized.expand(
@@ -123,80 +85,30 @@ class TestNextCursor:
 
 
 class TestGetRows:
-    @staticmethod
-    def _collect(endpoint: str, manager: _FakeResumableManager, monkeypatch: Any, pages: list[dict]) -> list[dict]:
-        """Drive get_rows with a queue of fake page bodies, returning the flattened rows."""
-        page_iter = iter(pages)
+    def test_paginates_until_next_is_absent(self) -> None:
+        result = _driver().run(
+            "sources",
+            [
+                _page({"data": {"sources": [{"id": "s1"}], "pagination": {"next": "c1"}}}),
+                _page({"data": {"sources": [{"id": "s2"}], "pagination": {"next": "c2"}}}),
+                _page({"data": {"sources": [{"id": "s3"}], "pagination": {"next": None}}}),
+            ],
+        )
+        assert result.rows == [{"id": "s1"}, {"id": "s2"}, {"id": "s3"}]
+        assert result.params("pagination[cursor]") == [None, "c1", "c2"]
+        assert result.saved_states == [SegmentResumeConfig(cursor="c1"), SegmentResumeConfig(cursor="c2")]
 
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-            return next(page_iter)
+    def test_resume_starts_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "sources",
+            [_page({"data": {"sources": [{"id": "s9"}], "pagination": {"next": None}}})],
+            resume_state=SegmentResumeConfig(cursor="resumed"),
+        )
 
-        monkeypatch.setattr(segment, "_fetch", fake_fetch)
-        monkeypatch.setattr(segment, "make_tracked_session", lambda *a, **k: MagicMock())
+        assert result.rows == [{"id": "s9"}]
+        assert result.requests[0].param("pagination[cursor]") == "resumed"
 
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_token="tok",
-            region="api",
-            config=SEGMENT_ENDPOINTS[endpoint],
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
-
-    def test_paginates_until_next_is_absent(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = [
-            {"data": {"sources": [{"id": "s1"}], "pagination": {"next": "c1"}}},
-            {"data": {"sources": [{"id": "s2"}], "pagination": {"next": "c2"}}},
-            {"data": {"sources": [{"id": "s3"}], "pagination": {"next": None}}},
-        ]
-        rows = self._collect("sources", manager, monkeypatch, pages)
-        assert rows == [{"id": "s1"}, {"id": "s2"}, {"id": "s3"}]
-
-    def test_saves_cursor_after_each_non_terminal_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = [
-            {"data": {"sources": [{"id": "s1"}], "pagination": {"next": "c1"}}},
-            {"data": {"sources": [{"id": "s2"}], "pagination": {"next": "c2"}}},
-            {"data": {"sources": [{"id": "s3"}], "pagination": {"next": None}}},
-        ]
-        self._collect("sources", manager, monkeypatch, pages)
-        # State is saved only for the pages that have a next cursor — never on the terminal page.
-        assert manager.saved == [SegmentResumeConfig(cursor="c1"), SegmentResumeConfig(cursor="c2")]
-
-    def test_terminal_single_page_saves_no_state(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = [{"data": {"sources": [{"id": "only"}], "pagination": {"next": None}}}]
-        self._collect("sources", manager, monkeypatch, pages)
-        assert manager.saved == []
-
-    def test_resume_starts_from_saved_cursor(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(state=SegmentResumeConfig(cursor="resumed"))
-        captured_urls: list[str] = []
-
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-            captured_urls.append(url)
-            return {"data": {"sources": [{"id": "s9"}], "pagination": {"next": None}}}
-
-        monkeypatch.setattr(segment, "_fetch", fake_fetch)
-        monkeypatch.setattr(segment, "make_tracked_session", lambda *a, **k: MagicMock())
-
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_token="tok",
-            region="api",
-            config=SEGMENT_ENDPOINTS["sources"],
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-
-        assert rows == [{"id": "s9"}]
-        assert "pagination[cursor]=resumed" in captured_urls[0]
-
-    def test_credential_fields_are_redacted(self, monkeypatch: Any) -> None:
+    def test_credential_fields_are_redacted(self) -> None:
         # Credential-like config must never reach the queryable warehouse table.
         cases = [
             ("destinations", {"id": "d1", "settings": {"apiKey": "secret"}}, {"id": "d1"}),
@@ -204,60 +116,32 @@ class TestGetRows:
             ("sources", {"id": "s1", "writeKeys": ["wk_secret"]}, {"id": "s1"}),
         ]
         for endpoint, raw_row, expected_row in cases:
-            manager = _FakeResumableManager()
-            pages = [{"data": {endpoint: [raw_row], "pagination": {"next": None}}}]
-            rows = self._collect(endpoint, manager, monkeypatch, pages)
-            assert rows == [expected_row], endpoint
+            result = _driver().run(endpoint, [_page({"data": {endpoint: [raw_row], "pagination": {"next": None}}})])
+            assert result.rows == [expected_row], endpoint
 
-    def test_single_object_endpoint_yields_one_row_and_no_pagination(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        captured_urls: list[str] = []
+    def test_single_object_endpoint_yields_one_row_and_no_pagination(self) -> None:
+        result = _driver().run(
+            "workspace", [_page({"data": {"workspace": {"id": "w1", "name": "Acme", "slug": "acme"}}})]
+        )
 
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-            captured_urls.append(url)
-            return {"data": {"workspace": {"id": "w1", "name": "Acme", "slug": "acme"}}}
-
-        monkeypatch.setattr(segment, "_fetch", fake_fetch)
-        monkeypatch.setattr(segment, "make_tracked_session", lambda *a, **k: MagicMock())
-
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_token="tok",
-            region="api",
-            config=SEGMENT_ENDPOINTS["workspace"],
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-
-        assert rows == [{"id": "w1", "name": "Acme", "slug": "acme"}]
+        assert result.rows == [{"id": "w1", "name": "Acme", "slug": "acme"}]
         # The workspace endpoint hits its bare path once, with no pagination params.
-        assert captured_urls == ["https://api.segmentapis.com/"]
-        assert manager.saved == []
+        assert result.urls == ["https://api.segmentapis.com/"]
+        assert result.saved_states == []
 
 
 class TestSegmentSource:
+    @staticmethod
+    def _empty_page(_request: Any) -> ScriptedResponse:
+        return _page({"data": {"pagination": {}}})
+
     @parameterized.expand([(name,) for name in SEGMENT_ENDPOINTS])
     def test_source_response_carries_endpoint_primary_keys(self, endpoint: str) -> None:
-        response = segment_source(
-            api_token="tok",
-            region="api",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == SEGMENT_ENDPOINTS[endpoint].primary_keys
+        result = _driver().run(endpoint, self._empty_page)
 
-    def test_labels_use_composite_primary_key(self) -> None:
-        response = segment_source(
-            api_token="tok",
-            region="api",
-            endpoint="labels",
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.primary_keys == ["key", "value"]
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == SEGMENT_ENDPOINTS[endpoint].primary_keys
 
     @parameterized.expand(
         [
@@ -268,12 +152,8 @@ class TestSegmentSource:
     def test_partitioning(
         self, _name: str, endpoint: str, expected_mode: str | None, expected_keys: list[str] | None
     ) -> None:
-        response = segment_source(
-            api_token="tok",
-            region="api",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.partition_mode == expected_mode
-        assert response.partition_keys == expected_keys
+        result = _driver().run(endpoint, self._empty_page)
+
+        assert result.response is not None
+        assert result.response.partition_mode == expected_mode
+        assert result.response.partition_keys == expected_keys

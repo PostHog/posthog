@@ -11,6 +11,7 @@ Importing this module loads the destination's vendor SDK, so keep it off the
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
     Fields,
     PostgreSQLClient,
+    PostgreSQLConnectionError,
     PostgreSQLIntegrationNotFoundError,
     run_in_retryable_transaction,
 )
@@ -18,6 +19,7 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
 __all__ = [
     "Fields",
     "PostgreSQLClient",
+    "PostgreSQLConnectionError",
     "PostgreSQLIntegrationNotFoundError",
     "run_in_retryable_transaction",
 ]

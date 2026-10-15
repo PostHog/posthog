@@ -439,6 +439,7 @@ class TestAsyncAdmission(SimpleTestCase):
     async def test_release_failure_stops_renewing_and_expires(self) -> None:
 
         self.router.get_time = lambda: 1000
+        self.enterContext(patch("time.time", side_effect=lambda: self.router.get_time()))
         async with self.router.aadmit(pool=Pool.OFFLINE, query_class=QueryClass.BACKGROUND):
             slots = self.redis.zrange(running_key(Pool.OFFLINE, QueryClass.BACKGROUND), 0, -1, withscores=True)
             self.assertEqual(slots[0][1], 1_060_000)
@@ -471,6 +472,7 @@ class TestAsyncAdmission(SimpleTestCase):
 
     async def test_live_stream_lease_is_renewed_until_release(self) -> None:
         self.router.get_time = lambda: 1000
+        self.enterContext(patch("time.time", side_effect=lambda: self.router.get_time()))
         async with self.router.aadmit(pool=Pool.OFFLINE, query_class=QueryClass.BACKGROUND):
             self.router.get_time = lambda: 1040
             await asyncio.to_thread(self.router.renew_slots)

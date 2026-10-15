@@ -46,6 +46,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'comment:write',
     'conversation:read',
     'conversation:write',
+    'cross_project_dashboard:read',
+    'cross_project_dashboard:write',
     'customer_analytics:read',
     'customer_analytics:write',
     'customer_task:read',

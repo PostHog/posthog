@@ -1,13 +1,6 @@
 {
     "products": [
         {
-            "path": "AI gateway",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "ai_gateway",
-            "intents": ["ai_gateway"]
-        },
-        {
             "path": "LLM analytics",
             "category": "AI engineering",
             "iconType": null,
@@ -62,6 +55,13 @@
             "iconType": "experiment",
             "type": "autoresearch",
             "intents": ["autoresearch"]
+        },
+        {
+            "path": "Business intelligence",
+            "category": "Data",
+            "iconType": "business_intelligence",
+            "type": null,
+            "intents": []
         },
         {
             "path": "Business knowledge",

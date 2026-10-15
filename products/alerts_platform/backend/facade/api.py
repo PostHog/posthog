@@ -7,7 +7,7 @@ so every write and every scheduling rule has one home.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from uuid import UUID
 
@@ -17,13 +17,24 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationView,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
+    PlatformOwnershipHandover,
+    SourceKind,
 )
 from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads
 
 
-def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> tuple[PlatformAlertCheckInput, ...]:
-    """Every check one batch key owes, flattened as a source reads them."""
-    return platform_lifecycle.due_checks(team_id, source_kind, slot, cutoff)
+def due_checks(
+    team_id: int, source_kind: str, slot: str, cutoff: datetime, *, configuration_ids: Collection[str] | None = None
+) -> tuple[PlatformAlertCheckInput, ...]:
+    """Every check one batch key owes, flattened as a source reads them, or only the named ones."""
+    return platform_lifecycle.due_checks(team_id, source_kind, slot, cutoff, configuration_ids=configuration_ids)
+
+
+def due_check_ids(
+    team_id: int, source_kind: str, slot: str, cutoff: datetime, *, exclude: Collection[str] = (), limit: int
+) -> tuple[str, ...]:
+    """The first `limit` due ids of one batch key, skipping `exclude`, without their runtime state."""
+    return platform_lifecycle.due_check_ids(team_id, source_kind, slot, cutoff, exclude=exclude, limit=limit)
 
 
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
@@ -36,9 +47,36 @@ def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
     return platform_lifecycle.slot_of(next_check_at, cutoff)
 
 
-def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
-    """Copy one of a source's own configurations in. True when the row changed."""
-    return platform_lifecycle.upsert_configuration(upsert)
+def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -> bool:
+    """Copy one of a source's own configurations in. True when it created the row."""
+    return platform_lifecycle.upsert_configuration(upsert, revive=revive)
+
+
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
+    """Copy one configuration in only when its team already runs that source here.
+
+    `revive` says the source alert was just created or turned back on, so the copy starts clean.
+    """
+    platform_lifecycle.upsert_if_running(upsert, revive=revive)
+
+
+def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:
+    """Write a source's current settings onto its copy, leaving the schedule and state alone."""
+    platform_lifecycle.refresh_settings(team_id, configuration_id, upsert)
+
+
+def take_ownership(handover: PlatformOwnershipHandover) -> bool:
+    """Makes the platform the owner of a copied alert, carrying on from the source's state."""
+    return platform_lifecycle.take_ownership(handover)
+
+
+def disable_configurations(
+    source_kind: SourceKind, *, team_id: int | None = None, legacy_configuration_ids: Collection[UUID] | None = None
+) -> int:
+    """Switch off a source's copies, or one team's, or the copies of named source alerts. Returns how many it switched off."""
+    return platform_lifecycle.disable_configurations(
+        source_kind.value, team_id=team_id, legacy_configuration_ids=legacy_configuration_ids
+    )
 
 
 def list_configurations(

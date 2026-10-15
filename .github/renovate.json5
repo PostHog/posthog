@@ -18,8 +18,8 @@
     'dependencies',
   ],
   dependencyDashboardOSVVulnerabilitySummary: 'all',
-  dependencyDashboardReportAbandonment: true,
-  osvVulnerabilityAlerts: true,
+  dependencyDashboardReportAbandonment: false,
+  configMigration: false,
   vulnerabilityAlerts: {
     enabled: false,
   },
@@ -30,13 +30,21 @@
     {
       customType: 'regex',
       description: 'Update pinned chrome-headless-shell version in recording-rasterizer Dockerfile',
-      fileMatch: ['Dockerfile\\.recording-rasterizer$'],
+      managerFilePatterns: ['/Dockerfile\\.recording-rasterizer$/'],
       matchStrings: [
         'chrome-headless-shell@(?<currentValue>\\d+\\.\\d+\\.\\d+\\.\\d+)',
       ],
       depNameTemplate: 'chrome-headless-shell',
       datasourceTemplate: 'custom.chrome-for-testing',
       versioningTemplate: 'loose',
+    },
+    {
+      customType: 'regex',
+      description: 'Update the Renovate version pinned in the dashboard digest workflow',
+      managerFilePatterns: ['/^\\.github/workflows/renovate-dashboard-digest\\.yml$/'],
+      matchStrings: ['renovate@(?<currentValue>\\d+\\.\\d+\\.\\d+)'],
+      depNameTemplate: 'renovate',
+      datasourceTemplate: 'npm',
     },
   ],
   customDatasources: {

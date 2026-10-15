@@ -15,7 +15,7 @@ import { HogFunctionType } from '~/types'
 import {
     getHogFunctionEventKind,
     LOGS_ALERT_EVENT_KIND_META,
-    LOGS_ALERT_EVENT_KIND_ORDER,
+    logsAlertEventKindsFor,
     LogsAlertEventKind,
     resolveGroupLabel,
 } from 'products/logs/frontend/components/LogsAlerting/logsAlertUtils'
@@ -166,7 +166,7 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
                     <LemonSkeleton className="h-16" repeat={4} />
                 ) : (
                     <div className="flex flex-col gap-2">
-                        {LOGS_ALERT_EVENT_KIND_ORDER.map((kind) => {
+                        {logsAlertEventKindsFor(destinationGroup?.type ?? 'webhook').map((kind) => {
                             const fn = kindToFn.get(kind)
                             const meta = LOGS_ALERT_EVENT_KIND_META[kind]
                             const isToggling = !!fn && togglingHogFunctionIds.includes(fn.id)
