@@ -140,6 +140,7 @@ Top N selects categories before result filters run. Comparison periods apply the
 The `marketing-analytics-costs-precomputation` flag controls whether the cost trend can use precomputed costs.
 The backend checks materialization jobs for every displayed source over the requested date range and comparison period.
 It uses precomputed costs only when all windows are ready and unexpired.
+Opening the chart as an editable insight uses its original source series without the automatic precompute selection.
 Completed windows with zero rows count as covered.
 Missing, expired, inaccessible, or unmaterializable sources use the original live warehouse series for the whole chart.
 Coverage check errors also fall back to the live query.

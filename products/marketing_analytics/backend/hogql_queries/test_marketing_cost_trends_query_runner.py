@@ -14,6 +14,7 @@ from posthog.schema import (
     DataWarehouseNode,
     DataWarehousePropertyFilter,
     DateRange,
+    EventsNode,
     HogQLQueryModifiers,
     MarketingAnalyticsCostFallback,
     TrendsQuery,
@@ -184,6 +185,16 @@ class TestMarketingCostTrendsQueryRunner(SimpleTestCase):
         assert source_filter.value == ["b"]
         assert self.ensure.call_count == 1
         assert self.ensure.call_args.kwargs["insert_query"].select == [ast.Constant(value="b")]
+
+    @parameterized.expand([("replace_series",), ("add_series",)])
+    def test_edited_insight_executes_requested_series(self, case: str) -> None:
+        event = EventsNode(event="$pageview")
+        self.query.series = [event] if case == "replace_series" else [*self.query.series, event]
+        result = self.runner().resolve_query()
+        assert result.series == self.query.series
+        assert result.breakdownFilter == self.query.breakdownFilter
+        assert result.marketingAnalyticsCostFallback is None
+        self.ensure.assert_not_called()
 
     @parameterized.expand([(True,), (False,)])
     def test_calculate_executes_the_resolved_series(self, ready: bool) -> None:

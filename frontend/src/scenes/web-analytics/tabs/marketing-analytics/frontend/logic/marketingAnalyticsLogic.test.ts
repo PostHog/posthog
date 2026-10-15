@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { getNewInsightUrlFactory } from 'scenes/web-analytics/insightsUtils'
 
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -565,6 +566,23 @@ describe('marketingAnalyticsLogic', () => {
                     precomputed
                         ? { series: logic.values.createMarketingDataWarehouseNodes, sourceIds: ['google-source'] }
                         : undefined
+                )
+                const tile = tiles.values.marketingChartTile
+                expect(getNewInsightUrlFactory([tile])(tile.tileId)).toEqual(
+                    urls.insightNew({
+                        query: {
+                            ...(tile.query as InsightVizNode),
+                            source: {
+                                ...chartAfter,
+                                series: logic.values.createMarketingDataWarehouseNodes,
+                                breakdownFilter: undefined,
+                                marketingAnalyticsCostFallback: undefined,
+                            },
+                            embedded: undefined,
+                            hidePersonsModal: undefined,
+                        } as InsightVizNode,
+                        sceneSource: 'web-analytics',
+                    })
                 )
                 expect(logic.values.tileColumnSelection).toBe('reported_conversion')
             }

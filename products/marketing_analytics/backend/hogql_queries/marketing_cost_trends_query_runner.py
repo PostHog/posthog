@@ -90,19 +90,18 @@ class MarketingCostTrendsQueryRunner(TrendsQueryRunner):
     def resolve_query(self) -> TrendsQuery:
         fallback = self.query.marketingAnalyticsCostFallback
         assert fallback is not None
-        live_query = self.query.model_copy(deep=True)
-        live_fallback = live_query.marketingAnalyticsCostFallback
-        assert live_fallback is not None
-        live_query.series = list(live_fallback.series)
-        live_query.marketingAnalyticsCostFallback = None
-        live_query.breakdownFilter = None
+        requested_query = self.query.model_copy(deep=True)
+        requested_query.marketingAnalyticsCostFallback = None
         if (
-            not fallback.series
-            or len(self.query.series) != 1
+            len(self.query.series) != 1
             or not isinstance(self.query.series[0], DataWarehouseNode)
             or self.query.series[0].table_name != "marketing_costs_precomputed"
-            or (self.query.dateRange and self.query.dateRange.date_from == "all")
         ):
+            return requested_query
+        live_query = requested_query.model_copy(deep=True)
+        live_query.series = [series.model_copy(deep=True) for series in fallback.series]
+        live_query.breakdownFilter = None
+        if not fallback.series or (self.query.dateRange and self.query.dateRange.date_from == "all"):
             return live_query
         try:
             if not MarketingAnalyticsConfig.from_team(self.team).costs_precomputation_enabled:
