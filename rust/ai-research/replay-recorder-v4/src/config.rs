@@ -43,8 +43,7 @@ pub struct Config {
     )]
     pub event_restrictions_refresh_secs: u64,
 
-    /// The session recording Redis. v4's new-session rate limiter keeps its seen and blocked sessions there, under its
-    /// own keys.
+    /// v4's own Redis. The new-session rate limiter keeps its seen and blocked sessions there.
     #[envconfig(from = "AI_RESEARCH_V4_REDIS_URL")]
     pub redis_url: String,
 
