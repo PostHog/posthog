@@ -85,7 +85,8 @@ def to_date(value: Any) -> date:
 
 
 def window_start(should_use_incremental_field: bool, last_value: Any, today: date, reread_days: int = 0) -> date:
-    floor = today - timedelta(days=HISTORY_DAYS)
+    # The window runs to tomorrow's midnight, so this floor keeps it at the report's one-year maximum.
+    floor = today - timedelta(days=HISTORY_DAYS - 1)
     if should_use_incremental_field and last_value is not None:
         return max(to_date(last_value) - timedelta(days=reread_days), floor)
     return floor

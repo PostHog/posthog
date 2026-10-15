@@ -94,10 +94,10 @@ class TestConversions:
     @pytest.mark.parametrize(
         ("incremental_field", "last_value", "expected_from"),
         [
-            (None, None, "2025-10-15"),
+            (None, None, "2025-10-16"),
             # Statuses and payouts change after the conversion, so the window re-reads 30 days.
             ("conversion_unix_timestamp", int(datetime(2026, 9, 1, 23, tzinfo=UTC).timestamp()), "2026-08-02"),
-            ("conversion_unix_timestamp", int(datetime(2024, 1, 1, tzinfo=UTC).timestamp()), "2025-10-15"),
+            ("conversion_unix_timestamp", int(datetime(2024, 1, 1, tzinfo=UTC).timestamp()), "2025-10-16"),
         ],
     )
     def test_requests_a_window_inside_the_reports_365_day_reach(
