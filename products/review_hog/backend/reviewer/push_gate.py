@@ -566,13 +566,10 @@ class PushGate:
         decision = self._judge(
             previous_head_sha=previous_head_sha, head_sha=head_sha, base_branch=base_branch, pr_number=pr_number
         )
-        # A skipped push reviewed nothing, so the small-change streak stays.
         if decision.skip:
             return decision
-        # The rule chain already counted this push.
         if decision.small_change_deferrals is not None:
             return decision
-        # If the review runs, it moves the baseline, so the small-change streak starts again.
         deferrals = self._small_change_streak_after(pr_number=pr_number, head_sha=head_sha, small=False)
         return replace(decision, small_change_deferrals=deferrals)
 

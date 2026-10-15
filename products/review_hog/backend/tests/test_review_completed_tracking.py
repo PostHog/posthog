@@ -367,7 +367,6 @@ class TestTrackReviewCompleted(BaseTest):
 
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.IDLE
         assert [(result.skip, result.reason) for result in results] == [(True, "system_one_below_threshold")] * 2
-        # The small-change count is stored from the final decision, after the draft, next-push, and throttle rules.
         recorded = gate.return_value.record_small_change_streak.call_args_list
         assert [call.args[0] for call in recorded] == results
         first, second = capture.call_args_list

@@ -505,7 +505,6 @@ def _small_push(head: str, net_files: list[dict[str, Any]]) -> dict[str, dict[st
             _small_push("new", [_net_file(f"posthog/module_{n}.py", 1) for n in range(300)]),
             (False, False, "system_one_above_threshold", None, 0),
         ),
-        # After a rebase the compare starts at the merge base, so its files are not the push's change.
         (
             "rebased_head_is_unknown",
             {
@@ -546,7 +545,6 @@ def test_push_gate_reviews_the_small_push_after_two_deferrals() -> None:
     pushes = [
         ("n1", small),
         ("n2", small),
-        # A retried turn gets its first attempt's count and does not defer again.
         ("n2", small),
         ("n3", small),
         ("n4", small),
@@ -583,7 +581,6 @@ def test_push_gate_reviews_a_small_push_when_redis_is_down() -> None:
 
 @parameterized.expand(
     [
-        # The shadow docs_only push runs the review, so the next small push starts a new streak.
         (
             "reviewed_docs_push_resets",
             _push(
@@ -595,7 +592,6 @@ def test_push_gate_reviews_a_small_push_when_redis_is_down() -> None:
             False,
             [("docs_only", 0), ("small_change", 1)],
         ),
-        # A skipped push reviews nothing, so the streak stays and the next small push runs the review.
         (
             "skipped_merge_keeps_streak",
             _push(
@@ -606,7 +602,6 @@ def test_push_gate_reviews_a_small_push_when_redis_is_down() -> None:
             False,
             [("merge_only", None), ("system_one_above_threshold", 0)],
         ),
-        # The forced review never ran, so the stored streak stays at 2 and the next small push runs the review.
         (
             "draft_skip_of_the_forced_review_keeps_streak",
             _small_push("n3", [_net_file("posthog/billing.py", 3)]),
