@@ -1,8 +1,14 @@
+import Ajv from 'ajv'
 import { setupServer } from 'msw/node'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { createApp } from '@/hono/app'
 import type { RedisLike } from '@/hono/cache/RedisCache'
+import {
+    agentViewCancelArguments,
+    agentViewReplyArguments,
+    agentViewStatusArguments,
+} from '@/tools/posthogAgent/operations'
 
 import {
     defineAuthTests,
@@ -94,7 +100,7 @@ defineSessionTrackingTests('Hono', harness)
 defineStatelessProtocolTests('Hono', harness)
 
 describe('/agent endpoint', () => {
-    async function listToolNames(path: string): Promise<string[]> {
+    async function listTools(path: string): Promise<Array<{ name: string; inputSchema: object }>> {
         const res = await app.request(path, {
             method: 'POST',
             headers: {
@@ -106,8 +112,12 @@ describe('/agent endpoint', () => {
             },
             body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
         })
-        const body = (await res.json()) as { result: { tools: Array<{ name: string }> } }
-        return body.result.tools.map((tool) => tool.name)
+        const body = (await res.json()) as { result: { tools: Array<{ name: string; inputSchema: object }> } }
+        return body.result.tools
+    }
+
+    async function listToolNames(path: string): Promise<string[]> {
+        return (await listTools(path)).map((tool) => tool.name)
     }
 
     it('serves exactly the PostHog Agent tools, and /mcp does not serve them', async () => {
@@ -119,5 +129,18 @@ describe('/agent endpoint', () => {
         )
         expect(mainTools.length).toBeGreaterThan(10)
         expect(mainTools.filter((name) => name.startsWith('posthog-agent-'))).toEqual([])
+    })
+
+    // ChatGPT rejects a call from a UI app whose arguments do not match the schema in `tools/list`.
+    const operation = { id: 'op-1', project: { id: 1, name: 'Test project' }, cursor: 'c1' }
+    it.each([
+        ['posthog-agent-status', agentViewStatusArguments(operation)],
+        ['posthog-agent-reply', agentViewReplyArguments(operation, 'allow', 'req-1')],
+        ['posthog-agent-cancel', agentViewCancelArguments(operation)],
+    ])('the PostHog Agent view calls %s with arguments that match the listed schema', async (name, args) => {
+        const tool = (await listTools('/agent')).find((t) => t.name === name)!
+        const validate = new Ajv({ strict: false }).compile(tool.inputSchema)
+
+        expect(validate(args), JSON.stringify(validate.errors)).toBe(true)
     })
 })
