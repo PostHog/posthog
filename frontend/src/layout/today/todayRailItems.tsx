@@ -26,13 +26,8 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
         home: () => urls.taskNewSession(),
         action: TodayNewChatButton,
     },
-    analytics: {
-        label: 'Analytics',
-        title: 'Analytics',
-        icon: <IconTrends />,
-        home: () => urls.analyticsList(),
-        action: TodayNewAnalyticsButton,
-    },
+    // No home: like Products, a pick only opens the sidebar and the open page stays.
+    analytics: { label: 'Analytics', title: 'Analytics', icon: <IconTrends />, action: TodayNewAnalyticsButton },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear />, home: () => urls.settings('project') },
 }
