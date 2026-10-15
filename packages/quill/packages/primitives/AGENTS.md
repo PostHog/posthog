@@ -45,7 +45,7 @@ Only use the self-closing pattern when you need full control over the element an
 
 Base UI automatically merges event handlers, aria attributes, and `data-*` state onto the rendered element.
 
-The `Tooltip`, `DropdownMenu`, `Popover`, `Dialog` and `Drawer` triggers forward refs, so one can render another: `<TooltipTrigger render={<DropdownMenuTrigger render={<Button />} />}>` works in either order.
+Every primitive that renders an element forwards its ref, so any of them can be a `render` target and triggers nest in either order: `<TooltipTrigger render={<DropdownMenuTrigger render={<Button />} />}>`.
 
 ---
 
@@ -650,8 +650,6 @@ const [tooltip] = React.useState(() => createTooltipHandle<string>())
   <Tooltip handle={tooltip}>{({ payload }) => <TooltipContent>{payload}</TooltipContent>}</Tooltip>
 </TooltipProvider>
 ```
-
-On React 18, put the trigger inside a component's `render` (`<IconStackItem render={<TooltipTrigger … />} />`), not the other way round, because the trigger needs a ref that a plain function component drops.
 
 ### Radio Group
 

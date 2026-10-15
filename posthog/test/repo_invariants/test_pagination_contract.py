@@ -211,6 +211,9 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.replay_vision.backend.api.vision_alerts.VisionAlertViewSet",
     "products.review_hog.backend.presentation.views.blind_spots.ReviewBlindSpotsConfigViewSet",
     "products.review_hog.backend.presentation.views.perspectives.ReviewPerspectiveConfigViewSet",
+    "products.review_hog.backend.presentation.views.repositories.ReviewInstallationClaimViewSet",
+    "products.review_hog.backend.presentation.views.repositories.ReviewRepositoryChoiceViewSet",
+    "products.review_hog.backend.presentation.views.repositories.ReviewRepositoryViewSet",
     "products.review_hog.backend.presentation.views.resolution.ReviewResolutionConfigViewSet",
     "products.review_hog.backend.presentation.views.reviews.ReviewRecentReviewsViewSet",
     "products.review_hog.backend.presentation.views.validators.ReviewValidatorConfigViewSet",
@@ -268,6 +271,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.wizard.backend.presentation.registry.views.WizardRegistryViewSet",
     "products.wizard.backend.presentation.runs.views.WizardRunViewSet",
     "products.wizard.backend.presentation.sessions.views.WizardSessionViewSet",
+    # Serves the whole tool catalog as one cached document, so there is nothing to page.
+    "products.wizard.backend.presentation.tool_catalog.views.WizardToolCatalogViewSet",
     "products.workflows.backend.presentation.views.hog_flow.HogFlowViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.HogFlowTemplateViewSet",
     "products.workflows.backend.presentation.views.hog_flow_template.PublicHogFlowTemplateViewSet",

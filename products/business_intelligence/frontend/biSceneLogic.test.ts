@@ -174,6 +174,206 @@ describe('biSceneLogic', () => {
         expect(logic.values.lastRunQuery?.config.limit).toBe(100)
     })
 
+    it.each([false, true])(
+        'preserves a custom axis label when renaming an aliased dimension (Top N: %s)',
+        async (topN) => {
+            logic.actions.restoreWorksheet(
+                worksheet({
+                    ...config,
+                    ...(topN
+                        ? { topN: { fieldId: eventField.id, count: 10, measureIndex: 0, includeOther: true } }
+                        : {}),
+                })
+            )
+            editor.actions.setAutoUpdate(false)
+            logic.actions.runQuery()
+            const source = logic.values.worksheet.source
+            logic.actions.setChartSettings({ ...logic.values.worksheet.chartSettings, xAxisLabel: 'Custom date label' })
+            await expectLogic(editor, () =>
+                editor.actions.renameField('columns', 0, 'Activity date')
+            ).toFinishAllListeners()
+            expect(logic.values.worksheet.source).toEqual(source)
+            expect(logic.values.worksheet.chartSettings?.xAxisLabel).toBe('Custom date label')
+        }
+    )
+
+    it('saves axis settings without running pending filter or shelf edits', async () => {
+        logic.actions.restoreWorksheet(worksheet())
+        editor.actions.setAutoUpdate(false)
+        logic.actions.runQuery()
+        const displayed = logic.values.lastRunQuery!
+        editor.actions.addFieldToShelf(eventField, 'filters')
+        editor.actions.setFilterValue(0, 'purchase')
+        editor.actions.setLimit(100)
+        await expectLogic(logic).toFinishAllListeners()
+        const draft = logic.values.worksheet.source
+        logic.actions.setChartSettings({ ...displayed.chartSettings, xAxisLabel: 'Custom date label' })
+        expect(logic.values.lastRunQuery?.source).toEqual(displayed.source)
+        expect(logic.values.lastRunQuery?.config).toEqual(displayed.config)
+        expect(logic.values.lastRunQuery?.chartSettings?.xAxisLabel).toBe('Custom date label')
+        expect(logic.values.worksheet.source).toEqual(draft)
+        expect(logic.values.worksheet.config.filters[0].value).toBe('purchase')
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.source).toEqual(draft)
+        expect(logic.values.lastRunQuery?.chartSettings?.xAxisLabel).toBe('Custom date label')
+    })
+
+    it('initializes numeric scatter axes when switching a rendered categorical chart', async () => {
+        const measure = {
+            ...eventField,
+            id: 'revenue',
+            name: 'revenue',
+            expression: 'properties.revenue',
+            type: 'float' as const,
+        }
+        logic.actions.restoreWorksheet(
+            worksheet({
+                ...config,
+                columns: [],
+                values: [
+                    { field: measure, aggregation: 'sum' },
+                    { field: measure, aggregation: 'average' },
+                ],
+            })
+        )
+        editor.actions.setAutoUpdate(false)
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings?.xAxis?.column).toBe('event')
+        const measures = logic.values.lastRunQuery!.chartSettings!.yAxis!
+        editor.actions.setChartType(ChartDisplayType.ScatterPlot)
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings).toMatchObject({
+            xAxis: { column: measures[0].column },
+            yAxis: [{ column: measures[1].column }],
+        })
+        editor.actions.setChartType(ChartDisplayType.ActionsBar)
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings?.xAxis?.column).toBe('event')
+        expect(logic.values.lastRunQuery?.chartSettings?.yAxis).toHaveLength(2)
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    it('initializes box plot mappings without changing the returned columns', async () => {
+        const statistics = ['min', 'p25', 'median', 'mean', 'p75', 'max']
+        logic.actions.restoreWorksheet(
+            worksheet({
+                ...config,
+                columns: [],
+                values: [],
+                rows: statistics.map((name) => ({
+                    ...eventField,
+                    id: name,
+                    name,
+                    expression: name,
+                    type: 'float',
+                })),
+            })
+        )
+        editor.actions.setAutoUpdate(false)
+        logic.actions.runQuery()
+        editor.actions.setChartType(ChartDisplayType.BoxPlot)
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings?.boxPlot).toMatchObject(
+            Object.fromEntries(statistics.map((name) => [`${name}Column`, name]))
+        )
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    it('keeps generated axis defaults aligned after an unrelated axis edit', async () => {
+        logic.actions.restoreWorksheet(
+            worksheet({ ...config, columns: [], values: [{ field: eventField, aggregation: 'count' }] })
+        )
+        editor.actions.setAutoUpdate(false)
+        editor.actions.renameField('values', 0, 'First count')
+        logic.actions.runQuery()
+        logic.actions.setChartSettings({ ...logic.values.lastRunQuery!.chartSettings, xAxisLabel: 'Custom events' })
+        editor.actions.renameField('values', 0, 'Second count')
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings?.leftYAxisSettings?.label).toBe('Second count')
+        expect(logic.values.lastRunQuery?.chartSettings?.xAxisLabel).toBe('Custom events')
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    it('preserves implicit count formatting and valid saved scatter axes', async () => {
+        logic.actions.restoreWorksheet(worksheet({ ...config, columns: [] }))
+        logic.actions.setVisualization({
+            ...logic.values.worksheet,
+            tableSettings: {
+                columns: [
+                    { column: 'event' },
+                    { column: 'count', settings: { display: { label: 'Records' }, formatting: { decimalPlaces: 2 } } },
+                ],
+            },
+        })
+        expect(
+            logic.values.worksheet.tableSettings?.columns?.find(({ column }) => column === 'count')?.settings
+        ).toMatchObject({ display: { label: 'Records' }, formatting: { decimalPlaces: 2 } })
+        logic.actions.restoreWorksheet(
+            worksheet({
+                ...config,
+                chartType: ChartDisplayType.ScatterPlot,
+                rows: [],
+                columns: [],
+                values: [
+                    { field: eventField, aggregation: 'count' },
+                    { field: eventField, aggregation: 'count_distinct' },
+                ],
+            })
+        )
+        const settings = logic.values.worksheet.chartSettings!
+        const x = settings.xAxis!.column
+        const y = settings.yAxis![0].column
+        logic.actions.setChartSettings({ ...settings, xAxis: { column: y }, yAxis: [{ column: x }] })
+        expect(logic.values.worksheet.chartSettings).toMatchObject({ xAxis: { column: y }, yAxis: [{ column: x }] })
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    it.each([false, true])('updates generated scatter titles after renames with swapped axes=%s', async (swapped) => {
+        const state = {
+            ...config,
+            rows: [],
+            columns: [],
+            chartType: ChartDisplayType.ScatterPlot,
+            values: [
+                { field: eventField, aggregation: 'count' as const },
+                { field: eventField, aggregation: 'count_distinct' as const },
+            ],
+        }
+        const saved = worksheet(state)
+        if (swapped) {
+            saved.chartSettings = {
+                ...saved.chartSettings,
+                xAxis: saved.chartSettings!.yAxis![0],
+                yAxis: [saved.chartSettings!.xAxis!],
+                xAxisLabel: saved.chartSettings!.leftYAxisSettings?.label,
+                leftYAxisSettings: { label: saved.chartSettings!.xAxisLabel },
+            }
+        }
+        logic.actions.restoreWorksheet(saved)
+        editor.actions.setAutoUpdate(false)
+        editor.actions.renameField('values', 0, 'New count')
+        editor.actions.renameField('values', 1, 'New distinct count')
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings?.xAxisLabel).toBe(swapped ? 'New distinct count' : 'New count')
+        expect(logic.values.lastRunQuery?.chartSettings?.leftYAxisSettings?.label).toBe(
+            swapped ? 'New count' : 'New distinct count'
+        )
+        expect(logic.values.lastRunQuery?.chartSettings?.xAxis?.column).toBe(saved.chartSettings?.xAxis?.column)
+        logic.actions.setChartSettings({
+            ...logic.values.lastRunQuery!.chartSettings,
+            xAxisLabel: 'Custom X',
+            leftYAxisSettings: { label: 'Custom Y' },
+        })
+        editor.actions.renameField('values', 0, 'Later count')
+        editor.actions.renameField('values', 1, 'Later distinct count')
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings).toMatchObject({
+            xAxisLabel: 'Custom X',
+            leftYAxisSettings: { label: 'Custom Y' },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
     it('tracks the first successful chart once, without counting empty results or reruns', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         logic.actions.restoreWorksheet(worksheet())
@@ -230,6 +430,14 @@ describe('biSceneLogic', () => {
         node.chartSettings!.yAxis![0].settings = { formatting: { prefix: '$', suffix: '' } }
         node.chartSettings!.goalLines = [{ label: 'Average', value: 0, calculation: 'mean', scope: 'series' }]
         logic.actions.restoreWorksheet(node)
+        logic.actions.setVisualization({
+            ...logic.values.worksheet,
+            chartSettings: {
+                ...logic.values.worksheet.chartSettings,
+                xAxisLabel: 'Event date',
+                leftYAxisSettings: { label: 'Revenue', scale: 'logarithmic' },
+            },
+        })
         logic.actions.setName('Revenue worksheet')
         await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
         expect(save).toHaveBeenCalledTimes(1)
@@ -246,6 +454,11 @@ describe('biSceneLogic', () => {
         expect(logic.values.worksheet.config).toEqual({ ...config, hierarchies: [hierarchy] })
         expect(logic.values.worksheet.chartSettings?.yAxis?.[0].settings?.formatting?.prefix).toBe('$')
         expect(logic.values.worksheet.chartSettings?.goalLines).toEqual(node.chartSettings!.goalLines)
+        expect(logic.values.worksheet.chartSettings?.xAxisLabel).toBe('Event date')
+        expect(logic.values.worksheet.chartSettings?.leftYAxisSettings).toMatchObject({
+            label: 'Revenue',
+            scale: 'logarithmic',
+        })
         expect(logic.values.hasUnsavedChanges).toBe(false)
     })
 
@@ -552,4 +765,35 @@ describe('biSceneLogic', () => {
             data.unmount()
         }
     )
+
+    it.each(['x', 'y'] as const)('preserves a saved numeric detail on scatter %s with two measures', async (axis) => {
+        const state = {
+            ...config,
+            chartType: ChartDisplayType.ScatterPlot,
+            rows: [{ ...eventField, type: 'integer' as const }],
+            columns: [],
+            values: [
+                { field: eventField, aggregation: 'count' as const },
+                { field: eventField, aggregation: 'count_distinct' as const },
+            ],
+        }
+        const saved = worksheet(state)
+        saved.chartSettings = {
+            ...saved.chartSettings,
+            xAxis: { column: axis === 'x' ? 'event' : 'count_event' },
+            yAxis: [{ column: axis === 'y' ? 'event' : 'count_event' }],
+        }
+        logic.actions.restoreWorksheet(saved)
+        editor.actions.setAutoUpdate(false)
+        expect(logic.values.worksheet.chartSettings).toMatchObject({
+            xAxis: saved.chartSettings.xAxis,
+            yAxis: saved.chartSettings.yAxis,
+        })
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.chartSettings).toMatchObject({
+            xAxis: saved.chartSettings.xAxis,
+            yAxis: saved.chartSettings.yAxis,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+    })
 })

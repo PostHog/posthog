@@ -1452,7 +1452,7 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "dashboard:write" in str(response.json())
         config.refresh_from_db()
-        assert config.write_scopes == []
+        assert config.write_scopes == ["notebook:write"]
 
     @parameterized.expand(
         [
@@ -1485,7 +1485,7 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
 
         assert response.status_code == expected, response.json()
         config.refresh_from_db()
-        assert config.write_scopes == (["dashboard:write"] if expected == status.HTTP_200_OK else [])
+        assert config.write_scopes == (["dashboard:write"] if expected == status.HTTP_200_OK else ["notebook:write"])
 
     def test_a_non_author_may_still_edit_other_fields_and_resend_the_grant(self) -> None:
         # Clients resend whole config objects, so an unchanged `write_scopes` must not turn an
@@ -1529,6 +1529,29 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         config.refresh_from_db()
         assert config.write_scopes == {"dashboard:write": False}
+
+    @parameterized.expand(
+        [
+            # The config API, not only the model, has to give a new scout the default grant.
+            ("omitted_takes_the_default", None, status.HTTP_201_CREATED, ["notebook:write"]),
+            # Turning the default off at creation narrows nobody's approval, so any member may.
+            ("narrowing_the_default_needs_no_claim", [], status.HTTP_201_CREATED, []),
+            ("adding_to_the_default_needs_the_claim", ["dashboard:write"], status.HTTP_403_FORBIDDEN, None),
+        ]
+    )
+    def test_a_new_config_starts_with_the_default_grant(
+        self, _name: str, requested: list[str] | None, expected: int, stored: list[str] | None
+    ) -> None:
+        self._authored_by(self._other_member())
+        data: dict = {"skill_name": "signals-scout-hygiene"}
+        if requested is not None:
+            data["write_scopes"] = requested
+
+        response = self.client.post(f"/api/projects/{self.team.id}/signals/scout/configs/", data=data, format="json")
+
+        assert response.status_code == expected, response.json()
+        config = SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-hygiene").first()
+        assert (config.write_scopes if config else None) == stored
 
     def test_creating_a_scout_with_a_grant_records_it_in_the_activity_log(self) -> None:
         # A creation diffs against nothing, so without this the log's first entry for a granted

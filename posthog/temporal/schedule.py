@@ -119,7 +119,7 @@ from products.growth.backend.temporal.signup_enrichment.schedule import (
     create_harmonic_status_poll_schedule,
     create_icp_reenrichment_sweep_schedule,
 )
-from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
+from products.logs.backend.facade.temporal import disable_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.metrics.backend.facade.temporal import create_suggested_dashboards_discovery_schedule
 from products.product_analytics.backend.facade.temporal import UpgradeQueriesWorkflowInputs
@@ -973,7 +973,7 @@ schedules = [
     create_data_catalog_weekly_digest_schedule,
     create_alerts_platform_tick_schedule,
     create_logs_alert_check_schedule,
-    create_logs_volume_tick_schedule,
+    disable_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,

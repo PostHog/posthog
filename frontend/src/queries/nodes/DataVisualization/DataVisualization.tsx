@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -30,6 +31,7 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { BIChartAxisControls } from 'products/business_intelligence/frontend/BIChartAxisControls'
 import { getBIChartDateAxis } from 'products/business_intelligence/frontend/biChartDateAxis'
 import { BIChartYearLabels } from 'products/business_intelligence/frontend/BIChartYearLabels'
 import { BIComparisonSummary } from 'products/business_intelligence/frontend/BIComparisonSummary'
@@ -196,6 +198,7 @@ export function DataTableVisualization({
 
 function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
     const { readOnly } = props
+    const settingsPanel = props.context?.visualizationSettingsPanel
 
     const {
         query,
@@ -382,6 +385,9 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     pointClickHint={canDrill ? 'Click to explore this result' : undefined}
                 >
                     {showYearLabels && <BIChartYearLabels timezone={timezone} />}
+                    {query.kind === NodeKind.BIVisualizationNode && props.editMode && props.context?.onEditBIAxis && (
+                        <BIChartAxisControls onEdit={props.context.onEditBIAxis} />
+                    )}
                 </SqlChart>
             </BindLogic>
         )
@@ -480,6 +486,11 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 'h-full': effectiveVisualizationType !== ChartDisplayType.ActionsTable,
             })}
         >
+            {!readOnly &&
+                showResultControls &&
+                settingsPanel?.isOpen &&
+                settingsPanel.container &&
+                createPortal(<SideBar className="w-full flex-1" />, settingsPanel.container)}
             <div className="relative min-h-0 min-w-0 w-full flex flex-col gap-2 flex-1 overflow-hidden">
                 {!readOnly && showResultControls && (
                     <>
@@ -512,9 +523,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             <LemonButton
                                 size={controlSize}
                                 icon={<IconGear />}
-                                type={isChartSettingsPanelOpen ? 'primary' : 'secondary'}
-                                onClick={() => toggleChartSettingsPanel()}
+                                type={(settingsPanel?.isOpen ?? isChartSettingsPanelOpen) ? 'primary' : 'secondary'}
+                                onClick={settingsPanel?.onToggle ?? (() => toggleChartSettingsPanel())}
                                 tooltip="Visualization settings"
+                                aria-label="Visualization settings"
                             />
 
                             {props.exportContext && (
@@ -546,7 +558,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 <div className="flex min-h-0 min-w-0 flex-1 flex-row gap-2">
                     {/* The gear above toggles this panel (Series/Display tabs) — same layout the
                         SQL editor's OutputPane builds around its own visualization fork. */}
-                    {!readOnly && showResultControls && isChartSettingsPanelOpen && (
+                    {!readOnly && showResultControls && !settingsPanel && isChartSettingsPanelOpen && (
                         <>
                             <SideBar />
                             <LemonDivider vertical className="h-full" />

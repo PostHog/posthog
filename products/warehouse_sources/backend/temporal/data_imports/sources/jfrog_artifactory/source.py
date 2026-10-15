@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,28 @@ _XRAY_UNAVAILABLE = "Requires JFrog Xray and a token with Xray Read permission"
 class JfrogArtifactorySource(
     ResumableSource[JfrogArtifactorySourceConfig, JfrogArtifactoryResumeConfig], ValidateDatabaseHostMixin
 ):
+    codebase_detection = detect(
+        env=("^JFROG_", "^JF_URL$", "^JF_ACCESS_TOKEN$"),
+        npm=("jfrog-client-js",),
+        go=(
+            "github.com/jfrog/jfrog-client-go",
+            "github.com/jfrog/jfrog-cli",
+            "github.com/jfrog/jfrog-cli-application",
+            "github.com/jfrog/jfrog-cli-artifactory",
+            "github.com/jfrog/jfrog-cli-core",
+            "github.com/jfrog/jfrog-cli-evidence",
+            "github.com/jfrog/jfrog-cli-platform-services",
+            "github.com/jfrog/jfrog-cli-security",
+            "github.com/jfrog/vault-plugin-secrets-artifactory",
+        ),
+        maven=(
+            "org.jfrog.artifactory.client:artifactory-java-client-services",
+            "org.jfrog.artifactory.client:artifactory-java-client-api",
+            "org.jfrog.artifactory.client:artifactory-java-client-httpClient",
+            "org.jfrog.artifactory.client:artifactory-java-client-ning-services",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
