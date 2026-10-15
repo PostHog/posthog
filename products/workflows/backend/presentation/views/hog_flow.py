@@ -6020,8 +6020,14 @@ class HogFlowViewSet(
             after=after_date,
             before=before_date,
         )
-        self._deny_assets_of_inbox_report_runs(request, str(obj.id), [row.invocation_id for row in data])
-        enriched = [dataclasses.replace(row, function_name=obj.name or "") for row in data]
+        readable_invocation_ids = self._invocation_ids_readable_by(
+            request, str(obj.id), {row.invocation_id for row in data}
+        )
+        enriched = [
+            dataclasses.replace(row, function_name=obj.name or "")
+            for row in data
+            if row.invocation_id in readable_invocation_ids
+        ]
         return Response(MessageAssetSerializer(enriched, many=True).data)
 
     @extend_schema(
@@ -6065,16 +6071,23 @@ class HogFlowViewSet(
     def _deny_assets_of_inbox_report_runs(
         self, request: Request, function_id: str, invocation_ids: Sequence[str]
     ) -> None:
-        if _may_read_inbox_reports(request, self.team):
-            return
+        if set(invocation_ids) - self._invocation_ids_readable_by(request, function_id, set(invocation_ids)):
+            raise exceptions.PermissionDenied(INBOX_REPORT_ACCESS_MESSAGE)
+
+    def _invocation_ids_readable_by(self, request: Request, function_id: str, invocation_ids: set[str]) -> set[str]:
+        if not invocation_ids or _may_read_inbox_reports(request, self.team):
+            return invocation_ids
         run_globals = fetch_hog_invocation_globals(
             team_id=self.team_id,
             function_kind=self.function_kind,
             function_id=function_id,
             invocation_ids=list(invocation_ids),
         )
-        if any(_is_inbox_report_run(invocation_globals) for invocation_globals in run_globals.values()):
-            raise exceptions.PermissionDenied(INBOX_REPORT_ACCESS_MESSAGE)
+        return {
+            invocation_id
+            for invocation_id in invocation_ids
+            if not _is_inbox_report_run(run_globals.get(invocation_id, {}))
+        }
 
     @extend_schema(
         operation_id="hog_flows_metrics_global_retrieve",

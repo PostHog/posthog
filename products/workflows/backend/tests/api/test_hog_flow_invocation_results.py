@@ -340,7 +340,6 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("list_of_an_inbox_report_run", "assets/", "$inbox_report_ready", True, 403),
             (
                 "content_of_an_inbox_report_run",
                 "assets/content/?invocation_id=inv-1&action_id=email-step",
@@ -355,7 +354,13 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
                 False,
                 200,
             ),
-            ("list_of_another_run", "assets/", "$pageview", True, 200),
+            (
+                "content_of_another_run",
+                "assets/content/?invocation_id=inv-1&action_id=email-step",
+                "$pageview",
+                True,
+                200,
+            ),
         ]
     )
     def test_assets_of_an_inbox_report_run_require_report_read_access(
@@ -372,6 +377,26 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/{path}")
 
         assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("member_without_report_access", True, {"inv-pageview"}),
+            ("member_who_reads_reports", False, {"inv-pageview", "inv-report"}),
+        ]
+    )
+    def test_assets_list_hides_inbox_report_runs_from_members_without_report_access(
+        self, _name: str, deny_report_access: bool, expected_invocation_ids: set[str]
+    ) -> None:
+        for invocation_id, run_event in [("inv-report", "$inbox_report_ready"), ("inv-pageview", "$pageview")]:
+            self._seed(invocation_id, invocation_globals=json.dumps({"event": {"event": run_event}}))
+            create_message_asset(team_id=self.team.pk, function_id=str(self.hog_flow.pk), invocation_id=invocation_id)
+        if deny_report_access:
+            self._deny_report_access()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/assets/")
+
+        assert response.status_code == 200, response.json()
+        assert {row["invocation_id"] for row in response.json()} == expected_invocation_ids
 
     def test_rerun_of_an_inbox_report_workflow_requires_report_read_access(self) -> None:
         self.hog_flow.trigger = {
