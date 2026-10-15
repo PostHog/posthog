@@ -29,10 +29,8 @@ def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
             "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
         )
 
-    # Only check here. `soft_delete()` deletes the DAG nodes after it commits, so a delete that
-    # stops before the soft delete does not leave a live view without a node.
     try:
-        check_saved_query_deletable(saved_query)
+        check_saved_query_deletable(saved_query.team_id, saved_query.id)
     except HasDependentsError:
         raise
     except Exception as e:

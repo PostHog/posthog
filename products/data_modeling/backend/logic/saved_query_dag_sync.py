@@ -594,10 +594,7 @@ def _oldest_node_id(nodes: QuerySet[Node]) -> str | None:
 
 
 def _lock_dags_and_check_dependents(saved_query: "DataWarehouseSavedQuery", nodes: QuerySet[Node]) -> list[DAG]:
-    """Lock every DAG `nodes` sit in, then raise HasDependentsError if anything reads the query.
-
-    Call inside a transaction. The locks stop a sync from attaching a dependent after the check.
-    """
+    """Lock every DAG `nodes` sit in, then raise HasDependentsError if anything reads the query."""
     dags = sorted({node.dag for node in nodes if node.dag is not None}, key=lambda dag: str(dag.id))
     for dag in dags:
         lock_dag(saved_query.team_id, dag.id)
@@ -621,8 +618,11 @@ def _lock_dags_and_check_dependents(saved_query: "DataWarehouseSavedQuery", node
     return dags
 
 
-def check_saved_query_deletable(saved_query: "DataWarehouseSavedQuery") -> None:
+def check_saved_query_deletable(team_id: int, saved_query_id: UUID) -> None:
     """Raise HasDependentsError if a view, endpoint or metric reads the saved query. Deletes nothing."""
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    saved_query = DataWarehouseSavedQuery.objects.get(team_id=team_id, id=saved_query_id)
     nodes = _nodes_standing_for(saved_query).select_related("dag", "dag__team")
     with transaction.atomic():
         _lock_dags_and_check_dependents(saved_query, nodes)
