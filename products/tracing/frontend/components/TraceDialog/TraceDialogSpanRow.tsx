@@ -43,7 +43,6 @@ export function TraceDialogSpanRow({
     onToggleCollapsed,
     onToggleChain,
 }: TraceDialogSpanRowProps): JSX.Element {
-    // A folded chain shows as its first span, named for the whole run.
     const node = row.kind === 'chain' ? row.nodes[0] : row.node
     const chainLast = row.kind === 'chain' ? row.nodes[row.nodes.length - 1] : null
     const openChainLength = row.kind === 'span' ? row.openChainLength : undefined

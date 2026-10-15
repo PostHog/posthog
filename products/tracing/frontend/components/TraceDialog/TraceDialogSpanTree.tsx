@@ -98,7 +98,6 @@ function SpanOrChainRow({
     )
 }
 
-/** The rows above the top of the list that the top row hangs under, outermost first. */
 function scrolledPastAncestors(row: TraceDialogRow | undefined): TraceDialogRow[] {
     const ancestors: TraceDialogRow[] = []
     for (let ancestor = row?.parentRow ?? null; ancestor; ancestor = ancestor.parentRow) {
@@ -114,7 +113,6 @@ function rowLabel(row: TraceDialogRow): string {
     return row.kind === 'span' ? row.node.span.name : ''
 }
 
-// The strip names this many of the innermost ancestors; the rest fold into a count.
 const MAX_PINNED_ANCESTORS = 4
 
 export function TraceDialogSpanTree(): JSX.Element {
@@ -169,7 +167,6 @@ export function TraceDialogSpanTree(): JSX.Element {
         }
     }, [spanRows, selectedSpanId, openedSpanId, listRef])
 
-    // Once the list scrolls past a span's parents, they stay named above it, so a deep row keeps its context.
     const pinnedAncestors = scrolledPastAncestors(spanRows[topIndex])
     const hiddenAncestorCount = Math.max(pinnedAncestors.length - MAX_PINNED_ANCESTORS, 0)
 

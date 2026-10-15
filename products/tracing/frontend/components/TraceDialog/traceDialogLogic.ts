@@ -464,7 +464,7 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                 showAllChildren: (shown, { spanId }) => new Set(shown).add(spanId),
             },
         ],
-        // Chains are folded by default, so this holds the ones the person opened, keyed by their first span.
+        // Chains fold by default, so this holds the opened ones.
         openChainIds: [
             new Set<string>(),
             {
@@ -478,7 +478,6 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                 },
             },
         ],
-        // Both persist, so a person who prefers the waterfall alone or the full window keeps it.
         inspectorOpen: [
             true,
             { persist: true },
@@ -540,7 +539,6 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                     pinned: (trace?.spanId && spanTree.nodesById.get(trace.spanId)) || null,
                 }),
         ],
-        // The spans on screen, in order, for stepping through them. A folded chain counts as its first span.
         flatSpans: [
             (s) => [s.spanRows],
             (spanRows: TraceDialogRow[]): SpanNode[] =>
@@ -549,7 +547,6 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                     return node ? [node] : []
                 }),
         ],
-        // First span ids of chains: folded ones on screen, and opened ones that can fold again.
         chainStartIds: [
             (s) => [s.spanRows],
             (spanRows: TraceDialogRow[]): { folded: Set<string>; opened: Set<string> } => {
@@ -843,8 +840,7 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
             }
             actions.keepSelectionOnScreen()
         },
-        // A fold that hides the selected span selects the nearest span still on screen above it, so the
-        // inspector never shows a span the list hides.
+        // The inspector must never show a span the list hides.
         keepSelectionOnScreen: () => {
             const selected = values.selectedSpanId ? values.spanTree.nodesById.get(values.selectedSpanId) : undefined
             if (!selected) {

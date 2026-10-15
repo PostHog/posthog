@@ -2,14 +2,12 @@ import { parseTimestampUs, type SpanNode } from 'products/tracing/frontend/spanT
 
 // A wide fan-out shows this many children until the person asks for the rest.
 export const TRACE_DIALOG_CHILD_LIMIT = 10
-// A run of this many spans that each have one child folds into one row.
 export const TRACE_DIALOG_MIN_CHAIN = 3
 
 interface TraceDialogRowBase {
     depth: number
-    /** The last row under its parent, so its connector ends at this row. */
     isLast: boolean
-    /** The row this one hangs under. Connectors walk it up, so they are derived only for rows on screen. */
+    /** Connectors walk this up, so they are derived only for rows on screen. */
     parentRow: TraceDialogRow | null
 }
 
@@ -18,15 +16,13 @@ export type TraceDialogRow = TraceDialogRowBase &
         | {
               kind: 'span'
               node: SpanNode
-              /** Set on the first span of a chain the person opened, so the row can fold it again. */
               openChainLength?: number
           }
-        /** A folded run of single-child spans. Its first span stands for it in selection and the inspector. */
+        /** The first span stands for the chain in selection and the inspector. */
         | { kind: 'chain'; nodes: SpanNode[] }
         | { kind: 'more'; parent: SpanNode; hiddenCount: number }
     )
 
-/** The span a row selects: the span itself, or the first span of a folded chain. */
 export function rowSpanNode(row: TraceDialogRow): SpanNode | null {
     return row.kind === 'span' ? row.node : row.kind === 'chain' ? row.nodes[0] : null
 }
@@ -56,7 +52,6 @@ export function countDescendantsById(roots: SpanNode[]): Map<string, number> {
     return counts
 }
 
-/** The run of single-child spans that starts at `first`, ending before the first span that branches. */
 function singleChildRun(first: SpanNode, collapsedSpanIds: Set<string>): SpanNode[] {
     const run: SpanNode[] = []
     let node: SpanNode | undefined = first
@@ -75,12 +70,7 @@ export interface TraceDialogRowOptions {
     pinned: SpanNode | null
 }
 
-/**
- * The rows the span list shows, depth first in start order. A collapsed span hides its subtree. A span
- * with more than TRACE_DIALOG_CHILD_LIMIT children shows the first ones and a "more" row, unless its
- * children are shown in full. A run of TRACE_DIALOG_MIN_CHAIN or more single-child spans folds into one
- * row until the person opens it, which keeps long call chains from pushing the tree off the right edge.
- */
+/** Chains fold so long call chains don't push the tree off the right edge. */
 export function buildTraceDialogRows(
     roots: SpanNode[],
     { collapsedSpanIds, fullChildListSpanIds, openChainIds, pinned }: TraceDialogRowOptions
@@ -155,7 +145,6 @@ export function buildTraceDialogRows(
     return rows
 }
 
-/** Whether each ancestor level, root side first, still has rows below, so the tree draws its lines. */
 export function rowConnectorLines(row: TraceDialogRow): boolean[] {
     const lines: boolean[] = []
     for (let ancestor = row.parentRow; ancestor && ancestor.depth > 0; ancestor = ancestor.parentRow) {

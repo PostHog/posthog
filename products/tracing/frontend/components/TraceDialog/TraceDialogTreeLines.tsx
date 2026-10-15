@@ -1,6 +1,6 @@
 import { rowConnectorLines, type TraceDialogRow } from './traceDialogRows'
 
-// Indent shrinks with depth, so a deep span keeps room for its name: 16px for the first levels, then 12, then 8.
+// Indent shrinks with depth, so a deep span keeps room for its name.
 const INDENT_STEPS: [maxDepth: number, px: number][] = [
     [4, 16],
     [8, 12],
@@ -8,7 +8,6 @@ const INDENT_STEPS: [maxDepth: number, px: number][] = [
 ]
 // Past this depth rows stop indenting and show their depth instead. Folded chains keep most traces above it.
 export const MAX_VISUAL_DEPTH = 16
-// Where a level's line runs: the middle of the marker at the start of that level's rows.
 const LINE_OFFSET_PX = 8
 
 export function indentPx(depth: number): number {
@@ -19,11 +18,7 @@ export function indentPx(depth: number): number {
     return px
 }
 
-/**
- * The tree lines left of a row: a line for each ancestor level that still has rows below, and an elbow
- * into this row from its parent's line. Rows past MAX_VISUAL_DEPTH draw none, since every level there
- * shares one position.
- */
+// Past MAX_VISUAL_DEPTH every level shares one position, so there is no line to draw.
 export function TraceDialogTreeLines({ row }: { row: TraceDialogRow }): JSX.Element | null {
     if (row.depth === 0 || row.depth > MAX_VISUAL_DEPTH) {
         return null

@@ -142,7 +142,6 @@ describe('traceDialogRows', () => {
             const [, chainRow, d, e, f] = rows
 
             expect([chainRow.depth, d.depth, e.depth, f.depth]).toEqual([1, 2, 3, 3])
-            // e has a sibling below it and f does not, so only e's elbow runs on.
             expect([e.isLast, f.isLast]).toEqual([false, true])
             expect(rowConnectorLines(f)).toEqual([false, false])
         })
