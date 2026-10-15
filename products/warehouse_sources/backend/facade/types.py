@@ -110,6 +110,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     ATTIO = "Attio", "Attio"
     SNAPCHATADS = "SnapchatAds", "SnapchatAds"
     LINEAR = "Linear", "Linear"
+    LITELLM = "LiteLLM", "LiteLLM"
     INTERCOM = "Intercom", "Intercom"
     AMPLITUDE = "Amplitude", "Amplitude"
     MIXPANEL = "Mixpanel", "Mixpanel"

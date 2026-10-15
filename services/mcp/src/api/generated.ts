@@ -30947,6 +30947,7 @@ export namespace Schemas {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -32334,6 +32335,7 @@ export namespace Schemas {
       Attio: 'Attio',
       SnapchatAds: 'SnapchatAds',
       Linear: 'Linear',
+      LiteLLM: 'LiteLLM',
       Intercom: 'Intercom',
       Amplitude: 'Amplitude',
       Mixpanel: 'Mixpanel',
@@ -33735,6 +33737,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -36380,6 +36383,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -48170,6 +48174,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -49591,6 +49596,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -103075,6 +103081,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -104527,6 +104534,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
@@ -105946,6 +105954,7 @@ export namespace Schemas {
        * * `Attio` - Attio
        * * `SnapchatAds` - SnapchatAds
        * * `Linear` - Linear
+       * * `LiteLLM` - LiteLLM
        * * `Intercom` - Intercom
        * * `Amplitude` - Amplitude
        * * `Mixpanel` - Mixpanel
