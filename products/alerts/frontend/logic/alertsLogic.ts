@@ -380,7 +380,11 @@ export const alertsLogic = kea<alertsLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => actions.loadAlerts()),
+    afterMount(({ actions, values }) => {
+        if (!values.alertsResponseLoading) {
+            actions.loadAlerts()
+        }
+    }),
 ])
 
 const alertComparatorKey = (alert: AlertType): number => {

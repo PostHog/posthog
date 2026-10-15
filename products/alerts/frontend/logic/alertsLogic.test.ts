@@ -52,6 +52,8 @@ describe('alertsLogic', () => {
         const logic = alertsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
+        expect(listSpy).toHaveBeenCalledTimes(1)
+        expect(hogFunctionsListSpy).toHaveBeenCalledTimes(1)
         expect(logic.values.filters.createdBy).toEqual('creator-from-link')
         expect(listSpy).toHaveBeenLastCalledWith(
             undefined,
