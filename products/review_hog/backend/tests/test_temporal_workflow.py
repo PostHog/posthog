@@ -182,6 +182,7 @@ async def _run_full_review_pr_workflow(
     review_calls: list[tuple[int, int, bool, str, tuple[str, ...]]] = []
     validate_calls: list[int] = []
     publish_calls: list[int] = []
+    publish_capped_lens_parts: list[int | None] = []
     finalize_will_publish: list[bool] = []
     remove_label_calls: list[int] = []
     # Each code_review receipt appended to the signals report, as (outcome, review_url).
@@ -386,6 +387,7 @@ async def _run_full_review_pr_workflow(
     async def publish_act(input: PublishInput) -> PublishResult:
         _saw_mode("publish", input.review_mode)
         publish_calls.append(input.pr_number)
+        publish_capped_lens_parts.append(input.capped_lens_parts)
         threshold_calls.append(("publish", input.urgency_threshold))
         return PublishResult(posted=publish_posts, review_url=_REVIEW_URL if publish_posts else None)
 
@@ -566,6 +568,7 @@ async def _run_full_review_pr_workflow(
         "review": review_calls,
         "validate": validate_calls,
         "publish": publish_calls,
+        "publish_capped_lens_parts": publish_capped_lens_parts,
         "finalize_will_publish": finalize_will_publish,
         "remove_label": remove_label_calls,
         "receipts": receipt_calls,
@@ -842,9 +845,16 @@ async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_r
 
 
 @pytest.mark.asyncio
-async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_and_validation():
+@pytest.mark.parametrize("lens_chunks_capped,expected_capped_lens_parts", [(False, None), (True, 2)])
+async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_and_validation(
+    lens_chunks_capped: bool, expected_capped_lens_parts: int | None
+):
     recorded = await _run_full_review_pr_workflow(
-        publish=True, review_mode="flash", review_design="single_agent", lens_chunk_count=2
+        publish=True,
+        review_mode="flash",
+        review_design="single_agent",
+        lens_chunk_count=2,
+        lens_chunks_capped=lens_chunks_capped,
     )
 
     assert recorded["single_agent"] == ["single_agent"]
@@ -860,6 +870,7 @@ async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_a
     assert recorded["review"] == []
     assert recorded["validate"] == []
     assert recorded["publish"] == [7]
+    assert recorded["publish_capped_lens_parts"] == [expected_capped_lens_parts]
     assert recorded["designs"] == {stage: {"single_agent"} for stage in ("dedup", "track")}
 
 

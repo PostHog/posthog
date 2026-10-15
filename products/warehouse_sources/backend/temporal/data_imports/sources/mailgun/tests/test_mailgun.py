@@ -315,18 +315,25 @@ class TestGetRows:
         assert result.saved_states[-1].pending_domains == []
 
     def test_every_domain_skipped_fails_the_sync(self):
-        domains_page = {"items": [{"name": "a.com"}, {"name": "b.com"}]}
+        domains_page = {"items": [{"name": "a.com"}, {"name": "b.com"}, {"name": "c.com"}]}
         result = _driver().run(
             "events",
             [
                 ScriptedResponse(json=domains_page),
+                ScriptedResponse(status=403, json={}),
                 ScriptedResponse(status=400, json={}),
-                ScriptedResponse(status=400, json={}),
+                ScriptedResponse(status=403, json={}),
             ],
         )
 
         assert isinstance(result.raised, MailgunAllDomainsSkippedError)
-        assert "every sending domain" in str(result.raised)
+        assert "(400 on 1 domain, 403 on 2 domains)" in str(result.raised)
+
+        # This message must stay a stable, non-sensitive substring of get_non_retryable_errors,
+        # or an account with every domain rejected gets retried instead of surfaced to the user.
+        non_retryable_errors = MailgunSource().get_non_retryable_errors()
+        matches = [message for pattern, message in non_retryable_errors.items() if pattern in str(result.raised)]
+        assert len(matches) == 1
 
     def test_domain_listing_401_still_raises(self):
         # A 401 on the /v4/domains listing is a global credential failure, not a single bad

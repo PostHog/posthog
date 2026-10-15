@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MyHoursSource(SimpleSource[MyHoursSourceConfig]):
+    codebase_detection = detect(env=("^(MY_HOURS|MYHOURS)_",))
+
     api_docs_url = "https://documenter.getpostman.com/view/8879268/TVmV4YYU"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

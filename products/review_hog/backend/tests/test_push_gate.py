@@ -1,12 +1,27 @@
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.llm.system_one import NoulAnswer, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
+from posthog.redis import TEST_clear_clients
+from posthog.token_bucket import BucketUnavailable, TEST_reset_scripts
 
-from products.review_hog.backend.reviewer.push_gate import PUSH_GATE_MODEL, PushGate, PushGateDecision
+from products.review_hog.backend.reviewer.push_gate import (
+    PUSH_GATE_MODEL,
+    PushGate,
+    PushGateDecision,
+    _NextPushCell,
+    apply_draft_rule,
+    apply_next_push_rule,
+    apply_throttle,
+    next_push_probability,
+)
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 
 _MODULE = "products.review_hog.backend.reviewer.push_gate"
@@ -70,15 +85,25 @@ def _github(responses: dict[str, dict[str, Any] | None]):
     return request
 
 
-def _decide(responses: dict[str, dict[str, Any] | None], system_one: MagicMock | None = None) -> PushGateDecision:
+def _decide(
+    responses: dict[str, dict[str, Any] | None],
+    system_one: MagicMock | None = None,
+    *,
+    draft: bool = False,
+    follow_up: int | None = None,
+    pr_lines: int | None = None,
+) -> PushGateDecision:
     with (
         patch(f"{_MODULE}.github_api_request", side_effect=_github(responses)),
         patch(f"{_MODULE}.build_system_one_client", MagicMock(return_value=system_one or MagicMock())),
         patch(f"{_MODULE}.posthog_app_login", return_value="reviewhog[bot]"),
     ):
-        return PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9").decide(
+        decision = PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9").decide(
             previous_head_sha="old", head_sha="new", base_branch="master"
         )
+    if draft:
+        return apply_draft_rule(decision, draft=True)
+    return apply_next_push_rule(decision, follow_up=follow_up, pr_lines=pr_lines)
 
 
 def _system_one(probability: float) -> MagicMock:
@@ -183,10 +208,23 @@ def test_push_gate_asks_system_one_about_own_code_commits(
         probability,
         PUSH_GATE_MODEL,
     )
+    # The README's lines stay out of the push size, like they stay out of the state.
+    assert decision.own_code_lines == 2
     call = system_one.decide.call_args.kwargs
     # The threshold was calibrated on exactly this state: own code patches, docs dropped.
     assert call["state"] == f"--- posthog/billing.py\n{_BILLING_FIX}"
     assert "round" not in str(call["questions"]["alters"].instructions)
+
+
+def test_push_gate_logs_no_push_size_when_a_commit_lists_a_full_page_of_files() -> None:
+    full_page = [_file(f"posthog/module_{n}.py") for n in range(300)]
+    push = _push(
+        new_commits=[_commit("a"), _commit("c")],
+        pr_files=[_file("posthog/billing.py", _BILLING_FIX)],
+        own_commit_files=full_page,
+    )
+    decision = _decide(push, _system_one(0.8))
+    assert (decision.reason, decision.own_code_lines) == ("system_one_above_threshold", None)
 
 
 def test_push_gate_reviews_a_push_that_mixes_reviewhog_and_author_commits() -> None:
@@ -269,3 +307,148 @@ def test_push_gate_reviews_a_push_it_cannot_see(
         decision = _decide(responses, system_one)
     assert (decision.skip, decision.reason) == (False, reason)
     system_one.decide.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        ("code_push", _CODE_PUSH, (True, True, "draft", 0.8, PUSH_GATE_MODEL, 2)),
+        # A shadow match does not skip, so the draft rule decides the push.
+        (
+            "docs_only_shadow",
+            _push(
+                new_commits=[_commit("a"), _commit("c")],
+                pr_files=[_file("posthog/billing.py", _BILLING), _file("README.md")],
+                own_commit_files=[_file("README.md")],
+            ),
+            (True, True, "draft", None, None, 0),
+        ),
+        # A rule that skips on its own is more specific than the draft state.
+        (
+            "force_push_back",
+            _push(new_commits=[_commit("a")], pr_files=[_file("posthog/billing.py", _BILLING)]),
+            (True, True, "no_new_commits", None, None, None),
+        ),
+    ]
+)
+def test_push_gate_skips_a_draft_push_and_keeps_the_system_one_answer(
+    _name: str,
+    responses: dict[str, dict[str, Any] | None],
+    expected: tuple[bool, bool, str, float | None, str | None, int | None],
+) -> None:
+    decision = _decide(responses, _system_one(0.8), draft=True, follow_up=7, pr_lines=150)
+    assert decision.next_push_probability is None
+    assert (
+        decision.skip,
+        decision.would_skip,
+        decision.reason,
+        decision.probability,
+        decision.model,
+        decision.own_code_lines,
+    ) == expected
+
+
+@pytest.fixture
+def empty_redis() -> Iterator[None]:
+    TEST_clear_clients()
+    TEST_reset_scripts()
+    yield
+    TEST_clear_clients()
+    TEST_reset_scripts()
+
+
+def test_push_gate_throttles_the_third_push_in_half_an_hour(empty_redis: None) -> None:
+    reviewed = PushGateDecision(skip=False, would_skip=False, reason="system_one_above_threshold", probability=0.9)
+    draft = PushGateDecision(skip=True, would_skip=True, reason="draft")
+    pushes = [
+        # A push that an earlier rule skips takes no token.
+        (0, "pr-a", "a1", draft),
+        (0, "pr-a", "a2", reviewed),
+        (1, "pr-a", "a3", reviewed),
+        # A retried turn at a head that paid already runs without a second token.
+        (2, "pr-a", "a3", reviewed),
+        (2, "pr-b", "b1", reviewed),
+        (3, "pr-a", "a4", reviewed),
+        # A retry after a denial asks the bucket again.
+        (4, "pr-a", "a4", reviewed),
+        # One token comes back 30 minutes after the first one went.
+        (31, "pr-a", "a5", reviewed),
+        (32, "pr-a", "a6", reviewed),
+    ]
+    start = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
+    outcomes = []
+    with time_machine.travel(start, tick=False) as clock:
+        for minutes, report_id, head_sha, decision in pushes:
+            clock.move_to(start + timedelta(minutes=minutes))
+            result = apply_throttle(decision, report_id=report_id, head_sha=head_sha)
+            outcomes.append((result.skip, result.reason, result.probability))
+
+    assert outcomes == [
+        (True, "draft", None),
+        (False, "system_one_above_threshold", 0.9),
+        (False, "system_one_above_threshold", 0.9),
+        (False, "system_one_above_threshold", 0.9),
+        (False, "system_one_above_threshold", 0.9),
+        (True, "throttled", 0.9),
+        (True, "throttled", 0.9),
+        (False, "system_one_above_threshold", 0.9),
+        (True, "throttled", 0.9),
+    ]
+
+
+def test_push_gate_reviews_the_push_when_redis_is_down(empty_redis: None) -> None:
+    reviewed = PushGateDecision(skip=False, would_skip=False, reason="system_one_above_threshold")
+    with patch(f"{_MODULE}.consume", return_value=BucketUnavailable(error="down")):
+        assert apply_throttle(reviewed, report_id="pr-a", head_sha="a1") == reviewed
+
+
+@parameterized.expand(
+    [
+        ("size_cell", 1, 150, {}, 0.559),
+        ("size_band_upper_edge", 1, 200, {}, 0.559),
+        ("capped_at_the_eighth_follow_up", 12, 5000, {}, 0.842),
+        ("small_cell_falls_back", 7, 150, {(7, "<=200"): _NextPushCell(probability=0.900, prs=9)}, 0.842),
+        ("no_follow_up_yet", 0, 150, {}, None),
+    ]
+)
+def test_next_push_probability_reads_the_size_cell_or_falls_back(
+    _name: str, follow_up: int, pr_lines: int, cells: dict[Any, _NextPushCell], expected: float | None
+) -> None:
+    with patch.dict(f"{_MODULE}._NEXT_PUSH_BY_FOLLOW_UP_AND_SIZE", cells):
+        assert next_push_probability(follow_up=follow_up, pr_lines=pr_lines) == expected
+
+
+_DOCS_PUSH = _push(
+    new_commits=[_commit("a"), _commit("c")],
+    pr_files=[_file("posthog/billing.py", _BILLING), _file("README.md")],
+    own_commit_files=[_file("README.md")],
+)
+
+
+@parameterized.expand(
+    [
+        ("below_threshold_runs", _CODE_PUSH, 0.8, 1, 150, (False, False, "system_one_above_threshold", 0.559)),
+        ("at_threshold_shadow_skip", _CODE_PUSH, 0.8, 8, 5000, (False, True, "next_push_likely", 0.842)),
+        ("unknown_size_runs", _CODE_PUSH, 0.8, 7, None, (False, False, "system_one_above_threshold", None)),
+        ("docs_only_shadow_keeps_reason", _DOCS_PUSH, 0.8, 7, 150, (False, True, "docs_only", 0.900)),
+        ("system_one_shadow_keeps_reason", _CODE_PUSH, 0.1, 7, 150, (False, True, "system_one_below_threshold", 0.900)),
+        (
+            "skipping_rule_keeps_reason",
+            _push(new_commits=[_commit("a")], pr_files=[_file("posthog/billing.py", _BILLING)]),
+            0.8,
+            7,
+            150,
+            (True, True, "no_new_commits", 0.900),
+        ),
+    ]
+)
+def test_push_gate_records_a_likely_next_push_without_skipping(
+    _name: str,
+    responses: dict[str, dict[str, Any] | None],
+    system_one_probability: float,
+    follow_up: int,
+    pr_lines: int | None,
+    expected: tuple[bool, bool, str, float | None],
+) -> None:
+    with patch(f"{_MODULE}.NEXT_PUSH_SKIP_AT", 0.842):
+        decision = _decide(responses, _system_one(system_one_probability), follow_up=follow_up, pr_lines=pr_lines)
+    assert (decision.skip, decision.would_skip, decision.reason, decision.next_push_probability) == expected

@@ -58,12 +58,6 @@
         color: var(--color-text-primary);
     }
 
-    &__chip img {
-        width: 12px;
-        height: 12px;
-        object-fit: contain;
-    }
-
     &__listening {
         display: flex;
         gap: 0.5rem;
@@ -100,15 +94,10 @@
         width: 20px;
         height: 20px;
         padding: 2px;
+        color: var(--color-text-primary);
         background: var(--color-bg-surface-secondary);
         border: 1px solid var(--color-border-primary);
         border-radius: 5px;
-    }
-
-    &__logo img {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
     }
 
     &__tool {
@@ -129,15 +118,6 @@
     &__row--error &__time {
         color: var(--color-red-500);
     }
-}
-
-// Third-party brand marks (Cursor, OpenAI) are near-black with transparent backgrounds,
-// so on the default dark surface plate they disappear. In dark mode give the plate a light
-// backing — the tooltip surface resolves light-on-dark — so the logos stay legible. Light
-// mode is already a light plate, so it's left as-is.
-[theme='dark'] .MCPPreview__logo {
-    background: var(--color-bg-surface-tooltip);
-    border-color: color-mix(in oklab, var(--color-black) 12%, transparent);
 }
 
 // The radios stay keyboard-focusable even while visually hidden, so the chip they
@@ -243,10 +223,7 @@
         margin-top: 0.875rem;
     }
 
-    &__clients img {
-        width: 16px;
-        height: 16px;
-        object-fit: contain;
+    &__clients svg {
         opacity: 0.85;
     }
 
@@ -256,14 +233,11 @@
         transition: opacity 150ms ease;
     }
 
-    &__code img {
-        width: 16px;
-        height: 16px;
-        object-fit: contain;
+    &__code svg {
         opacity: 0.85;
     }
 
-    &__code:hover img {
+    &__code:hover svg {
         opacity: 1;
     }
 

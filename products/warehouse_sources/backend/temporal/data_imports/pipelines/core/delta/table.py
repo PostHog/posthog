@@ -160,13 +160,13 @@ def live_row_count(delta_table: deltalake.DeltaTable) -> int | None:
     because the copied files also keep every physical row.
 
     None when a live file has no statistic or the log cannot give the statistics. The caller then
-    counts the files instead.
+    counts the files, or keeps the run count for a full refresh.
     """
     try:
         add_actions = pa.table(delta_table.get_add_actions(flatten=False))
     except Exception:
         # The stats of a large table can overflow Arrow's 32-bit string offsets (see
-        # repartition.measure_partition_bytes), and the fallback count gives the same number.
+        # repartition.measure_partition_bytes), and the caller has a fallback.
         return None
     if "num_records" not in add_actions.column_names:
         return None
@@ -578,7 +578,7 @@ class DeltaTableRef:
 
         row_count = await asyncio.to_thread(live_row_count, delta_table)
         if row_count is None:
-            await self._logger.adebug("The Delta log has no complete row count, counting the published files")
+            await self._logger.adebug("The Delta log has no complete row count")
         return row_count
 
     async def get_live_size_mib(self) -> float | None:

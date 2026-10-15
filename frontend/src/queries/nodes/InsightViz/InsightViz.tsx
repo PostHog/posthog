@@ -79,6 +79,7 @@ export function InsightViz({
         query: query.source,
         key: vizKey,
         cachedResults: cachedResults || getCachedResults(insightProps.cachedInsight, query.source),
+        retainResponseOnUnmount: insightProps.retainResponseOnUnmount,
         doNotLoad: insightProps.doNotLoad,
         onData: insightProps.onData,
         loadPriority: insightProps.loadPriority,

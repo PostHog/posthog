@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TeachableSource(ResumableSource[TeachableSourceConfig, TeachableResumeConfig]):
+    codebase_detection = detect(env=("^TEACHABLE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Teachable's API only exposes an unversioned `/v1/` path with no documented version
     # choice, so we leave the framework's unversioned default in place.

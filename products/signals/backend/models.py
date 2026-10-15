@@ -9,9 +9,10 @@ from datetime import datetime, timedelta
 from typing import Any, TypeVar, cast
 
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, connection, models, transaction
+from django.db.models.functions import Upper
 from django.utils import timezone
 from django.utils.functional import Promise
 
@@ -199,6 +200,9 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
+    scout_instructions = models.TextField(null=True, blank=True)
+    research_instructions = models.TextField(null=True, blank=True)
+    implementation_instructions = models.TextField(null=True, blank=True)
     # Daily cap on reports surfacing to the inbox, counted against SignalReport.first_visible_at
     # within the project-timezone day. Once reached, the whole generation pipeline pauses until
     # local midnight (see daily_limit.py). Null means unlimited.
@@ -441,6 +445,10 @@ class SignalReport(UUIDModel):
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
             ),
+            # Back the inbox `search` filter. On UPPER(...) because icontains compiles to
+            # UPPER(col) LIKE UPPER(pattern) on Postgres.
+            GinIndex(OpClass(Upper("title"), name="gin_trgm_ops"), name="signals_report_title_trgm"),
+            GinIndex(OpClass(Upper("summary"), name="gin_trgm_ops"), name="signals_report_summary_trgm"),
         ]
         constraints = [
             # The barrier itself, not a lookup aid: two emits racing on one key both reach the
@@ -482,6 +490,19 @@ class SignalReport(UUIDModel):
         repository = data.get("repository") if isinstance(data, dict) else None
         return repository.strip() if isinstance(repository, str) and repository.strip() else None
 
+    def _monitoring_enabled(self) -> bool:
+        from products.signals.backend.report_content_gates import (
+            team_report_monitoring_enabled,  # noqa: PLC0415 - keeps the flag client off model startup
+        )
+
+        return team_report_monitoring_enabled(self.team_id)
+
+    @property
+    def effective_status(self) -> "SignalReport.Status":
+        if self.status == self.Status.MONITORING and not self._monitoring_enabled():
+            return self.Status.RESOLVED
+        return self.Status(self.status)
+
     def transition_to(
         self,
         new_status: "SignalReport.Status",
@@ -492,6 +513,7 @@ class SignalReport(UUIDModel):
         title: str | None = None,
         summary: str | None = None,
         error: str | None = None,
+        monitoring_started_at: datetime | None = None,
     ) -> list[str]:
         """
         Validate and apply a status transition with side effects.
@@ -502,8 +524,31 @@ class SignalReport(UUIDModel):
         """
         S = self.Status
         updated_fields: set[str] = set()
+        current_status = self.effective_status
+        if new_status == S.MONITORING and not self._monitoring_enabled():
+            raise InvalidStatusTransition(self.status, new_status)
 
-        match (self.status, new_status):
+        match (current_status, new_status):
+            case (S.READY | S.PENDING_INPUT | S.FAILED, S.MONITORING):
+                if monitoring_started_at is None or timezone.is_naive(monitoring_started_at):
+                    raise ValueError("An aware implementation-complete timestamp is required to enter Monitoring.")
+                self.monitoring_started_at = monitoring_started_at
+                updated_fields.add("monitoring_started_at")
+
+            case (S.MONITORING, S.MONITORING):
+                if self.monitoring_started_at is None:
+                    raise ValueError("The current Monitoring period has no implementation-complete timestamp.")
+                return []
+
+            case (S.SUPPRESSED, S.MONITORING):
+                if self.status_before_suppression != S.MONITORING or self.monitoring_started_at is None:
+                    raise InvalidStatusTransition(self.status, new_status)
+                self.status_before_suppression = None
+                updated_fields.add("status_before_suppression")
+
+            case (S.MONITORING, S.RESOLVED | S.READY):
+                pass
+
             # Pipeline transitions
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
             # - READY -> CANDIDATE when new matching signals reopen the report for summary / agentic
@@ -553,7 +598,10 @@ class SignalReport(UUIDModel):
                 updated_fields.add("error")
 
             # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze)
-            case (S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.RESOLVED | S.FAILED, S.POTENTIAL):
+            case (
+                S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.MONITORING | S.RESOLVED | S.FAILED,
+                S.POTENTIAL,
+            ):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
                 if self.status == S.SUPPRESSED:
@@ -586,11 +634,18 @@ class SignalReport(UUIDModel):
 
             # Any non-deleted status can be suppressed
             case (
-                S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED | S.FAILED,
+                S.POTENTIAL
+                | S.CANDIDATE
+                | S.IN_PROGRESS
+                | S.PENDING_INPUT
+                | S.READY
+                | S.MONITORING
+                | S.RESOLVED
+                | S.FAILED,
                 S.SUPPRESSED,
             ):
                 # Remember where it was so "restore" can return it there (see restore_target_status).
-                self.status_before_suppression = self.status
+                self.status_before_suppression = current_status
                 self.promoted_at = None
                 updated_fields.update(["status_before_suppression", "promoted_at"])
 
@@ -601,6 +656,7 @@ class SignalReport(UUIDModel):
                 | S.IN_PROGRESS
                 | S.PENDING_INPUT
                 | S.READY
+                | S.MONITORING
                 | S.RESOLVED
                 | S.FAILED
                 | S.SUPPRESSED,
@@ -631,6 +687,9 @@ class SignalReport(UUIDModel):
             updated_fields.add("first_visible_at")
 
         self.status = new_status
+        if new_status in (S.POTENTIAL, S.READY) and self.monitoring_started_at is not None:
+            self.monitoring_started_at = None
+            updated_fields.add("monitoring_started_at")
         updated_fields.update(["status", "updated_at"])
         return list(updated_fields)
 
@@ -677,6 +736,8 @@ class SignalReport(UUIDModel):
         S = self.Status
         researched = {S.READY, S.PENDING_INPUT, S.RESOLVED, S.FAILED}
         prior = self.status_before_suppression
+        if prior == S.MONITORING:
+            return S.MONITORING if self._monitoring_enabled() else S.RESOLVED
         if prior in {s.value for s in researched}:
             return S(prior)
         return S.POTENTIAL
@@ -1029,7 +1090,7 @@ class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
 
     @property
     def work_state(self) -> SignalReportWorkState:
-        if self.report.status == SignalReport.Status.RESOLVED:
+        if self.report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
             return SignalReportWorkState.DONE
         from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 
@@ -1910,13 +1971,16 @@ class SignalReportArtefact(UUIDModel):
             from products.signals.backend.plan_rollup import roll_up_plan_parents
 
             try:
-                status = (
+                report = (
                     SignalReport.objects.using("default")
                     .filter(team_id=artefact.team_id, id=artefact.report_id)
-                    .values_list("status", flat=True)
+                    .only("status", "team_id")
                     .first()
                 )
-                if status not in (SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED):
+                if report is None or report.effective_status not in (
+                    SignalReport.Status.RESOLVED,
+                    SignalReport.Status.SUPPRESSED,
+                ):
                     return
                 roll_up_plan_parents(team_id=artefact.team_id, report_id=str(artefact.report_id))
             except Exception:
@@ -2431,6 +2495,14 @@ class SignalReportCheck(UUIDModel):
 #   - SignalScoutNote:   steering notes humans/agents leave for scouts to read.
 
 
+def default_scout_write_scopes() -> list[str]:
+    from posthog.temporal.oauth import (  # noqa: PLC0415 — keeps the token module off the models import path
+        SCOUT_DEFAULT_WRITE_SCOPES,
+    )
+
+    return sorted(SCOUT_DEFAULT_WRITE_SCOPES)
+
+
 class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     """One row per (team, scout skill): schedule + emit posture for a scout skill.
 
@@ -2732,16 +2804,17 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_default=[],
         blank=True,
     )
-    # User-facing write scopes a person granted this one scout, on top of the fleet-wide posture
-    # every scout carries. Plain scope strings (`["dashboard:write", "insight:write"]`), so adding
-    # a grantable object later is one allowlist entry rather than a new column. Empty means the
-    # scout reads the project and writes only what the fleet grants every scout.
+    # User-facing write scopes this one scout holds, on top of the fleet-wide posture every scout
+    # carries. Plain scope strings (`["dashboard:write", "insight:write"]`), so adding a grantable
+    # object later is one allowlist entry rather than a new column. A new row starts with
+    # `SCOUT_DEFAULT_WRITE_SCOPES`. Empty means the scout reads the project and writes only its own
+    # findings and memory.
     # Validated against `SCOUT_GRANTABLE_WRITE_SCOPES` at the API boundary and intersected against
     # it again when a run's token is minted, so a stored grant cannot widen a token past the
     # allowlist. Deliberately NOT excluded from activity logging, and gated in the config API to the
     # scout's acting user and project admins: this field decides what an unattended agent may change
     # in the project. A dry run (`emit=False`) ignores it, so a preview never mutates the project.
-    write_scopes = models.JSONField(default=list, db_default=[])
+    write_scopes = models.JSONField(default=default_scout_write_scopes, db_default=[])
     # Opt-in guard on the lifecycle fields (`enabled`, `emit`, deletion, and this flag). Off by
     # default, so the fleet keeps the plain `signal_scout:write` bar. On, only the scout's
     # resolved acting user or a project admin may pause, resume, switch to dry run, or delete it

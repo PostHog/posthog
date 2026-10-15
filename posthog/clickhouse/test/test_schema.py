@@ -23,12 +23,14 @@ from posthog.clickhouse.schema import (
     build_query,
     get_table_name,
 )
+from posthog.dags.flag_evaluations_backfill import _COPIED_COLUMNS
 from posthog.models.event.sql import (
     EVENTS_JSON_TABLE_MV_SQL,
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
     KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL,
 )
 from posthog.models.flag_evaluations.sql import (
+    _FLAG_EVALUATIONS_TYPED_COLUMNS,
     DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
     FLAG_EVALUATIONS_KAFKA_COLUMNS,
     FLAG_EVALUATIONS_MV_SELECT_SQL,
@@ -242,6 +244,21 @@ def test_flag_evaluations_read_table_declares_every_stored_column():
     assert stored_columns
 
     assert _flag_evaluations_table_columns(DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL()) == stored_columns
+
+
+# The comment above _COPIED_COLUMNS gives the reason the backfill leaves out each of these columns.
+_FLAG_EVALUATIONS_COLUMNS_THE_BACKFILL_LEAVES_OUT = {"inserted_at", "_offset", "_partition"}
+
+
+def test_flag_evaluations_backfill_copies_every_stored_column():
+    # A column that the backfill does not copy gets its DEFAULT on every backfilled row. No error
+    # reports this. The typed columns compute their DEFAULT from properties, so the copy leaves them
+    # out by design. Any other new column fails here until the copy or the set above names it.
+    stored = {column.split()[0] for column in _flag_evaluations_table_columns(FLAG_EVALUATIONS_TABLE_SQL())}
+    typed = set(_declared_column_names(_FLAG_EVALUATIONS_TYPED_COLUMNS))
+
+    assert typed
+    assert stored == set(_COPIED_COLUMNS) | typed | _FLAG_EVALUATIONS_COLUMNS_THE_BACKFILL_LEAVES_OUT
 
 
 def _hogql_column_names(table: Table) -> set[str]:

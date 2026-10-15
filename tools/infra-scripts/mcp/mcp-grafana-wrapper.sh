@@ -2,15 +2,15 @@
 # Wrapper script for mcp-grafana that connects to PostHog Grafana via Tailscale.
 #
 # PostHog's Grafana instances are reachable over Tailscale at plain HTTP hostnames
-# (grafana-prod-us, grafana-prod-eu, grafana-dev). This wrapper looks up a service
+# (grafana-prod-us, grafana-prod-eu, grafana-dev, grafana-internal). This wrapper looks up a service
 # account token from macOS Keychain and hands both the URL and token to mcp-grafana.
 #
-# Supports switching between prod-us, prod-eu, and dev regions via GRAFANA_REGION env var
-# or ~/.grafana-region file (env var takes precedence). Use `grafana-region us`,
-# `grafana-region eu`, or `grafana-region dev` to switch, then restart your MCP client.
+# Supports switching between prod-us, prod-eu, dev, and internal via GRAFANA_REGION env var
+# or ~/.grafana-region file (env var takes precedence). Use `grafana-region <region>`
+# to switch, then restart your MCP client.
 #
 # Prerequisites:
-#   - Tailscale connected (grafana-prod-us / grafana-prod-eu / grafana-dev must resolve)
+#   - Tailscale connected with access to the selected Grafana host
 #   - mcp-grafana binary installed (go install github.com/grafana/mcp-grafana/cmd/mcp-grafana@latest)
 #   - Grafana service account token stored in macOS Keychain (see grafana-token script)
 
@@ -35,8 +35,8 @@ if [ -n "${GRAFANA_REGION:-}" ]; then
 fi
 
 # Validate region
-if [[ "$CURRENT_REGION" != "us" && "$CURRENT_REGION" != "eu" && "$CURRENT_REGION" != "dev" ]]; then
-    echo "Error: Invalid region '$CURRENT_REGION' from $REGION_SOURCE. Must be 'us', 'eu', or 'dev'." >&2
+if [[ "$CURRENT_REGION" != "us" && "$CURRENT_REGION" != "eu" && "$CURRENT_REGION" != "dev" && "$CURRENT_REGION" != "internal" ]]; then
+    echo "Error: Invalid region '$CURRENT_REGION' from $REGION_SOURCE. Must be 'us', 'eu', 'dev', or 'internal'." >&2
     exit 1
 fi
 
@@ -53,6 +53,10 @@ case "$CURRENT_REGION" in
     dev)
         GRAFANA_HOST="grafana-dev"
         KEYCHAIN_SERVICE="grafana-service-account-token-dev"
+        ;;
+    internal)
+        GRAFANA_HOST="grafana-internal"
+        KEYCHAIN_SERVICE="grafana-service-account-token-internal"
         ;;
 esac
 

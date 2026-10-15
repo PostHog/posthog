@@ -530,25 +530,36 @@ def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path, merge_base_sh
     revisions = diff_range(base_sha, head_sha, merge_base_sha)
     run_opts = {"capture_output": True, "text": True, "timeout": 30, "cwd": repo_root}
 
-    numstat = subprocess.run(["git", "diff", "--numstat", revisions], **run_opts)
+    numstat = subprocess.run(["git", "diff", "--numstat", "-z", revisions], **run_opts)
     if numstat.returncode != 0:
         raise RuntimeError(f"git diff --numstat failed: {numstat.stderr.strip()}")
 
-    name_status = subprocess.run(["git", "diff", "--name-status", revisions], **run_opts)
+    name_status = subprocess.run(["git", "diff", "--name-status", "-z", revisions], **run_opts)
+    if name_status.returncode != 0:
+        raise RuntimeError(f"git diff --name-status failed: {name_status.stderr.strip()}")
     status_map: dict[str, str] = {}
-    for line in name_status.stdout.strip().splitlines():
-        parts = line.split("\t", 1)
-        if len(parts) == 2:
-            status_map[parts[1]] = parts[0]
+    status_records = iter(name_status.stdout.split("\0"))
+    for status in status_records:
+        if not status:
+            continue
+        filename = next(status_records)
+        if status.startswith(("R", "C")):
+            filename = next(status_records)
+        status_map[filename] = status
 
     files = []
-    for line in numstat.stdout.strip().splitlines():
-        if not line:
+    numstat_records = iter(numstat.stdout.split("\0"))
+    for record in numstat_records:
+        if not record:
             continue
-        parts = line.split("\t", 2)
+        parts = record.split("\t", 2)
         if len(parts) != 3:
             continue
         added, deleted, filename = parts
+        if not filename:
+            # git_touched_paths keeps the old path for deny checks; file stats name only the destination.
+            next(numstat_records)
+            filename = next(numstat_records)
         is_binary = added == "-"
         files.append(
             {

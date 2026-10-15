@@ -273,10 +273,10 @@ class TestAlertMessages(SimpleTestCase):
         inputs = AlertDeliveryWorkflowInputs(
             notification_id="notif-1", team_id=1, issue_id="issue-1", event="$error_tracking_issue_created"
         )
-        assert issue_url(inputs).endswith("/project/1/error_tracking/issue-1")
-        assert issue_url(dataclasses.replace(inputs, fingerprint="")).endswith("/project/1/error_tracking/issue-1")
+        assert issue_url(inputs).endswith("/project/1/error-tracking/issue-1")
+        assert issue_url(dataclasses.replace(inputs, fingerprint="")).endswith("/project/1/error-tracking/issue-1")
         with_fingerprint = dataclasses.replace(inputs, fingerprint="a/b c")
-        assert issue_url(with_fingerprint).endswith("/project/1/error_tracking/fingerprint/a%2Fb%20c")
+        assert issue_url(with_fingerprint).endswith("/project/1/error-tracking/fingerprint/a%2Fb%20c")
 
 
 class TestSlackThreadDelivery(AlertTestMixin):

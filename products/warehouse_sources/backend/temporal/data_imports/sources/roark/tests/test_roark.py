@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.roark import RoarkSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark.roark import (
     RoarkResumeConfig,
+    _explode_transcript,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.roark.settings import ENDPOINTS, ROARK_ENDPOINTS
@@ -107,6 +108,122 @@ class TestUnpaginated:
         result = _driver().run("metric_definition", [_resp([{"id": "1"}, {"id": "2"}])])
 
         assert [r["id"] for r in result.rows] == ["1", "2"]
+
+
+class TestFanout:
+    @parameterized.expand(
+        [
+            ("call_metric", "/v1/call", "callId", "/v1/call/{}/metrics", {"limit": "100", "sortBy": "createdAt"}),
+            (
+                "metric_collection_job_metric_value",
+                "/v1/metric/collection-jobs",
+                "jobId",
+                "/v1/metric/collection-jobs/{}/metric-values",
+                {"limit": "50", "sortBy": None},
+            ),
+        ]
+    )
+    def test_fetches_each_parent_and_skips_missing_ones(
+        self, endpoint: str, parent_path: str, parent_column: str, child_path: str, parent_params: dict[str, str | None]
+    ) -> None:
+        metric = {"metricDefinitionId": "m1", "values": [{"value": 0.5, "captureStatus": "SUCCESS"}]}
+        result = _driver().run(
+            endpoint,
+            [
+                _cursor_page([{"id": "p1"}, {"id": "p2"}], has_more=True, next_cursor="c1"),
+                _resp({"data": [metric, {"metricDefinitionId": "m2", "values": []}]}),
+                _resp({"message": "Not found"}, status=404),
+                _cursor_page([{"id": "p3"}], has_more=False),
+                _resp({"data": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {**metric, parent_column: "p1"},
+            {"metricDefinitionId": "m2", "values": [], parent_column: "p1"},
+        ]
+        assert result.paths == [
+            parent_path,
+            child_path.format("p1"),
+            child_path.format("p2"),
+            parent_path,
+            child_path.format("p3"),
+        ]
+        for name, value in parent_params.items():
+            assert result.requests[0].param(name) == value
+        assert result.requests[3].param("after") == "c1"
+        # The child endpoints document no page size, so none is sent.
+        assert result.requests[1].param("limit") is None
+        # Saved child paths are relative to the base URL, which already carries `/v1`.
+        assert result.saved_states[-1] == RoarkResumeConfig(
+            completed=[child_path.format(p).removeprefix("/v1") for p in ("p1", "p2", "p3")]
+        )
+
+    def test_transcript_yields_one_row_per_entry(self) -> None:
+        entries: list[dict[str, Any]] = [
+            {"participantId": "pa", "role": "AGENT", "text": "Hello", "startOffsetMs": 0, "endOffsetMs": 900},
+            {"participantId": None, "role": None, "text": "(noise)", "startOffsetMs": 900, "endOffsetMs": 1200},
+        ]
+        agent = {"id": "pa", "type": "AGENT", "agentId": "agent-1"}
+        result = _driver().run(
+            "call_transcript",
+            [
+                _cursor_page([{"id": "c1"}, {"id": "c2"}, {"id": "c3"}], has_more=False),
+                _resp(
+                    {"data": {"transcriptionSource": "ROARK_POST_CALL", "participants": [agent], "entries": entries}}
+                ),
+                # A call with no transcript answers with a null source and no entries.
+                _resp({"data": {"transcriptionSource": None, "participants": [], "entries": []}}),
+                _resp({"data": {"transcriptionSource": "ROARK_POST_CALL", "participants": [], "entries": entries[:1]}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {
+                **entries[0],
+                "callId": "c1",
+                "entryIndex": 0,
+                "transcriptionSource": "ROARK_POST_CALL",
+                "participant": agent,
+            },
+            {
+                **entries[1],
+                "callId": "c1",
+                "entryIndex": 1,
+                "transcriptionSource": "ROARK_POST_CALL",
+                "participant": None,
+            },
+            {
+                **entries[0],
+                "callId": "c3",
+                "entryIndex": 0,
+                "transcriptionSource": "ROARK_POST_CALL",
+                "participant": None,
+            },
+        ]
+
+    def test_transcript_skips_malformed_entries(self) -> None:
+        rows = _explode_transcript(
+            {"callId": "c1", "participants": [None], "entries": [None, {"participantId": "pa", "text": "Hi"}]}
+        )
+
+        assert [(row["callId"], row["entryIndex"], row["text"]) for row in rows] == [("c1", 1, "Hi")]
+
+    def test_resume_skips_completed_parents(self) -> None:
+        result = _driver().run(
+            "call_metric",
+            [
+                _cursor_page([{"id": "p1"}, {"id": "p2"}], has_more=False),
+                _resp({"data": [{"metricDefinitionId": "m1", "values": []}]}),
+            ],
+            resume_state=RoarkResumeConfig(completed=["/call/p1/metrics"]),
+        )
+
+        assert result.raised is None
+        assert [row["callId"] for row in result.rows] == ["p2"]
+        assert result.paths == ["/v1/call", "/v1/call/p2/metrics"]
 
 
 class TestRetryAndFailLoud:

@@ -56,6 +56,7 @@ rules:
                           (?x)(
                               AccessControl
                               |Account
+                              |AccountAuditAdmission
                               |AccountChannelSummary
                               |AccountRelationship
                               |AccountRelationshipControl
@@ -138,6 +139,7 @@ rules:
                               |CustomPropertyValue
                               |DAG
                               |DailyBriefing
+                              |TodayHighlights
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
@@ -459,10 +461,13 @@ rules:
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
                               |WebAnalyticsVisit
+                              |WizardDetectedTool
                               |WizardRun
                               |WizardRunArtifact
+                              |WizardScan
                               |WizardSession
                               |WizardWorker
+                              |WorkflowIdea
                               |WorkflowProposal
                           )$
                 - focus-metavariable: $SINK
@@ -521,6 +526,7 @@ rules:
                     (?x)(
                         AccessControl
                         |Account
+                        |AccountAuditAdmission
                         |AccountChannelSummary
                         |AccountRelationship
                         |AccountRelationshipControl
@@ -601,6 +607,7 @@ rules:
                         |CustomPropertyValue
                         |DAG
                         |DailyBriefing
+                        |TodayHighlights
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
@@ -911,10 +918,13 @@ rules:
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction
                         |WebAnalyticsVisit
+                        |WizardDetectedTool
                         |WizardRun
                         |WizardRunArtifact
+                        |WizardScan
                         |WizardSession
                         |WizardWorker
+                        |WorkflowIdea
                         |WorkflowProposal
                     )$
           # Exclude when team filter is present
@@ -1028,6 +1038,7 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
+                              |ReplayVisionOrgAdmissionBudget
                               |Role
                               |RoleExternalReference
                               |RoleMembership
@@ -1110,6 +1121,7 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
+                        |ReplayVisionOrgAdmissionBudget
                         |Role
                         |RoleExternalReference
                         |RoleMembership
@@ -1203,7 +1215,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              CommunitySkillVote
+                              AccountAuditCredential
+                              |CommunitySkillVote
                               |DashboardPrivilege
                               |GitHubInstallRequest
                               |PersonalAPIKey
@@ -1260,7 +1273,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        CommunitySkillVote
+                        AccountAuditCredential
+                        |CommunitySkillVote
                         |DashboardPrivilege
                         |GitHubInstallRequest
                         |PersonalAPIKey

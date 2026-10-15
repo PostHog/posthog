@@ -16,10 +16,10 @@ export function SettingsTable({
                     {description && <p className="m-0 text-xs text-secondary">{description}</p>}
                 </header>
             )}
-            <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,14rem)_minmax(0,16rem)] gap-3 px-4 py-1.5 text-xxs font-semibold uppercase tracking-wide text-secondary @min-[48rem]:grid">
+            <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,14rem)_minmax(0,18rem)] gap-3 px-4 py-1.5 text-xxs font-semibold uppercase tracking-wide text-secondary @min-[48rem]:grid">
                 <span>Setting</span>
-                <span>Project</span>
-                <span>Mine</span>
+                <span>Project default</span>
+                <span>My preference</span>
             </div>
             {children}
         </section>
