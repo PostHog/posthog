@@ -250,7 +250,7 @@ class TestBingAdsSource:
         ],
     )
     @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.integration_secrets.get_secret",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.credentials_service.get_secret",
         return_value="dev-token",
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.BingAdsClient")

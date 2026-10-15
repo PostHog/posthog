@@ -318,25 +318,18 @@ class TestFormatRetryDelay:
         assert _format_retry_delay(seconds) == expected
 
 
-class TestFreeTierModelGateErrorBody:
-    def test_gate_403_wire_body_carries_code_and_legacy_shim(
+class TestRetiredProductErrorBody:
+    def test_retired_product_403_keeps_the_top_level_error_envelope(
         self, mock_db_pool: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Pins the gate 403's wire shape end-to-end (raise site + exception-handler
-        unwrap): a top-level error envelope, never FastAPI's {"detail": ...} nesting.
-        Pre-cutover PostHog Desktop clients route this 403 by the "(rate_limit)"
-        substring in the message and newer clients read the code — a regression in
-        either strands installed builds in fatal-session teardown."""
         from llm_gateway.auth.models import AuthenticatedUser
         from llm_gateway.config import get_settings
         from llm_gateway.dependencies import get_authenticated_user
-        from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID
+        from llm_gateway.products.config import POSTHOG_CODE_RETIRED_MESSAGE, POSTHOG_CODE_US_APP_ID
 
         get_settings.cache_clear()
         try:
             app = create_test_app(mock_db_pool)
-            # OAuth caller on the Desktop app whose org isn't billed for Desktop usage
-            # (the conftest quota resolver reports code_usage_billing_active=False).
             app.dependency_overrides[get_authenticated_user] = lambda: AuthenticatedUser(
                 user_id=7,
                 team_id=1,
@@ -361,8 +354,8 @@ class TestFreeTierModelGateErrorBody:
             assert "detail" not in body
             error = body["error"]
             assert error["type"] == "permission_error"
-            assert error["code"] == "model_gate"
-            assert "claude-fable-5" in error["message"]
-            assert error["message"].endswith("(rate_limit)")
+            assert error["code"] == "product_access_denied"
+            assert error["reason"] == "product_retired"
+            assert error["message"] == POSTHOG_CODE_RETIRED_MESSAGE
         finally:
             get_settings.cache_clear()

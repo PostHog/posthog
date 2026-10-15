@@ -552,6 +552,7 @@ async def verify_impersonated_service_account_ownership(
 
 def impersonate_service_account(
     integration: GoogleCloudServiceAccountIntegration,
+    scopes: tuple[str, ...] = ("https://www.googleapis.com/auth/bigquery",),
 ) -> google.auth.impersonated_credentials.Credentials:
     """Impersonate a user's service account using our own.
 
@@ -564,7 +565,7 @@ def impersonate_service_account(
     their_credentials = google.auth.impersonated_credentials.Credentials(
         source_credentials=our_credentials,
         target_principal=service_account_email,
-        target_scopes=["https://www.googleapis.com/auth/bigquery"],
+        target_scopes=list(scopes),
         lifetime=3600,
     )
 

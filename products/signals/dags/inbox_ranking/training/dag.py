@@ -25,11 +25,12 @@ promotion rule compares both models on one set of reports. Every model object si
 family's `model_name`, and promotion stays inside a family: a richer family is a second candidate
 graded on the same rows, not a competitor for another family's pointer.
 
-Both the candidate and the champion asset walk `MODEL_FAMILIES`, so each family trains on the
+Both the candidate and the champion asset walk `families_trained_in(MAIN_LOCATION)`, so each family trains on the
 examples of the feature set it declares and decides against its own pointer. A family whose
 examples or metadata are missing that day is logged and skipped: its own series has a gap, and
 every other family still trains, promotes and gets graded. The two embedding families read one text
 rendering each, from separate snapshots, so a missing snapshot costs one family and not the pair.
+The `nn` family is trained by the `signals_ml` location (`nn/dag.py`) and never here.
 
 Two further assets grade the served models on data no example covers. `inbox_ranking_served_scores`
 (`training/served.py`) reads the scoring sweep's live scores of every report born on D, one row set
@@ -43,7 +44,7 @@ same `Head` cohort, label and horizon.
 
 import json
 import datetime
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
@@ -141,11 +142,13 @@ from products.signals.dags.inbox_ranking.training.train import (
     train_head,
 )
 from products.signals.dags.inbox_ranking.training.unseen import (
+    MAIN_LOCATION,
     MODEL_FAMILIES,
     SERVED_SCORES_TABLE,
     HeadGrade,
     ModelFamily,
     calibration_rows,
+    families_trained_in,
     graded_rows,
     head_grades,
     missing_label_columns,
@@ -609,7 +612,7 @@ def inbox_ranking_model_candidate(context: dagster.AssetExecutionContext) -> Non
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
 
     metadata: dict[str, dagster.MetadataValue] = {}
-    for family in MODEL_FAMILIES:
+    for family in families_trained_in(MAIN_LOCATION):
         metadata |= _train_candidate(context, client, bucket, prefix, partition_key, family)
     context.add_output_metadata(metadata)
 
@@ -729,7 +732,7 @@ def inbox_ranking_model_champion(context: dagster.AssetExecutionContext) -> None
     overrides = read_ranking_overrides(datetime.datetime.now(datetime.UTC))
     metadata: dict[str, dagster.MetadataValue] = {}
     decided = 0
-    for family in MODEL_FAMILIES:
+    for family in families_trained_in(MAIN_LOCATION):
         family_metadata = _decide_champion(context, client, bucket, prefix, partition_key, family, overrides)
         if family_metadata is None:
             continue
@@ -751,8 +754,61 @@ def _decide_champion(
     family: ModelFamily,
     overrides: RankingOverrides,
 ) -> dict[str, dagster.MetadataValue] | None:
+    """One per-head XGBoost family's promotion decision against its own pointer, or None when the
+    family has no candidate for the partition."""
+
+    def grade_champion(champion: Mapping[str, Any]) -> dict[str, HoldoutGrade]:
+        champion_feature_set = model_feature_set(champion)
+        if champion_feature_set is None:
+            context.log.warning(
+                f"{family.name} champion {champion['model_version']} reads a feature set this build cannot produce"
+            )
+            return {}
+        # The champion is graded on the examples of its own feature set, the set the candidate
+        # shares: promotion stays inside a family. Without that object there is no shared
+        # holdout, so the rule falls back to the champion's stored AUC.
+        examples = read_parquet_if_exists(
+            client, bucket, examples_object_key(prefix, champion_feature_set.name, partition_key)
+        )
+        if examples is None:
+            context.log.warning(
+                f"no {champion_feature_set.name} examples for dt={partition_key}; "
+                f"the {family.name} champion is compared on its stored AUC"
+            )
+            return {}
+        return paired_champion_grades(
+            client,
+            bucket,
+            prefix,
+            dict(champion),
+            examples.to_pandas(),
+            feature_set=champion_feature_set,
+            holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS,
+        )
+
+    return decide_family_champion(
+        context, client, bucket, prefix, partition_key, family, overrides, grade_champion=grade_champion
+    )
+
+
+def decide_family_champion(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    prefix: str,
+    partition_key: str,
+    family: ModelFamily,
+    overrides: RankingOverrides,
+    *,
+    grade_champion: Callable[[Mapping[str, Any]], dict[str, HoldoutGrade]],
+) -> dict[str, dagster.MetadataValue] | None:
     """One family's promotion decision against its own pointer, or None when the family has no
-    candidate for the partition."""
+    candidate for the partition.
+
+    `grade_champion` grades the incumbent's train-only fit on the candidate's holdout, in the
+    family's own learner. Every family shares the rest, so one rule, one override and one
+    `INBOX_RANKING_AUTO_PROMOTE` gate decide every pointer.
+    """
     candidate = _read_json_if_exists(
         client, bucket, model_object_key(prefix, family.name, partition_key, METADATA_FILE)
     )
@@ -765,43 +821,18 @@ def _decide_champion(
     champion_aucs: dict[str, float] = {}
     champion_eces: dict[str, float] = {}
     if champion is not None:
-        champion_feature_set = model_feature_set(champion)
-        if champion_feature_set is None:
-            context.log.warning(
-                f"{family.name} champion {champion['model_version']} reads a feature set this build cannot produce"
+        champion_grades = grade_champion(champion)
+        champion_aucs = {head: grade.auc for head, grade in champion_grades.items() if grade.auc is not None}
+        champion_eces = {
+            head: grade.expected_calibration_error
+            for head, grade in champion_grades.items()
+            if grade.expected_calibration_error is not None
+        }
+        if champion_grades:
+            context.log.info(
+                f"{family.name} champion {champion['model_version']} on this holdout: "
+                f"AUC {champion_aucs}, ECE {champion_eces}"
             )
-        else:
-            # The champion is graded on the examples of its own feature set, the set the candidate
-            # shares: promotion stays inside a family. Without that object there is no shared
-            # holdout, so the rule falls back to the champion's stored AUC.
-            examples = read_parquet_if_exists(
-                client, bucket, examples_object_key(prefix, champion_feature_set.name, partition_key)
-            )
-            if examples is None:
-                context.log.warning(
-                    f"no {champion_feature_set.name} examples for dt={partition_key}; "
-                    f"the {family.name} champion is compared on its stored AUC"
-                )
-            else:
-                champion_grades = paired_champion_grades(
-                    client,
-                    bucket,
-                    prefix,
-                    champion,
-                    examples.to_pandas(),
-                    feature_set=champion_feature_set,
-                    holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS,
-                )
-                champion_aucs = {head: grade.auc for head, grade in champion_grades.items() if grade.auc is not None}
-                champion_eces = {
-                    head: grade.expected_calibration_error
-                    for head, grade in champion_grades.items()
-                    if grade.expected_calibration_error is not None
-                }
-                context.log.info(
-                    f"{family.name} champion {champion['model_version']} on this holdout: "
-                    f"AUC {champion_aucs}, ECE {champion_eces}"
-                )
     promotion_override = overrides.promotion_for(family.name)
     decision = decide_promotion(
         candidate,
@@ -844,7 +875,7 @@ def _decide_champion(
         [
             promotion_event(
                 partition_key=partition_key,
-                run_id=context.run.run_id,
+                run_id=context.run_id,
                 model_name=family.name,
                 decision=decision,
                 outcome=outcome,

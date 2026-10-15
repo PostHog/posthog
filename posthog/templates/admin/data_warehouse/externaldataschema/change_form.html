@@ -493,7 +493,7 @@
                                         {{ job.latest_error|truncatechars:80 }}
                                     </span>
                                     <br>
-                                    <a href="{{ site_url }}/project/{{ team_id }}/error_tracking?searchQuery={{ job.latest_error|truncatechars:200|urlencode }}"
+                                    <a href="{{ site_url }}/project/{{ team_id }}/error-tracking?searchQuery={{ job.latest_error|truncatechars:200|urlencode }}"
                                        target="_blank"
                                        style="font-size: 11px">View in error tracking</a>
                                 {% else %}

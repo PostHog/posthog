@@ -210,6 +210,7 @@ export namespace Schemas {
         materializationMode: MaterializationMode | null;
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
         mergeFederatedAggregateJoins: boolean | null;
+        negatedPersonFiltersNotIn: boolean | null;
         optimizeJoinedFilters: boolean | null;
         optimizeProjections: boolean | null;
         parserMode: ParserMode | null;
@@ -340,6 +341,7 @@ export namespace Schemas {
         table_name: string;
     };
     export type DataWarehouseSyncWarning = {
+        data_is_current?: (boolean | null) | undefined;
         /**
          * Human-readable warning shown to the user
          */
@@ -2180,13 +2182,17 @@ export namespace Schemas {
         custom_name?: (string | null) | undefined;
         formula: string;
     };
+    export type Calculation = "fixed" | "mean" | "median" | "min" | "max";
     export type Position = "start" | "end";
+    export type Scope = "all" | "series";
     export type GoalLine = {
         borderColor?: (string | null) | undefined;
+        calculation?: (Calculation | null) | undefined;
         displayIfCrossed?: (boolean | null) | undefined;
         displayLabel?: (boolean | null) | undefined;
         label: string;
         position?: (Position | null) | undefined;
+        scope?: (Scope | null) | undefined;
         value: number;
     };
     export type LegendPosition = "top" | "bottom" | "left" | "right";
@@ -4220,6 +4226,7 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         version?: (number | null) | undefined;
     };
+    export type ExecutionTarget = "default" | "managed_trino";
     export type HogQLFilters = Partial<{
         breakdownFilter: BreakdownFilter | null;
         compareFilter: CompareFilter | null;
@@ -4378,6 +4385,7 @@ export namespace Schemas {
     };
     export type HogQLQuery = {
         connectionId?: (string | null) | undefined;
+        executionTarget?: (ExecutionTarget | null) | undefined;
         explain?: (boolean | null) | undefined;
         filters?: (HogQLFilters | null) | undefined;
         kind?: string | undefined;
@@ -4430,6 +4438,7 @@ export namespace Schemas {
         tags: QueryLogTags | null;
         version: number | null;
     }>;
+    export type Alias = { label: string; value?: (string | null) | undefined };
     /**
      * * `first_touch` - First Touch
      * * `last_touch` - Last Touch
@@ -4601,13 +4610,20 @@ export namespace Schemas {
         | "month"
         | "quarter"
         | "year";
+    export type DatePart = "month" | "quarter" | "day_of_week";
     export type BILocalFieldDefinition1 = {
+        aggregate: boolean;
+        expression: string;
+        kind?: string | undefined;
+    };
+    export type BILocalFieldDefinition2 = {
         expression: string;
         groups: Array<BICategoryGroup>;
         kind?: string | undefined;
         other: string;
+        preserveUngrouped?: (boolean | null) | undefined;
     };
-    export type BILocalFieldDefinition2 = {
+    export type BILocalFieldDefinition3 = {
         expression: string;
         kind?: string | undefined;
         origin: number;
@@ -4636,11 +4652,19 @@ export namespace Schemas {
         | "unknown";
     export type BIField = {
         dateBucket?: (BIDateBucket | null) | undefined;
+        datePart?: (DatePart | null) | undefined;
         expression: string;
         id: string;
+        label?: (string | null) | undefined;
         localDefinition?:
-            | (BILocalFieldDefinition1 | BILocalFieldDefinition2 | null)
+            | (
+                  | BILocalFieldDefinition1
+                  | BILocalFieldDefinition2
+                  | BILocalFieldDefinition3
+                  | null
+              )
             | undefined;
+        localFieldId?: (string | null) | undefined;
         name: string;
         source: BIDataSource;
         type: DatabaseSerializedFieldType;
@@ -4663,12 +4687,28 @@ export namespace Schemas {
         customExpression?: (string | null) | undefined;
         enabled?: (boolean | null) | undefined;
         field: BIField;
+        label?: (string | null) | undefined;
         operator: BIFilterOperator;
         value: string;
         valueTo?: (string | null) | undefined;
         values?: (Array<string> | null) | undefined;
     };
+    export type BIHierarchy = {
+        id: string;
+        /**
+         * Ordered from the broadest dimension to the most detailed.
+         */
+        levels: Array<BIField>;
+        name: string;
+    };
+    export type HierarchyDrillPathItem = {
+        filterIds: Array<string>;
+        hierarchyId: string;
+        nextField: BIField;
+        previousField: BIField;
+    };
     export type BIQueryLimit = 100 | 1000 | 10000 | 50000;
+    export type MemberAliase = { aliases: Array<Alias>; field: BIField };
     export type MissingDates = "gap" | "zero";
     export type Operator2 =
         | "equals"
@@ -4683,6 +4723,7 @@ export namespace Schemas {
     export type BIResultFilter = {
         enabled?: (boolean | null) | undefined;
         id: string;
+        label?: (string | null) | undefined;
         measureIndex: number;
         operator: Operator2;
         value: string;
@@ -4717,6 +4758,7 @@ export namespace Schemas {
         style: Style | null;
         suffix: string | null;
     }>;
+    export type Shelf = "rows" | "columns";
     export type BITableCalculationType =
         | "percent_of_total"
         | "running_total"
@@ -4737,18 +4779,23 @@ export namespace Schemas {
         field: BIField;
         formatting?: (ChartSettingsFormatting | null) | undefined;
         label?: (string | null) | undefined;
+        shelf?: (Shelf | null) | undefined;
         tableCalculation?: (BITableCalculation | null) | undefined;
     };
     export type BIConfig = {
         chartType: ChartDisplayType;
+        colorBy?: (string | null) | undefined;
         columns: Array<BIField>;
         compareFilter?: (CompareFilter | null) | undefined;
         comparisonPeriod?: (ComparisonPeriod | null) | undefined;
         dateField?: (BIField | null) | undefined;
         dateRange?: (DateRange | null) | undefined;
         filters: Array<BIFilter>;
+        hierarchies?: (Array<BIHierarchy> | null) | undefined;
+        hierarchyDrillPath?: (Array<HierarchyDrillPathItem> | null) | undefined;
         limit: BIQueryLimit;
         localFields?: (Array<BIField> | null) | undefined;
+        memberAliases?: (Array<MemberAliase> | null) | undefined;
         missingDates?: (MissingDates | null) | undefined;
         resultFilterGroup?: (BIConditionGroup | null) | undefined;
         resultFilters?: (Array<BIResultFilter> | null) | undefined;
@@ -6317,6 +6364,7 @@ export namespace Schemas {
     };
     export type DashboardFilter = Partial<{
         breakdown_filter: BreakdownFilter | null;
+        compareFilter: CompareFilter | null;
         date_from: string | null;
         date_to: string | null;
         explicitDate: boolean | null;
@@ -8416,7 +8464,8 @@ export namespace Schemas {
         | "first_seen"
         | "occurrences"
         | "users"
-        | "sessions";
+        | "sessions"
+        | "severity";
     export type OrderDirection2 = "ASC" | "DESC";
     export type ErrorTrackingPendingFingerprintIssueStateUpdate = {
         assigned_role_id?: (string | null) | undefined;
@@ -8936,16 +8985,6 @@ export namespace Schemas {
      * * `opt_in` - Opt In
      */
     export type EmailTrackingConsentModeEnum = "off" | "opt_out" | "opt_in";
-    /**
-     * * `duckdb` - duckdb
-     * * `postgres` - postgres
-     * * `mysql` - mysql
-     * * `snowflake` - snowflake
-     * * `redshift` - redshift
-     * * `clickhouse` - clickhouse
-     * * `motherduck` - motherduck
-     * * `trino` - trino
-     */
     export type EngineEnum =
         | "duckdb"
         | "postgres"
@@ -9042,6 +9081,41 @@ export namespace Schemas {
         name: string | null;
         description: string | null;
     }>;
+    /**
+     * * `agent_reported` - agent_reported
+     * * `agent_server_crash` - agent_server_crash
+     * * `agent_declined` - agent_declined
+     * * `output_parse_failed` - output_parse_failed
+     * * `poll_timeout` - poll_timeout
+     * * `pi_runtime_error` - pi_runtime_error
+     * * `upstream_stream_terminated` - upstream_stream_terminated
+     * * `upstream_connection_error` - upstream_connection_error
+     * * `upstream_timeout` - upstream_timeout
+     * * `upstream_provider_failure` - upstream_provider_failure
+     * * `upstream_request_rejected` - upstream_request_rejected
+     * * `content_block_rejection` - content_block_rejection
+     * * `turn_ended_without_response` - turn_ended_without_response
+     * * `subscription_usage_limit` - subscription_usage_limit
+     * * `task_spend_limit` - task_spend_limit
+     * * `agent_error` - agent_error
+     */
+    export type ErrorTypeEnum =
+        | "agent_reported"
+        | "agent_server_crash"
+        | "agent_declined"
+        | "output_parse_failed"
+        | "poll_timeout"
+        | "pi_runtime_error"
+        | "upstream_stream_terminated"
+        | "upstream_connection_error"
+        | "upstream_timeout"
+        | "upstream_provider_failure"
+        | "upstream_request_rejected"
+        | "content_block_rejection"
+        | "turn_ended_without_response"
+        | "subscription_usage_limit"
+        | "task_spend_limit"
+        | "agent_error";
     /**
      * * `active` - Active
      * * `paused` - Paused
@@ -9193,6 +9267,9 @@ export namespace Schemas {
                          * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
                          */
                         prompt: string;
+                        judge_method?:
+                            | (("llm" | "decision") | null)
+                            | undefined;
                     }
                   | {
                         /**
@@ -9294,23 +9371,24 @@ export namespace Schemas {
          * An evaluation that scores LLM generations, traces, or sessions.
          */
         target_config?:
-            | (
-                  | {
-                        /**
-                         * Wait a fixed window after the first matching generation, then evaluate.
-                         */
-                        strategy: "fixed_window";
-                        window_seconds?: number | undefined;
-                    }
-                  | {
-                        /**
-                         * Evaluate once the unit has had no new activity for the quiet period.
-                         */
-                        strategy: "inactivity";
-                        quiet_period_seconds?: number | undefined;
-                        max_age_seconds?: number | undefined;
-                    }
-              )
+            | Partial<{
+                  /**
+                   * 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'.
+                   */
+                  strategy: "fixed_window" | "inactivity";
+                  /**
+                   * fixed_window only. Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+                   */
+                  window_seconds: number;
+                  /**
+                   * inactivity only. Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
+                   */
+                  quiet_period_seconds: number;
+                  /**
+                   * inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+                   */
+                  max_age_seconds: number;
+              }>
             | undefined;
         /**
          * An evaluation that scores LLM generations, traces, or sessions.
@@ -9910,6 +9988,7 @@ export namespace Schemas {
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9920,7 +9999,8 @@ export namespace Schemas {
         | "no_metric"
         | "srm"
         | "zero_exposures"
-        | "forced_variant_release_condition";
+        | "forced_variant_release_condition"
+        | "flag_variants_mismatch";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -9960,6 +10040,7 @@ export namespace Schemas {
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
          * * `forced_variant_release_condition` - Forced Variant Release Condition
+         * * `flag_variants_mismatch` - Flag Variants Mismatch
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -10310,7 +10391,7 @@ export namespace Schemas {
          */
         resolved_exposure_event: string;
         /**
-         * Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet.
+         * Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix.
          */
         health: ExperimentHealth | null;
         /**
@@ -10612,7 +10693,7 @@ export namespace Schemas {
          */
         resolved_exposure_event: string;
         /**
-         * Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet.
+         * Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix.
          */
         health: ExperimentHealth | null;
         /**
@@ -12256,6 +12337,13 @@ export namespace Schemas {
      * * `ChessCom` - ChessCom
      * * `Userback` - Userback
      * * `Rewardful` - Rewardful
+     * * `Tracklution` - Tracklution
+     * * `StackAdapt` - StackAdapt
+     * * `CheckHQ` - CheckHQ
+     * * `RainforestPay` - RainforestPay
+     * * `Wise` - Wise
+     * * `LaravelCloud` - LaravelCloud
+     * * `Northbeam` - Northbeam
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13632,7 +13720,14 @@ export namespace Schemas {
         | "TestDino"
         | "ChessCom"
         | "Userback"
-        | "Rewardful";
+        | "Rewardful"
+        | "Tracklution"
+        | "StackAdapt"
+        | "CheckHQ"
+        | "RainforestPay"
+        | "Wise"
+        | "LaravelCloud"
+        | "Northbeam";
     /**
      * * `web` - web
      * * `api` - api
@@ -15018,6 +15113,13 @@ export namespace Schemas {
          * * `ChessCom` - ChessCom
          * * `Userback` - Userback
          * * `Rewardful` - Rewardful
+         * * `Tracklution` - Tracklution
+         * * `StackAdapt` - StackAdapt
+         * * `CheckHQ` - CheckHQ
+         * * `RainforestPay` - RainforestPay
+         * * `Wise` - Wise
+         * * `LaravelCloud` - LaravelCloud
+         * * `Northbeam` - Northbeam
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -15962,6 +16064,7 @@ export namespace Schemas {
     >;
     export type TileFilters = Partial<{
         breakdown_filter: BreakdownFilter | null;
+        compareFilter: CompareFilter | null;
         date_from: string | null;
         date_to: string | null;
         explicitDate: boolean | null;
@@ -18118,6 +18221,8 @@ export namespace Schemas {
         is_pending_deletion?: (boolean | null) | undefined;
     };
     /**
+     * * `approval_requested` - approval_requested
+     * * `approval_resolved` - approval_resolved
      * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -18131,6 +18236,8 @@ export namespace Schemas {
      * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled
      */
     export type SettingEnum =
+        | "approval_requested"
+        | "approval_resolved"
         | "data_catalog_weekly_digest"
         | "discussions_mentioned"
         | "error_tracking_issue_assigned"
@@ -18146,6 +18253,8 @@ export namespace Schemas {
         /**
          * Notification setting this rule enforces.
          *
+         * * `approval_requested` - approval_requested
+         * * `approval_resolved` - approval_resolved
          * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
          * * `discussions_mentioned` - discussions_mentioned
          * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -19077,7 +19186,10 @@ export namespace Schemas {
         status_reason_detail: string | null;
         evaluation_type: EvaluationTypeEnum;
         evaluation_config:
-            | { prompt: string }
+            | {
+                  prompt: string;
+                  judge_method?: (("llm" | "decision") | null) | undefined;
+              }
             | { source: string }
             | Partial<{ source: "user_messages" }>;
         output_type: OutputTypeEnum;
@@ -19096,13 +19208,12 @@ export namespace Schemas {
         }>;
         conditions: Array<EvaluationCondition>;
         target: EvaluationTargetEnum;
-        target_config:
-            | { strategy: "fixed_window"; window_seconds?: number | undefined }
-            | {
-                  strategy: "inactivity";
-                  quiet_period_seconds?: number | undefined;
-                  max_age_seconds?: number | undefined;
-              };
+        target_config: Partial<{
+            strategy: "fixed_window" | "inactivity";
+            window_seconds: number;
+            quiet_period_seconds: number;
+            max_age_seconds: number;
+        }>;
         model_configuration: ModelConfiguration | null;
         created_at: string;
         updated_at: string;
@@ -19417,11 +19528,41 @@ export namespace Schemas {
         linkedFlagVariant: string;
     }>;
     /**
+     * * `top_left` - top_left
+     * * `top_center` - top_center
+     * * `top_right` - top_right
+     * * `middle_left` - middle_left
+     * * `middle_center` - middle_center
+     * * `middle_right` - middle_right
+     * * `left` - left
+     * * `center` - center
+     * * `right` - right
+     * * `next_to_trigger` - next_to_trigger
+     */
+    export type SurveyPositionEnum =
+        | "top_left"
+        | "top_center"
+        | "top_right"
+        | "middle_left"
+        | "middle_center"
+        | "middle_right"
+        | "left"
+        | "center"
+        | "right"
+        | "next_to_trigger";
+    /**
      * * `button` - button
      * * `tab` - tab
      * * `selector` - selector
      */
     export type WidgetTypeEnum = "button" | "tab" | "selector";
+    /**
+     * * `top` - top
+     * * `left` - left
+     * * `right` - right
+     * * `bottom` - bottom
+     */
+    export type SurveyTabPositionEnum = "top" | "left" | "right" | "bottom";
     export type SurveyAppearanceSchema = Partial<{
         backgroundColor: string;
         submitButtonColor: string;
@@ -19432,6 +19573,9 @@ export namespace Schemas {
         ratingButtonColor: string;
         ratingButtonActiveColor: string;
         ratingButtonHoverColor: string;
+        textSubtleColor: string;
+        inputBackground: string;
+        inputTextColor: string;
         whiteLabel: boolean;
         autoDisappear: boolean;
         displayThankYouMessage: boolean;
@@ -19439,21 +19583,30 @@ export namespace Schemas {
         thankYouMessageDescription: string;
         thankYouMessageDescriptionContentType: DescriptionContentTypeEnum;
         thankYouMessageCloseButtonText: string;
+        displayIntroScreen: boolean;
+        introScreenHeader: string;
+        introScreenDescription: string;
+        introScreenDescriptionContentType: DescriptionContentTypeEnum;
+        introScreenButtonText: string;
         borderColor: string;
         placeholder: string;
+        position: SurveyPositionEnum;
         shuffleQuestions: boolean;
-        surveyPopupDelaySeconds: number;
+        surveyPopupDelaySeconds: number | null;
         allowGoBack: boolean;
         backButtonText: string;
         widgetType: WidgetTypeEnum;
         widgetSelector: string;
         widgetLabel: string;
         widgetColor: string;
+        tabPosition: SurveyTabPositionEnum;
         fontFamily: string;
         maxWidth: string;
         zIndex: string;
         disabledButtonOpacity: string;
         boxPadding: string;
+        boxShadow: string;
+        borderRadius: string;
     }>;
     /**
      * * `day` - day
@@ -19528,9 +19681,11 @@ export namespace Schemas {
         state_remove_keys: Array<string>;
         state_append: Record<string, unknown>;
         error_message: string | null;
+        error_type: ErrorTypeEnum | NullEnum;
     }>;
     /**
      * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -19554,9 +19709,11 @@ export namespace Schemas {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import
      */
     export type TaskOriginProductEnum =
         | "onboarding"
+        | "account_audit"
         | "error_tracking"
         | "eval_clusters"
         | "user_created"
@@ -19579,7 +19736,8 @@ export namespace Schemas {
         | "task_analysis"
         | "workflow"
         | "space_setup"
-        | "business_knowledge";
+        | "business_knowledge"
+        | "metrics_import";
     /**
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -19818,6 +19976,8 @@ export namespace Schemas {
         workflow_task_rate_limit_per_day: number | null;
         workflow_task_team_rate_limit_per_day: number | null;
         default_email_integration_id: number | null;
+        marketing_frequency_cap_max_messages: number | null;
+        marketing_frequency_cap_window_days: number | null;
     }>;
     export type TeamFeatureFlagPolicyConfig = Partial<{
         require_tags: boolean;
@@ -22667,6 +22827,7 @@ export namespace Endpoints {
                 created_by: number;
                 exclude_origin_product:
                     | "onboarding"
+                    | "account_audit"
                     | "error_tracking"
                     | "eval_clusters"
                     | "user_created"
@@ -22689,7 +22850,8 @@ export namespace Endpoints {
                     | "task_analysis"
                     | "workflow"
                     | "space_setup"
-                    | "business_knowledge";
+                    | "business_knowledge"
+                    | "metrics_import";
                 hog_flow_id: string;
                 internal: "true" | "false" | "all";
                 limit: number;

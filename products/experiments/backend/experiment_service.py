@@ -69,6 +69,7 @@ from products.experiments.backend.logic.result_stats import MetricTimeseries
 from products.experiments.backend.logic.timeseries_text import ExperimentTimeseriesFormatter
 from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
+    build_primary_calculation_configs,
     saved_metric_calculation_keys,
     stamp_calculation_keys,
 )
@@ -87,7 +88,6 @@ from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_MARKER,
     Experiment,
     ExperimentHoldout,
-    ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
@@ -2752,26 +2752,28 @@ class ExperimentService:
             completed_metadata["duration"] = int((experiment.end_date - experiment.start_date).total_seconds())
 
         # Look up whether the primary metric reached significance from the
-        # latest cached result in Postgres (ExperimentMetricResult). This is
+        # current stored result in Postgres (ExperimentMetricResult). This is
         # safe to call here because it's a simple indexed lookup — it reads
         # previously cached results, never triggers a ClickHouse query or
         # result computation. Returns None immediately if no results exist yet.
         try:
-            first_metric = experiment.metrics[0] if experiment.metrics else None
-            if first_metric and first_metric.get("uuid"):
-                metric_result = MetricResultStore(experiment_id=experiment.id).last_completed(first_metric["uuid"])
-                if metric_result and metric_result.result:
-                    # Significance lives on each variant. The top-level `significant` is a legacy
-                    # field that stored results leave null. A variant's value is null when
-                    # validation stopped the analysis, so only computed values decide.
-                    variant_results = metric_result.result.get("variant_results") or []
-                    computed = [
-                        variant["significant"]
-                        for variant in variant_results
-                        if isinstance(variant, dict) and isinstance(variant.get("significant"), bool)
-                    ]
-                    if computed:
-                        completed_metadata["significant"] = any(computed)
+            primary_metric = next(iter(build_primary_calculation_configs(experiment)), None)
+            outcome = (
+                MetricResultStore(experiment_id=experiment.id).current_outcome(primary_metric)
+                if primary_metric is not None
+                else None
+            )
+            if outcome is not None:
+                # Significance lives on each variant. The top-level `significant` is a legacy
+                # field that stored results leave null. A variant's value is null when
+                # validation stopped the analysis, so only computed values decide.
+                computed = [
+                    variant["significant"]
+                    for variant in outcome.variant_results
+                    if isinstance(variant.get("significant"), bool)
+                ]
+                if computed:
+                    completed_metadata["significant"] = any(computed)
         except Exception:
             logger.exception(
                 "Failed to look up metric significance",
@@ -4552,11 +4554,7 @@ class ExperimentService:
 
         metric_uuid = metric.get("uuid")
         if metric_uuid:
-            ExperimentMetricResult.objects.filter(
-                experiment_id=experiment.id,
-                metric_uuid=metric_uuid,
-                fingerprint=fingerprint,
-            ).delete()
+            MetricResultStore(experiment_id=experiment.id).delete_daily_points(metric_uuid, fingerprint)
 
         recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
             team=experiment.team,

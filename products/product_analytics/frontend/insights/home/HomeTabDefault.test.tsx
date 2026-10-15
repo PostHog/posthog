@@ -166,18 +166,34 @@ describe('HomeTabDefault query reuse', () => {
         await waitFor(() => expect(container.querySelector('[data-attr="metric-card-sparkline"]')).not.toBeNull())
     })
 
-    it('replaces sample charts with live queries when the project starts receiving events', async () => {
+    it('replaces sample metrics and charts with live queries when the project starts receiving events', async () => {
+        ensureJsdom()
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false, is_demo: false })
         const { container } = render(<HomeTabDefault />)
 
-        await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(9))
-        expect(container.querySelectorAll('[data-attr="insight-sample-data-state"]')).toHaveLength(5)
+        await waitFor(() =>
+            expect(container.querySelectorAll('[data-attr="insight-sample-data-tag"]')).toHaveLength(11)
+        )
+        for (const tile of container.querySelectorAll('[data-attr^="home-tab-metric-"]')) {
+            expect(tile).toHaveAttribute('aria-busy', 'false')
+            expect(tile.querySelector('[data-attr="metric-card-sparkline"]')).not.toBeNull()
+        }
+        expect(mockedQuery).not.toHaveBeenCalled()
+        expect(screen.queryByText('No previous period data')).not.toBeInTheDocument()
+
+        await act(async () => homeTabDefaultLogic.actions.setSelectedMetric('sessions'))
+        expect(mockedQuery).not.toHaveBeenCalled()
 
         await act(async () => {
             teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: true, is_demo: false })
         })
 
         await waitFor(() => expect(mockedQuery).toHaveBeenCalledTimes(14))
-        expect(container.querySelector('[data-attr="insight-sample-data-state"]')).toBeNull()
+        expect(container.querySelector('[data-attr="insight-sample-data-tag"]')).toBeNull()
+        await waitFor(() =>
+            expect(
+                within(screen.getByLabelText('Sessions', { selector: 'button' })).getByText('10')
+            ).toBeInTheDocument()
+        )
     })
 })

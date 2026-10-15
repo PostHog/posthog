@@ -51,6 +51,70 @@ describe('biEditorLogic', () => {
         limit: 1000,
         sort: null,
     }
+    it.each(['rows', 'columns'] as const)('only adds a calculated field to %s after confirmation', (shelf) => {
+        const logic = biEditorLogic({ tabId: TAB_ID })
+        logic.mount()
+        logic.actions.setAutoUpdate(false)
+        logic.actions.restoreState({ editorView: BIEditorView.BI, config })
+        logic.actions.editCalculatedField(undefined, shelf)
+        expect(logic.values.config).toEqual(config)
+        logic.actions.setCalculatedMeasureDraft(null)
+        expect(logic.values.config).toEqual(config)
+        logic.actions.editCalculatedField(undefined, shelf)
+        logic.actions.setCalculatedMeasureDraft({
+            ...logic.values.calculatedMeasureDraft!,
+            name: 'Event label',
+            expression: 'lower(event)',
+        })
+        expect(logic.values.config).toEqual(config)
+        logic.actions.saveCalculatedMeasure()
+        expect(logic.values.config[shelf].at(-1)).toMatchObject({ name: 'Event label', expression: 'lower(event)' })
+        expect(logic.values.calculatedMeasureDraft).toBeNull()
+        logic.unmount()
+    })
+    it('renames shelf labels without changing the source expression and preserves them on reload', () => {
+        const logic = biEditorLogic({ tabId: TAB_ID })
+        logic.mount()
+        logic.actions.setAutoUpdate(false)
+        logic.actions.restoreState({ editorView: BIEditorView.BI, config })
+        logic.actions.renameField('rows', 0, 'Activity')
+        const restored = parseBIEditorState(BIEditorView.BI, JSON.stringify(logic.values.config))!.config
+        expect(restored.rows[0]).toMatchObject({ name: 'event', label: 'Activity', expression: 'event' })
+        const node = buildBIQuery(restored)!.node
+        expect(node.chartSettings?.xAxisLabel).toBe('Activity')
+        expect(node.tableSettings?.columns?.[0].settings?.display?.label).toBe('Activity')
+        const warehouse = { ...restored, source: { table: 'orders' }, filters: [] }
+        expect(buildBIQuery(warehouse)!.query).toContain("(event) AS 'event'")
+        expect(buildBIQuery(warehouse)!.query).not.toContain("AS 'Activity'")
+        logic.actions.startSuggestedChart()
+        expect(logic.values.config.rows).toEqual(restored.rows)
+        logic.actions.resetConfig()
+        logic.actions.startSuggestedChart()
+        expect(logic.values.config.values[0]).toMatchObject({ customExpression: 'count(*)', shelf: 'rows' })
+        logic.actions.resetConfig()
+        databaseLogic.actions.loadDatabaseSuccess({
+            tables: {
+                events: {
+                    id: 'events',
+                    name: 'events',
+                    type: 'posthog',
+                    fields: {
+                        timestamp: {
+                            name: 'timestamp',
+                            type: 'datetime',
+                            schema_valid: true,
+                            hogql_value: 'timestamp',
+                        },
+                    },
+                },
+            },
+            joins: [],
+        })
+        logic.actions.startSuggestedChart()
+        expect(logic.values.config.columns[0]).toMatchObject({ name: 'timestamp', dateBucket: 'day' })
+        expect(logic.values.config.chartType).toBe(ChartDisplayType.ActionsLineGraph)
+        logic.unmount()
+    })
     it.each([
         ['remove', 0],
         ['remove', 1],
@@ -561,7 +625,7 @@ describe('biEditorLogic', () => {
         biLogic.actions.setAutoUpdate(false)
         biLogic.actions.setFieldExpression('rows', 0, 'distinct_id')
         expect(getBIFieldPillLabel(biLogic.values.config.rows[0])).toBe('distinct_id')
-        expect(biLogic.values.generatedQuery?.query).toContain('SELECT\n    distinct_id,')
+        expect(biLogic.values.generatedQuery?.query).toContain('SELECT\n    distinct_id AS distinct_id,')
         biLogic.unmount()
     })
 })

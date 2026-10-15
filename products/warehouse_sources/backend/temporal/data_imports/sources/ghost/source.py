@@ -1,6 +1,7 @@
 from typing import cast
 from urllib.parse import urlsplit
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -45,6 +46,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GhostSource(ResumableSource[GhostSourceConfig, GhostResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^(NEXT_PUBLIC_|VITE_|PUBLIC_|GATSBY_)?GHOST_(ADMIN_|CONTENT_)?API_",),
+        npm=(
+            "@tryghost/content-api",
+            "@tryghost/admin-api",
+            "@tryghost/helpers",
+            "ghost",
+            "@ts-ghost/content-api",
+            "@ts-ghost/admin-api",
+            "gatsby-source-ghost",
+        ),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)
     default_version = API_VERSION

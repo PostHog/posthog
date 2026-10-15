@@ -1,8 +1,8 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { InsightVizStory } from 'scenes/insights/__mocks__/createInsightVizStory'
-
 import __trendsSlopeGraph from '~/mocks/fixtures/api/projects/team_id/insights/trendsSlopeGraph.json'
+
+import { InsightVizStory } from 'products/product_analytics/frontend/insights/shared/__mocks__/createInsightVizStory'
 
 import { TrendsSlopeChart } from './TrendsSlopeChart'
 

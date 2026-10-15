@@ -153,7 +153,7 @@ attribute is set on the wrapper for debugging.
 ## Scenes already migrated
 
 - Feature Flag — `frontend/src/scenes/feature-flags/FeatureFlag.tsx`
-- Insight — `frontend/src/scenes/insights/SidePanel/InsightSceneMenuBar.tsx`
+- Insight — `products/product_analytics/frontend/insights/insightScene/sidePanel/InsightSceneMenuBar.tsx`
 - Dashboard — `frontend/src/scenes/dashboard/DashboardSceneMenuBar.tsx`
 
 When migrating a new scene, follow the `<Scene>SceneMenuBar.tsx` pattern (component

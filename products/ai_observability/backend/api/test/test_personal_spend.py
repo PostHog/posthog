@@ -18,7 +18,7 @@ from posthog.test.base import (
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import requests
@@ -50,7 +50,7 @@ def _by_product(rows: list[dict], product: str | None) -> dict | None:
     return next((r for r in rows if r["product"] == product), None)
 
 
-class TestPersonalSpendEuRedirect(APIBaseTest):
+class TestPersonalSpendEuRedirect(SimpleTestCase):
     """Pure unit test of the EU redirect view — does not depend on URL conf for EU."""
 
     def test_eu_redirect_view_preserves_query_string(self) -> None:
