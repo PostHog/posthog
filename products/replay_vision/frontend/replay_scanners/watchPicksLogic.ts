@@ -30,9 +30,8 @@ import { urls } from 'scenes/urls'
 import { ReplayTabs, SessionRecordingSidebarTab } from '~/types'
 
 import { visionObservationsViewedCreate, visionScannersWatchFeedRetrieve } from '../generated/api'
-import type { FeedDismissalReasonEnumApi, WatchFeedItemApi } from '../generated/api.schemas'
+import type { WatchFeedItemApi } from '../generated/api.schemas'
 import { observationKeyMomentMs, watchStartSeconds } from './components/WatchFeedCard'
-import { dismissFeedItem, withFeedItemRestored, withoutFeedItem } from './watchFeedDismissal'
 import {
     type WatchFeedLoad,
     WatchFeedImpressions,
@@ -87,17 +86,6 @@ export interface watchPicksLogicActions {
         position: number
         surface: WatchPickSurface
     }
-    dismissItem: (
-        item: WatchFeedItemApi,
-        position: number,
-        surface: WatchPickSurface,
-        reason: FeedDismissalReasonEnumApi | null
-    ) => {
-        item: WatchFeedItemApi
-        position: number
-        reason: FeedDismissalReasonEnumApi | null
-        surface: WatchPickSurface
-    }
     loadPicks: () => {
         value: true
     }
@@ -121,13 +109,6 @@ export interface watchPicksLogicActions {
     }
     markPickViewed: (observationId: string) => {
         observationId: string
-    }
-    restoreItem: (
-        item: WatchFeedItemApi,
-        position: number
-    ) => {
-        item: WatchFeedItemApi
-        position: number
     }
     setActiveSessionId: (sessionId: string | null) => {
         sessionId: string | null
@@ -197,13 +178,6 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
             position,
             surface,
         }),
-        dismissItem: (
-            item: WatchFeedItemApi,
-            position: number,
-            surface: WatchPickSurface,
-            reason: FeedDismissalReasonEnumApi | null
-        ) => ({ item, position, surface, reason }),
-        restoreItem: (item: WatchFeedItemApi, position: number) => ({ item, position }),
     }),
 
     loaders(({ values, actions }) => ({
@@ -234,8 +208,6 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                         ? { ...pick, observation: { ...pick.observation, viewed: true } }
                         : pick
                 ) ?? null,
-            dismissItem: (state, { item }) => withoutFeedItem(state, item.observation.id),
-            restoreItem: (state, { item, position }) => withFeedItemRestored(state, item, position),
         },
         picksLoad: [
             null as WatchFeedLoad | null,
@@ -330,19 +302,6 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
             },
             cardSeen: ({ item, position, surface }) => {
                 cache.impressions.add(item, position, surface)
-            },
-            dismissItem: async ({ item, position, surface, reason }) => {
-                if (!values.currentTeamId) {
-                    return
-                }
-                const loadId = values.picksLoad?.feedLoadId
-                await dismissFeedItem({
-                    teamId: values.currentTeamId,
-                    item,
-                    reason,
-                    properties: cardProperties(values.picksLoad, item, position, surface),
-                    restore: () => values.picksLoad?.feedLoadId === loadId && actions.restoreItem(item, position),
-                })
             },
             setListMode: ({ mode }) => {
                 posthog.capture('replay_vision_watch_picks_list_mode_changed', { mode })

@@ -17,7 +17,6 @@ import { CARD_SEEN_DWELL_MS } from '../watchFeedTelemetry'
 import { type WatchPickSurface, watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
 import { watchFeedRowWhy } from './WatchFeedCard'
-import { WatchFeedDismissButton } from './WatchFeedDismissButton'
 import { WatchPickPreview } from './WatchPickPreview'
 import { WatchPickRankBadge } from './WatchPickRankBadge'
 
@@ -32,7 +31,7 @@ const SCORE_DOTS = 5
 
 export function WatchPickRankedCard({ item, position, surface, rank }: WatchPickRankedCardProps): JSX.Element {
     const [hasOpenedPreview, setHasOpenedPreview] = useState(false)
-    const { watchPick, cardSeen, dismissItem } = useActions(watchPicksLogic)
+    const { watchPick, cardSeen } = useActions(watchPicksLogic)
     const { observation, reason } = item
     const cardRef = useAutoMarkRead(true, () => cardSeen(item, position, surface), CARD_SEEN_DWELL_MS)
     const { title, scannerName, scannerType } = watchPickSummary(observation)
@@ -122,12 +121,6 @@ export function WatchPickRankedCard({ item, position, surface, rank }: WatchPick
                 )}
             >
                 {hasOpenedPreview && <WatchPickPreview item={item} className="w-full" />}
-            </div>
-            {/* Outside the poster button, since a button cannot hold another, and above the hover preview. */}
-            <div className="absolute bottom-0 right-0 z-30">
-                <WatchFeedDismissButton
-                    onDismiss={(dismissalReason) => dismissItem(item, position, surface, dismissalReason)}
-                />
             </div>
         </div>
     )

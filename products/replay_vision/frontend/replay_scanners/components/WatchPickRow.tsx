@@ -1,17 +1,14 @@
 import { useActions } from 'kea'
 
-import { IconThumbsDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { cn } from 'lib/utils/css-classes'
 
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import type { WatchFeedItemApi } from '../../generated/api.schemas'
 import { citedTextToPlainText } from '../../utils/citations'
-import { feedDismissalMenuItems } from '../watchFeedDismissal'
 import { CARD_SEEN_DWELL_MS } from '../watchFeedTelemetry'
 import { type WatchPickSurface, watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
@@ -28,7 +25,7 @@ interface WatchPickRowProps {
 }
 
 export function WatchPickRow({ item, position, surface, isActive, rank }: WatchPickRowProps): JSX.Element {
-    const { watchPick, cardSeen, dismissItem } = useActions(watchPicksLogic)
+    const { watchPick, cardSeen } = useActions(watchPicksLogic)
     const { observation, reason } = item
     const { title, scannerName } = watchPickSummary(observation)
     const rowRef = useAutoMarkRead(true, () => cardSeen(item, position, surface), CARD_SEEN_DWELL_MS)
@@ -44,22 +41,6 @@ export function WatchPickRow({ item, position, surface, isActive, rank }: WatchP
             tooltipPlacement="right"
             className="min-w-0"
             data-attr="vision-watch-pick"
-            sideAction={{
-                icon: <IconThumbsDown />,
-                tooltip: 'Not useful',
-                'aria-label': 'Not useful',
-                'data-attr': 'vision-watch-feed-dismiss',
-                dropdown: {
-                    placement: 'bottom-end',
-                    overlay: (
-                        <LemonMenuOverlay
-                            items={feedDismissalMenuItems((dismissalReason) =>
-                                dismissItem(item, position, surface, dismissalReason)
-                            )}
-                        />
-                    ),
-                },
-            }}
         >
             <span className={cn('flex w-full min-w-0 items-center gap-3 py-1', observation.viewed && 'opacity-60')}>
                 <span className="relative w-28 shrink-0">
