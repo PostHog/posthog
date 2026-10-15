@@ -57,6 +57,10 @@ If the answer waits for the person, write up to 3 replies that the person will m
 "Use option 2".
 - Make each reply clear on its own. Write "Yes, open the pull request", not "Yes".
 - Offer only actions that the answer names or clearly implies. Do not invent new work.
+- If the answer offers to investigate or check something first and then make a change, such as a pull \
+request or a code or config change, keep the two steps apart. Put first a reply that asks only for the \
+investigation, so the agent reports what it finds and waits. A reply that also makes the change is a \
+separate choice. Ask for a pull request or a change only in a reply that the person picks for that change.
 - If the answer asks for information that only the person knows, such as a name, a value or a repository, \
 do not guess it. Offer only the replies that are complete without it, or return an empty list.
 - Make each reply a different choice. Do not offer two replies that mean the same thing.
