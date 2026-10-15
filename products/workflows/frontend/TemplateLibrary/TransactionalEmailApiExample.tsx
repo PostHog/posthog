@@ -12,7 +12,6 @@ export function TransactionalEmailApiExample({ templateId }: { templateId: strin
     const snippet = `curl -X POST ${apiHostOrigin()}/api/projects/${currentTeamIdStrict}/messaging_templates/${templateId}/send/ \\
   -H "Authorization: Bearer $POSTHOG_PROJECT_SECRET_API_KEY" \\
   -H "Content-Type: application/json" \\
-  -H "Idempotency-Key: password-reset-1234" \\
   -d '{
     "to": "jane@example.com",
     "identifiers": { "distinct_id": "jane-distinct-id" },
@@ -38,9 +37,6 @@ export function TransactionalEmailApiExample({ templateId }: { templateId: strin
                 <li>
                     <code>identifiers.distinct_id</code> is the person the send is recorded against. Leave it out and
                     the recipient's email address is used.
-                </li>
-                <li>
-                    Retries with the same <code>Idempotency-Key</code> send once.
                 </li>
             </ul>
             <CodeSnippet language={Language.Bash}>{snippet}</CodeSnippet>
