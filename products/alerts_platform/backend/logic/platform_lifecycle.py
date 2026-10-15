@@ -681,7 +681,7 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
             .get(legacy_configuration_id=handover.legacy_configuration_id)
         )
         key = _InstanceKey(configuration_id=str(configuration.id), grouping_key="")
-        alert = _alerts_for_write(handover.team_id, {key: configuration})[key]
+        alert = _alerts_for_write(handover.team_id, [configuration], [key])[key]
         if alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None:
             return False
         # ERRORED and BROKEN are the configuration's check status, so the instance starts at rest.

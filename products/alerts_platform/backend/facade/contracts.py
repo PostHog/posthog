@@ -462,6 +462,7 @@ class PlatformAlertOutcome:
         query_duration_ms: int | None = None,
         disable: bool = False,
         skipped: bool = False,
+        schedule_group: str | None = None,
     ) -> PlatformAlertOutcome:
         """A check of a source that does not group: its one verdict on the empty key, or its failure."""
         failure = (
@@ -500,6 +501,7 @@ class PlatformAlertOutcome:
             query_duration_ms=query_duration_ms,
             disable=disable,
             skipped=skipped,
+            schedule_group=schedule_group,
         )
 
     def __post_init__(self) -> None:
