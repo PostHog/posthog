@@ -1,6 +1,6 @@
 ---
 name: setting-up-devbox
-description: Starts, connects to, and troubleshoots a PostHog devbox, a remote Coder workspace for PostHog development that can also run the full stack, through `hogli devbox:*` commands. Use when asked to spin up or resume a devbox, open a shell or editor on it, run a command on it, mirror a local checkout to it (devbox:sync), run the PostHog app on it and share a link, clone, update, share, or free disk on a devbox, store gh or Claude Code tokens for it, or diagnose a failing devbox command (tailnet, DNS, Coder CLI version, SSH). Not for running the stack on the local machine or for changing the Coder template in posthog-cloud-infra.
+description: Starts, connects to, and troubleshoots a PostHog devbox, a remote Coder workspace for PostHog development that can also run the full stack, through `hogli devbox:*` commands. Use when asked to spin up or resume a devbox, open a shell or editor on it, run a command on it, mirror a local checkout to it (devbox:sync), run the PostHog app on it and share a link, update, share, or free disk on a devbox, store gh or Claude Code tokens for it, or diagnose a failing devbox command (tailnet, DNS, Coder CLI version, SSH). Not for running the stack on the local machine or for changing the Coder template in posthog-cloud-infra.
 ---
 
 # Setting up a PostHog devbox
@@ -147,7 +147,6 @@ Pass `--port 8011` when a local stack already uses 8010.
 ## Other tasks
 
 - **Tokens on the box:** store them as Coder user secrets, which reach every box the user owns. `hogli devbox:secret:set GH_TOKEN` reads the value from a hidden prompt or from `--file`. Never put a token on a command line or in the conversation. A secret reaches only boxes started after it is set, so run `hogli devbox:restart` on a running box. The template documents `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `POSTHOG_GIT_SIGNING_KEY`, which `hogli devbox:setup --configure-git-signing` sets. `devbox:secret:list` shows names, env vars, and descriptions, never values.
-- **A second box with the same state:** `hogli devbox:clone --as <label>` copies a running box's full disk, including any secrets on it, into `devbox-<coder-user>-<label>` in the source box's region. Stop the stack on the source first for a consistent copy. It asks for confirmation, so pass `-y` only after the user agrees. Only the owner can clone a box.
 - **Template updates:** `hogli devbox:update` applies the latest template when the box is outdated.
 - **Disk full:** `hogli devbox:cleanup:disk -n <label>` cleans a labeled box. With no workspace it cleans this machine instead, and the default box has no label, so clean the default box with `hogli devbox:exec -- bash -lc 'cd ~/posthog && ./bin/hogli devbox:cleanup:disk'`. `--docker` also prunes stopped containers, and `--cargo` also removes Rust build output, which forces a full rebuild.
 - **Pairing:** `hogli devbox:share --user <coder-user> --role use` grants access, and `devbox:users` lists usernames. `devbox:unshare` removes access only after `hogli devbox:restart`.
