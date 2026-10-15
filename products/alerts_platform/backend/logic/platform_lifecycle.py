@@ -749,7 +749,7 @@ def give_back_ownership(
 
 
 def reset_broken(*, team_id: int, legacy_configuration_id: UUID, at: datetime) -> int | None:
-    """Clears a broken alert the platform owns so the next tick checks it again.
+    """Clears a broken alert the platform owns so the next tick checks it again, from rest.
 
     Returns the failure count it cleared, or None when the alert is not broken. Discovery skips a
     broken alert, so without this it never runs again. The caller holds the source's row lock.
@@ -769,6 +769,11 @@ def reset_broken(*, team_id: int, legacy_configuration_id: UUID, at: datetime) -
         configuration.consecutive_failures = 0
         configuration.next_check_at = at
         configuration.save(update_fields=["check_status", "consecutive_failures", "next_check_at"])
+        # A failed check keeps a firing so a recovery continues it. A reset starts clean instead, or
+        # the next breach would find the old episode open and announce nothing.
+        PlatformAlert.objects.for_team(team_id).filter(configuration=configuration).update(
+            state=PlatformAlertState.NOT_FIRING.value, firing_started_at=None
+        )
     return cleared
 
 

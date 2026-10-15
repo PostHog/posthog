@@ -1603,13 +1603,19 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("both_broken_inside_the_shadow", "broken", "broken", status.HTTP_200_OK),
-            ("platform_broke_after_the_shadow", "broken", "not_firing", status.HTTP_200_OK),
-            ("only_the_frozen_logs_row_is_broken", "not_firing", "broken", status.HTTP_400_BAD_REQUEST),
+            ("both_broken_inside_the_shadow", "broken", "broken", False, status.HTTP_200_OK),
+            ("platform_broke_after_the_shadow", "broken", "not_firing", False, status.HTTP_200_OK),
+            ("broke_while_firing", "broken", "not_firing", True, status.HTTP_200_OK),
+            ("only_the_frozen_logs_row_is_broken", "not_firing", "broken", False, status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_reset_of_a_platform_owned_alert_clears_the_platform_copy(
-        self, _name: str, state_at_cutover: str, logs_state_after: str, expected_status: int
+        self,
+        _name: str,
+        state_at_cutover: str,
+        logs_state_after: str,
+        fired_before_breaking: bool,
+        expected_status: int,
     ) -> None:
         now = datetime.now(UTC)
         alert = LogsAlertConfiguration.objects.create(
@@ -1622,6 +1628,9 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         cut_over_team(self.team.id, now=now)
         LogsAlertConfiguration.objects.filter(pk=alert.id).update(state=logs_state_after)
+        if fired_before_breaking:
+            with team_scope(self.team.id):
+                platform_testing.start_firing(platform_testing.copy_of(alert.id).id, team_id=self.team.id, at=now)
 
         response = self.client.post(self._reset_url(str(alert.id)))
 
@@ -1633,7 +1642,11 @@ class TestLogsAlertAPI(APIBaseTest):
             copy = platform_testing.copy_of(alert.id)
             platform_alert = platform_testing.alert_for(copy.id)
         assert platform_alert is not None
-        assert (platform_alert.state, copy.consecutive_failures) == ("not_firing", 0)
+        assert (platform_alert.state, platform_alert.firing_started_at, copy.consecutive_failures) == (
+            "not_firing",
+            None,
+            0,
+        )
         assert self.client.post(self._reset_url(str(alert.id))).status_code == status.HTTP_400_BAD_REQUEST
 
     def test_reset_other_teams_alert_returns_404(self):
