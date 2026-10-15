@@ -622,11 +622,7 @@ def _lock_dags_and_check_dependents(saved_query: "DataWarehouseSavedQuery", node
 
 
 def check_saved_query_deletable(saved_query: "DataWarehouseSavedQuery") -> None:
-    """Raise HasDependentsError if a view, endpoint or metric reads the saved query.
-
-    Deletes nothing. `soft_delete()` deletes the nodes after its commit, so a delete that fails
-    part-way leaves a live view that still has its node.
-    """
+    """Raise HasDependentsError if a view, endpoint or metric reads the saved query. Deletes nothing."""
     nodes = _nodes_standing_for(saved_query).select_related("dag", "dag__team")
     with transaction.atomic():
         _lock_dags_and_check_dependents(saved_query, nodes)
