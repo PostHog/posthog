@@ -1741,9 +1741,13 @@ def open_cursor(name: str) -> None:
 
 
 def open_web_ide(name: str) -> None:
-    """Open code-server for the workspace."""
-    username = get_username()
-    webbrowser.open(f"{get_coder_url()}/@{username}/{name}/apps/code-server")
+    """Open code-server for the workspace.
+
+    `coder open app` builds the app's subdomain URL. A path-based
+    `/@user/<ws>/apps/...` URL stops working once the Coder server disables
+    path-based apps.
+    """
+    _run_or_exit(["coder", "open", "app", name, "code-server"])
 
 
 # ---------------------------------------------------------------------------
