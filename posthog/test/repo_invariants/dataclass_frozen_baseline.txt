@@ -279,7 +279,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/aviator/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/awin/awin.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/awin/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/aws_cost_explorer/aws_cost_explorer.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/azure_devops/azure_devops.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/azure_devops/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/babelforce/babelforce.py
@@ -1185,7 +1184,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/unleash/unleash.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/unstructured/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/unstructured/unstructured.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/uppromote/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/uppromote/uppromote.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/upstash/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/uptimerobot/settings.py

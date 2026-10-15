@@ -73,24 +73,43 @@ class TestBuildParams:
 
 
 class TestPagination:
-    def test_walks_cursor_pages_and_saves_state_after_each_yield(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "history",
+                "history",
+                "history_item_id",
+                "start_after_history_item_id",
+                "last_history_item_id",
+                "page_size",
+                "1000",
+            ),
+            ("batch_calls", "batch_calls", "id", "last_doc", "next_doc", "limit", "100"),
+        ]
+    )
+    def test_walks_cursor_pages_and_saves_state_after_each_yield(
+        self,
+        endpoint: str,
+        items_key: str,
+        id_key: str,
+        cursor_param: str,
+        cursor_response_key: str,
+        page_size_param: str,
+        page_size: str,
+    ) -> None:
         result = _driver().run(
-            "history",
+            endpoint,
             [
-                ScriptedResponse(
-                    json={"history": [{"history_item_id": "a"}], "has_more": True, "last_history_item_id": "a"}
-                ),
-                ScriptedResponse(
-                    json={"history": [{"history_item_id": "b"}], "has_more": False, "last_history_item_id": "b"}
-                ),
+                ScriptedResponse(json={items_key: [{id_key: "a"}], "has_more": True, cursor_response_key: "a"}),
+                ScriptedResponse(json={items_key: [{id_key: "b"}], "has_more": False, cursor_response_key: "b"}),
             ],
         )
 
         assert result.raised is None
-        assert result.rows == [{"history_item_id": "a"}, {"history_item_id": "b"}]
+        assert result.rows == [{id_key: "a"}, {id_key: "b"}]
         # Page 1 sends no cursor; page 2 sends the cursor from page 1 under the endpoint's cursor param.
-        assert result.params("start_after_history_item_id") == [None, "a"]
-        assert result.params("page_size") == ["1000", "1000"]
+        assert result.params(cursor_param) == [None, "a"]
+        assert result.params(page_size_param) == [page_size, page_size]
         # Saved only once (after page 1, since page 2 is terminal) so a crash re-yields the last page.
         assert result.saved_states == [ElevenLabsResumeConfig(cursor="a")]
 
@@ -200,10 +219,30 @@ class TestSecretRedaction:
                 ],
                 lambda row: row["tool_call_details"]["headers"],
             ),
+            *[
+                (
+                    f"sip_trunk_{trunk_key}_headers",
+                    "phone_numbers",
+                    [
+                        [
+                            {
+                                "phone_number_id": "p1",
+                                "provider": "sip_trunk",
+                                trunk_key: {
+                                    "address": "sip.example.com",
+                                    "headers": {"Authorization": "Bearer sk_fake", "X-Ref": {"secret_id": "s1"}},
+                                },
+                            }
+                        ]
+                    ],
+                    lambda row, key=trunk_key: row[key]["headers"],
+                )
+                for trunk_key in ("outbound_trunk", "provider_config")
+            ],
         ]
     )
     def test_literal_header_values_never_reach_the_warehouse(
-        self, _name: str, endpoint: str, bodies: list[dict[str, Any]], headers_of: Callable[[Any], Any]
+        self, _name: str, endpoint: str, bodies: list[Any], headers_of: Callable[[Any], Any]
     ) -> None:
         result = _driver().run(endpoint, [ScriptedResponse(json=body) for body in bodies])
 
@@ -226,6 +265,21 @@ class TestUnpaginatedEndpoints:
             # jsonpath unwraps a single match, so a one-group body must still come back as one row.
             ("single_group", "workspace_groups", {"g1": {"id": "g1", "name": "a"}}, ["g1"], "id"),
             ("no_groups", "workspace_groups", {}, [], "id"),
+            (
+                "phone_numbers_bare_array",
+                "phone_numbers",
+                [{"phone_number_id": "p1", "provider": "twilio"}, {"phone_number_id": "p2", "provider": "exotel"}],
+                ["p1", "p2"],
+                "phone_number_id",
+            ),
+            # The subscription is one object, not a list, and must land as a single snapshot row.
+            (
+                "subscription_single_object",
+                "subscription",
+                {"tier": "creator", "character_count": 1200, "character_limit": 100000},
+                ["creator"],
+                "tier",
+            ),
         ]
     )
     def test_whole_collection_becomes_rows(
@@ -264,6 +318,11 @@ class TestValidateCredentials:
         [
             ("fan_out_child_probes_parent", "tool_executions", "https://api.elevenlabs.io/v1/convai/tools?page_size=1"),
             ("unpaginated_sends_no_page_size", "workspace_members", "https://api.elevenlabs.io/v1/workspace/members"),
+            (
+                "custom_page_size_param",
+                "batch_calls",
+                "https://api.elevenlabs.io/v1/convai/batch-calling/workspace?limit=1",
+            ),
         ]
     )
     def test_schema_probe_url(self, _name: str, schema_name: str, expected_url: str) -> None:
@@ -309,10 +368,14 @@ class TestSourceResponse:
             ("tools", ["id"], "asc", None),
             # Executions from different tools interleave in time, so the watermark must wait for job end.
             ("tool_executions", ["tool_id", "id"], "desc", None),
+            ("phone_numbers", ["phone_number_id"], "asc", None),
+            ("batch_calls", ["id"], "asc", "created_at_unix"),
+            # A single snapshot row has no unique column to merge on; full refresh replaces it.
+            ("subscription", None, "asc", None),
         ]
     )
     def test_response_shape_per_endpoint(
-        self, endpoint: str, primary_keys: list[str], sort_mode: str, partition_key: str | None
+        self, endpoint: str, primary_keys: list[str] | None, sort_mode: str, partition_key: str | None
     ) -> None:
         # sort_mode="asc" on a newest-first endpoint corrupts the watermark; the pk must be table-unique.
         result = _driver().run(endpoint, [ScriptedResponse(json={})])

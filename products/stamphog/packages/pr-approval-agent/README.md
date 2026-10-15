@@ -97,7 +97,9 @@ Size ceiling (hard gate)
     snapshots (.snap/.ambr, __snapshots__/), images,
     `.lock`-extension files (e.g. `yarn.lock`), tests (test dirs and
     .test/.spec/_test files), and generated/ artifacts
-    (regenerated-artifact extensions only: .ts/.tsx/.js/.jsx/.json/.md/.snap/.pyi/.txt)
+    (regenerated-artifact extensions only: .ts/.tsx/.js/.jsx/.json/.md/.snap/.pyi/.txt),
+    and Drizzle Kit schema snapshots (`migrations/meta/NNNN_snapshot.json`; the migrator reads only
+    the SQL and `_journal.json`, which still count)
     don't count toward the ceiling, because they inflate diffs without adding review
     surface. Note: `pnpm-lock.yaml` and `package-lock.json` are not `.lock`-extension
     files and do count toward the ceiling. All files still count toward tier
