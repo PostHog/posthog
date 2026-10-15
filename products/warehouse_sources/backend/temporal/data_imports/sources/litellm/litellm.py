@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -126,10 +126,14 @@ def spend_log_pages(
 ) -> Iterator[list[dict[str, Any]]]:
     """Yield spend logs oldest first, one page at a time, walking day-long windows up to the run start."""
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    # Both date bounds are inclusive, so a window repeats rows at exactly its start that the window
+    # before it already yielded. Only the first window of a fresh run has no predecessor.
+    repeated_start: datetime | None = None
     if resume is not None and resume.window_start is not None and resume.run_end is not None:
         start = datetime.fromisoformat(resume.window_start)
         run_end = datetime.fromisoformat(resume.run_end)
         page = resume.page or 1
+        repeated_start = start
     else:
         run_end = datetime.now(UTC).replace(microsecond=0)
         page = 1
@@ -144,10 +148,17 @@ def spend_log_pages(
     while True:
         end = min(start + SPEND_LOGS_WINDOW, run_end)
         body = _fetch_spend_logs(session, base_url, start, end, page, SPEND_LOGS_PAGE_SIZE)
-        rows: list[dict[str, Any]] = body.get("data") or []
+        page_rows: list[dict[str, Any]] = body.get("data") or []
         total_pages = body.get("total_pages")
-        has_next_page = page < total_pages if isinstance(total_pages, int) else len(rows) == SPEND_LOGS_PAGE_SIZE
+        # LiteLLM stops counting at 10,000 matches and flags it, so a capped `total_pages` is a floor.
+        if body.get("total_is_capped") or not isinstance(total_pages, int):
+            has_next_page = len(page_rows) == SPEND_LOGS_PAGE_SIZE
+        else:
+            has_next_page = page < total_pages
         last_window = end >= run_end
+        rows = [
+            row for row in page_rows if repeated_start is None or _as_utc(row.get(SPEND_LOGS_FIELD)) != repeated_start
+        ]
 
         if has_next_page:
             next_state: LiteLLMResumeConfig | None = LiteLLMResumeConfig(
@@ -167,6 +178,8 @@ def spend_log_pages(
 
         if next_state is None:
             return
+        if next_state.page == 1:
+            repeated_start = end
         start = datetime.fromisoformat(next_state.window_start or "")
         page = next_state.page or 1
 
@@ -175,6 +188,23 @@ def _with_model_id(row: dict[str, Any]) -> dict[str, Any]:
     # `/model/info` keeps the deployment id inside `model_info`, so lift it to key the table.
     model_info = row.get("model_info")
     return {**row, "model_id": model_info.get("id") if isinstance(model_info, dict) else None}
+
+
+def _without_key_config(row: dict[str, Any]) -> dict[str, Any]:
+    # A key's `config` can hold a model list with provider API keys.
+    return {name: value for name, value in row.items() if name != "config"}
+
+
+def _without_team_keys(row: dict[str, Any]) -> dict[str, Any]:
+    # Team rows embed full key objects, credentials included; the keys table has them without.
+    return {name: value for name, value in row.items() if name != "keys"}
+
+
+_ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "keys": _without_key_config,
+    "teams": _without_team_keys,
+    "models": _with_model_id,
+}
 
 
 def _list_resource(
@@ -205,8 +235,8 @@ def _list_resource(
             "paginator": paginator,
         },
     }
-    if config.name == "models":
-        resource["data_map"] = _with_model_id
+    if config.name in _ROW_MAPS:
+        resource["data_map"] = _ROW_MAPS[config.name]
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -283,9 +313,12 @@ def litellm_source(
 
 
 def probe_key(base_url: str, api_key: str) -> int | None:
-    """Status of `/key/info`, which any valid key may call about itself, or None when unreachable."""
+    """Status of a one-row key listing, or None when unreachable.
+
+    `/key/info` would 404 for a master key, because it looks the calling key up as a stored key.
+    """
     try:
-        response = _session(api_key).get(f"{normalize_base_url(base_url)}/key/info", timeout=15)
+        response = _session(api_key).get(f"{normalize_base_url(base_url)}/key/list?page=1&size=1", timeout=15)
     except requests.RequestException:
         return None
     return response.status_code

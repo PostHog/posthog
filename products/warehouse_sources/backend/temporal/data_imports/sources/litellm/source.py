@@ -12,7 +12,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    HostNotAllowedError,
+    ValidateDatabaseHostMixin,
+    resolve_safe_host,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
@@ -33,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.litellm.li
 from products.warehouse_sources.backend.temporal.data_imports.sources.litellm.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SPEND_LOGS_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -112,7 +118,15 @@ Enter the proxy's public https URL and the master key or an admin key. A key wit
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # LiteLLM writes a spend log when the request ends, so a slow request lands behind the
+        # watermark of faster ones that started later. The re-read window needs a merge to dedupe.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=("spend_logs",),
+            default_incremental_lookback_seconds={"spend_logs": SPEND_LOGS_LOOKBACK_SECONDS},
+        )
 
     def _check_host(self, config: LiteLLMSourceConfig, team_id: int) -> str | None:
         try:
@@ -147,9 +161,14 @@ Enter the proxy's public https URL and the master key or an admin key. A key wit
         resumable_source_manager: ResumableSourceManager[LiteLLMResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        host_error = self._check_host(config, inputs.team_id)
-        if host_error is not None:
-            raise ValueError(host_error)
+        try:
+            hostname = hostname_of(config.base_url)
+        except ValueError as e:
+            raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {e}") from e
+        # A resolver failure raises TemporaryHostResolutionError and stays retryable.
+        resolution = resolve_safe_host(hostname, inputs.team_id)
+        if resolution.connect_host is None:
+            raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error}")
         return litellm_source(
             base_url=config.base_url,
             api_key=config.api_key,

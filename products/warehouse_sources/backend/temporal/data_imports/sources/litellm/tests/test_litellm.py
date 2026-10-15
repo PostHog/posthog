@@ -30,9 +30,12 @@ def _run(schema: str, script: Any, **inputs: Any) -> DriveResult:
         return SourceDriver(LiteLLMSource(), config).run(schema, script, **inputs)
 
 
-def _logs(request_ids: list[str], total_pages: int) -> ScriptedResponse:
-    rows = [{"request_id": rid, "startTime": "2026-01-01T10:00:00.250000Z", "spend": 0.01} for rid in request_ids]
-    return ScriptedResponse(json={"data": rows, "total": len(rows), "page": 1, "total_pages": total_pages})
+def _logs(
+    request_ids: list[str], total_pages: int, start_time: str = "2026-01-01T10:00:00.250000Z", capped: bool = False
+) -> ScriptedResponse:
+    rows = [{"request_id": rid, "startTime": start_time, "spend": 0.01} for rid in request_ids]
+    body = {"data": rows, "total": len(rows), "page": 1, "total_pages": total_pages, "total_is_capped": capped}
+    return ScriptedResponse(json=body)
 
 
 def _window(request: RecordedRequest) -> tuple[str | None, str | None, str | None]:
@@ -92,6 +95,45 @@ class TestSpendLogs:
         ]
         assert [row["request_id"] for row in result.rows] == ["late"]
 
+    def test_drops_rows_a_later_window_repeats_at_its_start(self) -> None:
+        # Both bounds are inclusive, so a row at exactly the first window's end comes back in the second.
+        result = _run(
+            "spend_logs",
+            [
+                _logs(["first", "edge"], 1, start_time="2026-01-02T12:00:00Z"),
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            {"request_id": "edge", "startTime": "2026-01-02T12:00:00Z"},
+                            {"request_id": "later", "startTime": "2026-01-02T13:00:00Z"},
+                        ],
+                        "total_pages": 1,
+                    }
+                ),
+            ],
+            incremental_field="startTime",
+            db_incremental_field_last_value="2026-01-01T12:00:00Z",
+        )
+
+        assert result.raised is None
+        assert [row["request_id"] for row in result.rows] == ["first", "edge", "later"]
+
+    def test_keeps_paging_past_a_capped_total(self) -> None:
+        full_page = [f"r{index}" for index in range(1000)]
+        result = _run(
+            "spend_logs",
+            [_logs(full_page, 10, capped=True), _logs(["tail"], 10, capped=True)],
+            incremental_field="startTime",
+            db_incremental_field_last_value="2026-01-02T20:00:00Z",
+            resume_state=LiteLLMResumeConfig(
+                window_start="2026-01-02T20:00:00+00:00", run_end="2026-01-03T00:00:00+00:00", page=10
+            ),
+        )
+
+        assert result.raised is None
+        assert result.params("page") == ["10", "11"]
+        assert len(result.rows) == 1001
+
     def test_resume_continues_from_the_saved_window_and_page(self) -> None:
         result = _run(
             "spend_logs",
@@ -133,7 +175,12 @@ class TestListEndpoints:
             "keys",
             [
                 ScriptedResponse(
-                    json={"keys": [{"token": "t1"}], "total_count": 2, "current_page": 1, "total_pages": 2}
+                    json={
+                        "keys": [{"token": "t1", "config": {"model_list": [{"litellm_params": {"api_key": "x"}}]}}],
+                        "total_count": 2,
+                        "current_page": 1,
+                        "total_pages": 2,
+                    }
                 ),
                 ScriptedResponse(
                     json={"keys": [{"token": "t2"}], "total_count": 2, "current_page": 2, "total_pages": 2}
@@ -146,12 +193,16 @@ class TestListEndpoints:
         assert result.params("page") == ["1", "2"]
         assert result.params("size") == ["100", "100"]
         assert result.params("return_full_object") == ["true", "true"]
-        assert [row["token"] for row in result.rows] == ["t1", "t2"]
+        assert result.rows == [{"token": "t1"}, {"token": "t2"}]
 
     @pytest.mark.parametrize(
         ("schema", "body", "expected_rows"),
         [
-            ("teams", [{"team_id": "team-1", "team_alias": "Search"}], [{"team_id": "team-1", "team_alias": "Search"}]),
+            (
+                "teams",
+                [{"team_id": "team-1", "team_alias": "Search", "keys": [{"token": "t1", "config": {"api_key": "x"}}]}],
+                [{"team_id": "team-1", "team_alias": "Search"}],
+            ),
             (
                 "models",
                 {"data": [{"model_name": "gpt", "model_info": {"id": "dep-1"}}, {"model_name": "bare"}]},

@@ -12,6 +12,7 @@ LIST_PAGE_SIZE = 100
 SPEND_LOGS_WINDOW = timedelta(days=1)
 
 SPEND_LOGS_FIELD = "startTime"
+SPEND_LOGS_LOOKBACK_SECONDS = 3600
 
 
 @dataclass(frozen=True)
