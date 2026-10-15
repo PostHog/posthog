@@ -1,7 +1,6 @@
 """Replay Vision's Gemini client: the AI gateway when enabled for the team, else Google directly with our key."""
 
-import time
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 from django.conf import settings
@@ -34,7 +33,10 @@ async def replay_gateway_client(
 
     Cleanup and the sweep delete files with the direct key, so gateway mode also needs Replay Vision's own direct key.
     """
-    if not (settings.REPLAY_VISION_AI_GATEWAY_API_KEY and settings.REPLAY_VISION_GEMINI_API_KEY):
+    if not settings.REPLAY_VISION_GEMINI_API_KEY:
+        return None
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
         return None
     organization_id = str(await Team.objects.values_list("organization_id", flat=True).aget(id=team_id))
     # Org-targeted like the desktop rollout. Local evaluation only: a scan makes many calls, and a flag outage
@@ -49,13 +51,8 @@ async def replay_gateway_client(
     )
     if not enabled:
         return None
-    gateway = resolve_ai_gateway_config(api_key=settings.REPLAY_VISION_AI_GATEWAY_API_KEY)
-    if gateway is None:
-        return None
     base_properties = dict(properties or {})
-    client = build_gemini_client(
-        ai_product=AI_PRODUCT, properties=_gateway_labels(base_properties), privacy_mode=True, gateway=gateway
-    )
+    client = build_gemini_client(ai_product=AI_PRODUCT, properties=_gateway_labels(base_properties), privacy_mode=True)
     if client is None:
         return None
     return GatewayGeminiClient(client, base_properties, gateway)
@@ -68,10 +65,8 @@ class _AsyncGatewayModels:
     Streams each call, because the gateway cuts a buffered call off at 290s and long scans run past that.
     """
 
-    def __init__(self, client: Any, base_properties: Mapping[str, Any]) -> None:
-        # Holds the SDK client itself: collecting it closes the transport its `models` send through.
-        self._client = client
-        self._models = client.models
+    def __init__(self, models: Any, base_properties: Mapping[str, Any]) -> None:
+        self._models = models
         self._base_properties = base_properties
 
     def _config(
@@ -81,12 +76,13 @@ class _AsyncGatewayModels:
         posthog_trace_id: str | None,
         posthog_properties: Mapping[str, Any] | None,
     ) -> types.GenerateContentConfig | None:
-        headers = ai_gateway_headers(
-            ai_product=AI_PRODUCT,
-            trace_id=posthog_trace_id,
-            properties=_gateway_labels({**self._base_properties, **(posthog_properties or {})}),
-            distinct_id=posthog_distinct_id,
+        # The client's default headers carry the product, privacy mode and base labels; a call adds its own.
+        labels = (
+            _gateway_labels({**self._base_properties, **posthog_properties, "ai_product": AI_PRODUCT})
+            if posthog_properties
+            else None
         )
+        headers = ai_gateway_headers(trace_id=posthog_trace_id, properties=labels, distinct_id=posthog_distinct_id)
         return _with_headers(config, headers)
 
     async def generate_content(
@@ -111,20 +107,12 @@ class _AsyncGatewayModels:
 
 
 class _GatewayAio:
-    def __init__(self, client: Any, base_properties: Mapping[str, Any]) -> None:
-        self._client = client
-        self.models = _AsyncGatewayModels(client, base_properties)
-        self.caches = client.caches
-
-    async def aclose(self) -> None:
-        await self._client.aclose()
+    def __init__(self, aio: Any, base_properties: Mapping[str, Any]) -> None:
+        self.models = _AsyncGatewayModels(aio.models, base_properties)
+        self.caches = aio.caches
 
 
-# The upload activity has 10 minutes and keeps 300s for Google's processing wait. A thread can't be
-# cancelled, so the upload ends on its own within 280s: 10s connect, 150s send plus one 60s chunk, 60s reply.
-_UPLOAD_SEND_DEADLINE_S = 150.0
 _UPLOAD_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
-_UPLOAD_CHUNK_BYTES = 1 << 20
 
 
 class GatewayGeminiClient:
@@ -141,11 +129,11 @@ class GatewayGeminiClient:
         with httpx.Client(trust_env=False, timeout=_UPLOAD_TIMEOUT) as http:
             response = http.post(
                 f"{anthropic_gateway_base_url(self._gateway.url)}/v1beta/files:upload",
-                content=_send_before(data, time.monotonic() + _UPLOAD_SEND_DEADLINE_S),
+                content=data,
                 headers={
+                    **(ai_gateway_headers(ai_product=AI_PRODUCT) or {}),
                     "x-goog-api-key": self._gateway.api_key,
                     "Content-Type": mime_type,
-                    "Content-Length": str(len(data)),
                     "X-Goog-Upload-Display-Name": display_name,
                 },
             )
@@ -155,19 +143,11 @@ class GatewayGeminiClient:
     async def aclose(self) -> None:
         """Close both SDK transports; the sync one carries `files`, the async one `aio`."""
         self._client.close()
-        await self.aio.aclose()
-
-
-def _send_before(data: bytes, deadline: float) -> Iterator[bytes]:
-    view = memoryview(data)
-    for start in range(0, len(data), _UPLOAD_CHUNK_BYTES):
-        if time.monotonic() > deadline:
-            raise httpx.WriteTimeout(f"upload passed its {_UPLOAD_SEND_DEADLINE_S:.0f}s send deadline")
-        yield bytes(view[start : start + _UPLOAD_CHUNK_BYTES])
+        await self._client.aio.aclose()
 
 
 def assemble_stream(chunks: list[types.GenerateContentResponse]) -> types.GenerateContentResponse:
-    """Fold streamed chunks into the response a buffered call returns, parts in order for the next turn.
+    """Fold streamed chunks into the response a buffered call returns, parts in arrival order.
 
     Raises a 503 `ServerError` when the stream ends with no finish reason and no prompt block: the SDK drops the
     gateway's in-band error frame, so a cut stream would otherwise pass as a short answer.
@@ -204,35 +184,13 @@ def assemble_stream(chunks: list[types.GenerateContentResponse]) -> types.Genera
     role = last_candidate.content.role if last_candidate.content and last_candidate.content.role else "model"
     candidate = last_candidate.model_copy(
         update={
-            "content": types.Content(role=role, parts=_merge_text_parts(parts)),
+            "content": types.Content(role=role, parts=parts),
             "finish_reason": finish_reason,
         }
     )
     return final.model_copy(
         update={"candidates": [candidate], "usage_metadata": usage, "prompt_feedback": prompt_feedback}
     )
-
-
-def _merge_text_parts(parts: Iterable[types.Part]) -> list[types.Part]:
-    # Joins a run's text deltas so the next turn carries one part per run.
-    merged: list[types.Part] = []
-    for part in parts:
-        previous = merged[-1] if merged else None
-        if (
-            previous is not None
-            and _plain_text(previous)
-            and _plain_text(part)
-            and bool(previous.thought) == bool(part.thought)
-        ):
-            merged[-1] = previous.model_copy(update={"text": (previous.text or "") + (part.text or "")})
-        else:
-            merged.append(part)
-    return merged
-
-
-def _plain_text(part: types.Part) -> bool:
-    # Any other field set makes the part more than text; a thought signature belongs to that exact part.
-    return part.text is not None and part.model_fields_set <= {"text", "thought"}
 
 
 def _gateway_labels(properties: Mapping[str, Any]) -> dict[str, str]:

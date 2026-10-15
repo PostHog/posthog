@@ -25,7 +25,7 @@ from products.replay_vision.backend.distinct_ids import replay_vision_distinct_i
 from products.replay_vision.backend.error_kinds import FailureKind
 from products.replay_vision.backend.gemini_client import replay_gateway_client
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
-from products.replay_vision.backend.temporal.gemini import classify_gemini_error, gemini_api_key
+from products.replay_vision.backend.temporal.gemini import gemini_api_key
 
 logger = structlog.get_logger(__name__)
 
@@ -38,9 +38,6 @@ PII_FLAG_PROBABILITY = 0.8
 ASKS_FOR_IDENTITY_PROBABILITY = 0.5
 _JEV_TIMEOUT_SECONDS = 10.0
 _REWRITE_MODEL = "gemini-3.8-flash"
-# Three tries at 2s then 4s apart: a short rate limit clears without re-running the paid scan.
-_REWRITE_ATTEMPTS = 3
-_REWRITE_BACKOFF_S = 2.0
 _TEXT_FIELDS = ("title", "summary", "reasoning", "notability_reason")
 
 _DETECT_QUESTION = (
@@ -203,25 +200,16 @@ async def keep_unrequested_pii_out(
     if not flagged:
         record_pii_check("unavailable" if flagged is None else "clean", scanner_type)
         return output
-    for attempt in range(_REWRITE_ATTEMPTS):
-        try:
-            update = await rewrite_without_pii(team_id=team_id, question=question, text=text, trace_id=trace_id)
-            break
-        except Exception as e:
-            # A rate limit or outage retries the rewrite alone; a retry of the activity would re-run the paid scan.
-            kind = classify_gemini_error(e)
-            transient = kind is not None and kind.is_retryable
-            if transient and attempt + 1 < _REWRITE_ATTEMPTS:
-                await asyncio.sleep(_REWRITE_BACKOFF_S * (attempt + 1))
-                continue
-            record_pii_check("failed", scanner_type)
-            if transient:
-                raise
-            raise ScannerFailureError(
-                "The answer included personal data the scanner didn't ask for, and it could not be removed.",
-                kind=FailureKind.PII_DETECTED,
-            ) from e
-    rewritten = output.model_copy(update=update)
+    try:
+        rewritten = output.model_copy(
+            update=await rewrite_without_pii(team_id=team_id, question=question, text=text, trace_id=trace_id)
+        )
+    except Exception as e:
+        record_pii_check("failed", scanner_type)
+        raise ScannerFailureError(
+            "The answer included personal data the scanner didn't ask for, and it could not be removed.",
+            kind=FailureKind.PII_DETECTED,
+        ) from e
     still_flagged = await asyncio.to_thread(
         contains_pii, team_id=team_id, text=_without(answer_text(rewritten), allowed), trace_id=trace_id
     )

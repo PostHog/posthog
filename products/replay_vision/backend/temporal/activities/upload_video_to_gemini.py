@@ -10,7 +10,6 @@ import structlog
 from asgiref.sync import sync_to_async
 from google.genai import (
     Client as RawGenAIClient,
-    errors,
     types,
 )
 from temporalio import activity
@@ -37,9 +36,6 @@ logger = structlog.get_logger(__name__)
 
 # Activity timeout is 10 minutes; this leaves buffer for the rest of the body.
 _MAX_PROCESSING_WAIT_SECONDS = 300
-# The poll starts fast and slows down, since gateway polls share Replay Vision's rate limit with its scans.
-_POLL_FIRST_SECONDS = 0.5
-_POLL_MAX_SECONDS = 5.0
 
 
 @activity.defn(name="replay_vision_upload_video_to_gemini_activity")
@@ -136,7 +132,6 @@ async def _store_video(
         raise
 
     wait_start = time.time()
-    delay = _POLL_FIRST_SECONDS
     while uploaded_file.state and uploaded_file.state.name == "PROCESSING":
         elapsed = time.time() - wait_start
         if elapsed >= _MAX_PROCESSING_WAIT_SECONDS:
@@ -144,15 +139,8 @@ async def _store_video(
                 f"Gemini file {gemini_file_name} stuck in PROCESSING after {elapsed:.1f}s; left for the cleanup sweep",
                 kind=FailureKind.PROVIDER_TRANSIENT,
             )
-        await asyncio.sleep(delay)
-        delay = min(delay * 2, _POLL_MAX_SECONDS)
-        try:
-            uploaded_file = await sync_to_async(files.get, thread_sensitive=False)(name=gemini_file_name)
-        except errors.ClientError as e:
-            # A rate-limited poll waits for the next one; failing here would upload the whole video again.
-            if e.code != 429:
-                raise
-            delay = _POLL_MAX_SECONDS
+        await asyncio.sleep(0.5)
+        uploaded_file = await sync_to_async(files.get, thread_sensitive=False)(name=gemini_file_name)
 
     final_state = uploaded_file.state.name if uploaded_file.state else None
     if final_state != "ACTIVE":

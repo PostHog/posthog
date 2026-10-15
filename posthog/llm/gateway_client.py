@@ -291,22 +291,18 @@ class AIGatewayConfig:
     api_key: str = field(repr=False)
 
 
-def resolve_ai_gateway_config(api_key: str | None = None) -> AIGatewayConfig | None:
+def resolve_ai_gateway_config() -> AIGatewayConfig | None:
     """Return the validated AIGatewayConfig for the internal Go ai-gateway, or None.
-
-    ``api_key`` replaces ``AI_GATEWAY_API_KEY`` for a caller with its own gateway credential.
 
     None when neither env var is set (the caller uses its normal path), and ALSO when the config
     is half-applied or the URL is malformed: that logs a warning and returns None so the caller
     falls back to the current flow rather than failing the call (the fallback comes out once
     rollout completes).
     """
-    if api_key is None:
-        trial_token = _private_scout_gateway_token.get()
-        if trial_token is not None:
-            return AIGatewayConfig(url=settings.AI_GATEWAY_URL, api_key=trial_token)
-    url = settings.AI_GATEWAY_URL
-    api_key = settings.AI_GATEWAY_API_KEY if api_key is None else api_key
+    trial_token = _private_scout_gateway_token.get()
+    if trial_token is not None:
+        return AIGatewayConfig(url=settings.AI_GATEWAY_URL, api_key=trial_token)
+    url, api_key = settings.AI_GATEWAY_URL, settings.AI_GATEWAY_API_KEY
     if not (url or api_key):
         return None
     misconfig = _gateway_misconfig(url, api_key)
@@ -610,14 +606,12 @@ def build_gemini_client(
     distinct_id: str | None = None,
     privacy_mode: bool = False,
     timeout_ms: int | None = None,
-    gateway: AIGatewayConfig | None = None,
 ) -> genai.Client | None:
     """Return a plain ``google.genai.Client`` routed through the Go ai-gateway, or None when the gateway is unset.
 
-    It skips the posthoganalytics wrapper because the gateway captures the generation. ``gateway`` overrides the
-    shared config for a caller with its own credential.
+    It skips the posthoganalytics wrapper because the gateway captures the generation.
     """
-    gateway = gateway or resolve_ai_gateway_config()
+    gateway = resolve_ai_gateway_config()
     if gateway is None:
         return None
     headers = (

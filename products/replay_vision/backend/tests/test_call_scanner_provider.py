@@ -729,29 +729,17 @@ class TestStepConfig:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "error",
-    [
-        RuntimeError("unrecognized SDK failure"),
-        APIError(400, {"error": {"code": 400, "message": "Cached content is too small"}}),
-    ],
-)
-async def test_video_cache_creation_is_best_effort(error: Exception) -> None:
-    client = MagicMock()
-    client.aio.caches.create = AsyncMock(side_effect=error)
-    # A cache Google refuses (e.g. too-short video) degrades to None so the scan runs uncached.
-    result = await _maybe_create_video_cache(client, "models/gemini-3-flash-preview", types.Part(text="video"), "PRE")
+async def test_video_cache_creation_is_best_effort() -> None:
+    class _BoomCaches:
+        async def create(self, **kwargs: Any) -> Any:
+            raise RuntimeError("video too short to cache")
+
+    class _BoomClient:
+        aio = type("Aio", (), {"caches": _BoomCaches()})()
+
+    # A cache that can't be created (e.g. too-short video) degrades to None, not an error.
+    result = await _maybe_create_video_cache(cast(Any, _BoomClient()), "models/gemini-3-flash-preview", _VIDEO, "PRE")
     assert result is None
-    client.aio.caches.create.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("code", [429, 503])
-async def test_a_transient_cache_failure_retries_the_activity_instead_of_running_uncached(code: int) -> None:
-    client = MagicMock()
-    client.aio.caches.create = AsyncMock(side_effect=APIError(code, {"error": {"code": code}}))
-    with pytest.raises(APIError):
-        await _maybe_create_video_cache(client, "models/gemini-3-flash-preview", types.Part(text="video"), "PRE")
 
 
 @pytest.mark.asyncio

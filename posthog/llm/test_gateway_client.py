@@ -568,36 +568,6 @@ class TestBuildAIGatewayAnthropicClient:
 
 class TestBuildGeminiClient:
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
-    @patch("posthog.llm.gateway_client.httpx.AsyncHTTPTransport")
-    @patch("posthog.llm.gateway_client.genai.Client")
-    def test_gateway_mode_targets_the_gateway_root_with_attribution(self, mock_genai, mock_transport):
-        result = build_gemini_client(
-            ai_product="replay_vision",
-            trace_id="trace-1",
-            properties={"feature": "scanner", "team_id": "42"},
-            distinct_id="replay-vision:42",
-            privacy_mode=True,
-            timeout_ms=30_000,
-        )
-
-        mock_genai.assert_called_once()
-        kwargs = mock_genai.call_args.kwargs
-        assert kwargs["api_key"] == AI_GATEWAY_KEY
-        http_options = kwargs["http_options"]
-        assert http_options.base_url == "https://ai-gateway.example"
-        assert http_options.timeout == 30_000
-        assert http_options.headers == {
-            "X-PostHog-Properties": json.dumps({"feature": "scanner", "team_id": "42", "ai_product": "replay_vision"}),
-            "X-PostHog-Product": "replay_vision",
-            "X-PostHog-Trace-Id": "trace-1",
-            "X-PostHog-Distinct-Id": "replay-vision:42",
-            "X-PostHog-Privacy-Mode": "true",
-        }
-        assert http_options.client_args == {"trust_env": False}
-        assert http_options.async_client_args == {"trust_env": False, "transport": mock_transport.return_value}
-        assert result is mock_genai.return_value
-
-    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     @patch("posthog.llm.gateway_client.genai.Client")
     def test_gateway_mode_omits_privacy_header_unless_asked(self, mock_genai):
         build_gemini_client(ai_product="replay_vision")
@@ -614,6 +584,8 @@ class TestBuildGeminiClient:
 
         client = build_gemini_client(ai_product="replay_vision", privacy_mode=True)
         assert client is not None
+        assert client._api_client._httpx_client.trust_env is False
+        assert client._api_client._async_httpx_client.trust_env is False
         client._api_client._httpx_client = httpx.Client(transport=httpx.MockTransport(handler))
 
         client.models.generate_content(model="models/gemini-test", contents="hi")
@@ -658,14 +630,6 @@ class TestPrivateScoutGateway:
             getattr(gateway_client, builder)(product="signals")
         assert client.call_args.kwargs["base_url"] == f"https://ai-gateway.example{suffix}"
         assert client.call_args.kwargs["api_key"] == "phe_trial_credential"
-
-    @override_settings(
-        SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True, AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY
-    )
-    def test_an_explicit_key_wins_over_the_trial_credential(self) -> None:
-        with private_scout_gateway("phe_trial_credential"):
-            config = resolve_ai_gateway_config(api_key="phs_own_key")
-        assert config == AIGatewayConfig(url=AI_GATEWAY_URL, api_key="phs_own_key")
 
     @pytest.mark.parametrize(
         ("enabled", "url", "token"),

@@ -43,8 +43,7 @@ def describe_gemini_error(error: BaseException) -> str:
     """
     if isinstance(error, APIError):
         status = f" {error.status}" if error.status else ""
-        source = "PostHog's AI gateway" if _gateway_authored(error) else "The AI provider"
-        return f"{source} returned HTTP {error.code}{status}"
+        return f"The AI provider returned HTTP {error.code}{status}"
     return f"PostHog could not reach the AI provider ({type(error).__name__})"
 
 

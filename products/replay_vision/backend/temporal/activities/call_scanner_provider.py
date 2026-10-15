@@ -1071,10 +1071,6 @@ async def _maybe_create_video_cache(
             ),
         )
     except Exception as e:
-        # A rate limit or outage retries the activity before any generate spend, rather than running uncached.
-        kind = classify_gemini_error(e)
-        if kind is not None and kind.is_retryable:
-            raise
         logger.info("replay_vision.video_cache.skipped", error=str(e))
         return None
 
