@@ -51,6 +51,8 @@ Sizing a glyph does not change its button's tap target, which stays at least 44p
   (54pt) and home indicator (34pt). `topOffset(insets, designTop)` and
   `bottomOffset(insets, designBottom)` swap those for the device's insets. The web build has no
   insets, so `useScreenInsets` uses the prototype's values there.
+- **View titles.** Dashboard, insight, web analytics and full-screen chart content starts 8pt below
+  the floating header's blur fade at rest, so titles stay sharp before scrolling.
 - **Text wrapping.** The prototype sets `text-wrap: pretty`. iOS gets the same behavior from
   `lineBreakStrategyIOS="standard"`, and web from the CSS property (`prettyWrap`).
   Android wraps greedily.

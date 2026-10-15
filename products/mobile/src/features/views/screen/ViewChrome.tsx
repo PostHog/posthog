@@ -17,8 +17,8 @@ import type { ViewRefresh } from '../useViewRefresh'
 const CHROME_TOP = 62
 const CHROME_ROW_HEIGHT = 54
 const CHROME_BOTTOM_PADDING = 18
-/** Design-frame offset where a view's content starts at rest, just under the chrome row. */
-export const VIEW_CONTENT_TOP = 120
+/** Design-frame offset where a view's content starts at rest, below the chrome's blur fade. */
+export const VIEW_CONTENT_TOP = CHROME_TOP + CHROME_ROW_HEIGHT + CHROME_BOTTOM_PADDING + 8
 const CHROME_SOLID = (CHROME_TOP + CHROME_ROW_HEIGHT) / (CHROME_TOP + CHROME_ROW_HEIGHT + CHROME_BOTTOM_PADDING)
 
 interface ViewChromeProps {
