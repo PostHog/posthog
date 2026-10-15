@@ -112,6 +112,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadFullReport: 'scenes.project-homepage.today.todayReportLogic',
     loadPage: 'scenes.project-homepage.today.todayReportLogic',
     loadReportDiff: 'scenes.inbox.logics.inboxReportDetailLogic',
+    loadTraceSpans: 'products.tracing.frontend.components.TraceDialog.traceDialogLogic', // The dialog shows its own retry
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
