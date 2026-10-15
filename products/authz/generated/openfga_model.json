@@ -2211,14 +2211,6 @@
                     "can_manage_access": {},
                     "can_share": {},
                     "can_view": {},
-                    "collaborator": {
-                        "directly_related_user_types": [
-                            {
-                                "relation": "user",
-                                "type": "organization_member"
-                            }
-                        ]
-                    },
                     "creator": {
                         "directly_related_user_types": [
                             {
@@ -2229,7 +2221,6 @@
                     },
                     "editor": {},
                     "has_rule": {},
-                    "legacy_editor": {},
                     "manager": {},
                     "policy": {
                         "directly_related_user_types": [
@@ -2252,14 +2243,6 @@
                             }
                         ]
                     },
-                    "restricted": {
-                        "directly_related_user_types": [
-                            {
-                                "type": "user",
-                                "wildcard": {}
-                            }
-                        ]
-                    },
                     "shared_viewer": {
                         "directly_related_user_types": [
                             {
@@ -2277,19 +2260,8 @@
                     }
                 },
                 "can_edit": {
-                    "intersection": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "editor"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "legacy_editor"
-                                }
-                            }
-                        ]
+                    "computedUserset": {
+                        "relation": "editor"
                     }
                 },
                 "can_manage_access": {
@@ -2333,9 +2305,6 @@
                             }
                         ]
                     }
-                },
-                "collaborator": {
-                    "this": {}
                 },
                 "creator": {
                     "this": {}
@@ -2416,51 +2385,6 @@
                         }
                     }
                 },
-                "legacy_editor": {
-                    "union": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "creator"
-                                }
-                            },
-                            {
-                                "tupleToUserset": {
-                                    "computedUserset": {
-                                        "relation": "admin"
-                                    },
-                                    "tupleset": {
-                                        "relation": "project"
-                                    }
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "collaborator"
-                                }
-                            },
-                            {
-                                "difference": {
-                                    "base": {
-                                        "tupleToUserset": {
-                                            "computedUserset": {
-                                                "relation": "member"
-                                            },
-                                            "tupleset": {
-                                                "relation": "project"
-                                            }
-                                        }
-                                    },
-                                    "subtract": {
-                                        "computedUserset": {
-                                            "relation": "restricted"
-                                        }
-                                    }
-                                }
-                            }
-                        ]
-                    }
-                },
                 "manager": {
                     "intersection": {
                         "child": [
@@ -2535,25 +2459,6 @@
                 },
                 "resource": {
                     "this": {}
-                },
-                "restricted": {
-                    "intersection": {
-                        "child": [
-                            {
-                                "this": {}
-                            },
-                            {
-                                "tupleToUserset": {
-                                    "computedUserset": {
-                                        "relation": "access_control_enabled"
-                                    },
-                                    "tupleset": {
-                                        "relation": "project"
-                                    }
-                                }
-                            }
-                        ]
-                    }
                 },
                 "shared_viewer": {
                     "this": {}
@@ -3022,23 +2927,7 @@
                             }
                         ]
                     },
-                    "dashboard": {
-                        "directly_related_user_types": [
-                            {
-                                "type": "dashboard"
-                            }
-                        ]
-                    },
-                    "dashboard_editor": {},
                     "editor": {},
-                    "has_dashboard": {
-                        "directly_related_user_types": [
-                            {
-                                "type": "user",
-                                "wildcard": {}
-                            }
-                        ]
-                    },
                     "has_rule": {},
                     "manager": {},
                     "policy": {
@@ -3079,19 +2968,8 @@
                     }
                 },
                 "can_edit": {
-                    "intersection": {
-                        "child": [
-                            {
-                                "computedUserset": {
-                                    "relation": "editor"
-                                }
-                            },
-                            {
-                                "computedUserset": {
-                                    "relation": "dashboard_editor"
-                                }
-                            }
-                        ]
+                    "computedUserset": {
+                        "relation": "editor"
                     }
                 },
                 "can_manage_access": {
@@ -3138,44 +3016,6 @@
                 },
                 "creator": {
                     "this": {}
-                },
-                "dashboard": {
-                    "this": {}
-                },
-                "dashboard_editor": {
-                    "union": {
-                        "child": [
-                            {
-                                "tupleToUserset": {
-                                    "computedUserset": {
-                                        "relation": "can_edit"
-                                    },
-                                    "tupleset": {
-                                        "relation": "dashboard"
-                                    }
-                                }
-                            },
-                            {
-                                "difference": {
-                                    "base": {
-                                        "tupleToUserset": {
-                                            "computedUserset": {
-                                                "relation": "member"
-                                            },
-                                            "tupleset": {
-                                                "relation": "project"
-                                            }
-                                        }
-                                    },
-                                    "subtract": {
-                                        "computedUserset": {
-                                            "relation": "has_dashboard"
-                                        }
-                                    }
-                                }
-                            }
-                        ]
-                    }
                 },
                 "editor": {
                     "intersection": {
@@ -3242,9 +3082,6 @@
                             }
                         ]
                     }
-                },
-                "has_dashboard": {
-                    "this": {}
                 },
                 "has_rule": {
                     "tupleToUserset": {
