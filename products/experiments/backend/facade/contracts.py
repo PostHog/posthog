@@ -108,6 +108,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     ZERO_EXPOSURES = "zero_exposures"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
     FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
+    SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
 
 
 class ExperimentHealthFindingSeverity(LabeledStrEnum):
@@ -121,6 +122,7 @@ class ExperimentHealthFindingSeverity(LabeledStrEnum):
 
 class ExperimentHealthFindingActionKind(LabeledStrEnum):
     OPEN_FEATURE_FLAG = "open_feature_flag"
+    OPEN_FEATURE_FLAG_HISTORY = "open_feature_flag_history"
     ADJUST_DISTRIBUTION = "adjust_distribution"
     USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
     ADD_PRIMARY_METRIC = "add_primary_metric"
@@ -138,9 +140,17 @@ class ExperimentHealthFinding:
     severity: ExperimentHealthFindingSeverity
     title: str
     detail: str
-    evidence: Mapping[str, str | int | float | None]
+    evidence: Mapping[str, str | int | float | bool | None]
     actions: tuple[ExperimentHealthFindingActionKind, ...]
     diagnostic_ref: str | None
+
+
+@frozen
+class ExperimentHealthReaderAccess:
+    """What the caller of the health checks may read, for the checks that read more than the experiment."""
+
+    can_read_flag_history: bool
+    can_query_events: bool
 
 
 @dataclass(frozen=True)

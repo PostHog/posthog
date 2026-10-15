@@ -11,6 +11,8 @@ aggregate, and write back as in production.
 import gzip
 import json
 import uuid
+import asyncio
+from threading import Event
 from typing import Any
 
 import pytest
@@ -280,6 +282,46 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
 
     # team breakdown is present and matches.
     assert by_org[str(org_a.id)]["teams"][str(team_a.id)]["event_count_in_period"] == 100
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_aggregate_completes_while_thread_sensitive_executor_is_busy(
+    minio_workflow_ctx: WorkflowContext, activity_environment
+) -> None:
+    org_a = await _make_org("Org A")
+    org_b = await _make_org("Org B")
+    team_a = await _make_team(org_a, "Team A")
+    team_b = await _make_team(org_b, "Team B")
+    ctx = minio_workflow_ctx.model_copy(update={"organization_ids": [str(org_a.id), str(org_b.id)]})
+    query_results = _seed_query_results(ctx, team_a.id, team_b.id)
+
+    started = asyncio.Event()
+    release = Event()
+    loop = asyncio.get_running_loop()
+
+    def occupy_shared_thread() -> None:
+        loop.call_soon_threadsafe(started.set)
+        release.wait()
+
+    blocker = asyncio.create_task(sync_to_async(occupy_shared_thread)())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=10)
+        with patch(
+            "posthog.temporal.usage_report.activities.get_instance_metadata",
+            return_value=_instance_metadata(),
+        ):
+            result = await asyncio.wait_for(
+                activity_environment.run(
+                    aggregate_and_chunk_org_reports,
+                    AggregateInputs(ctx=ctx, query_results=query_results),
+                ),
+                timeout=30,
+            )
+        assert result.total_orgs == 2
+    finally:
+        release.set()
+        await blocker
 
 
 @pytest.mark.django_db(transaction=True)

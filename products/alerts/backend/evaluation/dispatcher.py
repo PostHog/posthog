@@ -9,6 +9,7 @@ from posthog.schema import AlertCondition, InsightThreshold, IntervalType, NodeK
 
 from posthog.api.services.query import ExecutionMode
 from posthog.dataclasses import frozen
+from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.hogql_queries.validation.validate_query import rule_violation_message
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
@@ -84,6 +85,10 @@ def run_extractor(
     that is itself sound (see ``build_failure_exception`` in
     ``posthog/hogql_queries/query_failure_handling.py``), and disabling on it would silence a
     working alert over a load problem, so it keeps the ordinary failure path.
+
+    A SQL insight that ClickHouse rejects with a user-safe error, such as a column type mismatch,
+    gets the same verdict: the owner wrote the query, and it fails the same way until they fix it.
+    Other kinds keep the ordinary path, because PostHog builds their SQL and the error can be a bug.
     """
     try:
         return extractor.extract(alert, insight, query, execution_mode)
@@ -91,6 +96,10 @@ def run_extractor(
         if getattr(err, "served_from_query_failure_cache", False):
             raise
         raise AlertExtractionError(rule_violation_message(err)) from err
+    except ExposedCHQueryError as err:
+        if isinstance(err, CH_TRANSIENT_ERRORS) or get_from_dict_or_attr(query, "kind") != NodeKind.HOG_QL_QUERY:
+            raise
+        raise AlertExtractionError(str(err)) from err
 
 
 def check_detector_alert(

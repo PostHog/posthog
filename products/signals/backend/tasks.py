@@ -1019,6 +1019,35 @@ def rebuild_signal_repository_activity(team_id: int, repository: str, force: boo
         cache.delete(lock_key)
 
 
+# Long enough to collapse a burst of reads into one queued build, short enough that a failed
+# build is retried by the next read a few minutes later.
+_PROFILE_BUILD_DEDUPE_SECONDS = 5 * 60
+
+
+def enqueue_project_profile_build(team_id: int) -> None:
+    """Queue one `build_signal_project_profile` per team per dedupe window."""
+    if cache.add(f"signals_project_profile_build/{team_id}", "1", timeout=_PROFILE_BUILD_DEDUPE_SECONDS):
+        build_signal_project_profile.delay(team_id)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.build_signal_project_profile",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def build_signal_project_profile(team_id: int) -> None:
+    """Build the team's project profile off the request path, for a read caller that found none.
+
+    `get_project_profile` returns a fresh row if one landed since the enqueue, and its advisory
+    lock collapses this build with a concurrent scout build.
+    """
+    # The `tools` package imports this module through `slack_delivery_queue`.
+    from products.signals.backend.scout_harness.tools.profile import get_project_profile  # noqa: PLC0415
+
+    get_project_profile(team_id=team_id)
+
+
 @shared_task(
     name="products.signals.backend.tasks.refresh_signal_scout_background_bands",
     ignore_result=True,
