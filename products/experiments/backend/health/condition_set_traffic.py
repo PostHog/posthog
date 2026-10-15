@@ -67,6 +67,9 @@ _TOO_EXPENSIVE_CACHE_SECONDS = int(timedelta(days=1).total_seconds())
 _FAILED_CACHE_SECONDS = int(timedelta(hours=1).total_seconds())
 _UNKNOWN = "unknown"
 _MATCHED_REASON = "^Matched condition set ([0-9]+)$"
+# The scan runs without the reader, so it can't apply a reader's property access rules. A reader denied one of
+# these gets no share instead of counts derived from it.
+_SCANNED_PROPERTIES = frozenset({"$feature_flag", "$feature_flag_reason", "$feature_flag_version"})
 _MAX_CONDITION_SETS = 1000
 
 
@@ -77,7 +80,11 @@ def load_condition_set_traffic(
     The traffic of the experiment's flag when the forced-variant check grades by it, or None. None also when
     unknown. Never raises: the health endpoint serves the other findings when this fails.
     """
-    if not reader_access.can_query_events or not needs_condition_set_traffic(ctx):
+    if (
+        not reader_access.can_query_events
+        or reader_access.denied_event_properties & _SCANNED_PROPERTIES
+        or not needs_condition_set_traffic(ctx)
+    ):
         return None
     try:
         return _load_condition_set_traffic(experiment)

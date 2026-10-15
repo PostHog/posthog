@@ -29,7 +29,7 @@ from posthog.schema import (
 
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -37,6 +37,8 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.test_journeys import journeys_for
 
+from products.access_control.backend.facade.api import upsert_property_access_control
+from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
@@ -881,6 +883,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             ("pinned_share_above_five_percent", None, _HEALTH_TRAFFIC, "warning"),
             ("traffic_query_fails", None, RuntimeError("unexpected"), "info"),
             ("token_without_query_scope", ["experiment:read", "activity_log:read"], _HEALTH_TRAFFIC, "info"),
+            ("reader_denied_the_reason", None, _HEALTH_TRAFFIC, "info", "$feature_flag_reason"),
         ]
     )
     def test_health_grades_pinned_conditions_by_their_traffic(
@@ -889,6 +892,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         token_scopes: list[str] | None,
         traffic: ConditionSetTraffic | Exception,
         expected_severity: str,
+        denied_property: str | None = None,
     ) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -920,6 +924,23 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             start_date=timezone.now() - timedelta(days=3),
             metrics=[_HEALTH_METRIC],
         )
+        if denied_property is not None:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            denied = PropertyDefinition.objects.create(
+                team=self.team, name=denied_property, property_type="String", type=PropertyDefinition.Type.EVENT
+            )
+            upsert_property_access_control(
+                team_id=self.team.id,
+                created_by_id=self.user.id,
+                input=UpsertPropertyAccessControlInput(
+                    property_definition_id=str(denied.id),
+                    access_level=PropertyAccessLevel.NONE,
+                    organization_member_id=self.organization_membership.id,
+                ),
+            )
         headers: dict[str, str] = {}
         if token_scopes is not None:
             token = generate_random_token_personal()

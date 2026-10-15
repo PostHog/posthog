@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -28,8 +29,9 @@ from products.feature_flags.backend.models.organization_feature_flags_config imp
 
 FLAG_KEY = "pinned-share"
 FLAG_VERSION = 3
-FULL_ACCESS = ExperimentHealthReaderAccess(can_read_flag_history=True, can_query_events=True)
-NO_QUERY_ACCESS = ExperimentHealthReaderAccess(can_read_flag_history=True, can_query_events=False)
+FULL_ACCESS = ExperimentHealthReaderAccess(
+    can_read_flag_history=True, can_query_events=True, denied_event_properties=frozenset()
+)
 TRAFFIC = ConditionSetTraffic(
     since=datetime(2026, 10, 1, tzinfo=UTC),
     team_timezone="UTC",
@@ -87,8 +89,16 @@ class TestLoadConditionSetTraffic(BaseTest):
             )
         return traffic, query
 
-    def test_reader_without_query_access_gets_no_traffic(self) -> None:
-        traffic, query = self._load(TRAFFIC, reader_access=NO_QUERY_ACCESS)
+    @parameterized.expand(
+        [
+            ("no_query_access", replace(FULL_ACCESS, can_query_events=False)),
+            ("denied_the_reason", replace(FULL_ACCESS, denied_event_properties=frozenset({"$feature_flag_reason"}))),
+        ]
+    )
+    def test_reader_who_cannot_read_the_flag_calls_gets_no_traffic(
+        self, _name: str, reader_access: ExperimentHealthReaderAccess
+    ) -> None:
+        traffic, query = self._load(TRAFFIC, reader_access=reader_access)
 
         self.assertEqual((traffic, query.call_count), (None, 0))
 

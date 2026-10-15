@@ -67,6 +67,10 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
     access_level_satisfied_for_resource,
@@ -923,7 +927,8 @@ class EnterpriseExperimentsViewSet(
         save if later. It reads the flag's calls that name the matched condition: info up to 5%,
         warning above, and no finding under 1% when at least half of the calls name a condition.
         The finding is info when the share is unknown, and `evidence.reason` says why:
-        `not_measured` (for example an API key without `query:read`), `too_few_people` (under
+        `not_measured` (for example an API key without `query:read`, or a caller denied a flag
+        call property), `too_few_people` (under
         100), or `evaluated_outside_flag_service` (most calls come from local evaluation, a
         bootstrap or the caller's own assignment).
         """
@@ -947,9 +952,13 @@ class EnterpriseExperimentsViewSet(
         can_view_flag = experiment.feature_flag_id is None or self.user_access_control.check_access_level_for_object(
             experiment.feature_flag, required_level="viewer"
         )
+        restrictions = get_restricted_properties_with_group_type_index_for_team(
+            user=cast(User, request.user), team_id=self.team_id
+        )
         return ExperimentHealthReaderAccess(
             can_read_flag_history=bool(can_view_flag) and "activity_log:read" not in missing_scopes,
             can_query_events="query:read" not in missing_scopes,
+            denied_event_properties=split_restricted_property_names(restrictions).event,
         )
 
     @validated_request(
