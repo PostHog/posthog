@@ -656,6 +656,48 @@ class EmailDesignRenderFailed(Exception):
     pass
 
 
+# pinned: analytics property values for the `workflows data suggestion*` events - renaming breaks dashboards
+LifecycleStage = Literal["signup", "onboarding", "trial", "purchase", "churn_risk", "failure", "support", "other"]
+# The step chips a suggestion card shows.
+OutlineKind = Literal["email", "sms", "push", "slack", "webhook", "delay", "wait_until", "branch", "split", "action"]
+DataSuggestionsStatus = Literal["ready", "generating", "ai_not_approved", "unavailable"]
+
+
+@frozen
+class DataSuggestion:
+    id: str
+    name: str
+    description: str
+    reason: str
+    trigger_event: str
+    weekly_count: int
+    stage: LifecycleStage
+    step_outline: tuple[OutlineKind, ...]
+
+
+@frozen
+class DataSuggestionsResult:
+    status: DataSuggestionsStatus
+    suggestions: tuple[DataSuggestion, ...]
+    # The project's events that a build can wait on. Kept with the cards, so a build does not count events again.
+    events: tuple[str, ...] = ()
+
+
+DataSuggestionBuildStatus = Literal["ready", "building", "failed"]
+
+
+@frozen
+class BuiltSuggestion:
+    status: DataSuggestionBuildStatus
+    # Set only when the status is ready.
+    workflow: dict[str, Any] | None = None
+    uses_saved_template: bool = False
+
+
+class DataSuggestionNotFound(Exception):
+    """The suggestion id is unknown, usually because the cached suggestions expired."""
+
+
 class EmailDraftSourceNotFound(Exception):
     """The project has no entity with that ID for the requested source."""
 
