@@ -302,6 +302,7 @@ export namespace Schemas {
         error?: (boolean | null) | undefined;
         error_code?: (string | null) | undefined;
         error_message?: (string | null) | undefined;
+        error_status_code?: (number | null) | undefined;
         expiration_time?: (string | null) | undefined;
         id: string;
         insight_id?: (number | null) | undefined;
@@ -311,6 +312,7 @@ export namespace Schemas {
         query_progress?: (ClickhouseQueryProgress | null) | undefined;
         query_scan?: (QueryScanSummary | null) | undefined;
         results?: unknown | undefined;
+        retry_after?: (string | null) | undefined;
         start_time?: (string | null) | undefined;
         task_id?: (string | null) | undefined;
         team_id: number;
