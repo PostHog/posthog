@@ -230,7 +230,7 @@ The usage report task queries ClickHouse for aggregated billing data.
 Daily reports, usage reports v2, and quota limiting read the billed request counters through `posthog.usage_counters.UsageCounterService`.
 Each counter's feature flag selects `legacy`, `both`, or `realtime`.
 A counter in `RECORD_REALTIME_BLOCKERS` resolves `realtime` to `both` until its producer discrepancy is resolved or confirmed as intended billing behavior.
-These guards cover event and enhanced-person timestamp attribution, Django local-evaluation requests, replay sessions, and workflow invocations.
+These guards cover event, enhanced-person, and exception timestamp attribution, Django local-evaluation requests, replay sessions, and workflow invocations.
 They also cover producer gaps in the exemptions for product-tour survey responses, wallet-billed AI gateway events, and sponsored relay events.
 Guarded counters still collect comparisons while legacy totals remain authoritative.
 `legacy` queries billing events. `both` queries billing events and `billing_usage_records`, and keeps the legacy count authoritative.

@@ -38,6 +38,7 @@ SANDBOX_COMPUTE_RESOURCE_KEYS = (
 REALTIME_GUARDED_COUNTERS = {
     UsageCounter.EVENTS,
     UsageCounter.ENHANCED_PERSON_EVENTS,
+    UsageCounter.EXCEPTIONS,
     UsageCounter.RECORDINGS,
     UsageCounter.MOBILE_RECORDINGS,
     UsageCounter.MOBILE_BILLABLE_RECORDINGS,
@@ -604,7 +605,7 @@ class TestUsageCounterReport(SimpleTestCase):
         self.exceptions.assert_not_called()
 
     @parameterized.expand(list(product(("daily_report", "usage_reports_v2", "quota_limiting"), (False, True))))
-    def test_realtime_exception_reader_retains_required_breakdowns(
+    def test_guarded_exception_reader_preserves_legacy_totals_and_breakdowns(
         self, caller: UsageCounterCaller, fails: bool
     ) -> None:
         period = DayRange(start=datetime(2026, 5, 4, tzinfo=UTC), end=datetime(2026, 5, 5, tzinfo=UTC))
@@ -616,31 +617,25 @@ class TestUsageCounterReport(SimpleTestCase):
             plan = service.resolve_plan(
                 period, caller=caller, complete=caller == "daily_report", counters=(UsageCounter.EXCEPTIONS,)
             )
+        assert plan.modes == {UsageCounter.EXCEPTIONS: UsageCounterMode.BOTH}
         self.exceptions.side_effect = RuntimeError("legacy unavailable") if fails else None
         self.exceptions.return_value = ({"web": [(1, 3)]}, [(1, 3)])
-        if fails and caller != "quota_limiting":
+        if fails:
             with self.assertRaisesRegex(RuntimeError, "legacy unavailable"):
                 service.fetch_report(period, plan=plan)
         else:
             report = service.fetch_report(period, plan=plan)
-            expected = {UsageCounter.EXCEPTIONS.value: [(1, 7)]}
+            expected = {UsageCounter.EXCEPTIONS.value: [(1, 3)]}
             if caller != "quota_limiting":
                 expected["teams_with_web_exceptions_captured_in_period"] = [(1, 3)]
             assert report.counts == expected
-            assert report.counter_comparisons == (
-                None
-                if fails or caller == "quota_limiting"
-                else {
-                    "exceptions_captured_in_period": UsageCounterComparisonRows(
-                        legacy_by_team={1: 3}, realtime_by_team={1: {"org-a": 7}}
-                    )
-                }
-            )
-            assert report.usage_sources == {"exceptions_captured_in_period": UsageCounterMode.REALTIME}
-        if caller == "quota_limiting":
-            self.exceptions.assert_not_called()
-        else:
-            self.exceptions.assert_called_once_with(period.start, period.end)
+            assert report.counter_comparisons == {
+                "exceptions_captured_in_period": UsageCounterComparisonRows(
+                    legacy_by_team={1: 3}, realtime_by_team={1: {"org-a": 7}}
+                )
+            }
+            assert report.usage_sources == {"exceptions_captured_in_period": UsageCounterMode.BOTH}
+        self.exceptions.assert_called_once_with(period.start, period.end)
 
     @parameterized.expand([(mode,) for mode in UsageCounterMode])
     def test_legacy_only_counters_preserve_values_and_bundled_series(self, flag_mode: UsageCounterMode) -> None:
