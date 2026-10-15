@@ -2,10 +2,12 @@ import type { Schemas } from '@/api/generated'
 import { MCP_OPENAI_RESULT_FILES_FEATURE_FLAG } from '@/hono/constants'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import type { ToolResultPayload } from '@/lib/build-tool-result'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 export const RESULT_FILE_THRESHOLD_BYTES = 32 * 1024
 const RESULT_FILE_MAX_BYTES = 8 * 1024 * 1024
 const RESULT_FILE_PREVIEW_CHARS = 2000
+const RESULT_FILE_UPLOAD_TIMEOUT_MS = 5000
 
 export async function offloadToolResult(response: ToolResultPayload, state: ResolvedState): Promise<ToolResultPayload> {
     if (
@@ -28,8 +30,13 @@ export async function offloadToolResult(response: ToolResultPayload, state: Reso
             method: 'POST',
             path: `/api/projects/${projectId}/mcp_tools/results/store/`,
             body: { content },
+            timeoutMs: RESULT_FILE_UPLOAD_TIMEOUT_MS,
+            retry: false,
         })
-        const { structuredContent: _structuredContent, ...inlineResult } = response
+        const { structuredContent, ...inlineResult } = response
+        if (structuredContent) {
+            inlineResult._meta = { ...inlineResult._meta, [APP_DATA_META_KEY]: structuredContent }
+        }
         return {
             ...inlineResult,
             content: [

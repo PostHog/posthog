@@ -18,7 +18,7 @@ class MCPResultFiles:
             extras={
                 "ContentType": "application/json",
                 "CacheControl": "private, no-store",
-                "Tagging": f"ttl_days=1&team_id={team_id}",
+                "Tagging": f"ttl_days=21&team_id={team_id}",
             },
         )
         url = object_storage.get_presigned_url(key, expiration=MCP_RESULT_FILE_URL_TTL_SECONDS)

@@ -1,11 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockToolCallsInc, mockToolDurationObserve, mockToolDurationStartTimer, mockToolErrorsInc } = vi.hoisted(() => {
+const {
+    mockToolCallsInc,
+    mockToolDurationObserve,
+    mockToolDurationStartTimer,
+    mockToolDurationStop,
+    mockToolErrorsInc,
+} = vi.hoisted(() => {
     const mockStop = vi.fn()
     return {
         mockToolCallsInc: vi.fn(),
         mockToolDurationObserve: vi.fn(),
         mockToolDurationStartTimer: vi.fn(() => mockStop),
+        mockToolDurationStop: mockStop,
         mockToolErrorsInc: vi.fn(),
     }
 })
@@ -39,10 +46,12 @@ import { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
 import { trackExecuteSqlGeneration, trackToolCall, trackToolSpan } from '@/hono/analytics'
+import { MCP_OPENAI_RESULT_FILES_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
+import { MCPClientProfile } from '@/lib/client-detection'
 import {
     MCPToolResultError,
     PostHogApiError,
@@ -101,6 +110,7 @@ describe('ToolExecutor metrics', () => {
         mockToolCallsInc.mockClear()
         mockToolDurationObserve.mockClear()
         mockToolDurationStartTimer.mockClear()
+        mockToolDurationStop.mockClear()
         mockToolErrorsInc.mockClear()
         mockTrackToolCall.mockClear()
         vi.mocked(trackExecuteSqlGeneration).mockClear()
@@ -115,6 +125,57 @@ describe('ToolExecutor metrics', () => {
         vi.unstubAllGlobals()
         vi.restoreAllMocks()
     })
+
+    it.each([false, true])(
+        'includes the result upload in duration telemetry in exec mode %s',
+        async (useSingleExec) => {
+            let now = 0
+            vi.spyOn(Date, 'now').mockImplementation(() => now)
+            const tool = makeFakeTool('execute-sql', async () => {
+                now += 20
+                return 'synthetic result '.repeat(4000)
+            })
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(tool as any)
+            const state = makeToolExecutorState(
+                [{ name: tool.name, schema: tool.base.schema, handler: tool.base.handler } as any],
+                {
+                    useSingleExec,
+                    toolFeatureFlags: { [MCP_OPENAI_RESULT_FILES_FEATURE_FLAG]: true },
+                    clientProfile: new MCPClientProfile({ clientName: 'openai-mcp' }),
+                }
+            )
+            state.context.stateManager.getProjectId = vi.fn().mockResolvedValue('123')
+            state.context.api.request = vi.fn().mockImplementation(async () => {
+                expect(mockToolDurationObserve).not.toHaveBeenCalled()
+                if (!useSingleExec) {
+                    expect(mockToolDurationStartTimer.mock.results[0]!.value).not.toHaveBeenCalled()
+                }
+                now += 2500
+                return { download_url: 'https://storage.example.com/result.json', expires_in: 3600 }
+            })
+
+            await executor.handleToolCall(
+                useSingleExec
+                    ? { name: 'exec', arguments: { command: 'call execute-sql {}' } }
+                    : { name: 'execute-sql', arguments: {} },
+                state
+            )
+
+            expect(mockTrackToolCall.mock.calls.find((args) => args[0] === 'execute-sql')?.[1]).toBe(2520)
+            expect(vi.mocked(trackToolSpan).mock.calls[0]?.[2]).toMatchObject({ durationMs: 2520 })
+            expect(vi.mocked(trackExecuteSqlGeneration).mock.calls[0]?.[3]).toMatchObject({ durationMs: 2520 })
+            if (useSingleExec) {
+                expect(mockToolDurationObserve).toHaveBeenCalledExactlyOnceWith(
+                    { tool: 'execute-sql', status: 'success' },
+                    2.52
+                )
+            } else {
+                expect(mockToolDurationStartTimer.mock.results[0]!.value).toHaveBeenCalledExactlyOnceWith({
+                    status: 'success',
+                })
+            }
+        }
+    )
 
     it.each([
         { tool: 'execute-sql', useSingleExec: false, type: 'api_5xx' },

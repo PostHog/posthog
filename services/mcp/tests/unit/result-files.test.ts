@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { ApiClient } from '@/api/client'
 import { MCP_OPENAI_RESULT_FILES_FEATURE_FLAG } from '@/hono/constants'
 import type { ResolvedState } from '@/hono/request-state-resolver'
-import { type ToolResultPayload, EXEC_BUILT_PAYLOAD } from '@/lib/build-tool-result'
+import { type ToolResultPayload, buildToolResultPayload, EXEC_BUILT_PAYLOAD } from '@/lib/build-tool-result'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { offloadToolResult, RESULT_FILE_THRESHOLD_BYTES } from '@/lib/result-files'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 const storeResult = vi.fn()
 const downloadUrl = 'https://storage.example.com/result.json?signature=example'
@@ -29,6 +31,12 @@ describe('result files', () => {
         storeResult.mockReset().mockResolvedValue({ download_url: downloadUrl, expires_in: 3600 })
     })
 
+    afterEach(() => {
+        vi.useRealTimers()
+        vi.restoreAllMocks()
+        vi.unstubAllGlobals()
+    })
+
     it.each(['openai-mcp', 'openai-mcp (Codex)', 'codex-mcp-client', 'ChatGPT'])(
         'stores the complete response for %s and returns a bounded preview',
         async (clientName) => {
@@ -49,9 +57,63 @@ describe('result files', () => {
             expect(pointer.preview.length).toBe(2000)
             expect(result.content[0]!.text).not.toContain('hidden-result')
             expect(result.structuredContent).toBeUndefined()
-            expect(result._meta).toEqual(response._meta)
+            expect(result._meta).toEqual({ ...response._meta, [APP_DATA_META_KEY]: response.structuredContent })
             expect(result[EXEC_BUILT_PAYLOAD]).toBe(true)
             expect(response.structuredContent).toEqual({ answer: 'complete structured result' })
+        }
+    )
+
+    it('preserves app data when the structured result is the only data channel', async () => {
+        const response = buildToolResultPayload({
+            handlerResult: { rows: ['synthetic result '.repeat(4000)] },
+            toolName: 'ui-tool',
+            toolMeta: { ui: { resourceUri: 'ui://example' } },
+            params: {},
+            forceUiDataToMeta: true,
+            includeUiResponseMeta: true,
+        })
+        const result = await offloadToolResult(response, makeState('codex-mcp-client'))
+
+        expect(JSON.parse(result.content[0]!.text).download_url).toBe(downloadUrl)
+        expect(result.structuredContent).toBeUndefined()
+        expect(result._meta).toEqual({ ...response._meta, [APP_DATA_META_KEY]: response.structuredContent })
+    })
+
+    it.each(['connection', 'body', 'throttle'])(
+        'returns the original result promptly when the upload stalls at %s',
+        async (failure) => {
+            vi.useFakeTimers()
+            vi.spyOn(console, 'warn').mockImplementation(() => {})
+            vi.spyOn(console, 'error').mockImplementation(() => {})
+            let signal: AbortSignal | undefined
+            const fetch = vi.fn((_url: string, init?: RequestInit) => {
+                signal = init!.signal!
+                const stalled = (): Promise<never> =>
+                    new Promise((_resolve, reject) => {
+                        signal!.addEventListener('abort', () => reject(signal!.reason), { once: true })
+                    })
+                if (failure === 'throttle') {
+                    return Promise.resolve(new Response('{}', { status: 429, headers: { 'Retry-After': '30' } }))
+                }
+                if (failure === 'body') {
+                    const response = new Response('{}')
+                    vi.spyOn(response, 'text').mockImplementation(stalled)
+                    return Promise.resolve(response)
+                }
+                return stalled()
+            })
+            vi.stubGlobal('fetch', fetch)
+            const state = makeState('openai-mcp')
+            state.context.api = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://example.com' })
+            const response = largeResult()
+            const pending = offloadToolResult(response, state)
+
+            await vi.advanceTimersByTimeAsync(5000)
+
+            expect(await pending).toBe(response)
+            expect(fetch).toHaveBeenCalledOnce()
+            expect(signal?.aborted).toBe(failure !== 'throttle')
+            expect(vi.getTimerCount()).toBe(0)
         }
     )
 

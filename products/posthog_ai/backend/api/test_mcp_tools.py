@@ -80,7 +80,7 @@ class TestMCPToolsAPI(APIBaseTest):
         key, stored_content = write.call_args.args
         self.assertIn(f"/mcp_results/team_{self.team.id}/", key)
         self.assertEqual(stored_content, content)
-        self.assertEqual(write.call_args.kwargs["extras"]["Tagging"], f"ttl_days=1&team_id={self.team.id}")
+        self.assertEqual(write.call_args.kwargs["extras"]["Tagging"], f"ttl_days=21&team_id={self.team.id}")
         presign.assert_called_once_with(key, expiration=3600)
 
     @parameterized.expand([("invalid_json", "not JSON"), ("utf8_size", json.dumps("猫猫猫", ensure_ascii=False))])

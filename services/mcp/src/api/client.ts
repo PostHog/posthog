@@ -341,6 +341,8 @@ export class ApiClient {
         query?: Record<string, unknown>
         headers?: Record<string, string>
         responseType?: 'json' | 'text'
+        timeoutMs?: number
+        retry?: boolean
     }): Promise<T> {
         const searchParams = new URLSearchParams()
         if (opts.query) {
@@ -385,7 +387,10 @@ export class ApiClient {
             return (await response.text()) as T
         }
 
-        const result = await this.fetchJson<T>(url, fetchOptions)
+        const result = await this.fetchJson<T>(url, fetchOptions, {
+            timeoutMs: opts.timeoutMs ?? apiRequestTimeoutMs(url),
+            retry: opts.retry ?? true,
+        })
 
         if (!result.success) {
             // Re-throw the original error instance so callers can instanceof-check
@@ -634,14 +639,17 @@ export class ApiClient {
     private async fetchJson<T>(
         url: string,
         options?: RequestInit,
-        { idempotent = false }: { idempotent?: boolean } = {}
+        {
+            idempotent = false,
+            timeoutMs = apiRequestTimeoutMs(url),
+            retry = true,
+        }: { idempotent?: boolean; timeoutMs?: number; retry?: boolean } = {}
     ): Promise<Result<T>> {
         const method = options?.method ?? 'GET'
         const isSafeMethod = idempotent || SAFE_HTTP_METHODS.has(method.toUpperCase())
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
         let rateLimitRetries = 0
         let transportRetries = 0
-        const timeoutMs = apiRequestTimeoutMs(url)
 
         for (;;) {
             let response: Response
@@ -662,6 +670,7 @@ export class ApiClient {
                 bodyText = await response.text()
             } catch (error) {
                 const canRetry =
+                    retry &&
                     !signal.aborted &&
                     !isAbortError(error) &&
                     !hasTimeoutCause(error) &&
@@ -705,7 +714,7 @@ export class ApiClient {
                     }),
                 })
 
-                if (rateLimitRetries === RATE_LIMIT_MAX_RETRIES) {
+                if (!retry || rateLimitRetries === RATE_LIMIT_MAX_RETRIES) {
                     console.error(`[API] Rate limit (429) retries exhausted on ${method} ${url}`)
                     return rateLimitFailure()
                 }
