@@ -11,7 +11,6 @@ from posthog.models.integration import Integration
 from posthog.models.scoping import with_team_scope
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.scoping_audit import skip_team_scope_audit
-from posthog.temporal.ai.slack_app.types import SlackUnfurlChartRequest
 
 from products.slack_app.backend.api import (
     REPO_SNAPSHOT_REFRESH_INTERVAL_SECONDS,
@@ -20,6 +19,7 @@ from products.slack_app.backend.api import (
     send_region_proxy_request,
 )
 from products.slack_app.backend.slack_link_unfurl import start_unfurl_charts
+from products.slack_app.backend.temporal.types import SlackUnfurlChartRequest
 
 
 @shared_task(ignore_result=True)

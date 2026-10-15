@@ -141,7 +141,6 @@ rules:
                               |CustomPropertySyncRun
                               |CustomPropertyValue
                               |DAG
-                              |DailyBriefing
                               |TodayHighlights
                               |Dashboard
                               |DashboardTemplate
@@ -612,7 +611,6 @@ rules:
                         |CustomPropertySyncRun
                         |CustomPropertyValue
                         |DAG
-                        |DailyBriefing
                         |TodayHighlights
                         |Dashboard
                         |DashboardTemplate
