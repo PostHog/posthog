@@ -27,6 +27,7 @@ export const hogFlowEditorPreferencesLogic = kea<hogFlowEditorPreferencesLogicTy
     reducers({
         preferredEditorLayout: [
             'simple' as HogFlowEditorLayout,
+            // pinned: localStorage key, renaming resets every remembered view
             { persist: true, storageKey: 'hogFlowEditorPreferredLayout' },
             {
                 rememberEditorLayout: (_, { editorLayout }) => editorLayout,

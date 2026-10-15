@@ -10,7 +10,20 @@ import {
     applyNodeChanges,
     getOutgoers,
 } from '@xyflow/react'
-import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    connect,
+    defaults,
+    events,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -2281,6 +2294,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         handlePaneClick: true,
         setIsZoomedOutFar: (isZoomedOutFar: boolean) => ({ isZoomedOutFar }),
     }),
+    defaults(({ selectors }) => ({
+        editorLayout: selectors.preferredEditorLayout,
+    })),
     reducers(() => ({
         editorLayout: [
             'simple' as HogFlowEditorLayout,

@@ -260,6 +260,25 @@ describe('hogFlowEditorLogic', () => {
             expect(otherEditor.values.editorLayout).toEqual(expected)
         })
 
+        it('opens the picked view without adding a history entry Back has to step over', async () => {
+            logic.actions.pickEditorLayout('advanced')
+
+            await openOtherWorkflowEditor()
+
+            expect(router.values.searchParams).not.toHaveProperty('view')
+        })
+
+        it('opens a workflow outside the workflow page, such as a notebook widget, in the picked view', async () => {
+            logic.actions.pickEditorLayout('advanced')
+            logic.unmount()
+            router.actions.push(urls.notebooks())
+
+            const widgetEditor = hogFlowEditorLogic({ id: OTHER_WORKFLOW_ID })
+            widgetEditor.mount()
+
+            expect(widgetEditor.values.editorLayout).toEqual('advanced')
+        })
+
         it('does not remember the graph view it falls back to for a workflow the list cannot show', async () => {
             const unreachableDelay: HogFlowAction = {
                 id: 'unreachable-delay',
