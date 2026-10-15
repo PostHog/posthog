@@ -41,7 +41,7 @@ from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .offline_results import OfflineEvalPublisher, OfflineEvalSettings, OfflineEvalSuite, OfflineUploadError
 from .runner import AgentNeverRanError, EvalCaseResult, agent_never_ran, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
-from .trace_events import RunMetadata, emit_evaluation_events, emit_trace_events, emit_trace_root
+from .trace_events import RunMetadata, emit_trace_events, emit_trace_root
 
 if TYPE_CHECKING:
     from .harness.context import EvalContext
@@ -153,8 +153,7 @@ class _BaseEvalRun:
     """
 
     trace_namespace = "evals"
-    """How this run labels itself in PostHog: the experiment-name prefix on every emitted
-    event, and the `$ai_eval_source` on evaluation events. Subclasses set it per run kind."""
+    """Experiment-name prefix on PostHog trace events. Subclasses set it per run kind."""
 
     def __init__(
         self,
@@ -322,7 +321,7 @@ class _BaseEvalRun:
             await self.ctx.reporter.case_phase(trial_id, phase)
 
     async def _finalize(self, result: ExperimentResult) -> None:
-        """Append scores to local summaries, emit PostHog evaluation/trace-root
+        """Append scores to local summaries, emit PostHog trace-root
         events, and hand the summary to the reporter — after scoring completes."""
         # Append final scores to local summary files for every case we wrote.
         if result.results:
@@ -340,23 +339,6 @@ class _BaseEvalRun:
                     )
                 except Exception:
                     logger.exception("Failed to append scores to local log summary for '%s'", case_name)
-
-        evaluation_client = self.ctx.posthog_evaluation_client
-        if not self.no_send_logs and evaluation_client is not None and result.results:
-            try:
-                emit_evaluation_events(
-                    evaluation_client,
-                    self.experiment_id,
-                    self.experiment_name,
-                    result.results,
-                    namespace=self.trace_namespace,
-                    scorer_traces=self.scorer_traces,
-                    run_metadata=self._experiment_metadata(),
-                )
-                await asyncio.to_thread(evaluation_client.flush)
-                await self.ctx.reporter.record_posthog_evaluations_url(self.experiment_name, self.experiment_id)
-            except Exception:
-                logger.exception("Failed to emit evaluation events for '%s'", self.experiment_name)
 
         # Emit trace roots to PostHog (after scoring)
         if self.posthog_client and result.results:

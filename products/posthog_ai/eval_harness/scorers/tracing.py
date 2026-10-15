@@ -119,9 +119,9 @@ class TracedScorer(AsyncOnlyScorerMixin, Scorer):
     """Wraps a Scorer to trace LLM calls and collect per-invocation trace IDs.
 
     For LLM-based scorers (those with a ``client`` attribute), injects a
-    PostHog-traced OpenAI client. For all scorers, generates a trace_id
+    PostHog-traced OpenAI client. For LLM scorers, generates a trace_id
     per invocation and stores it in ``scorer_traces`` for later use in
-    ``$ai_evaluation`` events.
+    offline evaluation results.
     """
 
     def __init__(

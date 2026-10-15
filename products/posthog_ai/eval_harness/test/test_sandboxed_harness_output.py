@@ -152,8 +152,10 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
             experiment_url="https://experiments.example/e",
         ),
     )
-    await reporter.record_posthog_evaluations_url(
-        "sandboxed-cli-mcp-verify-event-cli", "bd8b7f0d-7cc3-4ea3-a3a6-53be0d9e6eb4"
+    await reporter.record_posthog_offline_result(
+        "sandboxed-cli-mcp-verify-event-cli",
+        "uploaded",
+        url="https://us.posthog.com/project/2/ai-evals/evaluations/offline/experiments/bd8b7f0d-7cc3-4ea3-a3a6-53be0d9e6eb4",
     )
     await reporter.suite_finished(
         SuiteRunResult(
@@ -229,7 +231,7 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
                 pass_any=None,
                 flaky_cases=0,
             ),
-            "    s: 72.0% (95% CI 61.0-83.0%)\n  PostHog",
+            "    s: 72.0% (95% CI 61.0-83.0%)\n  Braintrust",
             id="single_trial",
         ),
         pytest.param(
@@ -260,7 +262,6 @@ async def test_reporter_shows_the_engine_score_with_trial_stats(
         EvalSummary(engine_name="Braintrust", experiment_name="exp", scores={"s": AggregateScore("s", 0.72)}),
         trial_stats=[stats],
     )
-    await reporter.record_posthog_evaluations_url("exp", "bd8b7f0d-7cc3-4ea3-a3a6-53be0d9e6eb4")
     reporter.print_final_summary([], exit_code=0, fail_under=None, duration_seconds=1.0)
 
     assert expected in capsys.readouterr().out
@@ -444,14 +445,12 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
         ],
     )
     engine = MagicMock(run_experiment=AsyncMock(return_value=result))
-    event_client = MagicMock()
     reporter = ProgressReporter(total_suites=1)
     delivery = OfflineEvalDelivery(reporter)
     if delivery_state == "closed":
         await delivery.drain()
     ctx = MagicMock(
         posthog_client=None,
-        posthog_evaluation_client=event_client,
         case_filter=None,
         agent_model="test-model",
         agent_runtime="claude",
@@ -497,15 +496,6 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     assert engine_spec.no_send_logs is no_send_logs
     assert engine_spec.record_scorer_results is (enrolled and not no_send_logs and configuration == "valid")
     assert reporter.mean_score() == 1.0
-    if no_send_logs:
-        event_client.capture.assert_not_called()
-    else:
-        event_client.capture.assert_called_once()
-        captured = event_client.capture.call_args.kwargs
-        assert captured["event"] == "$ai_evaluation"
-        assert captured["properties"]["$ai_metric_name"] == "exit_code_zero"
-        assert captured["properties"]["$ai_score"] == 1.0
-
     reporter.print_final_summary([], exit_code=0, fail_under=None, duration_seconds=0)
     output = capsys.readouterr().out
     assert "Braintrust: https://braintrust.example.com/experiment/test" in output
@@ -527,11 +517,13 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
             assert "PostHog: https://posthog.example.com/project/123/" in output
         else:
             assert len(requests) == 1
+            assert "PostHog:" not in output
             assert "upload failed:" in output
             assert "403" in output
             assert "Results were not saved for retry." in output
     else:
         assert requests == []
+        assert "PostHog:" not in output
         if delivery_state != "ready":
             reason = (
                 "background delivery is unavailable" if delivery_state == "unavailable" else "queue is full or closed"
@@ -877,7 +869,6 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
     monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
     monkeypatch.setattr(base, "build_case_dir", lambda *_: tmp_path)
     ctx = MagicMock(posthog_client=None, reporter=ProgressReporter(total_suites=1))
-    ctx.posthog_evaluation_client = None
     ctx.trials = 3
     run = base._SandboxedEvalRun("trials", [], [], ctx, is_public=False, no_send_logs=True)
     run.posthog_client = MagicMock()

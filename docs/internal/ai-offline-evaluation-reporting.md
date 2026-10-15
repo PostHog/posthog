@@ -1,26 +1,24 @@
 # Offline evaluation result reporting
 
-The sandboxed evaluation harness in `products/posthog_ai/eval_harness/` reports scorer results as PostHog `$ai_evaluation` events.
-With the Braintrust engine, each suite runs once and the harness sends the resulting scores to PostHog when uploads are enabled.
-The SQL suite can also publish those results to the offline experiment API while retaining both existing destinations.
+The evaluation harness in `products/posthog_ai/eval_harness/` reports public-suite scorer results to Braintrust.
+The SQL suite also publishes those results to PostHog's offline experiment API when configured.
+The harness no longer emits legacy `$ai_evaluation` result events. Agent and judge trace capture remains available.
 Reporting does not run the agent or scorers again.
 Use `hogli evals` to run PostHog AI 2.0 suites. See the [eval harness guide](../../products/posthog_ai/eval_harness/README.md) for suite discovery and execution.
 
 ## Capture settings
 
 Evaluation result uploads to Braintrust and PostHog share the `no_send_logs` setting.
-`SandboxedPublicEval` sets `no_send_logs=False` and uploads to both services.
+`SandboxedPublicEval` sets `no_send_logs=False` and uploads to Braintrust, plus PostHog when the suite has offline publishing configured.
 `SandboxedPrivateEval` sets `no_send_logs=True` and uploads to neither service; local logs are still written.
 
-The harness creates one dedicated result client at startup, shares it across all suites, and shuts it down after the invocation.
-Each suite waits for queued PostHog uploads in worker threads so other suites can keep running.
-This client permits `$ai_evaluation` reporting independently of `TEST` and `OPT_OUT_CAPTURE`, so those settings do not separate the two result destinations.
-Ordinary PostHog SDK clients and trace clients retain their existing `TEST` and `OPT_OUT_CAPTURE` guards.
+Offline API uploads run through the Python SDK independently of `TEST` and `OPT_OUT_CAPTURE`.
+The shared trace client retains its existing `TEST` and `OPT_OUT_CAPTURE` guards for `$ai_generation`, `$ai_span`, and `$ai_trace` events.
 
 ## Result contents and scope
 
-Each event contains the existing experiment, case, and metric properties, including input, output, and expected values when available.
-Each event also carries the run's configuration: `agent_model`, `trials`, `git_sha`, `git_dirty`, and for sandboxed runs `agent_runtime`, `skill_delivery`, and `reasoning_effort`.
+Published results include experiment, case, and scorer details, with input, output, and expected values when available.
+Run metadata includes `agent_model`, `trials`, `git_sha`, `git_dirty`, and for sandboxed runs `agent_runtime`, `skill_delivery`, and `reasoning_effort`.
 
 Each trial has a unique ID in engine metadata. Local logs and summaries use that ID, so repeated trials retain separate output and scores.
 The harness shortens long case names in filenames to stay within 255 bytes. It keeps the complete trial ID and file extension.
@@ -37,7 +35,7 @@ A scorer failure marks the case as an error. Statistics still include scores fro
 ## SQL offline experiment pilot
 
 The `sql/eval_sql::eval_sql` suite (`sandboxed-sql-cli`) opts into the offline experiment publisher.
-Other suites continue using Braintrust and the existing event reporting path.
+Other public suites continue reporting scores to Braintrust until they opt into offline publishing.
 After scoring, the harness prepares the completed results in memory and queues delivery through the Python SDK's `AsyncOfflineEvaluations` client. It does not execute another agent run or judge call.
 `no_send_logs=True` suppresses this upload too.
 
@@ -74,9 +72,9 @@ hogli evals sql/eval_sql::eval_sql
 ```
 
 Without an API key, the SQL run reports that offline uploads are disabled.
-Invalid configuration produces a warning and skips this destination; Braintrust and legacy event reporting continue.
+Invalid configuration produces a warning and skips this destination; Braintrust and local reporting continue.
 An upload failure also warns without changing the evaluation's score gate.
-The final summary retains the legacy PostHog results link alongside the offline upload status until an offline experiment URL is available.
+The final summary shows a PostHog results link only after a successful offline upload; otherwise it shows the upload status.
 
 ### CI configuration
 
@@ -147,7 +145,7 @@ Scorer provisioning stays separate from uploading results, so publishing require
 ## Postgres experiment ingestion
 
 The project API accepts offline experiment results behind the `ai-observability-offline-evaluations` feature flag.
-The configured SQL pilot calls this API in addition to the harness's existing event capture.
+The configured SQL pilot calls this API to publish completed scorer results.
 
 Experiments and their items, results, and payloads belong to the exact project/environment in the request path.
 Scorers and hosted datasets must belong to that same environment.

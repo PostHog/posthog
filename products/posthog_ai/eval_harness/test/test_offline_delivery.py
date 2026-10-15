@@ -29,32 +29,24 @@ STARTED_AT = "2026-01-01T00:00:00+00:00"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("legacy_first", [False, True])
 @pytest.mark.parametrize("status", ["disabled: missing configuration", "upload queued", "upload failed", "uploaded"])
-async def test_offline_status_preserves_the_available_results_link(
-    capsys: pytest.CaptureFixture[str], legacy_first: bool, status: str
-) -> None:
+async def test_offline_status_links_only_uploaded_results(capsys: pytest.CaptureFixture[str], status: str) -> None:
     reporter = ProgressReporter(total_suites=1)
     await reporter.record_summary(
         "example", EvalSummary(engine_name="braintrust", experiment_name="example", scores={})
     )
     offline_url = "https://posthog.example.com/project/123/ai-evals/evaluations/offline/experiments/example"
-    legacy_url = reporting.POSTHOG_EVALUATIONS_URL.format(experiment_id="example")
-    if legacy_first:
-        await reporter.record_posthog_evaluations_url("example", "example")
     await reporter.record_posthog_offline_result("example", status, url=offline_url if status == "uploaded" else None)
-    if not legacy_first:
-        await reporter.record_posthog_evaluations_url("example", "example")
     capsys.readouterr()
 
     reporter.print_final_summary([], exit_code=0, fail_under=None, duration_seconds=0)
 
     output = capsys.readouterr().out
-    assert f"PostHog: {offline_url if status == 'uploaded' else legacy_url}" in output
     if status == "uploaded":
-        assert legacy_url not in output
+        assert f"PostHog: {offline_url}" in output
         assert "PostHog offline:" not in output
     else:
+        assert "PostHog:" not in output
         assert f"PostHog offline: {status}" in output
 
 

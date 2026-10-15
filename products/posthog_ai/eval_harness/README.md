@@ -344,7 +344,7 @@ The harness shortens long case names in filenames to stay within 255 bytes. It k
 The summary includes the trial ID, the agent trace ID when available, phase durations in seconds, and the scores for that trial.
 Case names and `--eval` filters stay the same.
 
-`SandboxedPublicEval` sets `no_send_logs=False` and reports results to both Braintrust and PostHog.
+`SandboxedPublicEval` sets `no_send_logs=False` and reports results to Braintrust, plus PostHog when the suite has offline publishing configured.
 `SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service; local logs are still written.
 PostHog result uploads follow `no_send_logs` independently of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients.
 See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-reporting.md) for capture settings and scope.
@@ -352,8 +352,9 @@ See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-r
 ### SQL offline experiment pilot
 
 The `sql/eval_sql::eval_sql` suite can also send its seven scorer results to PostHog's offline experiment API.
-It publishes the same completed case results through the Python SDK and keeps sending to Braintrust and the existing `$ai_evaluation` event path.
-Other suites are unchanged, and `no_send_logs=True` suppresses the new upload too.
+It publishes the same completed case results through the Python SDK and keeps sending to Braintrust.
+The harness no longer emits legacy `$ai_evaluation` result events. Other public suites report scores to Braintrust until they opt into offline publishing.
+Agent and judge trace capture remains available, and `no_send_logs=True` suppresses offline result uploads.
 
 Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal or project secret key with `offline_evaluation_ingestion:write` and access to project `2`.
 The [SQL suite definition](../evals/sql/eval_sql.py) pins that project ID and all seven immutable scorer version UUIDs in code.
@@ -369,7 +370,7 @@ hogli evals sql/eval_sql::eval_sql
 ```
 
 With no API key, the SQL run reports that offline uploads are disabled.
-Invalid configuration and upload failures produce warnings while Braintrust and legacy reporting continue.
+Invalid configuration and upload failures produce warnings while Braintrust and local reporting continue.
 Successful uploads use separate items for each case and trial; skipped scores and execution errors remain distinct from scores of zero.
 Raw agent logs stay in the existing local and Braintrust outputs. The SDK validates payloads; invalid or oversized optional fields are omitted as a whole, with their names recorded in metadata.
 

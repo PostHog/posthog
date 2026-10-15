@@ -20,10 +20,6 @@ from .trial_stats import ScorerTrialStats
 EVAL_RESULTS_JSONL = "eval_results.jsonl"
 """Machine-readable per-experiment summary export, opt-in via ``EXPORT_EVAL_RESULTS``."""
 
-POSTHOG_EVALUATIONS_URL = (
-    "https://us.posthog.com/project/2/ai-evals/evaluations/offline/experiments/{experiment_id}?offline_date_from=-1d"
-)
-
 CaseStatus = Literal["ok", "timeout", "error"]
 
 
@@ -288,10 +284,6 @@ class ProgressReporter:
             total = self._experiment_totals.get(experiment_name)
             progress = f"[{self._case_counts[experiment_name]}/{total} cases]" if total is not None else ""
             await asyncio.to_thread(_emit, f"EXPERIMENT DONE  {experiment_name}  {progress}")
-
-    async def record_posthog_evaluations_url(self, experiment_name: str, experiment_id: str) -> None:
-        async with self._lock:
-            self._posthog_urls.setdefault(experiment_name, POSTHOG_EVALUATIONS_URL.format(experiment_id=experiment_id))
 
     async def record_posthog_offline_result(self, experiment_name: str, status: str, *, url: str | None = None) -> None:
         async with self._lock:
