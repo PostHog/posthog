@@ -224,12 +224,18 @@ def _find_history_start(stored: StoredRows, team: Team, source: JobSourceTables,
     return start
 
 
-def _newest_first(start: datetime) -> Iterator[tuple[datetime, datetime]]:
+@frozen
+class _Span:
+    since: datetime
+    until: datetime
+
+
+def _newest_first(start: datetime) -> Iterator[_Span]:
     """The spans from ``start`` to now, newest first, ``_BACKFILL_STEP`` long."""
     until = datetime.now(UTC)
     while until > start:
         since = max(start, until - _BACKFILL_STEP)
-        yield since, until
+        yield _Span(since=since, until=until)
         until = since
 
 
@@ -323,7 +329,7 @@ def _refresh(team: Team) -> bool:
         trigger="engineering_analytics",
     )
     deadline = time.monotonic() + _TASK_BUDGET_SECONDS
-    spans: list[tuple[StoredRows, JobSourceTables, Iterator[tuple[datetime, datetime]]]] = []
+    spans: list[tuple[StoredRows, JobSourceTables, Iterator[_Span]]] = []
     for source in sources:
         for stored in (STORED_RUNS, STORED_JOBS):
             if not _may_insert(team, deadline):
@@ -358,8 +364,8 @@ def _refresh(team: Team) -> bool:
                 stored,
                 team,
                 source,
-                since=step[0],
-                until=step[1],
+                since=step.since,
+                until=step.until,
                 database=database,
                 run_inserts=True,
                 wait_timeout_seconds=min(_REFRESH_BUDGET_SECONDS, deadline - time.monotonic()),
