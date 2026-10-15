@@ -732,6 +732,25 @@ def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: 
         transaction.on_commit(_project_gateway_quota)
 
 
+@receiver(post_save, sender=Organization)
+def sync_active_state_to_billing_on_change(sender, instance: Organization, created: bool, **kwargs):
+    if created or not instance._is_active_changed:
+        return
+
+    organization_id = str(instance.pk)
+
+    def _enqueue_billing_sync():
+        from posthog.tasks.sync_billing import sync_organization_active_state_to_billing
+
+        try:
+            sync_organization_active_state_to_billing.delay(organization_id)
+        except Exception:
+            # The nightly reconciliation realigns billing; never fail the org save.
+            logger.warning("billing_active_state_sync_enqueue_failed", organization_id=organization_id)
+
+    transaction.on_commit(_enqueue_billing_sync)
+
+
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
