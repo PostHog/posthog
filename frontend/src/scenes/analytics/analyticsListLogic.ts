@@ -373,8 +373,8 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
     })),
     reducers({
         scope: ['all' as AnalyticsListScope, { setScope: (_, { scope }) => scope }],
-        // Personal rows are the unfiled ones. They stay out of the shared list until asked for.
-        showPersonal: [false, { setShowPersonal: (_, { show }) => show, setScope: () => false }],
+        // Unfiled rows are personal. The person's own show by default; the toggle hides them. Nobody sees another person's.
+        showPersonal: [true, { setShowPersonal: (_, { show }) => show, setScope: () => true }],
         filters: [
             DEFAULT_ANALYTICS_LIST_FILTERS,
             {
@@ -492,7 +492,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 showPersonal: boolean
             ): AnalyticsItem[] => {
                 if (mode === 'feed') {
-                    // A personal row belongs to its creator alone; the shared list hides them unless asked.
+                    // An unfiled row belongs to its creator alone; other people's never show, and the toggle hides your own.
                     return feed.items.filter(
                         (item) =>
                             item.spaceName !== null ||
