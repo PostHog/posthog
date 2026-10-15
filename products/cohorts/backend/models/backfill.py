@@ -219,6 +219,12 @@ class CohortBackfillChunk(TeamScopedRootMixin, UUIDModel):
         db_table = "cohort_backfill_chunks"
         indexes = [
             models.Index(fields=["run", "status", "day"], name="cohort_bfc_run_status_day_idx"),
+            # Only trailing chunks set claimable_after, so the partial index stays small.
+            models.Index(
+                fields=["run", "claimable_after"],
+                condition=Q(claimable_after__isnull=False),
+                name="cohort_bfc_run_claimable_idx",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(fields=["run", "day", "band"], name="cohort_bfc_run_day_band_uq"),
