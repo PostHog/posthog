@@ -1158,7 +1158,7 @@ export function captureScoutCreatePathSwitched(params: {
 }
 
 /** Where a suggestion card was rendered: the strip above the roster, or the empty state's body. */
-export type ScoutSuggestionSurface = 'strip' | 'empty_state'
+export type ScoutSuggestionSurface = 'strip' | 'empty_state' | 'onboarding'
 
 /** Which offer a suggestion card makes. Mirrors the API's `kind`. */
 export type ScoutSuggestionKind = 'canonical' | 'custom'

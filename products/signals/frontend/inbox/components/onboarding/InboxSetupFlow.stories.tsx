@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { useValues } from 'kea'
 
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 
@@ -8,6 +9,8 @@ import { mswDecorator } from '~/mocks/browser'
 
 import type { InboxOnboardingDraftApi } from '../../../generated/api.schemas'
 import { mockScoutSuggestionSet, mockScoutConfigs } from '../../__mocks__/scoutConfigs'
+import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
+import { InboxActivationPanel } from './InboxActivationPanel'
 import { InboxOnboardingBanner } from './InboxOnboardingBanner'
 import { InboxOnboardingEntry } from './InboxOnboardingEntry'
 import { InboxSetupFlow } from './InboxSetupFlow'
@@ -342,4 +345,153 @@ export const ManualEntry: Story = {
 
 export const TreatmentReminder: Story = {
     render: () => <InboxOnboardingBanner />,
+}
+
+let quickActivationCompleted = false
+
+function QuickActivationPreview(): JSX.Element {
+    const { completed } = useValues(inboxSetupLogic)
+    return completed ? (
+        <div className="mx-auto max-w-4xl p-6">
+            <InboxActivationPanel />
+        </div>
+    ) : (
+        <InboxOnboardingEntry />
+    )
+}
+
+const quickGeneralScout = {
+    ...mockScoutConfigs[0],
+    skill_name: 'signals-scout-general',
+    enabled: false,
+    scout_origin: 'canonical',
+}
+
+export const QuickEntry: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'quick', [FEATURE_FLAGS.INBOX_REDESIGN]: true },
+    },
+    render: () => <QuickActivationPreview />,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null, variant: 'quick' },
+                '/api/projects/:id/signals/scout/configs/': [quickGeneralScout],
+                '/api/projects/:id/signals/scout/suggestions/': {
+                    status: 'empty',
+                    generated_at: null,
+                    model: '',
+                    fleet_snapshot: [],
+                    items: [],
+                },
+            },
+            post: {
+                '/api/projects/:id/signals/onboarding/expose/': { draft: null, completed_at: null, variant: 'quick' },
+                '/api/projects/:id/signals/scout/configs/sync/': [quickGeneralScout],
+            },
+        }),
+    ],
+}
+
+export const QuickConnected: Story = {
+    ...QuickEntry,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': () => ({
+                    draft: null,
+                    completed_at: quickActivationCompleted ? '2026-10-14T00:00:00Z' : null,
+                    variant: 'quick',
+                    ...(quickActivationCompleted ? { jobs: { scout: 'started', recommendations: 'started' } } : {}),
+                }),
+                '/api/projects/:id/signals/scout/configs/': () => [
+                    { ...quickGeneralScout, enabled: quickActivationCompleted, emit: true },
+                ],
+                '/api/projects/:id/signals/source_configs/': () => ({
+                    results: quickActivationCompleted
+                        ? [
+                              {
+                                  id: 'source',
+                                  source_product: 'error_tracking',
+                                  source_type: 'issue_created',
+                                  enabled: true,
+                              },
+                          ]
+                        : [],
+                    next: null,
+                    count: quickActivationCompleted ? 1 : 0,
+                }),
+                '/api/projects/:id/integrations/': {
+                    results: [
+                        {
+                            id: 1,
+                            kind: 'github',
+                            config: {},
+                            display_name: 'example',
+                            created_at: '2026-10-14',
+                            icon_url: '',
+                        },
+                    ],
+                    next: null,
+                    count: 1,
+                },
+            },
+            post: {
+                '/api/projects/:id/signals/onboarding/expose/': { draft: null, completed_at: null, variant: 'quick' },
+                '/api/projects/:id/signals/scout/configs/sync/': [quickGeneralScout],
+                '/api/projects/:id/signals/onboarding/': async ({ request }) => [
+                    200,
+                    { draft: await request.json(), completed_at: null, variant: 'quick' },
+                ],
+                '/api/projects/:id/signals/config/': {},
+                '/api/projects/:id/signals/source_configs/': async ({ request }) => [
+                    201,
+                    { ...((await request.json()) as object), id: 'source' },
+                ],
+                '/api/projects/:id/signals/scout/configs/': { ...quickGeneralScout, enabled: true, emit: true },
+                '/api/projects/:id/signals/onboarding/complete/': async ({ request }) => {
+                    quickActivationCompleted = true
+                    return [
+                        200,
+                        {
+                            draft: await request.json(),
+                            completed_at: '2026-10-14T00:00:00Z',
+                            variant: 'quick',
+                            jobs: { scout: 'started', recommendations: 'started' },
+                        },
+                    ]
+                },
+            },
+            patch: { '/api/projects/:id/vision/scanners/:scanner/': {} },
+        }),
+    ],
+}
+
+export const QuickActivated: Story = {
+    parameters: QuickEntry.parameters,
+    render: () => (
+        <div className="mx-auto max-w-4xl p-6">
+            <InboxActivationPanel />
+        </div>
+    ),
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': {
+                    draft,
+                    completed_at: '2026-10-14T00:00:00Z',
+                    variant: 'quick',
+                    jobs: { scout: 'started', recommendations: 'started' },
+                },
+                '/api/projects/:id/signals/scout/configs/': [{ ...quickGeneralScout, enabled: true, emit: true }],
+                '/api/projects/:id/signals/source_configs/': {
+                    results: [
+                        { id: 'source', source_product: 'error_tracking', source_type: 'issue_created', enabled: true },
+                    ],
+                    next: null,
+                    count: 1,
+                },
+            },
+        }),
+    ],
 }

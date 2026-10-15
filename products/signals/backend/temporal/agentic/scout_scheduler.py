@@ -557,6 +557,23 @@ def start_manual_signals_scout_run(
     )
 
 
+@async_to_sync
+async def start_onboarding_signals_scout_run(client: Client, *, team_id: int, skill_name: str) -> str:
+    workflow_id = _off_schedule_run_workflow_id("signals-scout-onboarding", team_id, skill_name)
+    try:
+        await client.start_workflow(
+            RunSignalsScoutWorkflow.run,
+            RunSignalsScoutInput(team_id=team_id, skill_name=skill_name, triggered_by=TRIGGERED_BY_MANUAL),
+            id=workflow_id,
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+        )
+    except WorkflowAlreadyStartedError:
+        pass
+    return workflow_id
+
+
 def trial_run_workflow_id(team_id: int, launch_id: str) -> str:
     return f"signals-scout-trial-{team_id}-{launch_id}"
 
