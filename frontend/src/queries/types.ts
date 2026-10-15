@@ -110,6 +110,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     chartTypeSelectorClassName?: string
     onEditBIAxis?: (axis: 'x' | 'left' | 'right') => void
     onDrillBIHierarchy?: (worksheet: BIVisualizationNode) => void
+    biHierarchyDrillDisabledReason?: string
     onKeepBISelection?: (records: Record<string, unknown>[]) => void
     /** Hosts visualization settings in the scene's own panel instead of opening another sidebar. */
     visualizationSettingsPanel?: {

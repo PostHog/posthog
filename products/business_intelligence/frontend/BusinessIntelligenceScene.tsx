@@ -230,9 +230,10 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                                     showOpenEditorButton: false,
                                     chartTypeSelectorClassName: 'hidden',
                                     onEditBIAxis: setEditingAxis,
-                                    onDrillBIHierarchy: displayedQueryIsCurrent
-                                        ? (next) => navigateHierarchy(next)
-                                        : undefined,
+                                    onDrillBIHierarchy: (next) => navigateHierarchy(next),
+                                    biHierarchyDrillDisabledReason: displayedQueryIsCurrent
+                                        ? undefined
+                                        : 'Run the worksheet before drilling into edited fields',
                                     onKeepBISelection: displayedQueryIsCurrent
                                         ? (records) => {
                                               const config = keepBIScatterRows(worksheet.config, records)

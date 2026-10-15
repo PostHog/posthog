@@ -592,6 +592,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 {canDrill ? (
                     <BIDrilldownModal
                         logicProps={drilldownProps}
+                        navigationDisabledReason={props.context?.biHierarchyDrillDisabledReason}
                         onNavigate={
                             props.editMode && !props.inSharedMode ? props.context?.onDrillBIHierarchy : undefined
                         }

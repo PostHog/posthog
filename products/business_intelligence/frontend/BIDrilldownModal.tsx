@@ -14,9 +14,11 @@ import { captureBIWorksheetAction } from './biEditorAnalytics'
 export function BIDrilldownModal({
     logicProps: props,
     onNavigate,
+    navigationDisabledReason,
 }: {
     logicProps: BIDrilldownProps
     onNavigate?: (worksheet: BIVisualizationNode) => void
+    navigationDisabledReason?: string
 }): JSX.Element {
     const { selection, queries, showRows, hierarchyDrills } = useValues(biDrilldownLogic(props))
     const { close, viewRows } = useActions(biDrilldownLogic(props))
@@ -42,6 +44,7 @@ export function BIDrilldownModal({
                             <LemonButton
                                 key={hierarchy.id}
                                 type="primary"
+                                disabledReason={navigationDisabledReason}
                                 to={
                                     onNavigate
                                         ? undefined
