@@ -7,8 +7,6 @@ call these reads, and ``api.py`` pulls the build path (and Temporal) onto import
 from collections.abc import Iterable
 from uuid import UUID
 
-from django.db.models import QuerySet
-
 from products.canvas.backend.facade.contracts import CanvasOwnerActivity, CanvasSummary
 from products.canvas.backend.logic import visibility
 
@@ -63,11 +61,6 @@ def visible_canvas_ids(team_id: int, user_id: int | None) -> set[str]:
     soft-deleted canvases so an owner still sees their deleted canvas's history.
     """
     return visibility.visible_canvas_ids(team_id, user_id)
-
-
-def visible_canvas_refs(user_id: int | None, *, project_id: int) -> QuerySet:
-    """`(team_id, ref)` rows for every canvas the person may open in the project, for the file system."""
-    return visibility.visible_canvas_refs(user_id, project_id=project_id)
 
 
 def visible_canvas_user_ids(*, team_id: int, canvas_id: str, user_ids: Iterable[int]) -> set[int]:

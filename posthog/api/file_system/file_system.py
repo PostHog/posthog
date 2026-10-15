@@ -9,7 +9,7 @@ from uuid import UUID
 
 from django.apps import apps
 from django.db import transaction
-from django.db.models import Case, CharField, Exists, F, Func, IntegerField, OuterRef, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, Exists, F, Func, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
 
 from drf_spectacular.utils import extend_schema
@@ -31,6 +31,7 @@ from posthog.api.file_system.deletion import (
     undo_delete as undo_delete_object,
 )
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
+from posthog.api.file_system.visibility import apply_file_system_visibility_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -335,19 +336,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _filter_by_product_visibility(self, queryset: QuerySet) -> QuerySet:
         """Drop rows whose product hides the object from this person, beyond project RBAC.
 
-        Canvas visibility follows the channel (personal, private or public), which the file system
-        knows nothing about, so a canvas row lists only when its channel lets this person see it.
-        Evaluated on every read, so a channel's type or membership changing needs no resync.
+        A canvas follows its channel (personal, private or public), which the file system knows nothing
+        about, so its product registers a filter. Evaluated on every read, so a channel's type or
+        membership changing needs no resync.
         """
-        from products.canvas.backend.facade import (
-            access as canvas_facade,  # noqa: PLC0415 — keeps canvas off django.setup()
+        return apply_file_system_visibility_filters(
+            queryset, user_id=getattr(self.request.user, "id", None), project_id=self.team.project_id
         )
-
-        user_id = getattr(self.request.user, "id", None)
-        visible_canvas = canvas_facade.visible_canvas_refs(user_id, project_id=self.team.project_id).filter(
-            team_id=OuterRef("team_id"), ref=OuterRef("ref")
-        )
-        return queryset.filter(~Q(type="canvas") | Exists(visible_canvas))
 
     def _filter_by_access_control(self, queryset: QuerySet) -> QuerySet:
         queryset = self._filter_by_product_visibility(queryset)

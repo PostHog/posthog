@@ -114,6 +114,26 @@ class TestCanvasFileSystemVisibility(APIBaseTest):
         self.assertTrue(self.public_canvas.deleted)
         self.assertFalse(FileSystem.objects.filter(id=entry.id).exists())
 
+    def test_another_member_cannot_delete_a_public_canvas_through_the_file_system(self) -> None:
+        entry = FileSystem.objects.get(team=self.team, type="canvas", ref=str(self.public_canvas.id))
+        self.client.force_login(self.other)
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        self.assertEqual(response.status_code, 403, response.content)
+        self.public_canvas.refresh_from_db()
+        self.assertFalse(self.public_canvas.deleted)
+
+    def test_the_creator_can_undo_a_file_system_delete(self) -> None:
+        entry = FileSystem.objects.get(team=self.team, type="canvas", ref=str(self.personal_canvas.id))
+        self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "canvas", "ref": str(self.personal_canvas.id), "path": entry.path}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.personal_canvas.refresh_from_db()
+        self.assertFalse(self.personal_canvas.deleted)
+
     def test_restoring_a_hidden_canvas_through_undo_delete_is_refused(self) -> None:
         self.personal_canvas.deleted = True
         self.personal_canvas.save()
@@ -123,7 +143,7 @@ class TestCanvasFileSystemVisibility(APIBaseTest):
             {"items": [{"type": "canvas", "ref": str(self.personal_canvas.id), "path": "Unfiled/Canvases/Mine"}]},
             format="json",
         )
-        self.assertIn(response.status_code, (400, 403), response.content)
+        self.assertEqual(response.status_code, 400, response.content)
         self.personal_canvas.refresh_from_db()
         self.assertTrue(self.personal_canvas.deleted)
 
