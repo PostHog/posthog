@@ -1,7 +1,8 @@
 import dataclasses
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -10,7 +11,11 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai.settings import NEBIUS_AI_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai.settings import (
+    FINE_TUNING_JOBS_PATH,
+    NEBIUS_AI_ENDPOINTS,
+    NebiusAIEndpointConfig,
+)
 
 # Token Factory rebrand of the former api.studio.nebius.ai host. OpenAI-compatible surface.
 NEBIUS_AI_BASE_URL = "https://api.tokenfactory.nebius.com/v1"
@@ -23,11 +28,21 @@ class NebiusAIRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+class NebiusAIPaginationError(Exception):
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
 class NebiusAIResumeConfig:
     # OpenAI-style cursor: the id of the last object already yielded, sent as `after` to fetch the
     # next page. None starts the list from the beginning.
     after: str | None = None
+    # Per-job child endpoints: the job whose children are read next, and the `after` cursor of the
+    # fine-tuning job page that contains it.
+    job_id: str | None = None
+    jobs_after: str | None = None
+    # `/operations`: ISO 8601 `cursor_time` for the next page.
+    cursor_time: str | None = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -102,6 +117,164 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
     return response.json()
 
 
+def _epoch_to_iso(timestamp: int) -> str:
+    return datetime.fromtimestamp(timestamp, tz=UTC).isoformat()
+
+
+def _get_operation_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    config: NebiusAIEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[NebiusAIResumeConfig],
+) -> Iterator[Any]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    cursor_time = resume.cursor_time if resume else None
+    previous_page_ids: set[str] = set()
+
+    while True:
+        params: dict[str, Any] = {"limit": PAGE_SIZE, **config.params}
+        if cursor_time:
+            params["cursor_time"] = cursor_time
+
+        data = _fetch_page(session, _build_url(config.path, params), headers, logger)
+        items = data.get("data", [])
+        # An inclusive cursor returns the boundary rows again.
+        new_items = [item for item in items if item["id"] not in previous_page_ids]
+
+        # The API does not document the order or whether `cursor_time` is inclusive. We assume
+        # newest-first with the cursor as an upper bound. A full page whose cursor does not move
+        # strictly back in time would loop or leave a gap, so fail instead of syncing a partial table.
+        has_more = len(items) >= PAGE_SIZE
+        next_cursor = _epoch_to_iso(items[-1]["created_at"]) if items else None
+        if has_more and cursor_time is not None and next_cursor is not None and next_cursor >= cursor_time:
+            raise NebiusAIPaginationError(
+                f"Nebius AI {config.name}: cursor_time did not move back in time on a full page, cursor_time={cursor_time}, next_cursor={next_cursor}"
+            )
+
+        if has_more:
+            resumable_source_manager.save_state(NebiusAIResumeConfig(cursor_time=next_cursor))
+
+        if new_items:
+            yield new_items
+        else:
+            resumable_source_manager.safe_point()
+
+        if not has_more:
+            break
+
+        cursor_time = next_cursor
+        previous_page_ids = {item["id"] for item in items}
+
+
+def _get_job_child_pages(
+    session: requests.Session,
+    headers: dict[str, str],
+    config: NebiusAIEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[NebiusAIResumeConfig],
+    job_id: str,
+    after: str | None,
+    jobs_after: str | None,
+    position_after_job: NebiusAIResumeConfig | None,
+) -> Iterator[Any]:
+    path = config.path.format(job_id=quote(job_id, safe=""))
+
+    while True:
+        params: dict[str, Any] = {"limit": PAGE_SIZE, **config.params}
+        if after:
+            params["after"] = after
+
+        data = _fetch_page(session, _build_url(path, params), headers, logger)
+        items = data.get("data", [])
+        next_after = (data.get("last_id") or items[-1]["id"]) if items else None
+        has_more = bool(items and data.get("has_more") and next_after)
+
+        position = (
+            NebiusAIResumeConfig(jobs_after=jobs_after, job_id=job_id, after=next_after)
+            if has_more
+            else position_after_job
+        )
+        if position is not None:
+            resumable_source_manager.save_state(position)
+
+        if items:
+            # Events do not carry their job id, so add it for the composite primary key.
+            for item in items:
+                item.setdefault("fine_tuning_job_id", job_id)
+            yield items
+        else:
+            resumable_source_manager.safe_point()
+
+        if not has_more:
+            return
+
+        after = next_after
+
+
+def _get_per_job_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    config: NebiusAIEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[NebiusAIResumeConfig],
+) -> Iterator[Any]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    jobs_after = resume.jobs_after if resume else None
+    resume_job_id = resume.job_id if resume else None
+    child_after = resume.after if resume else None
+
+    while True:
+        params: dict[str, Any] = {"limit": PAGE_SIZE}
+        if jobs_after:
+            params["after"] = jobs_after
+
+        jobs_page = _fetch_page(session, _build_url(FINE_TUNING_JOBS_PATH, params), headers, logger)
+        job_ids = [job["id"] for job in jobs_page.get("data", [])]
+        if not job_ids:
+            break
+
+        next_jobs_after = jobs_page.get("last_id") or job_ids[-1]
+        has_more_jobs = bool(jobs_page.get("has_more"))
+
+        start = 0
+        if resume_job_id is not None:
+            if resume_job_id in job_ids:
+                start = job_ids.index(resume_job_id)
+            else:
+                # The job was deleted after the cursor was saved, so read its page from the start.
+                child_after = None
+            resume_job_id = None
+
+        for index in range(start, len(job_ids)):
+            if index + 1 < len(job_ids):
+                position_after_job: NebiusAIResumeConfig | None = NebiusAIResumeConfig(
+                    jobs_after=jobs_after, job_id=job_ids[index + 1]
+                )
+            elif has_more_jobs:
+                position_after_job = NebiusAIResumeConfig(jobs_after=next_jobs_after)
+            else:
+                position_after_job = None
+
+            yield from _get_job_child_pages(
+                session,
+                headers,
+                config,
+                logger,
+                resumable_source_manager,
+                job_id=job_ids[index],
+                after=child_after,
+                jobs_after=jobs_after,
+                position_after_job=position_after_job,
+            )
+            child_after = None
+
+        if not has_more_jobs:
+            break
+
+        jobs_after = next_jobs_after
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -115,6 +288,14 @@ def get_rows(
     # to an attacker-controlled host on a 30x.
     session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
 
+    if config.per_fine_tuning_job:
+        yield from _get_per_job_rows(session, headers, config, logger, resumable_source_manager)
+        return
+
+    if config.time_cursor_paginated:
+        yield from _get_operation_rows(session, headers, config, logger, resumable_source_manager)
+        return
+
     if not config.paginated:
         data = _fetch_page(session, _build_url(config.path, {}), headers, logger)
         items = data.get("data", [])
@@ -126,7 +307,7 @@ def get_rows(
     after = resume.after if resume else None
 
     while True:
-        params: dict[str, Any] = {"limit": PAGE_SIZE}
+        params: dict[str, Any] = {"limit": PAGE_SIZE, **config.params}
         if after:
             params["after"] = after
 

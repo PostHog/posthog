@@ -1,69 +1,52 @@
-import json
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
 
-from requests import Response
+import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    UnexpectedRequest,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.streamelements import (
+    StreamElementsSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.source import StreamElementsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.streamelements import (
     StreamElementsResumeConfig,
     _to_epoch_ms,
-    streamelements_source,
     validate_credentials,
 )
-
-# Every StreamElements request — the pipeline client session, channel resolution and the
-# credential probe — runs on a session built by the shared _tracked_session factory, which
-# calls make_tracked_session in the streamelements module. Patch that one symbol.
-SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.streamelements.make_tracked_session"
 
 CHANNEL_ID = "5b2e2007760aeb7729487dab"
 
 
-def _response(payload: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(payload).encode()
-    return resp
+def _response(payload: Any, status_code: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json=payload)
 
 
-def _make_manager(resume_state: StreamElementsResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _script(*answers: ScriptedResponse) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """Answer the channel lookup every run starts with, and give the pipeline's requests in order."""
+    queue = list(answers)
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("/channels/me"):
+            return _response({"_id": CHANNEL_ID})
+        if not queue:
+            raise UnexpectedRequest(f"the script has no answer left for {request.method} {request.url}")
+        return queue.pop(0)
+
+    return respond
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's url + params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    Channel resolution goes through ``.get``; the pipeline goes through ``.prepare_request``/``.send``.
-    """
-    session.headers = {}
-    session.get.return_value = _response({"_id": CHANNEL_ID})
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, *, api_version: str = "v2", **kwargs: Any):
-    return streamelements_source(
-        "jwt", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, api_version=api_version, **kwargs
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(StreamElementsSource(), StreamElementsSourceConfig(api_token="jwt"))
 
 
 def _tip(i: int, created_at: str = "2024-01-01T00:00:00.000Z") -> dict[str, Any]:
@@ -102,77 +85,63 @@ class TestValidateCredentials:
             (500, False),
         ],
     )
-    @mock.patch(SESSION_PATCH)
-    def test_status_mapping(self, mock_session: mock.MagicMock, status_code: int, expected_valid: bool) -> None:
-        mock_session.return_value.get.return_value = _response({"_id": CHANNEL_ID}, status_code=status_code)
-        valid, _ = validate_credentials("jwt", "v2")
+    def test_status_mapping(self, status_code: int, expected_valid: bool) -> None:
+        with scripted_network(always(_response({"_id": CHANNEL_ID}, status_code=status_code))):
+            valid, _ = validate_credentials("jwt", "v2")
         assert valid is expected_valid
 
-    @mock.patch(SESSION_PATCH)
-    def test_request_exception_returns_error(self, mock_session: mock.MagicMock) -> None:
-        import requests
-
-        mock_session.return_value.get.side_effect = requests.exceptions.ConnectionError("boom")
-        valid, message = validate_credentials("jwt", "v2")
+    def test_request_exception_returns_error(self) -> None:
+        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
+            valid, message = validate_credentials("jwt", "v2")
         assert valid is False
-        assert message == "boom"
+        assert message is not None
+        assert "boom" in message
 
 
 class TestTips:
-    @mock.patch(SESSION_PATCH)
-    def test_incremental_adds_after_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"docs": [_tip(1)], "total": 1})])
-
-        _rows(
-            _source(
-                "tips",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2019, 9, 6, 15, 54, 10, 202000, tzinfo=UTC),
-            )
+    def test_incremental_adds_after_filter(self) -> None:
+        result = _driver().run(
+            "tips",
+            _script(_response({"docs": [_tip(1)], "total": 1})),
+            api_version="v2",
+            incremental_field="createdAt",
+            db_incremental_field_last_value=datetime(2019, 9, 6, 15, 54, 10, 202000, tzinfo=UTC),
         )
-        assert snapshots[0]["params"]["after"] == 1567785250202
 
-    @mock.patch(SESSION_PATCH)
-    def test_unexpected_body_shape_fails_loud(self, MockSession: mock.MagicMock) -> None:
+        assert result.requests[-1].param("after") == "1567785250202"
+
+    def test_unexpected_body_shape_fails_loud(self) -> None:
         # A bare array where {"docs": [...]} is expected must raise, not silently sync 0 rows.
-        session = MockSession.return_value
-        _wire(session, [_response([_tip(1)])])
+        result = _driver().run("tips", _script(_response([_tip(1)])), api_version="v2")
 
-        with pytest.raises(ValueError, match="data_selector"):
-            _rows(_source("tips", _make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "data_selector" in str(result.raised)
 
 
 class TestActivities:
-    @mock.patch(SESSION_PATCH)
-    def test_full_page_of_identical_timestamps_still_progresses(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
+    def test_full_page_of_identical_timestamps_still_progresses(self) -> None:
         same_ms = "2024-01-02T00:00:00.000Z"
-        snapshots = _wire(
-            session,
-            [
+        result = _driver().run(
+            "activities",
+            _script(
                 _response([_activity(i, same_ms) for i in range(100)]),
                 _response([_activity(200, same_ms)]),
-            ],
+            ),
+            api_version="v2",
+            resume_state=StreamElementsResumeConfig(paginator_state={"before": 1704153600001}),
         )
 
-        _rows(
-            _source("activities", _make_manager(StreamElementsResumeConfig(paginator_state={"before": 1704153600001})))
-        )
+        activity_requests = [request for request in result.requests if "/activities/" in request.path]
+        before = [int(request.param("before") or 0) for request in activity_requests]
         # before must strictly decrease even when a whole page shares the bound's millisecond,
         # otherwise pagination loops on the same window forever.
-        assert snapshots[1]["params"]["before"] < snapshots[0]["params"]["before"]
+        assert len(before) == 2
+        assert before[1] < before[0]
 
 
 class TestSinglePageEndpoints:
-    @mock.patch(SESSION_PATCH)
-    def test_bot_commands_returns_bare_array(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"_id": "c1", "command": "test"}])])
+    def test_bot_commands_returns_bare_array(self) -> None:
+        result = _driver().run("bot_commands", _script(_response([{"_id": "c1", "command": "test"}])), api_version="v2")
 
-        rows = _rows(_source("bot_commands", _make_manager()))
-
-        assert session.send.call_count == 1
-        assert snapshots[0]["url"].endswith(f"/bot/commands/{CHANNEL_ID}")
-        assert [row["_id"] for row in rows] == ["c1"]
+        assert result.paths == ["/kappa/v2/channels/me", f"/kappa/v2/bot/commands/{CHANNEL_ID}"]
+        assert [row["_id"] for row in result.rows] == ["c1"]

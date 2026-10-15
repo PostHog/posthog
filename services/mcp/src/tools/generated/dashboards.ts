@@ -889,6 +889,7 @@ const dashboardsGetAll = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/`,
             query: {
+                created_by: params.created_by,
                 exclude_generated: params.exclude_generated,
                 folder: params.folder,
                 limit: params.limit,

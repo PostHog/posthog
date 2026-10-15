@@ -9,6 +9,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import (
     GithubAuthMethodConfig,
     GithubSourceConfig,
@@ -779,20 +783,13 @@ class TestGithubSource:
             (None, "2026-03-10"),
         ],
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.github_source")
-    def test_source_for_pipeline_threads_resolved_api_version(self, mock_github_source, pin, expected):
+    def test_source_for_pipeline_threads_resolved_api_version(self, pin, expected):
         config = _pat_config(repository="legacy/repo", repositories=["legacy/repo"])
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.schema_name = "issues"
-        inputs.schema_metadata = None
-        inputs.s3_folder_name = "issues"
-        inputs.should_use_incremental_field = False
-        inputs.api_version = pin
+        result = SourceDriver(self.source, config).run("issues", [ScriptedResponse(json=[])], api_version=pin)
 
-        self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
-
-        assert mock_github_source.call_args.kwargs["api_version"] == expected
+        assert result.raised is None
+        assert result.paths == ["/repos/legacy/repo/issues"]
+        assert result.requests[0].headers["x-github-api-version"] == expected
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.ensure_repo_webhook")
     def test_create_webhook_shares_one_secret_across_repos(self, mock_ensure):

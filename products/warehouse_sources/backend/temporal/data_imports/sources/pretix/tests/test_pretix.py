@@ -1,4 +1,4 @@
-import json
+import re
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -6,10 +6,14 @@ import pytest
 from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
-from requests.structures import CaseInsensitiveDict
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.pretix import pretix as px
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pretix import PretixSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.pretix import (
     HOST_NOT_ALLOWED_ERROR,
     INVALID_ORGANIZER_ERROR,
@@ -18,80 +22,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.pre
     _format_modified_since,
     _quote_organizer,
     normalize_base_url,
-    pretix_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.source import PretixSource
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-
-
-def _envelope(items: list[dict[str, Any]], next_url: Optional[str]) -> Response:
-    body = {"count": len(items), "next": next_url, "previous": None, "results": items}
-    return _json_response(body)
+IS_CLOUD_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_cloud"
 
 
-def _json_response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    return resp
+def _envelope(items: list[dict[str, Any]], next_url: Optional[str] = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"count": len(items), "next": next_url, "previous": None, "results": items})
 
 
-def _status_response(status_code: int, headers: Optional[dict[str, str]] = None) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = b"{}"
-    if headers:
-        resp.headers = CaseInsensitiveDict(headers)
-    return resp
-
-
-def _make_manager(resume_state: PretixResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[str], list[dict[str, Any]]]:
-    """Wire a mock session and capture each request's URL and params AT SEND TIME.
-
-    ``request.url``/``request.params`` are mutated in place across pages (the paginator rewrites the
-    URL to the next-page link), so snapshot a copy when each request is prepared. ``prepared.url`` must
-    be the real string so the client's ``allowed_hosts`` check can parse a host from it.
-    """
-    session.headers = {}
-    url_snapshots: list[str] = []
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        url_snapshots.append(request.url)
-        param_snapshots.append(dict(request.params or {}))
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return url_snapshots, param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock | None = None, base_url: str | None = None, **kwargs: Any):
-    return pretix_source(
-        api_token="tok",
-        organizer="acme",
-        base_url=base_url,
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager or _make_manager(),
-        **kwargs,
-    )
+def _driver(base_url: str | None = None) -> SourceDriver:
+    return SourceDriver(PretixSource(), PretixSourceConfig(organizer="acme", api_token="tok", base_url=base_url))
 
 
 class TestNormalizeBaseUrl:
@@ -142,24 +85,17 @@ class TestQuoteOrganizer:
             _quote_organizer(raw)
 
 
-@mock.patch.object(px, "_is_host_safe", return_value=(True, None))
 class TestOrganizerScopePagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_orders_incremental_url_has_filter_and_stable_ordering(self, MockSession, _host) -> None:
-        session = MockSession.return_value
-        _urls, params = _wire(session, [_envelope([{"code": "A1", "event": "conf"}], None)])
-
-        _rows(
-            _source(
-                "orders",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-                incremental_field="last_modified",
-            )
+    def test_orders_incremental_url_has_filter_and_stable_ordering(self) -> None:
+        result = _driver().run(
+            "orders",
+            [_envelope([{"code": "A1", "event": "conf"}])],
+            incremental_field="last_modified",
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        assert params[0]["modified_since"] == "2026-01-01T00:00:00Z"
-        assert params[0]["ordering"] == "last_modified"
+        assert result.requests[0].param("modified_since") == "2026-01-01T00:00:00Z"
+        assert result.requests[0].param("ordering") == "last_modified"
 
     @parameterized.expand(
         [
@@ -169,127 +105,93 @@ class TestOrganizerScopePagination:
             (True, "datetime"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_modified_since_when_not_applicable(
-        self, should_use: bool, incremental_field: str, MockSession, _host
-    ) -> None:
-        session = MockSession.return_value
-        _urls, params = _wire(session, [_envelope([], None)])
-
-        _rows(
-            _source(
-                "orders",
-                should_use_incremental_field=should_use,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-                incremental_field=incremental_field,
-            )
+    def test_no_modified_since_when_not_applicable(self, should_use: bool, incremental_field: str) -> None:
+        result = _driver().run(
+            "orders",
+            [_envelope([])],
+            should_use_incremental_field=should_use,
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        assert "modified_since" not in params[0]
+        assert "modified_since" not in result.requests[0].query
         # `ordering` is always requested for orders regardless of the incremental filter.
-        assert params[0]["ordering"] == "last_modified"
+        assert result.requests[0].param("ordering") == "last_modified"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_redirect_is_rejected(self, MockSession, _host) -> None:
-        session = MockSession.return_value
-        _wire(session, [_status_response(302, {"Location": "https://pretix.eu/login"})])
-
+    def test_redirect_is_rejected(self) -> None:
         # A 3xx is not followed (allow_redirects=False) — it must not be silently parsed as data.
-        with pytest.raises(ValueError, match="[Rr]edirect"):
-            _rows(_source("orders"))
+        result = _driver().run(
+            "orders", [ScriptedResponse(status=302, json={}, headers={"Location": "https://pretix.eu/login"})]
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert re.search("[Rr]edirect", str(result.raised))
 
 
-@mock.patch.object(px, "_is_host_safe", return_value=(True, None))
 class TestHostPinning:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_off_host_next_url_is_not_fetched(self, MockSession, _host) -> None:
-        session = MockSession.return_value
+    def test_off_host_next_url_is_not_fetched(self) -> None:
         # A malicious server handing out an off-host `next` link must never be fetched — the
         # Authorization header would otherwise be sent to an attacker-controlled origin.
-        _wire(session, [_envelope([{"code": "A1"}], "https://evil.example.com/steal?page=2")])
+        result = _driver().run("orders", [_envelope([{"code": "A1"}], "https://evil.example.com/steal?page=2")])
 
-        with pytest.raises(ValueError, match="disallowed host"):
-            _rows(_source("orders"))
-
+        assert isinstance(result.raised, ValueError)
+        assert "disallowed host" in str(result.raised)
         # Only the first (on-host) page was ever sent.
-        assert session.send.call_count == 1
+        assert len(result.requests) == 1
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_off_host_resume_url_is_rejected_before_any_request(self, MockSession, _host) -> None:
-        session = MockSession.return_value
-        _wire(session, [])
-        manager = _make_manager(PretixResumeConfig(next_url="https://evil.example.com/steal?page=5"))
+    def test_off_host_resume_url_is_rejected_before_any_request(self) -> None:
+        result = _driver().run(
+            "orders",
+            [],
+            resume_state=PretixResumeConfig(next_url="https://evil.example.com/steal?page=5"),
+        )
 
-        with pytest.raises(ValueError, match="disallowed host"):
-            _rows(_source("orders", manager))
+        assert isinstance(result.raised, ValueError)
+        assert "disallowed host" in str(result.raised)
+        assert result.requests == []
 
-        session.send.assert_not_called()
+    @mock.patch(IS_CLOUD_PATCH, return_value=True)
+    def test_unsafe_host_raises_before_building_the_source(self, _is_cloud) -> None:
+        result = _driver(base_url="https://10.0.0.5").run("orders", [], team_id=3)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unsafe_host_raises_before_building_the_source(self, MockSession, mock_host) -> None:
-        mock_host.return_value = (False, HOST_NOT_ALLOWED_ERROR)
+        assert isinstance(result.raised, PretixHostNotAllowedError)
+        assert result.response is None
+        assert result.requests == []
 
-        with pytest.raises(PretixHostNotAllowedError):
-            _source("orders", base_url="https://internal.example.com")
+    def test_http_base_url_raises_before_building_the_source(self) -> None:
+        result = _driver(base_url="http://tickets.example.com").run("orders", [])
 
-        MockSession.return_value.send.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_http_base_url_raises_before_building_the_source(self, MockSession, _host) -> None:
-        with pytest.raises(PretixHostNotAllowedError):
-            pretix_source(
-                api_token="tok",
-                organizer="acme",
-                base_url="http://tickets.example.com",
-                endpoint="orders",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-            )
-
-        MockSession.return_value.send.assert_not_called()
+        assert isinstance(result.raised, PretixHostNotAllowedError)
+        assert result.response is None
+        assert result.requests == []
 
 
-@mock.patch.object(px, "_is_host_safe", return_value=(True, None))
 class TestEventFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_per_event_and_stamps_event_slug(self, MockSession, _host) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_fans_out_per_event_and_stamps_event_slug(self) -> None:
+        result = _driver().run(
+            "items",
             [
-                _envelope([{"slug": "conf-a"}, {"slug": "conf-b"}], None),  # events discovery
-                _envelope([{"id": 1}], None),  # conf-a items
-                _envelope([{"id": 1}, {"id": 2}], None),  # conf-b items
+                _envelope([{"slug": "conf-a"}, {"slug": "conf-b"}]),  # events discovery
+                _envelope([{"id": 1}]),  # conf-a items
+                _envelope([{"id": 1}, {"id": 2}]),  # conf-b items
             ],
         )
-        manager = _make_manager()
-
-        rows = _rows(_source("items", manager))
 
         # The composite primary key (event_slug, id) stays unique even though both events reuse id=1.
-        assert [(r["event_slug"], r["id"]) for r in rows] == [("conf-a", 1), ("conf-b", 1), ("conf-b", 2)]
+        assert [(r["event_slug"], r["id"]) for r in result.rows] == [("conf-a", 1), ("conf-b", 1), ("conf-b", 2)]
         # The single-hop fan-out is resumable — a per-event checkpoint is persisted.
-        assert manager.save_state.called
-        assert manager.save_state.call_args.args[0].fanout_state is not None
+        assert result.saved_states
+        assert result.saved_states[-1].fanout_state is not None
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_event_slug_is_url_quoted_in_child_path(self, MockSession, _host) -> None:
-        session = MockSession.return_value
-        urls, _params = _wire(
-            session,
-            [_envelope([{"slug": "a/b"}], None), _envelope([], None)],
-        )
-
-        rows = _rows(_source("items", _make_manager()))
+    def test_event_slug_is_url_quoted_in_child_path(self) -> None:
+        result = _driver().run("items", [_envelope([{"slug": "a/b"}]), _envelope([])])
 
         # The slug is percent-encoded in the child URL so it can't inject an extra path segment...
-        assert any("/events/a%2Fb/items/" in url for url in urls)
+        assert any("/events/a%2Fb/items/" in url for url in result.urls)
         # ...while the raw slug is stamped into rows unchanged (there are no rows here, so just the URL).
-        assert rows == []
+        assert result.rows == []
 
 
-@mock.patch.object(px, "_is_host_safe", return_value=(True, None))
 class TestValidateCredentials:
     @parameterized.expand(
         [
@@ -300,15 +202,9 @@ class TestValidateCredentials:
             (500, False, "HTTP 500"),
         ]
     )
-    @mock.patch.object(px, "make_tracked_session")
-    def test_status_mapping(
-        self, status_code: int, expected_valid: bool, message_fragment: str | None, session_factory, _host
-    ) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=status_code)
-        session_factory.return_value = session
-
-        is_valid, message = validate_credentials("tok", "acme", None, team_id=1)
+    def test_status_mapping(self, status_code: int, expected_valid: bool, message_fragment: str | None) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
+            is_valid, message = validate_credentials("tok", "acme", None, team_id=1)
 
         assert is_valid is expected_valid
         if message_fragment is None:
@@ -316,32 +212,28 @@ class TestValidateCredentials:
         else:
             assert message is not None and message_fragment in message
 
-    @mock.patch.object(px, "make_tracked_session")
-    def test_connection_error_returns_message(self, session_factory, _host) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = Exception("network down")
-        session_factory.return_value = session
-
-        is_valid, message = validate_credentials("tok", "acme", None, team_id=1)
+    def test_connection_error_returns_message(self) -> None:
+        with scripted_network(always(ConnectionError("network down"))):
+            is_valid, message = validate_credentials("tok", "acme", None, team_id=1)
 
         assert is_valid is False
         assert message is not None and "Could not connect to pretix" in message
 
-    @mock.patch.object(px, "make_tracked_session")
-    def test_invalid_organizer_rejected_without_request(self, session_factory, _host) -> None:
-        is_valid, message = validate_credentials("tok", "  ", None, team_id=1)
+    def test_invalid_organizer_rejected_without_request(self) -> None:
+        with scripted_network([]) as network:
+            is_valid, message = validate_credentials("tok", "  ", None, team_id=1)
 
         assert is_valid is False
         assert message == INVALID_ORGANIZER_ERROR
-        session_factory.assert_not_called()
+        assert network.requests_log == []
 
-    @mock.patch.object(px, "make_tracked_session")
-    def test_http_base_url_rejected_without_request(self, session_factory, _host) -> None:
-        is_valid, message = validate_credentials("tok", "acme", "http://tickets.example.com", team_id=1)
+    def test_http_base_url_rejected_without_request(self) -> None:
+        with scripted_network([]) as network:
+            is_valid, message = validate_credentials("tok", "acme", "http://tickets.example.com", team_id=1)
 
         assert is_valid is False
         assert message is not None and "HTTPS" in message
-        session_factory.assert_not_called()
+        assert network.requests_log == []
 
 
 class TestPretixSourceResponse:
@@ -356,7 +248,8 @@ class TestPretixSourceResponse:
         ]
     )
     def test_primary_keys_per_endpoint(self, endpoint: str, primary_keys: list[str]) -> None:
-        response = _source(endpoint)
+        response = _driver().run(endpoint, always(_envelope([]))).response
 
+        assert response is not None
         assert response.primary_keys == primary_keys
         assert response.partition_mode is None

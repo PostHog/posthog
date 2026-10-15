@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
 
 import api, { getJSONOrNull } from 'lib/api'
+import { getSupportResponseTime } from 'lib/components/Support/supportResponseTime'
 import { FEATURE_FLAGS, FeatureFlagKey, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
@@ -42,6 +43,7 @@ import {
     canViewUsageAndSpend as canViewUsageAndSpendUtil,
     getMinimumBillingAccessLevel,
     getMinimumUsageSpendReadAccessLevel,
+    isCompanionProduct,
     isUsageApproachingLimit,
     isUsageAtOrOverLimit,
     isMemberUsageSpendReadAccessEnabled,
@@ -305,6 +307,7 @@ export interface billingLogicValues {
     startupProgramLabelCurrent: StartupProgramLabel | null
     startupProgramLabelPrevious: StartupProgramLabel | null
     supportPlans: BillingPlanType[]
+    supportResponseTime: string | null
     switchPlanLoading: string | null
     timeRemainingInSeconds: number
     timeTotalInSeconds: number
@@ -649,6 +652,12 @@ export interface billingLogicMeta {
         ) => number
         creditDiscount: (computedDiscount: number | null) => number
         billingPlan: (billing: BillingType | null) => BillingPlan | null
+        supportResponseTime: (
+            billing: BillingType | null,
+            billingPlan: BillingPlan | null,
+            supportPlans: BillingPlanType[],
+            currentOrganization: OrganizationType | null
+        ) => string | null
         startupProgramLabelCurrent: (billing: BillingType | null) => StartupProgramLabel | null
         startupProgramLabelPrevious: (billing: BillingType | null) => StartupProgramLabel | null
         isAnnualPlanCustomer: (billing: BillingType | null) => boolean
@@ -1226,6 +1235,21 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.billing],
             (billing: BillingType | null): BillingPlan | null => billing?.billing_plan || null,
         ],
+        supportResponseTime: [
+            (s) => [s.billing, s.billingPlan, s.supportPlans, s.currentOrganization],
+            (
+                billing: BillingType | null,
+                billingPlan: BillingPlan | null,
+                supportPlans: BillingPlanType[],
+                currentOrganization: OrganizationType | null
+            ): string | null =>
+                getSupportResponseTime({
+                    billing,
+                    billingPlan,
+                    supportPlans,
+                    organizationId: currentOrganization?.id,
+                }),
+        ],
         startupProgramLabelCurrent: [
             (s) => [s.billing],
             (billing: BillingType | null): StartupProgramLabel | null => billing?.startup_program_label || null,
@@ -1664,7 +1688,8 @@ export const billingLogic = kea<billingLogicType>([
 
             const productsAtOrOverLimit =
                 values.billing.products?.filter((x: BillingProductV2Type) => {
-                    if (!isUsageAtOrOverLimit(x.percentage_usage) || !x.usage_key) {
+                    // Companions have no billing limit, so their usage percentage is not a limit.
+                    if (!isUsageAtOrOverLimit(x.percentage_usage) || !x.usage_key || isCompanionProduct(x)) {
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`
@@ -1710,7 +1735,10 @@ export const billingLogic = kea<billingLogicType>([
 
             const productsApproachingLimit =
                 values.billing.products?.filter((x: BillingProductV2Type) => {
-                    if (!isUsageApproachingLimit(x.percentage_usage, ALLOCATION_THRESHOLD_ALERT)) {
+                    if (
+                        !isUsageApproachingLimit(x.percentage_usage, ALLOCATION_THRESHOLD_ALERT) ||
+                        isCompanionProduct(x)
+                    ) {
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`

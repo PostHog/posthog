@@ -70,10 +70,10 @@ const ROOTS = [
         root: LOGGED_OUT_BOOT,
         label: 'logged-out boot: index + App + bootApp (preloaded by every page, including /login)',
         // The backend preloads the App closure for logged-out pages too (preload-manifest.json
-        // `js`), so this is the whole JS cost of /login. 2026-10-11: 3.01 MiB eager output = 2.21 MiB
-        // JS (646 files) + 0.80 MiB stable CSS.
+        // `js`), so this is the whole JS cost of /login. 2026-10-12: 2.86 MiB eager output = 2.06 MiB
+        // JS (615 files) + 0.80 MiB stable CSS.
         // ~6% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
-        budgetBytes: 3_345_000,
+        budgetBytes: 3_180_000,
         forbidden: [
             'node_modules/monaco-editor/',
             // Authenticated-only code. Either of these on the App path means a component that
@@ -91,6 +91,12 @@ const ROOTS = [
             // file that builds a schema. Move the zod-free code of that file into its own module, as
             // sqlEditorDraftCleanup does for sqlEditorDraftStorage.
             'node_modules/zod/',
+            // Billing is for logged-in users, and billingLogic pulls in eventUsageLogic and the credit
+            // purchase UI. A hit means a module on the App path imports billingLogic. Read billing values
+            // from a logic or component that only logged-in pages load.
+            'src/scenes/billing/billingLogic.tsx',
+            // Product setup statuses need a logged-in team, so AuthenticatedShell mounts the preload.
+            'src/lib/components/ProductEmptyState/productSetupPreloadLogic.ts',
         ],
     },
     {

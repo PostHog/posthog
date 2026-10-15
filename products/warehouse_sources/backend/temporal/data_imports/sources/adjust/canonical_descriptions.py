@@ -2,7 +2,7 @@
 
 Sourced from the official Adjust Report Service API reference
 (https://dev.adjust.com/en/api/rs-api/), including its dimensions and metrics glossaries.
-Keyed by the report names in `settings.py` `ADJUST_REPORTS`, which match the
+Keyed by the report names in `settings.py` `ADJUST_REPORTS` (plus the events catalog), which match the
 `ExternalDataSchema.name` of a synced Adjust table. Column names are the dimension and metric
 names Adjust returns verbatim; columns absent here fall back to LLM enrichment.
 """
@@ -97,5 +97,73 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             _USER_COLUMNS,
             {"os_name": "Operating system of the device (for example ios or android)."},
         ),
+    },
+    "retention_report": {
+        "description": "Day 1, 7, and 30 retention per daily install cohort, broken down by attribution partner.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "day": "Calendar day (UTC) of the install cohort.",
+            "app": _BASE_COLUMNS["app"],
+            "app_token": _BASE_COLUMNS["app_token"],
+            **_PARTNER_COLUMN,
+            "installs": _BASE_COLUMNS["installs"],
+            **{
+                f"cohort_size_{cohort}": f"Users who installed or were reattributed on the day and kept the app installed for the {cohort} cohort period."
+                for cohort in ("d1", "d7", "d30")
+            },
+            **{
+                f"retained_users_{cohort}": f"Users from the cohort who were still active in the {cohort} cohort period."
+                for cohort in ("d1", "d7", "d30")
+            },
+            **{
+                f"retention_rate_{cohort}": f"Retained users divided by cohort size for the {cohort} cohort period."
+                for cohort in ("d1", "d7", "d30")
+            },
+        },
+    },
+    "skad_report": {
+        "description": "Daily SKAdNetwork (iOS) installs, reinstalls, and conversion value counts per network campaign.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "day": _BASE_COLUMNS["day"],
+            "app": _BASE_COLUMNS["app"],
+            "app_token": _BASE_COLUMNS["app_token"],
+            **_PARTNER_COLUMN,
+            "campaign_network": "Campaign name as reported by the ad network.",
+            "campaign_id_network": "Campaign identifier as reported by the ad network.",
+            "skad_installs": "SKAdNetwork postbacks representing a new install.",
+            "skad_reinstalls": "SKAdNetwork postbacks representing a reinstall.",
+            "skad_total_installs": "Total SKAdNetwork conversions (installs plus reinstalls).",
+            "valid_conversions": "SKAdNetwork postbacks with a non-null conversion value attached.",
+            "skad_conversion_value_null": "SKAdNetwork postbacks received with a null conversion value.",
+        },
+    },
+    "event_report": {
+        "description": "Daily in-app event counts per app and attribution partner, with one row per event.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "day": _BASE_COLUMNS["day"],
+            "app": _BASE_COLUMNS["app"],
+            "app_token": _BASE_COLUMNS["app_token"],
+            **_PARTNER_COLUMN,
+            "event_slug": "Adjust event slug, matching the id column of the events table.",
+            "event_name": "Readable name of the event.",
+            "events": "Number of times the event was triggered on the day.",
+        },
+    },
+    "events": {
+        "description": "Catalog of in-app events configured in Adjust, with the slugs used to request event metrics in reports.",
+        "docs_url": "https://dev.adjust.com/en/api/rs-api/events/",
+        "columns": {
+            "id": "Event slug, used to build report metric names such as `{slug}_events`.",
+            "name": "Readable name of the event.",
+            "short_name": "Shortened name of the event.",
+            "section": "Report section the event belongs to.",
+            "formatting": "Format the event's data is stored in (for example money).",
+            "app_token": "App tokens the event is associated with.",
+            "tokens": "Event token or tokens.",
+            "is_skad_event": "Whether the event is a SKAdNetwork event.",
+            "app_token_x_event_tokens_mapping": "Mapping of app tokens to the event's tokens in each app.",
+        },
     },
 }

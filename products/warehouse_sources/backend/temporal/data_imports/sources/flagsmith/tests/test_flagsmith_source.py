@@ -1,6 +1,7 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.flagsmith.source import FlagsmithSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flagsmith import (
@@ -111,9 +112,8 @@ class TestFlagsmithSource:
 
     def test_source_for_pipeline_rejects_invalid_base_url(self):
         config = FlagsmithSourceConfig(api_key="org-key", base_url="https://user@evil.example.com")
-        inputs = mock.MagicMock()
-        inputs.schema_name = "features"
-        inputs.team_id = self.team_id
+        result = SourceDriver(self.source, config).run("features", [])
 
-        with pytest.raises(ValueError, match="Invalid Flagsmith API URL"):
-            self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Invalid Flagsmith API URL"
+        assert result.requests == []

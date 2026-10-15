@@ -19,6 +19,7 @@ import type {
     ExperimentApi,
     ExperimentFlagCleanupTargetApi,
     ExperimentFlagCleanupTaskApi,
+    ExperimentHealthApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
     ExperimentInSessionExposureApi,
@@ -688,6 +689,28 @@ export const experimentsFreezeExposureCreate = async (
     return apiMutator<ExperimentApi>(getExperimentsFreezeExposureCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/health/`
+}
+
+/**
+ * Health check findings for this experiment: problems in its configuration and its feature flag
+ * that keep it from producing trustworthy results, each with a fix.
+ *
+ * The checks here read the experiment, its flag and its linked metrics. The checks that read
+ * exposures come with the exposure query.
+ */
+export const experimentsHealthRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentHealthApi> => {
+    return apiMutator<ExperimentHealthApi>(getExperimentsHealthRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

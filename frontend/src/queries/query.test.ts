@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
+import { NetworkError } from 'lib/api-error'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
@@ -293,6 +294,103 @@ describe('query', () => {
         })
     })
 
+    describe('pollForResults while offline', () => {
+        const originalVisibilityState = document.visibilityState
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+        })
+
+        afterEach(() => {
+            Object.defineProperty(document, 'visibilityState', { value: originalVisibilityState, configurable: true })
+            jest.restoreAllMocks()
+            jest.useRealTimers()
+        })
+
+        it.each(['before polling', 'during the poll delay', 'while hidden'])(
+            'waits for reconnect %s without using the deadline',
+            async (when) => {
+                const online = jest.spyOn(navigator, 'onLine', 'get')
+                online.mockReturnValue(when === 'during the poll delay')
+                const status = { complete: true, results: ['ok'] }
+                const statusSpy = jest.spyOn(api.queryStatus, 'get').mockResolvedValue({ query_status: status } as any)
+                const promise = pollForResults('test-query-id')
+
+                if (when === 'during the poll delay') {
+                    await jest.advanceTimersByTimeAsync(100)
+                    online.mockReturnValue(false)
+                }
+                await jest.advanceTimersByTimeAsync(11 * 60 * 1000)
+                expect(statusSpy).not.toHaveBeenCalled()
+
+                if (when === 'while hidden') {
+                    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+                }
+                online.mockReturnValue(true)
+                window.dispatchEvent(new Event('online'))
+                if (when === 'while hidden') {
+                    await jest.advanceTimersByTimeAsync(1000)
+                    expect(statusSpy).not.toHaveBeenCalled()
+                    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+                    document.dispatchEvent(new Event('visibilitychange'))
+                }
+                await jest.advanceTimersByTimeAsync(300)
+                await expect(promise).resolves.toEqual(status)
+            }
+        )
+
+        it.each([false, true])('recovers an offline poll when already reconnected is %s', async (reconnected) => {
+            const online = jest.spyOn(navigator, 'onLine', 'get')
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockResolvedValue({ query_status: { id: 'test-query-id', complete: false } } as any)
+            const statusSpy = jest
+                .spyOn(api.queryStatus, 'get')
+                .mockImplementationOnce(async () => {
+                    online.mockReturnValue(reconnected)
+                    throw new NetworkError('offline')
+                })
+                .mockResolvedValueOnce({ query_status: { complete: true, results: ['ok'] } } as any)
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
+            const promise = performQuery({ kind: NodeKind.EventsQuery, select: ['*'] }, undefined, 'async')
+
+            await jest.advanceTimersByTimeAsync(300)
+            if (!reconnected) {
+                await jest.advanceTimersByTimeAsync(11 * 60 * 1000)
+                expect(statusSpy).toHaveBeenCalledTimes(1)
+                online.mockReturnValue(true)
+                window.dispatchEvent(new Event('online'))
+            }
+            await jest.advanceTimersByTimeAsync(375)
+
+            await expect(promise).resolves.toEqual(['ok'])
+            expect(querySpy).toHaveBeenCalledTimes(1)
+            expect(statusSpy.mock.calls.map(([id]) => id)).toEqual(['test-query-id', 'test-query-id'])
+            expect(capture.mock.calls.filter(([event]) => event === 'query failed')).toHaveLength(0)
+            expect(capture.mock.calls.filter(([event]) => event === 'query completed')).toHaveLength(1)
+        })
+
+        it.each(['before polling', 'while waiting'])('cancels offline polling %s', async (when) => {
+            jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+            const statusSpy = jest.spyOn(api.queryStatus, 'get')
+            const controller = new AbortController()
+            if (when === 'before polling') {
+                controller.abort()
+            }
+            const promise = pollForResults('test-query-id', { signal: controller.signal })
+            const rejected = expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+            await jest.advanceTimersByTimeAsync(0)
+            controller.abort()
+            await rejected
+
+            jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+            window.dispatchEvent(new Event('online'))
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(statusSpy).not.toHaveBeenCalled()
+        })
+    })
+
     describe('polling a query the server has forgotten', () => {
         const query = { kind: NodeKind.EventsQuery, select: ['*'] } as EventsQuery
         const submitted = (id: string): any => ({ query_status: { id, complete: false } })
@@ -361,6 +459,8 @@ describe('query', () => {
 
         it.each([
             ['an error that is not a 404', new ApiError('boom', 500), undefined],
+            ['a network failure while online', new NetworkError('network'), undefined],
+            ['a request during navigation', new NetworkError('navigating'), undefined],
             ['an error with a caller-supplied ID', new ApiError('boom', 500), 'client-query-id'],
             [
                 'a warehouse whose connection is down',
@@ -377,7 +477,7 @@ describe('query', () => {
             expect(querySpy).toHaveBeenCalledTimes(1)
             const queryFailedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
             expect(queryFailedCalls).toHaveLength(1)
-            expect(queryFailedCalls[0][1]).toMatchObject({ queryId: 'gone', error_status: failure.status })
+            expect(queryFailedCalls[0][1]).toMatchObject({ queryId: 'gone', error_status: failure.status ?? null })
             expect(captureSpy.mock.calls.filter((call) => call[0] === 'query completed')).toHaveLength(0)
         })
 

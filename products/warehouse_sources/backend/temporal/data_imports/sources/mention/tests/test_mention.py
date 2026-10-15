@@ -2,11 +2,20 @@ from collections.abc import Mapping
 from typing import Any, Optional
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mention import (
+    MentionSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mention import mention
 from products.warehouse_sources.backend.temporal.data_imports.sources.mention.mention import (
     MENTION_BASE_URL,
@@ -16,13 +25,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mention.me
     _more_url,
     check_access,
     get_rows,
-    mention_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mention.settings import (
     ENDPOINTS,
     MENTION_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.mention.source import MentionSource
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = mention._fetch_page.__wrapped__  # type: ignore[attr-defined]
@@ -52,6 +61,10 @@ class _FakeResumableManager:
 
 class TestGetRows:
     @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(MentionSource(), MentionSourceConfig(access_token="tok"))
+
+    @staticmethod
     def _collect(
         manager: _FakeResumableManager,
         monkeypatch: Any,
@@ -77,80 +90,103 @@ class TestGetRows:
             rows.extend(batch)
         return rows
 
-    def test_alerts_follows_more_link_and_unwraps_items(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        first = f"{MENTION_BASE_URL}/accounts/acc1/alerts?limit=100"
+    def test_alerts_follows_more_link_and_unwraps_items(self) -> None:
         more_href = "/api/accounts/acc1/alerts?limit=100&cursor=abc"
         second = f"{MENTION_HOST}{more_href}"
-        pages = {
-            ME_URL: ME_PAYLOAD,
-            # The docs show list items in single-GET form ({"alert": {...}}) — both shapes must work.
-            first: {"alerts": [{"alert": {"id": 11}}], "_links": {"more": {"href": more_href}}},
-            second: {"alerts": [{"id": 22}]},
-        }
-        rows = self._collect(manager, monkeypatch, pages, "alerts")
-        assert rows == [{"id": 11}, {"id": 22}]
+        result = self._driver().run(
+            "alerts",
+            [
+                ScriptedResponse(json=ME_PAYLOAD),
+                # The docs show list items in single-GET form ({"alert": {...}}) — both shapes must work.
+                ScriptedResponse(json={"alerts": [{"alert": {"id": 11}}], "_links": {"more": {"href": more_href}}}),
+                ScriptedResponse(json={"alerts": [{"id": 22}]}),
+            ],
+            api_version=mention.API_VERSION_1_19,
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": 11}, {"id": 22}]
+        assert result.paths == ["/api/accounts/me", "/api/accounts/acc1/alerts", "/api/accounts/acc1/alerts"]
+        assert result.params("limit") == [None, "100", "100"]
+        assert result.params("cursor") == [None, None, "abc"]
         # State is saved once — after the first page, pointing at the resolved absolute cursor URL.
-        assert [s.next_url for s in manager.saved] == [second]
+        assert result.saved_states == [MentionResumeConfig(next_url=second)]
 
-    def test_alerts_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
+    def test_alerts_resumes_from_saved_cursor(self) -> None:
         second = f"{MENTION_HOST}/api/accounts/acc1/alerts?limit=100&cursor=abc"
-        manager = _FakeResumableManager(MentionResumeConfig(next_url=second))
         # Neither /accounts/me nor the first page may be fetched on resume.
-        rows = self._collect(manager, monkeypatch, {second: {"alerts": [{"id": 22}]}}, "alerts")
-        assert rows == [{"id": 22}]
+        result = self._driver().run(
+            "alerts",
+            [ScriptedResponse(json={"alerts": [{"id": 22}]})],
+            resume_state=MentionResumeConfig(next_url=second),
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": 22}]
+        assert result.urls == [second]
 
-    def test_mentions_fan_out_injects_alert_id_and_saves_state(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        alerts_url = f"{MENTION_BASE_URL}/accounts/acc1/alerts?limit=100"
-        first_11 = f"{MENTION_BASE_URL}/accounts/acc1/alerts/11/mentions?limit=100"
+    def test_mentions_fan_out_injects_alert_id_and_saves_state(self) -> None:
         more_href = "/api/accounts/acc1/alerts/11/mentions?limit=100&before_date=2024-01-01T00:00:00.0"
         second_11 = f"{MENTION_HOST}{more_href}"
-        first_22 = f"{MENTION_BASE_URL}/accounts/acc1/alerts/22/mentions?limit=100"
-        pages = {
-            ME_URL: ME_PAYLOAD,
-            alerts_url: {"alerts": [{"alert": {"id": 11}}, {"alert": {"id": 22}}]},
-            first_11: {"mentions": [{"id": "m1", "alert_id": 11}], "_links": {"more": {"href": more_href}}},
-            second_11: {"mentions": [{"id": "m2", "alert_id": 11}], "_links": {}},
-            first_22: {"mentions": [{"id": "m3", "alert_id": 22}], "_links": {}},
-        }
-        rows = self._collect(manager, monkeypatch, pages, "mentions")
+        result = self._driver().run(
+            "mentions",
+            [
+                ScriptedResponse(json=ME_PAYLOAD),
+                ScriptedResponse(json={"alerts": [{"alert": {"id": 11}}, {"alert": {"id": 22}}]}),
+                ScriptedResponse(
+                    json={"mentions": [{"id": "m1", "alert_id": 11}], "_links": {"more": {"href": more_href}}}
+                ),
+                ScriptedResponse(json={"mentions": [{"id": "m2", "alert_id": 11}], "_links": {}}),
+                ScriptedResponse(json={"mentions": [{"id": "m3", "alert_id": 22}], "_links": {}}),
+            ],
+            api_version=mention.API_VERSION_1_19,
+        )
+        assert result.raised is None
         # alert_id is normalized to a string so the composite merge key type is consistent.
-        assert rows == [
+        assert result.rows == [
             {"id": "m1", "alert_id": "11"},
             {"id": "m2", "alert_id": "11"},
             {"id": "m3", "alert_id": "22"},
         ]
-        assert [(s.alert_ids, s.next_url) for s in manager.saved] == [
+        assert [(s.alert_ids, s.next_url) for s in result.saved_states] == [
             (["11", "22"], second_11),
             (["22"], None),
             ([], None),
         ]
+        assert result.paths == [
+            "/api/accounts/me",
+            "/api/accounts/acc1/alerts",
+            "/api/accounts/acc1/alerts/11/mentions",
+            "/api/accounts/acc1/alerts/11/mentions",
+            "/api/accounts/acc1/alerts/22/mentions",
+        ]
+        assert result.params("before_date") == [None, None, None, "2024-01-01T00:00:00.0", None]
 
-    def test_mentions_resume_skips_completed_alerts_and_uses_cursor(self, monkeypatch: Any) -> None:
+    def test_mentions_resume_skips_completed_alerts_and_uses_cursor(self) -> None:
         cursor = f"{MENTION_HOST}/api/accounts/acc1/alerts/22/mentions?limit=100&before_date=2024-01-01T00:00:00.0"
-        manager = _FakeResumableManager(MentionResumeConfig(alert_ids=["22"], next_url=cursor))
         # Alert 11 and the alerts listing must never be re-fetched; alert 22 resumes mid-pagination.
-        pages = {
-            ME_URL: ME_PAYLOAD,
-            cursor: {"mentions": [{"id": "m4"}], "_links": {}},
-        }
-        rows = self._collect(manager, monkeypatch, pages, "mentions")
-        assert rows == [{"id": "m4", "alert_id": "22"}]
+        result = self._driver().run(
+            "mentions",
+            [ScriptedResponse(json=ME_PAYLOAD), ScriptedResponse(json={"mentions": [{"id": "m4"}], "_links": {}})],
+            resume_state=MentionResumeConfig(alert_ids=["22"], next_url=cursor),
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": "m4", "alert_id": "22"}]
+        assert result.urls == [ME_URL, cursor]
 
-    def test_alert_tags_injects_alert_id_without_pagination(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        alerts_url = f"{MENTION_BASE_URL}/accounts/acc1/alerts?limit=100"
-        tags_url = f"{MENTION_BASE_URL}/accounts/acc1/alerts/11/tags"
-        pages = {
-            ME_URL: ME_PAYLOAD,
-            alerts_url: {"alerts": [{"alert": {"id": 11}}]},
-            # The tags endpoint's `_links` is an empty list, not a dict — must not be treated as a cursor.
-            tags_url: {"tags": [{"id": 46468, "name": "space"}], "_links": []},
-        }
-        rows = self._collect(manager, monkeypatch, pages, "alert_tags")
-        assert rows == [{"id": 46468, "name": "space", "alert_id": "11"}]
-        assert [s.alert_ids for s in manager.saved] == [[]]
+    def test_alert_tags_injects_alert_id_without_pagination(self) -> None:
+        result = self._driver().run(
+            "alert_tags",
+            [
+                ScriptedResponse(json=ME_PAYLOAD),
+                ScriptedResponse(json={"alerts": [{"alert": {"id": 11}}]}),
+                # The tags endpoint's `_links` is an empty list, not a dict — must not be treated as a cursor.
+                ScriptedResponse(json={"tags": [{"id": 46468, "name": "space"}], "_links": []}),
+            ],
+            api_version=mention.API_VERSION_1_19,
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": 46468, "name": "space", "alert_id": "11"}]
+        assert result.paths == ["/api/accounts/me", "/api/accounts/acc1/alerts", "/api/accounts/acc1/alerts/11/tags"]
+        assert result.saved_states == [MentionResumeConfig(alert_ids=[])]
 
     @parameterized.expand([("alert_authors", "authors"), ("alert_tasks", "tasks")])
     def test_paginated_fan_out_walks_each_alert_and_stages_state(self, endpoint: str, path: str) -> None:
@@ -263,40 +299,13 @@ class TestGetRows:
 
 
 class TestApiVersioning:
-    @staticmethod
-    def _run(pages: Mapping[str, Any], endpoint: str, api_version: str) -> tuple[dict[str, str], list[str]]:
-        requested_urls: list[str] = []
-        captured: dict[str, dict[str, str]] = {}
-
-        def fake_fetch(session: Any, url: str, logger: Any) -> dict[str, Any]:
-            requested_urls.append(url)
-            assert url in pages, f"unexpected request to {url}"
-            return pages[url]
-
-        def fake_session(**kwargs: Any) -> MagicMock:
-            captured["headers"] = kwargs["headers"]
-            return MagicMock()
-
-        with (
-            patch.object(mention, "_fetch_page", fake_fetch),
-            patch.object(mention, "make_tracked_session", fake_session),
-        ):
-            for _ in get_rows(
-                access_token="tok",
-                endpoint=endpoint,
-                logger=MagicMock(),
-                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                api_version=api_version,
-            ):
-                pass
-        return captured["headers"], requested_urls
-
     @parameterized.expand([(v,) for v in mention.SUPPORTED_API_VERSIONS])
     def test_pinned_version_reaches_accept_version_header(self, api_version: str) -> None:
         # A pinned source must send its version; otherwise the sync silently tracks the app's
         # configured version — the drift the pinning framework exists to prevent.
-        headers, _ = self._run({ME_URL: ME_PAYLOAD}, "accounts", api_version)
-        assert headers["Accept-Version"] == api_version
+        result = TestGetRows._driver().run("accounts", [ScriptedResponse(json=ME_PAYLOAD)], api_version=api_version)
+        assert result.raised is None
+        assert result.requests[0].headers["accept-version"] == api_version
 
     @parameterized.expand(
         [
@@ -310,8 +319,13 @@ class TestApiVersioning:
     def test_alerts_request_asks_for_stats_only_from_1_21(self, api_version: str, alerts_url: str) -> None:
         # 1.21 empties the alert `stats` field unless the counters are requested explicitly; 1.19
         # returns them by default, so only the newer version appends the `stats` query parameter.
-        _, requested_urls = self._run({ME_URL: ME_PAYLOAD, alerts_url: {"alerts": [{"id": 1}]}}, "alerts", api_version)
-        assert requested_urls[-1] == alerts_url
+        result = TestGetRows._driver().run(
+            "alerts",
+            [ScriptedResponse(json=ME_PAYLOAD), ScriptedResponse(json={"alerts": [{"id": 1}]})],
+            api_version=api_version,
+        )
+        assert result.raised is None
+        assert result.urls[-1] == alerts_url
 
 
 class TestFetchPage:
@@ -384,14 +398,6 @@ class TestMoreUrl:
 
 
 class TestCheckAccess:
-    def _session(self, response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
-
     @parameterized.expand(
         [
             ("ok", 200, True, 200, None),
@@ -403,18 +409,18 @@ class TestCheckAccess:
     def test_status_mapping(
         self, _name: str, status: int, ok: bool, expected_status: int, expected_message: str | None
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        with patch.object(mention, "make_tracked_session", return_value=self._session(response)):
+        script = always(ScriptedResponse(status=status)) if status >= 500 else [ScriptedResponse(status=status)]
+        with scripted_network(script) as network:
             assert check_access("tok") == (expected_status, expected_message)
+        assert network.requests_log[0].path == "/api/accounts/me"
+        assert network.requests_log[0].headers["authorization"] == "Bearer tok"
 
     def test_connection_error_maps_to_zero(self) -> None:
-        session = self._session(requests.ConnectionError("boom"))
-        with patch.object(mention, "make_tracked_session", return_value=session):
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
             status, message = check_access("tok")
         assert status == 0
         assert message is not None and "boom" in message
+        assert {request.path for request in network.requests_log} == {"/api/accounts/me"}
 
     @parameterized.expand(
         [
@@ -427,23 +433,22 @@ class TestCheckAccess:
     def test_validate_credentials(
         self, _name: str, status: int, expected_valid: bool, expected_message: str | None
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        with patch.object(mention, "make_tracked_session", return_value=self._session(response)):
+        script = always(ScriptedResponse(status=status)) if status >= 500 else [ScriptedResponse(status=status)]
+        with scripted_network(script) as network:
             assert validate_credentials("tok") == (expected_valid, expected_message)
+        assert network.requests_log[0].path == "/api/accounts/me"
 
 
 class TestMentionSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = mention_source(
-            access_token="tok",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-            api_version=mention.DEFAULT_API_VERSION,
-        )
+        script = [ScriptedResponse(json=ME_PAYLOAD)]
+        if endpoint != "accounts":
+            script.append(ScriptedResponse(json={"alerts": []}))
+        result = TestGetRows._driver().run(endpoint, script)
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == MENTION_ENDPOINTS[endpoint].primary_keys
         # No stable creation timestamp is guaranteed across every object, so we don't partition.

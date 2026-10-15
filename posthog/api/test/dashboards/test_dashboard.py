@@ -244,6 +244,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         for name in excluded:
             assert name not in result_names, f"expected {name!r} excluded, got {result_names}"
 
+    def test_list_filter_by_creator(self):
+        mine_id, _ = self.dashboard_api.create_dashboard({"name": "mine"})
+        theirs_id, _ = self.dashboard_api.create_dashboard({"name": "theirs"})
+        other_user = User.objects.create_and_join(self.organization, "dashboard-creator@example.com", None)
+        Dashboard.objects.filter(id=theirs_id).update(created_by=other_user)
+
+        response = self.dashboard_api.list_dashboards(query_params={"created_by": str(self.user.uuid)})
+
+        assert [d["id"] for d in response["results"]] == [mine_id]
+        self.dashboard_api.list_dashboards(
+            query_params={"created_by": "not-a-uuid"}, expected_status=status.HTTP_400_BAD_REQUEST
+        )
+
     def test_list_filter_by_search_matches_description_with_lower_rank_than_name(self):
         # Description matches are kept but rank below name matches.
         name_match_id, _ = self.dashboard_api.create_dashboard({"name": "revenue"})

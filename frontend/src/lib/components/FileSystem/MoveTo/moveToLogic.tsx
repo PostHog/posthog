@@ -4,9 +4,8 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { PROJECT_TREE_KEY, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { calculateMovePath, parentPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 

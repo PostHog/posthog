@@ -247,7 +247,6 @@ async def test_s3_export_workflow_with_request_timeouts(
     to a `RequestTimeout` on the first run of the batch export. The second run should work normally.
     """
     batch_export_model = BatchExportModel(name="events", schema=None)
-    batch_export_schema = None
 
     raised = 0
 
@@ -283,7 +282,6 @@ async def test_s3_export_workflow_with_request_timeouts(
         batch_export_id=str(s3_compatible_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
         interval=interval,
         integration_id=s3_compatible_batch_export.destination.integration_id,
         **s3_compatible_batch_export.destination.config,

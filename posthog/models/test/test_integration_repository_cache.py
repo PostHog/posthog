@@ -82,7 +82,9 @@ class TestGitHubRepositoryFullCache(BaseTest):
         )
 
     def _cache_for(self, integration: Integration) -> GitHubRepositoryFullCache:
-        return GitHubRepositoryFullCache(GitHubIntegration(integration), priority=Priority.BATCH)
+        return GitHubRepositoryFullCache(
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL), priority=Priority.BATCH
+        )
 
     def test_sync_full_cache_entry_populates_all_fields(self):
         integration = self._create_integration()
@@ -679,7 +681,9 @@ class TestSyncFullCacheLock(BaseTest):
         )
 
     def _cache_for(self, integration: Integration) -> GitHubRepositoryFullCache:
-        return GitHubRepositoryFullCache(GitHubIntegration(integration), priority=Priority.BATCH)
+        return GitHubRepositoryFullCache(
+            GitHubIntegration(integration, source="test", priority=Priority.CRITICAL), priority=Priority.BATCH
+        )
 
     # In TEST mode `posthog.redis.get_client()` and `get_async_client()` return separate
     # fakeredis instances with no shared state, so these tests use the async client throughout.

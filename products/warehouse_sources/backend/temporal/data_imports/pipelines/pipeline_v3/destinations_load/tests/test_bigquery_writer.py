@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from google.api_core.exceptions import NotFound, ServiceUnavailable
+from google.api_core.exceptions import Forbidden, NotFound, ServiceUnavailable
 from google.auth.exceptions import RefreshError
 from google.cloud import bigquery
 
@@ -219,6 +219,19 @@ class TestConfigValidation:
         writer = LocalBigQueryWriter(_ctx(), client)
 
         with pytest.raises(DestinationConfigurationError, match="Token Creator"):
+            await writer.prepare_run(_ctx())
+
+    @pytest.mark.asyncio
+    async def test_a_service_account_missing_an_iam_permission_is_a_configuration_error(self) -> None:
+        client = FakeBigQueryClient()
+        client.create_dataset = MagicMock(  # type: ignore[method-assign]
+            side_effect=Forbidden(
+                "Access Denied: Project proj: User does not have bigquery.datasets.create permission in project proj."
+            )
+        )
+        writer = LocalBigQueryWriter(_ctx(), client)
+
+        with pytest.raises(DestinationConfigurationError, match="Data Editor"):
             await writer.prepare_run(_ctx())
 
 

@@ -3,7 +3,7 @@ import { AddressInfo } from 'net'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { PushCaptureService } from './push-capture'
+import { CaptureBillingLimitError, PushCaptureService } from './push-capture'
 
 describe('PushCaptureService', () => {
     let server: Server
@@ -108,15 +108,18 @@ describe('PushCaptureService', () => {
     })
 
     it.each([
-        ['a client error', 400, 1],
-        ['an auth error', 401, 1],
-        ['a rate limit, which django does not retry either', 429, 1],
-        ['a server error that persists', 500, 4],
-        ['an unavailable capture that persists', 503, 4],
-    ])('throws on %s so the SDK is not told it stored', async (_name, code, requests) => {
+        ['a client error', 400, 1, Error],
+        ['an auth error', 401, 1, Error],
+        ['a billing limit', 402, 1, CaptureBillingLimitError],
+        ['a rate limit, which django does not retry either', 429, 1, Error],
+        ['a server error that persists', 500, 4, Error],
+        ['an unavailable capture that persists', 503, 4, Error],
+    ])('throws on %s so the SDK is not told it stored', async (_name, code, requests, errorClass) => {
         status = code
 
-        await expect(send()).rejects.toThrow(`capture returned ${code}`)
+        const error = await send().catch((e: unknown) => e)
+        expect(error).toBeInstanceOf(errorClass)
+        expect(error).toMatchObject({ message: `capture returned ${code}` })
         expect(received).toHaveLength(requests)
     })
 

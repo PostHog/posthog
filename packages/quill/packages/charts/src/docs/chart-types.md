@@ -22,6 +22,7 @@ Takes `series: ScatterSeries[]`, each `{ key, label, points: { x, y, label?, rad
 - On a log axis, points with a non-positive coordinate are dropped. A pinned `domain` narrows the chart rather than the viewport: points outside it are dropped too, so nothing piles onto the plot edge at a value it does not have.
 - `shape` (`circle | square | triangle | cross`) separates series without relying on color. Markers fill at `config.fillOpacity` (0.7) over an opaque outline so a dense cloud reads as density.
 - Hit-testing is 2D and edge-based: the tooltip resolves the marker nearest the cursor in both axes (a large marker the cursor sits inside beats a small one whose center is nearer), and empty plot area resolves to nothing rather than to the nearest column.
+- `config.isPointHighlighted` draws selection halos without replacing series or rebuilding geometry. Keep the callback stable until the selection changes.
 - `onPointClick` and the `tooltip` render prop receive the resolved `ScatterPointDatum` (with its series and `meta`), not a data index. `config.tooltip` takes `enabled`, `placement`, `labelFormatter`, `xFormatter`, `yFormatter`. The default tooltip labels its two rows from the axis titles, falling back to the hovered point's series label for y and to `X` for x; a header that would repeat the y row is dropped.
 - Chrome toggles are the usual `showGrid`, `showAxisLines`, `showTickMarks`, `showCrosshair`, all on by default. X ticks are resolved once per layout, so grid lines, tick marks, and labels are one set.
 - `showBestFit` draws a dashed least-squares line per series, in that series' color, spanning only its own points. It is canvas, not `TrendLineOverlay`, whose regression fits y against the array index and means nothing where x is a measure. The fit runs over pixel positions, so it minimizes the right residuals on both linear and log axes, and it sees only drawn points: a series with fewer than two, or all at one x, gets no line.
@@ -74,6 +75,23 @@ It takes the same `series` as `PieChart` and sizes each part the same way as a p
 - A `tooltip` render prop receives the hovered part as `seriesData[0]`, with its raw `value` and its `fraction` of the visible parts, as on `PieChart`.
 - `barHeight` sets the bar thickness. The chart takes its height from the bar and the legend, so it does not need a parent with a fixed height. It does not grow to fill a flex parent either, so the legend stays next to the bar; center the pair in the parent if you want it in the middle.
 
+## BarList
+
+Ranked rows: a label, a bar on a neutral track, and a value, one row per series.
+It is a preset over a one-series stacked `BarChart` with `axisOrientation: 'horizontal'` and `bars.track: 'solid'`.
+
+- It takes the same `series` as `PieChart` and values a row the same way, as the sum of its data floored at 0. Rows keep the order of `series`, so sort them first.
+- `config.scale: 'max'` (default) fills the track with the largest row. `'total'` makes the track the whole, so a bar shows its share.
+- `total` sets the whole that shares are taken of. It defaults to the sum of the rows. Set it when the rows are the top of a larger whole.
+- `config.valueDisplay` picks the value column: `'value'` (default), `'percent'`, or `'both'` for `share · value`. `valueFormatter` formats the value part and the tooltip.
+  With `labelPosition: 'start'`, a list narrower than 28rem shows only the share for `'both'`, so the bar keeps its room. The root is a size container for this query, so it takes its width from its parent and not from its content.
+- `renderLabel(series)` replaces the label cell content, for example with an icon or a link. The labels and values are DOM, outside the canvas, so a link in a label needs no overlay attribute.
+- `config.labelPosition: 'start'` (default) puts the label left of the bar and the value right of it. The label column sizes to its content up to 40% of the width and truncates past that. The value column sizes to its content, and the bar column takes the rest.
+- `config.labelPosition: 'top'` puts the label and the value on one line above the bar. Use it for long labels such as URL paths, or for narrow lists, because the bar and the label get the full width. The label line sits on top of the chart, so the tooltip shows only over the bar and its track.
+- Each row is `config.rowHeight` tall (default 28, or 40 for `'top'`) and each bar is `config.barHeight` thick (default 12, or 8 for `'top'`). The chart takes its height from the rows, so it does not need a parent with a fixed height.
+- The tooltip uses `hitArea: 'band'`, so a row reports its tooltip anywhere along its track. It shows the row label and the formatted value. A `tooltip` render prop replaces it, and `seriesData[0].series.meta` is the `meta` of the hovered row.
+- A non-zero row stays at least 4px long, so a row with a tiny share still shows next to the largest row.
+
 ## BoxPlot
 
 Distribution summaries: `{ min, p25, median, mean, p75, max }` per label.
@@ -86,6 +104,9 @@ The tooltip receives a `BoxPlotTooltipContext`; `BoxPlotTooltip` is the default.
 A 2D density grid: `xLabels` by `yLabels` (row 0 at the bottom), `cells[row][col]` counts mapped to color intensity on one accent.
 Log ramp by default; `colorScale: 'linear'` to opt out.
 A single-cell tooltip resolves from the cursor, `onCellClick` reports `{ xIndex, yIndex, value }`, and `onBrush` reports row and column index ranges.
+`config.cellLabel` prints a number in each cell, for a grid read as values rather than only as density (a retention table).
+It runs for every cell, empty ones included; return null to leave one blank.
+Each label takes light or dark text from the cell fill behind it, and is dropped when the cell is too small for the text, so a dense grid falls back to a plain density map.
 
 ## SankeyChart
 

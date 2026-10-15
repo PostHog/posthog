@@ -114,6 +114,9 @@ import type {
     UserType,
 } from '../../types'
 import {
+    BACK_BUTTON_DEFAULT_TEXT,
+    INTRO_SCREEN_DEFAULT_BUTTON_TEXT,
+    INTRO_SCREEN_TEXT_FIELDS,
     LOADING_SURVEY_RESULTS_TOAST_ID,
     NEW_SURVEY,
     NewSurvey,
@@ -197,6 +200,10 @@ type SurveyTranslationDraftPayload = {
         thankYouMessageHeader?: string
         thankYouMessageDescription?: string
         thankYouMessageCloseButtonText?: string
+        introScreenHeader?: string
+        introScreenDescription?: string
+        introScreenButtonText?: string
+        backButtonText?: string
     }
     questions?: SurveyTranslationDraftQuestion[]
     translations?: Survey['translations']
@@ -239,7 +246,7 @@ function getTranslationDraftQuestionId(question: SurveyQuestion, index: number):
     return question.id || `${DRAFT_TRANSLATION_QUESTION_ID_PREFIX}${index}`
 }
 
-function getSurveyTranslationDraftPayload(survey: Survey | NewSurvey): SurveyTranslationDraftPayload {
+export function getSurveyTranslationDraftPayload(survey: Survey | NewSurvey): SurveyTranslationDraftPayload {
     return {
         name: survey.name,
         description: survey.description,
@@ -248,6 +255,14 @@ function getSurveyTranslationDraftPayload(survey: Survey | NewSurvey): SurveyTra
             thankYouMessageHeader: survey.appearance?.thankYouMessageHeader,
             thankYouMessageDescription: survey.appearance?.thankYouMessageDescription,
             thankYouMessageCloseButtonText: survey.appearance?.thankYouMessageCloseButtonText,
+            introScreenHeader: survey.appearance?.introScreenHeader,
+            introScreenDescription: survey.appearance?.introScreenDescription,
+            introScreenButtonText: survey.appearance?.displayIntroScreen
+                ? survey.appearance.introScreenButtonText || INTRO_SCREEN_DEFAULT_BUTTON_TEXT
+                : survey.appearance?.introScreenButtonText,
+            backButtonText: survey.appearance?.allowGoBack
+                ? survey.appearance.backButtonText || BACK_BUTTON_DEFAULT_TEXT
+                : undefined,
         },
         questions: survey.questions.map((question, index): SurveyTranslationDraftQuestion => {
             const draftQuestion: SurveyTranslationDraftQuestion = {
@@ -1059,6 +1074,9 @@ export interface surveyLogicActions {
                             string,
                             {
                                 backButtonText?: string | undefined
+                                introScreenButtonText?: string | undefined
+                                introScreenDescription?: string | undefined
+                                introScreenHeader?: string | undefined
                                 name?: string | undefined
                                 submitButtonText?: string | undefined
                                 thankYouMessageCloseButtonText?: string | undefined
@@ -1115,6 +1133,9 @@ export interface surveyLogicActions {
                             string,
                             {
                                 backButtonText?: string | undefined
+                                introScreenButtonText?: string | undefined
+                                introScreenDescription?: string | undefined
+                                introScreenHeader?: string | undefined
                                 name?: string | undefined
                                 submitButtonText?: string | undefined
                                 thankYouMessageCloseButtonText?: string | undefined
@@ -3414,6 +3435,23 @@ export const surveyLogic = kea<surveyLogicType>([
                         key: 'thankYouMessageCloseButtonText',
                         defaultValue: survey.appearance?.thankYouMessageCloseButtonText,
                     },
+                    ...(survey.appearance?.displayIntroScreen
+                        ? INTRO_SCREEN_TEXT_FIELDS.map((key) => ({
+                              key,
+                              defaultValue:
+                                  key === 'introScreenButtonText'
+                                      ? survey.appearance?.[key] || INTRO_SCREEN_DEFAULT_BUTTON_TEXT
+                                      : survey.appearance?.[key],
+                          }))
+                        : []),
+                    ...(survey.appearance?.allowGoBack
+                        ? [
+                              {
+                                  key: 'backButtonText' as const,
+                                  defaultValue: survey.appearance.backButtonText || BACK_BUTTON_DEFAULT_TEXT,
+                              },
+                          ]
+                        : []),
                 ]
 
                 // Get all languages

@@ -108,8 +108,8 @@ def _classify_failure(e: BaseException) -> str:
     if isinstance(e, PageHttpStatusError):
         return "page_http_status"
     if isinstance(e, BrowserlessError):
-        if e.cause == "not_configured":
-            return "not_configured"
+        if e.cause in ("not_configured", "invalid_image", "ssrf_blocked"):
+            return e.cause
         if e.cause in ("empty_body", "non_image", "non_jpeg", "oversized"):
             return "validation_error"
         if e.cause == "egress_budget_exhausted":
