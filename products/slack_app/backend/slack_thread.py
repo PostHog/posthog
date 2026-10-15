@@ -426,7 +426,9 @@ class SlackThreadHandler:
 
     def update_reaction(self, emoji: str) -> None:
         """Swap the reaction on the user's mention message."""
-        target_ts = self.context.user_message_ts or self.context.thread_ts
+        target_ts = self.context.user_message_ts
+        if not target_ts:
+            return
         try:
             client = self._get_client()
             try:
