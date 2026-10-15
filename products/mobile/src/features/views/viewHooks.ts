@@ -51,7 +51,7 @@ import {
     webAnalyticsRange,
 } from './rangeOverride'
 import { rangeValues } from './rangePresets'
-import { dashboardRangeKey, insightRangeKey, useViewRange, type ViewRange, WEB_ANALYTICS_RANGE_KEY } from './rangeStore'
+import { dashboardRangeKey, insightRangeKey, useViewRange, type ViewRange, webAnalyticsRangeKey } from './rangeStore'
 import { viewsQueue } from './refreshQueue'
 import { useViewRefresh, type ViewRefresh } from './useViewRefresh'
 import { reportScopeError, type ViewsAccess } from './useViewsAccess'
@@ -189,7 +189,7 @@ export function useDashboardScreen(dashboardRef: string, options: ViewOpenOption
         queryFn: skipToken,
     })
     const range = useViewRange(
-        dashboardRangeKey(dashboardRef),
+        dashboardRangeKey(context.dataScope, dashboardRef),
         'dashboard',
         savedQuery.data?.view.savedRange ?? NO_RANGE
     )
@@ -245,6 +245,7 @@ export function useDashboardScreen(dashboardRef: string, options: ViewOpenOption
     )
     const refresh = useViewRefresh({
         screen: 'dashboard',
+        dataScope: context.dataScope,
         screenKey: `dashboard:${dashboardRef}`,
         items,
         visibleKeys,
@@ -332,7 +333,7 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
             ?.compare
     )
     const range = useViewRange(
-        dashboardRef ? dashboardRangeKey(dashboardRef) : insightRangeKey(shortId),
+        dashboardRef ? dashboardRangeKey(context.dataScope, dashboardRef) : insightRangeKey(context.dataScope, shortId),
         'insight',
         saved,
         savedCompare
@@ -363,6 +364,7 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
     }, [context.item, target, compareId, base?.insightId])
     const refresh = useViewRefresh({
         screen: 'insight',
+        dataScope: context.dataScope,
         screenKey: `insight:${shortId}`,
         items,
         bulkFloor: false,
@@ -419,7 +421,7 @@ export interface WebAnalyticsScreenState {
 /** The web analytics overview: one `WebOverviewQuery` with compare on, as the web's overview tile sends it. */
 export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScreenState {
     const context = useViewsContext()
-    const range = useViewRange(WEB_ANALYTICS_RANGE_KEY, 'web_analytics', WEB_ANALYTICS_SAVED_RANGE)
+    const range = useViewRange(webAnalyticsRangeKey(context.dataScope), 'web_analytics', WEB_ANALYTICS_SAVED_RANGE)
     const values = webAnalyticsRange(range.choice)
     const query = webOverviewQuery({
         dateFrom: values.date_from,
@@ -434,6 +436,7 @@ export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScr
     const snapshot = useSnapshot<WebOverviewSnapshot>(webOverviewQueryKey(context.scope, query))
     const refresh = useViewRefresh({
         screen: 'web_analytics',
+        dataScope: context.dataScope,
         screenKey: 'web',
         items,
         bulkFloor: false,

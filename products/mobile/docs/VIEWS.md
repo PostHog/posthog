@@ -51,7 +51,7 @@ The status line shows "Updating…" while a request of the screen runs, "Updated
 
 ## Date ranges
 
-A range lasts for the session, per view, in memory (`rangeStore.ts`).
+A range lasts for the session, per view, in memory (`rangeStore.ts`). Range keys, bulk floors and queue groups carry the data scope (`demo`, or the host and project), so a range or a refresh floor from demo mode or another project never applies.
 Overrides always send `date_to`, also as null, because the server merges filters by top-level key.
 SQL tiles without `{filters}` read without the override, because it would only change their cache key.
 Compare on dashboards stays off behind `DASHBOARD_COMPARE_SUPPORTED` until US and EU run a build that accepts `compareFilter` in a dashboard override.

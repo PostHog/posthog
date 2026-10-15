@@ -75,6 +75,8 @@ export interface RefreshList {
 
 export interface ViewRefreshOptions {
     screen: ViewsScreen
+    /** `demo` or the project (`useViewsContext().dataScope`): floors and queue groups never cross from one to another. */
+    dataScope: string
     /** The bulk floor key, and the queue group with `rangeKey`: `list`, `dashboard:{id}`, `insight:{short_id}`, `web`. */
     screenKey: string
     /** Every data item, in screen order (top first). */
@@ -132,9 +134,15 @@ function visibleOf(options: ViewRefreshOptions): RefreshItem[] {
     return visibleKeys ? items.filter((item) => visibleKeys.has(item.key)) : items.slice(0, INITIAL_VISIBLE_ROWS)
 }
 
+/** The bulk floor key: one per screen in each data scope. */
+function floorKeyOf(options: Pick<ViewRefreshOptions, 'dataScope' | 'screenKey'>): string {
+    return `${options.dataScope}|${options.screenKey}`
+}
+
 /** The queue group: one per screen and range, so the reads of a range the user left can be dropped. */
-function groupOf(options: Pick<ViewRefreshOptions, 'screenKey' | 'rangeKey'>): string {
-    return options.rangeKey === undefined ? options.screenKey : `${options.screenKey}|${options.rangeKey}`
+function groupOf(options: Pick<ViewRefreshOptions, 'dataScope' | 'screenKey' | 'rangeKey'>): string {
+    const screen = floorKeyOf(options)
+    return options.rangeKey === undefined ? screen : `${screen}|${options.rangeKey}`
 }
 
 function maxAgeSeconds(snapshots: readonly (Freshness | undefined)[], now: number): number | null {
@@ -146,7 +154,7 @@ function blockedFor(options: ViewRefreshOptions, now: number = serverNow()): Blo
     const snapshots = visibleOf(options).map((item) => item.snapshot())
     return blockedState({
         snapshots,
-        bulkFloorUntil: options.bulkFloor ? bulkFloorUntil(options.screenKey) : null,
+        bulkFloorUntil: options.bulkFloor ? bulkFloorUntil(floorKeyOf(options)) : null,
         dashboardFloorUntil: options.container
             ? dashboardFloorUntil(options.container.lastRefresh(), snapshots, now)
             : null,
@@ -398,7 +406,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 void readContainer(counters, current.container)
             }
             if (forced && current.bulkFloor) {
-                startBulkFloor(current.screenKey, now)
+                startBulkFloor(floorKeyOf(current), now)
             }
             await report(trigger, counters, startedAt, age, null)
         },

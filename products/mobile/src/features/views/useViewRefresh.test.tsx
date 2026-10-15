@@ -52,6 +52,7 @@ describe('useViewRefresh on a dashboard', () => {
     function options(range: string, items: RefreshItem[]): ViewRefreshOptions {
         return {
             screen: 'dashboard',
+            dataScope: 'https://us.example.com|1',
             screenKey: 'dashboard:1',
             items,
             container: dashboard(range),

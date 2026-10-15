@@ -12,6 +12,8 @@ export interface ViewsContext {
     mode: DataMode
     /** Null in demo mode, so demo cache entries never mix with a project's. */
     scope: ProjectScope | null
+    /** `demo`, or `{host}|{project id}`: refresh floors and session ranges stay inside one. */
+    dataScope: string
     access: ViewsAccess
     /** Demo mode, or live with a project and the Views scopes. Nothing loads otherwise. */
     ready: boolean
@@ -27,5 +29,6 @@ export function useViewsContext(): ViewsContext {
     const scope = demo ? null : projectScope
     const item = useMemo<ItemContext>(() => ({ client, scope, demo }), [client, scope, demo])
     const ready = demo || (mode === 'live' && scope !== null && access.state === 'ok')
-    return { mode, scope, access, ready, item }
+    const dataScope = demo ? 'demo' : scope ? `${scope.host}|${scope.projectId}` : 'none'
+    return { mode, scope, dataScope, access, ready, item }
 }

@@ -10,18 +10,23 @@ import { type FiltersOverride, rangeOverride } from './rangeOverride'
 import { isSavedRange, presetForValues, rangeLabel } from './rangePresets'
 import { type StepContext, type StepDirection, stepRange } from './rangeStep'
 
-/** `dashboard:{id}`, `insight:{short_id}` or `web`. */
+/**
+ * `{data scope}|dashboard:{id}`, `{data scope}|insight:{short_id}` or `{data scope}|web`. The data scope
+ * (`useViewsContext().dataScope`) keeps a range picked in demo mode or in one project out of the others.
+ */
 export type ViewRangeKey = string
 
-export function dashboardRangeKey(dashboardRef: string | number): ViewRangeKey {
-    return `dashboard:${dashboardRef}`
+export function dashboardRangeKey(dataScope: string, dashboardRef: string | number): ViewRangeKey {
+    return `${dataScope}|dashboard:${dashboardRef}`
 }
 
-export function insightRangeKey(shortId: string): ViewRangeKey {
-    return `insight:${shortId}`
+export function insightRangeKey(dataScope: string, shortId: string): ViewRangeKey {
+    return `${dataScope}|insight:${shortId}`
 }
 
-export const WEB_ANALYTICS_RANGE_KEY: ViewRangeKey = 'web'
+export function webAnalyticsRangeKey(dataScope: string): ViewRangeKey {
+    return `${dataScope}|web`
+}
 
 interface ViewRangeStoreState {
     ranges: Record<ViewRangeKey, RangeChoice>

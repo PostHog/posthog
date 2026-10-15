@@ -560,6 +560,7 @@ export function useViewsList(): ViewsListState {
     const lists = useMemo(() => [pinList, recentList], [pinList, recentList])
     const refresh = useViewRefresh({
         screen: 'list',
+        dataScope: context.dataScope,
         screenKey: 'list',
         items,
         visibleKeys: visibility.visibleKeys,
