@@ -13,6 +13,7 @@ from posthog.llm.system_one import (
     SystemOneResult,
     parse_system_one_response,
 )
+from posthog.security.url_validation import validate_url_and_pin_ips
 
 from products.ai_observability.backend.llm.decisions import DecisionRateLimitError
 from products.ai_observability.backend.llm.errors import (
@@ -133,19 +134,31 @@ class OpenAIDecisionAdapter(OpenAIAdapter):
         except ValueError as error:
             raise ProviderRequestRejectedError(str(error)) from error
         try:
+            verdict = validate_url_and_pin_ips(OPENAI_DECISIONS_BASE_URL)
+            if not verdict.allowed:
+                raise ProviderConnectionError("Could not reach the OpenAI decision endpoint. Try again.")
             with openai.OpenAI(
                 api_key=api_key,
                 base_url=OPENAI_DECISIONS_BASE_URL,
                 max_retries=0,
                 timeout=60,
-                http_client=tagged_http_client(timeout=60, follow_redirects=False),
+                http_client=tagged_http_client(
+                    pin=(OPENAI_DECISIONS_BASE_URL, verdict.pinned_ips),
+                    timeout=60,
+                    total_timeout=60,
+                    follow_redirects=False,
+                ),
             ) as client:
                 # The installed SDK's generic POST supports this endpoint without a repo-wide SDK upgrade.
                 payload = client.post("/decisions", body=body, cast_to=object)
             return self._parse(payload, questions)
         except openai.APIError as error:
             mapped = self._mapped_error(error, model)
-            if isinstance(error, openai.RateLimitError) and not isinstance(mapped, QuotaExceededError):
+            if (
+                isinstance(error, openai.APIStatusError)
+                and error.status_code in (429, 503, 529)
+                and not isinstance(mapped, QuotaExceededError)
+            ):
                 raise DecisionRateLimitError(error.response.headers.get("Retry-After")) from error
             if mapped is not None:
                 raise mapped from error

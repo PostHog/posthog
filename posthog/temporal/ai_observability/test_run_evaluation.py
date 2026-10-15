@@ -468,22 +468,25 @@ def test_openai_native_decisions_use_shared_result_semantics(
         "output_type": output_type,
         "output_config": {**output_config, "allows_na": True},
     }
+    payload = {
+        "model": "gpt-6-luna",
+        "answers": [
+            *answers,
+            {"name": "applicable", "type": "predicate", "probability": 0.9 if applicable else 0.1},
+        ],
+        "usage": {"input_tokens": 120, "output_tokens": 0},
+    }
     response = httpx.Response(
         200,
-        json={
-            "model": "gpt-6-luna",
-            "answers": [
-                *answers,
-                {"name": "applicable", "type": "predicate", "probability": 0.9 if applicable else 0.1},
-            ],
-            "usage": {"input_tokens": 120, "output_tokens": 0},
-        },
+        headers={"Content-Type": "application/json"},
+        stream=httpx.ByteStream(json.dumps(payload).encode()),
     )
     with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch("products.ai_observability.backend.llm.decisions.Team.objects.only") as teams,
         patch("products.ai_observability.backend.llm.decisions.get_feature_flag_or_none", return_value=True),
-        patch("httpx.HTTPTransport.handle_request", return_value=response) as transport,
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as transport,
     ):
         teams.return_value.get.return_value = team
         spec.return_value.resolve.return_value = MagicMock(
@@ -524,7 +527,7 @@ def test_openai_decisions_disabled_flag_skips_without_invalidating_key(flag: boo
     with (
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag),
-        patch("httpx.HTTPTransport.handle_request") as transport,
+        patch("httpx.AsyncHTTPTransport.handle_async_request") as transport,
     ):
         spec.return_value.resolve.return_value = MagicMock(
             provider="openai",
@@ -1072,7 +1075,7 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
 
 
 @pytest.mark.parametrize(
-    "provider, success_payload",
+    "provider, success_payload, status, retry_after",
     [
         (
             "openai",
@@ -1081,6 +1084,8 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
                 "answers": [{"name": "verdict", "type": "predicate", "probability": 0.9}],
                 "usage": {"input_tokens": 12, "output_tokens": 0},
             },
+            503,
+            60,
         ),
         (
             "system_one",
@@ -1089,6 +1094,8 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
                 "answers": {"verdict": {"type": "noul", "noul": 0.9}},
                 "usage": {"input_tokens": 12, "output_tokens": 0},
             },
+            429,
+            15,
         ),
         (
             "openai_compatible",
@@ -1108,6 +1115,8 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
                     }
                 ],
             },
+            429,
+            15,
         ),
     ],
 )
@@ -1119,7 +1128,7 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
     ],
 )
 def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
-    provider: str, success_payload: dict[str, Any], attempt: int, reportable: bool
+    provider: str, success_payload: dict[str, Any], status: int, retry_after: int, attempt: int, reportable: bool
 ) -> None:
     env = ActivityEnvironment()
     env.info = dataclasses.replace(env.info, attempt=attempt)
@@ -1136,11 +1145,9 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch(
-            "httpx.HTTPTransport.handle_request"
-            if provider == "openai"
-            else "httpx.AsyncHTTPTransport.handle_async_request",
+            "httpx.AsyncHTTPTransport.handle_async_request",
             side_effect=[
-                httpx.Response(429, headers={"Retry-After": "15"}, stream=httpx.ByteStream(b"")),
+                httpx.Response(status, headers={"Retry-After": str(retry_after)}, stream=httpx.ByteStream(b"")),
                 httpx.Response(
                     200,
                     headers={"Content-Type": "application/json"},
@@ -1166,7 +1173,7 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
             )
         assert not error.value.non_retryable
         assert isinstance(error.value, NonReportableError) is not reportable
-        assert error.value.next_retry_delay == timedelta(seconds=15)
+        assert error.value.next_retry_delay == timedelta(seconds=retry_after)
         assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
         assert transport.call_count == 1
 

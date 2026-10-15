@@ -1,9 +1,14 @@
 import json
+import asyncio
+from collections.abc import Iterator
+from contextlib import nullcontext
+from ipaddress import ip_address
 
 import pytest
 from unittest.mock import patch
 
 import httpx
+import httpcore
 
 from posthog.llm.system_one import (
     ChoiceAnswer,
@@ -29,6 +34,20 @@ from products.ai_observability.backend.llm.errors import (
 from products.ai_observability.backend.llm.providers.openai_decisions import OpenAIDecisionAdapter
 
 
+@pytest.fixture(autouse=True)
+def pin_endpoint() -> Iterator[None]:
+    with patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}):
+        yield
+
+
+def _json_response(status: int, payload: object, headers: dict[str, str] | None = None) -> httpx.Response:
+    return httpx.Response(
+        status,
+        headers={"Content-Type": "application/json", **(headers or {})},
+        stream=httpx.ByteStream(json.dumps(payload).encode()),
+    )
+
+
 def test_native_questions_and_answers() -> None:
     questions: dict[str, Question] = {
         "verdict": NoulQuestion(
@@ -40,9 +59,9 @@ def test_native_questions_and_answers() -> None:
         "score": ScoreQuestion(instructions="Rate the reply.", criteria=["Poor", "Good", "Excellent"]),
         "applicable": NoulQuestion(instructions="Are the criteria relevant?"),
     }
-    response = httpx.Response(
+    response = _json_response(
         200,
-        json={
+        payload={
             "model": "gpt-6-luna",
             "answers": [
                 {
@@ -72,7 +91,7 @@ def test_native_questions_and_answers() -> None:
             "usage": {"input_tokens": 120, "output_tokens": 0},
         },
     )
-    with patch("httpx.HTTPTransport.handle_request", return_value=response) as transport:
+    with patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as transport:
         result = OpenAIDecisionAdapter().evaluate(
             api_key="example-token", model="gpt-6-luna", state="Hello!", questions=questions
         )
@@ -133,8 +152,11 @@ def test_native_questions_and_answers() -> None:
     ],
 )
 def test_invalid_answers_are_rejected(answers: object) -> None:
-    response = httpx.Response(200, json={"model": "gpt-6-luna", "answers": answers})
-    with patch("httpx.HTTPTransport.handle_request", return_value=response), pytest.raises(StructuredOutputParseError):
+    response = _json_response(200, payload={"model": "gpt-6-luna", "answers": answers})
+    with (
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
+        pytest.raises(StructuredOutputParseError),
+    ):
         OpenAIDecisionAdapter().evaluate(
             api_key="example-token",
             model="gpt-6-luna",
@@ -144,8 +166,11 @@ def test_invalid_answers_are_rejected(answers: object) -> None:
 
 
 def test_invalid_json_is_a_structured_output_error() -> None:
-    response = httpx.Response(200, headers={"Content-Type": "application/json"}, content=b"{")
-    with patch("httpx.HTTPTransport.handle_request", return_value=response), pytest.raises(StructuredOutputParseError):
+    response = httpx.Response(200, headers={"Content-Type": "application/json"}, stream=httpx.ByteStream(b"{"))
+    with (
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
+        pytest.raises(StructuredOutputParseError),
+    ):
         OpenAIDecisionAdapter().evaluate(
             api_key="example-token",
             model="gpt-6-luna",
@@ -156,9 +181,9 @@ def test_invalid_json_is_a_structured_output_error() -> None:
 
 @pytest.mark.parametrize("values", [[0, 0, 2], [0, 1, 3], [False, 1, 2], [0.0, 1, 2]])
 def test_native_score_probabilities_keep_integer_level_identity(values: list[object]) -> None:
-    response = httpx.Response(
+    response = _json_response(
         200,
-        json={
+        payload={
             "model": "gpt-6-luna",
             "answers": [
                 {
@@ -171,7 +196,10 @@ def test_native_score_probabilities_keep_integer_level_identity(values: list[obj
             ],
         },
     )
-    with patch("httpx.HTTPTransport.handle_request", return_value=response), pytest.raises(StructuredOutputParseError):
+    with (
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
+        pytest.raises(StructuredOutputParseError),
+    ):
         OpenAIDecisionAdapter().evaluate(
             api_key="example-token",
             model="gpt-6-luna",
@@ -190,7 +218,9 @@ def test_native_score_probabilities_keep_integer_level_identity(values: list[obj
         (409, "conflict", ProviderConnectionError),
         (429, "insufficient_quota", QuotaExceededError),
         (429, "rate_limit_exceeded", RetryableRateLimitError),
-        (503, "unavailable", ProviderConnectionError),
+        (500, "internal_error", ProviderConnectionError),
+        (503, "unavailable", RetryableRateLimitError),
+        (529, "overloaded", RetryableRateLimitError),
         (307, "redirect", ProviderConnectionError),
         (422, "invalid_request", ProviderRequestRejectedError),
     ],
@@ -198,13 +228,13 @@ def test_native_score_probabilities_keep_integer_level_identity(values: list[obj
 def test_http_errors_keep_retryable_and_terminal_failures_distinct(
     status: int, code: str, expected: type[Exception]
 ) -> None:
-    response = httpx.Response(
+    response = _json_response(
         status,
-        json={"error": {"code": code, "message": "Example provider error", "type": code}},
+        payload={"error": {"code": code, "message": "Example provider error", "type": code}},
         headers={"retry-after": "12", "Location": "https://redirect.example.com/decisions"},
     )
     with (
-        patch("httpx.HTTPTransport.handle_request", return_value=response) as transport,
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as transport,
         pytest.raises(expected) as error,
     ):
         OpenAIDecisionAdapter().evaluate(
@@ -218,12 +248,54 @@ def test_http_errors_keep_retryable_and_terminal_failures_distinct(
         assert error.value.retry_after == 12
 
 
-@pytest.mark.parametrize("error", [httpx.ConnectError("DNS unavailable"), httpx.ReadTimeout("Timed out")])
-def test_transport_failure_is_retryable(error: httpx.RequestError) -> None:
-    with patch("httpx.HTTPTransport.handle_request", side_effect=error), pytest.raises(ProviderConnectionError):
+@pytest.mark.parametrize("error", [httpx.ConnectError("DNS unavailable"), httpx.ReadTimeout("Timed out"), None])
+def test_transport_failure_is_retryable(error: httpx.RequestError | None) -> None:
+    with (
+        patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=error),
+        patch("posthog.security.url_validation.resolve_host_ips", return_value=set())
+        if error is None
+        else nullcontext(),
+        pytest.raises(ProviderConnectionError),
+    ):
         OpenAIDecisionAdapter().evaluate(
             api_key="example-token",
             model="gpt-6-luna",
             state="Hello!",
             questions={"verdict": NoulQuestion(instructions="Is this a greeting?")},
         )
+
+
+@pytest.mark.parametrize("phase", ["headers", "body"])
+def test_total_request_deadline_closes_slow_connections(phase: str) -> None:
+    clock = [0.0]
+    stream = httpcore.AsyncMockStream([])
+    reads = 0
+
+    async def read(max_bytes: int, timeout: float | None = None) -> bytes:
+        nonlocal reads
+        reads += 1
+        clock[0] += 1
+        await asyncio.sleep(0)
+        if phase == "headers":
+            return b"HTTP/1.1 200 OK\r\nX-Slow: " if reads == 1 else b"x"
+        return b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n" if reads == 1 else b"1\r\nx\r\n"
+
+    response = httpx.Response(
+        200,
+        json={"model": "gpt-6-luna", "answers": [{"name": "verdict", "type": "predicate", "probability": 0.9}]},
+    )
+    with (
+        patch("asyncio.BaseEventLoop.time", side_effect=lambda: clock[0]),
+        patch("httpx.HTTPTransport.handle_request", return_value=response),
+        patch("httpcore.AnyIOBackend.connect_tcp", return_value=stream),
+        patch.object(stream, "read", side_effect=read),
+        patch.object(stream, "aclose", wraps=stream.aclose) as close,
+        pytest.raises(ProviderConnectionError),
+    ):
+        OpenAIDecisionAdapter().evaluate(
+            api_key="example-token",
+            model="gpt-6-luna",
+            state="Hello!",
+            questions={"verdict": NoulQuestion(instructions="Is this a greeting?")},
+        )
+    close.assert_awaited()

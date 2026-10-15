@@ -102,9 +102,10 @@ No custom endpoint or additional connection is required. OpenAI-compatible and A
 The adapter translates the shared evaluation questions into OpenAI's `predicate`, `choice`, and `score` formats and validates answers by question name.
 Single-selection categorical evaluations need at least two options; multiple selection still uses one predicate per option.
 Numeric scores use the same ten-level rubric and full-precision mapping to configured bounds described below.
-OpenAI refusals skip the run. Temporary rate limits honor `Retry-After`, and transport failures, redirects, and server errors retry without invalidating the key.
+OpenAI refusals skip the run. Temporary rate limits and overload responses honor `Retry-After`, and transport failures, redirects, and server errors retry without invalidating the key.
 Invalid credentials, missing model access, and exhausted quota use the existing terminal-error handling.
-The OpenAI SDK uses the shared diagnostic HTTP client with a 60-second timeout and redirects disabled. Temporal owns retries.
+Native OpenAI requests use the shared DNS-pinned transport with a 60-second total deadline covering connection setup, response headers, and the body. Expired requests close their connections.
+Responses are limited to 1 MiB and must be uncompressed. Redirects and SDK retries are disabled; Temporal owns retries.
 
 For other compatible services, add a connection under **System One** in provider key settings.
 Enter the public HTTPS base URL and model ID of a compatible service; neither has a default.
