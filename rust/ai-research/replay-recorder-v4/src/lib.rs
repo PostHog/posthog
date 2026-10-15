@@ -6,6 +6,8 @@ pub mod config;
 pub mod consumer;
 pub mod index;
 pub mod process;
+pub mod rewrite;
 pub mod store;
 pub mod teams;
+pub mod urls;
 pub mod write;

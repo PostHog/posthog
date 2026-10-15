@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::io::Write;
 
 use chrono::{DateTime, Utc};
+use metrics::counter;
 use rand::Rng;
 use replay_core_v4::bytescan::write_json_string;
 use replay_core_v4::envelope::{seal_frame, seal_json_envelope, Codec, Context, Version};
@@ -23,6 +24,7 @@ use crate::batch::{Block, SessionKey};
 use crate::index::{
     block_index, image_index, write_parquet, BlockIndexRow, ImageIndexRow, IndexError,
 };
+use crate::rewrite::{canonical_strings, UrlRewrite};
 use crate::store::{BlobStore, StoreError};
 
 /// Brotli settings for blocks, the same as the v3 lane, which uses the same C encoder. The lane keeps blocks for months
@@ -74,6 +76,8 @@ pub struct Prepared {
     /// The frames the packs would hold if each session sealed its images under its own key: one per distinct
     /// (session, reference) pair, where `images` holds one per reference.
     pub session_frames: u64,
+    /// Which of the blocks it was given are stored. The fetch jobs come from these only.
+    pub kept: Vec<bool>,
 }
 
 fn unique_suffix(at: DateTime<Utc>) -> String {
@@ -97,11 +101,12 @@ pub fn prepare(blocks: &mut [Block], keys: &FlushKeys, key_month: &str) -> Prepa
         blocks: Vec::new(),
         images: BTreeMap::new(),
         session_frames: 0,
+        kept: vec![false; blocks.len()],
     };
     // A reference names its team, so it names one frame of the flush.
     let mut seen: HashSet<String> = HashSet::new();
     let mut seen_in_session: HashSet<(String, String)> = HashSet::new();
-    for block in blocks.iter_mut() {
+    for (index, block) in blocks.iter_mut().enumerate() {
         let id = SessionId {
             team_id: block.session.team_id,
             session_id: block.session.session_id.clone(),
@@ -112,9 +117,21 @@ pub fn prepare(blocks: &mut [Block], keys: &FlushKeys, key_month: &str) -> Prepa
         ) else {
             continue;
         };
+        // Fail closed: the inspector did not name every URL, so one it missed could be declined.
+        if let Some(limit) = block.url_limit {
+            counter!("ai_research_v4_recorder_dropped_blocks_total", "outcome" => limit.label())
+                .increment(1);
+            continue;
+        }
         let content_key = image_content_key(team_key);
+        let mut rewrite = UrlRewrite::new(
+            &block.remote_urls,
+            block.session.team_id,
+            key_month,
+            team_key,
+        );
         block.stats.url_fingerprints = url_fingerprints(&key.key, &block_urls(block));
-        let images = prepared.images.entry(block.session.team_id).or_default();
+        let mut block_images = Vec::new();
         let mut lines = Vec::with_capacity(
             block.stats.byte_size as usize + block.stats.event_count as usize * 16,
         );
@@ -136,11 +153,12 @@ pub fn prepare(blocks: &mut [Block], keys: &FlushKeys, key_month: &str) -> Prepa
                 lines.push(b'[');
                 lines.extend_from_slice(&window);
                 lines.push(b',');
-                lines.extend_from_slice(
+                let canonical = canonical_strings(
                     extracted
                         .as_deref()
                         .unwrap_or(&message.inner[event.span.0..event.span.1]),
                 );
+                lines.extend_from_slice(&rewrite.apply(&canonical));
                 lines.extend_from_slice(b"]\n");
                 let line = (lines.len() - line_start) as u64;
                 block.stats.written_jsonl_bytes += line;
@@ -153,15 +171,24 @@ pub fn prepare(blocks: &mut [Block], keys: &FlushKeys, key_month: &str) -> Prepa
                 .map(|i| i.bytes.len() as u64)
                 .sum::<u64>();
             block.stats.images_inline += sink.left_inline;
-            for image in sink.images {
-                if seen_in_session.insert((id.session_id.clone(), image.reference.clone())) {
-                    prepared.session_frames += 1;
-                }
-                if seen.insert(image.reference.clone()) {
-                    images.push(image);
-                }
+            block_images.extend(sink.images);
+        }
+        // Fail closed: a declined URL, a credential or a private host, must not reach storage.
+        if !rewrite.finish() {
+            counter!("ai_research_v4_recorder_dropped_blocks_total", "outcome" => "declined_unrewritten")
+                .increment(1);
+            continue;
+        }
+        let images = prepared.images.entry(block.session.team_id).or_default();
+        for image in block_images {
+            if seen_in_session.insert((id.session_id.clone(), image.reference.clone())) {
+                prepared.session_frames += 1;
+            }
+            if seen.insert(image.reference.clone()) {
+                images.push(image);
             }
         }
+        prepared.kept[index] = true;
         prepared.blocks.push(PreparedBlock {
             session: block.session.clone(),
             key: key.clone(),
@@ -396,6 +423,7 @@ mod tests {
     use bytes::Bytes;
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
     use replay_core_v4::envelope::open_frame;
+    use replay_core_v4::inspect::dom::MAX_REMOTE_URL_BYTES;
     use replay_core_v4::inspect::session::Moment;
     use replay_core_v4::inspect::stats::BlockStats;
     use replay_core_v4::scan::message::read_message;
@@ -433,9 +461,16 @@ mod tests {
     }
 
     fn block(session: &str, events: Value) -> Block {
-        let inner = json!({"event": "$snapshot_items", "properties": {"$session_id": session, "$window_id": "w1", "$snapshot_items": events}});
+        block_of(session, &events.to_string())
+    }
+
+    /// A block of the events JSON as it is written, escapes included.
+    fn block_of(session: &str, events: &str) -> Block {
+        let inner = format!(
+            r#"{{"event":"$snapshot_items","properties":{{"$session_id":"{session}","$window_id":"w1","$snapshot_items":{events}}}}}"#
+        );
         let message = read_message(
-            json!({"distinct_id": "d", "data": inner.to_string()})
+            json!({"distinct_id": "d", "data": inner})
                 .to_string()
                 .into_bytes(),
         )
@@ -448,6 +483,9 @@ mod tests {
             messages: vec![message],
             stats: BlockStats::default(),
             moments: Vec::new(),
+            image_urls: Vec::new(),
+            remote_urls: Vec::new(),
+            url_limit: None,
         }
     }
 
@@ -460,6 +498,149 @@ mod tests {
 
     fn uri(bytes: &[u8]) -> String {
         format!("data:image/png;base64,{}", STANDARD.encode(bytes))
+    }
+
+    /// The block's stored lines, after the inspector named its remote URLs.
+    fn stored_lines(events: &str, extra: &[&str]) -> String {
+        let mut inspected = block_of("kept", events);
+        let mut inspector = replay_core_v4::inspect::session::SessionInspector::default();
+        let mut inspection = replay_core_v4::inspect::session::BlockInspection::default();
+        for message in &inspected.messages {
+            inspector.observe_message(&mut inspection, message);
+        }
+        let found = inspection.finish();
+        inspected.remote_urls = found.remote_urls;
+        inspected.url_limit = found.url_limit;
+        inspected
+            .remote_urls
+            .extend(extra.iter().map(|url| (*url).to_owned()));
+        let mut keys = FlushKeys::default();
+        keys.sessions.insert(
+            SessionId {
+                team_id: 7,
+                session_id: "kept".to_owned(),
+            },
+            Key {
+                key: [5; 32],
+                key_month: "2026-10".to_owned(),
+            },
+        );
+        keys.team_months.insert(7, [6; 32]);
+        let mut blocks = vec![inspected];
+        let prepared = prepare(&mut blocks, &keys, "2026-10");
+        prepared
+            .blocks
+            .first()
+            .map(|b| String::from_utf8(b.lines.clone()).unwrap())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn replaces_the_sources_of_a_node_the_inspector_does_not_know() {
+        let (signed, public) = (
+            "https://bucket.s3.amazonaws.com/avatar.png?X-Amz-Signature=abc123",
+            "HTTPS://cdn.example.com/avatar.png",
+        );
+        // This process never saw node 99: the session started before a restart.
+        let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+            "attributes": [{"id": 99, "attributes": {"src": signed, "srcset": format!("{public} 2x")}}]}}])
+        .to_string();
+        let lines = stored_lines(&events, &[]);
+        let reference = crate::urls::url_reference(
+            public,
+            7,
+            "2026-10",
+            &replay_core_v4::seal::image_url_key(&[6; 32]),
+        )
+        .unwrap()
+        .1;
+        assert!(
+            lines.contains(&format!(
+                r#""src":"{}","srcset":"{reference} 2x""#,
+                crate::rewrite::declined_marker("credential")
+            )),
+            "{lines}"
+        );
+        // A URL past the length cap is not named, so the block is not stored.
+        let long = |len: usize| {
+            let url = format!("https://cdn.example.com/{}", "a".repeat(len - 24));
+            json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                "attributes": [{"id": 99, "attributes": {"src": url}}]}}])
+            .to_string()
+        };
+        assert!(!stored_lines(&long(MAX_REMOTE_URL_BYTES), &[]).is_empty());
+        assert_eq!(stored_lines(&long(MAX_REMOTE_URL_BYTES + 1), &[]), "");
+        // Keys written with escapes hide no URL.
+        let escaped = events
+            .replace(r#""src""#, r#""\u0073rc""#)
+            .replace(r#""srcset""#, r#""src\u0073et""#);
+        assert_eq!(stored_lines(&escaped, &[]), lines);
+        // The player loads the last of a repeated attribute, so the inspector names that one.
+        for events in [
+            format!(
+                r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"src":"{public}","src":"{signed}"}}}}]}}}}]"#
+            ),
+            format!(
+                r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[{{"parentId":1,"node":{{"type":2,"tagName":"img","attributes":{{"src":"{public}","src":"{signed}"}},"childNodes":[],"id":5}}}}],"removes":[],"texts":[],"attributes":[]}}}}]"#
+            ),
+        ] {
+            let lines = stored_lines(&events, &[]);
+            assert!(
+                lines.contains(&crate::rewrite::declined_marker("credential"))
+                    && !lines.contains("X-Amz-Signature"),
+                "{lines}"
+            );
+        }
+        // A declined URL the inspector named but the stored bytes do not show as it read it fails the whole block.
+        let event =
+            json!([{"type": 4, "timestamp": 1, "data": {"href": "https://app.example.com/"}}])
+                .to_string();
+        assert_eq!(stored_lines(&event, &[signed]), "");
+        assert!(!stored_lines(&event, &[public]).is_empty());
+    }
+
+    #[test]
+    fn a_block_carries_the_reference_its_fetch_job_names() {
+        let (fetched, declined) = (
+            "https://cdn.example.com/a.png",
+            "https://cdn.example.com/a.png?token=secret",
+        );
+        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": fetched, "srcset": format!("{declined} 2x")}}}}]);
+        let mut blocks = vec![block("kept", events.clone()), block("dropped", events)];
+        for block in &mut blocks {
+            block.image_urls = vec![fetched.to_owned()];
+            block.remote_urls = vec![fetched.to_owned(), declined.to_owned()];
+        }
+        blocks[1].url_limit = Some(replay_core_v4::inspect::dom::UrlLimit::UrlLength);
+        let mut keys = FlushKeys::default();
+        for session in ["kept", "dropped"] {
+            keys.sessions.insert(
+                SessionId {
+                    team_id: 7,
+                    session_id: session.to_owned(),
+                },
+                Key {
+                    key: [5; 32],
+                    key_month: "2026-10".to_owned(),
+                },
+            );
+        }
+        keys.team_months.insert(7, [6; 32]);
+        let prepared = prepare(&mut blocks, &keys, "2026-10");
+        // Only a stored block sends fetch jobs.
+        assert_eq!(prepared.kept, [true, false]);
+        let jobs = crate::urls::fetch_jobs(&mut blocks[..1], &keys, "2026-10", 1, &|_| false);
+        let lines = String::from_utf8(prepared.blocks[0].lines.clone()).unwrap();
+        let reference = jobs["example.com"][0]["originalRef"].as_str().unwrap();
+        assert!(
+            lines.contains(&format!(r#""src":"{reference}""#)),
+            "{lines}"
+        );
+        assert!(lines.contains(&format!(
+            r#""srcset":"{} 2x""#,
+            crate::rewrite::declined_marker("credential")
+        )));
+        assert!(!lines.contains("cdn.example.com"));
     }
 
     #[tokio::test]

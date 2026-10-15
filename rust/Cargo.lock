@@ -11052,6 +11052,7 @@ name = "replay-recorder-v4"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
+ "aho-corasick",
  "arc-swap",
  "arrow-array",
  "arrow-schema",
@@ -11072,6 +11073,7 @@ dependencies = [
  "envconfig",
  "lifecycle",
  "metrics",
+ "moka",
  "parquet",
  "rand 0.8.5",
  "rdkafka",
@@ -11082,6 +11084,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

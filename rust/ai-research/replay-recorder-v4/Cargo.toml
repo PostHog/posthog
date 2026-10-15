@@ -16,6 +16,7 @@ common-metrics = { path = "../../common/metrics" }
 lifecycle = { path = "../../common/lifecycle" }
 replay-core-v4 = { path = "../replay-core-v4" }
 
+aho-corasick = { workspace = true }
 arc-swap = { workspace = true }
 # The major version deltalite links, so the workspace builds one arrow.
 arrow-array = "58"
@@ -30,6 +31,7 @@ brotlic = "0.8"
 chrono = { workspace = true }
 envconfig = { workspace = true }
 metrics = { workspace = true }
+moka = { workspace = true }
 parquet = "58"
 rand = { workspace = true }
 rdkafka = { workspace = true }
@@ -39,6 +41,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 aes-gcm = "0.10"
