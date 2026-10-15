@@ -320,7 +320,8 @@ def _parse_exposure_backoff_state(raw: bytes | str | None) -> ExposureBackoffSta
             consecutive_insufficient_checks=int(data["count"]),
             checked_at=datetime.fromtimestamp(float(data["checked_at"]), tz=UTC),
         )
-    except (ValueError, TypeError, KeyError):
+    # OverflowError and OSError come from a timestamp outside the range that datetime accepts.
+    except (ValueError, TypeError, KeyError, OverflowError, OSError):
         return None
 
 

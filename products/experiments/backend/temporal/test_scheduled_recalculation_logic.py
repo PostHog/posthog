@@ -66,6 +66,11 @@ def _unreadable_value(key: str) -> contextlib.AbstractContextManager[object]:
     return contextlib.nullcontext()
 
 
+def _timestamp_out_of_range(key: str) -> contextlib.AbstractContextManager[object]:
+    get_client().set(key, '{"count": 3, "checked_at": 1e300}')
+    return contextlib.nullcontext()
+
+
 def _missing_key(key: str) -> contextlib.AbstractContextManager[object]:
     get_client().delete(key)
     return contextlib.nullcontext()
@@ -457,6 +462,7 @@ class TestScheduledRecalculationLogic(BaseTest):
         [
             ("redis_error", _redis_down),
             ("unreadable_value", _unreadable_value),
+            ("timestamp_out_of_range", _timestamp_out_of_range),
             ("missing_key", _missing_key),
         ]
     )
