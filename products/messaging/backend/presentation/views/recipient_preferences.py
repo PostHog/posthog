@@ -1,7 +1,10 @@
+from functools import cache
+from pathlib import Path
 from typing import Any
 
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
+from django.utils.safestring import SafeString, mark_safe
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods
 
@@ -29,6 +32,19 @@ from products.messaging.backend.facade.preferences import (
 from products.workflows.backend.facade.enums import EmailTrackingConsentMode
 
 logger = structlog.get_logger(__name__)
+
+STYLESHEET_PATH = Path(__file__).resolve().parent.parent / "message-preferences.css"
+
+
+@cache
+def _stylesheet() -> SafeString:
+    # Inlined rather than linked: production serves top-level /static/ paths from a CDN that lacks the
+    # hashed names `{% static %}` produces, so a <link> to this file 404s and the page renders unstyled
+    return mark_safe(STYLESHEET_PATH.read_text())
+
+
+def _render_page(request: HttpRequest, template_name: str, context: dict[str, Any], status: int = 200) -> HttpResponse:
+    return render(request, template_name, {**context, "stylesheet": _stylesheet()}, status=status)
 
 
 def report_workflows_email_unsubscribed(team_id: int, identifier: str, category_ids: list[str], source: str) -> None:
@@ -117,16 +133,16 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     response = validate_messaging_preferences_token(token)
     if response.status_code != 200:
         error_msg = response.json().get("error", "Invalid recipient token")
-        return render(request, "message_preferences/error.html", {"error": error_msg}, status=400)
+        return _render_page(request, "message_preferences/error.html", {"error": error_msg}, status=400)
 
     data = response.json()
     if not data.get("valid"):
-        return render(request, "message_preferences/error.html", {"error": "Invalid recipient token"}, status=400)
+        return _render_page(request, "message_preferences/error.html", {"error": "Invalid recipient token"}, status=400)
 
     team_id = data.get("team_id")
     identifier = data.get("identifier")
     if not team_id or not identifier:
-        return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
+        return _render_page(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
     recipient = get_or_create_recipient(team_id, identifier)
     current_preferences = recipient.preferences
@@ -203,7 +219,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         ),
     }
 
-    return render(
+    return _render_page(
         request,
         "message_preferences/one_click_unsubscribe_success.html"
         if is_one_click_unsubscribe

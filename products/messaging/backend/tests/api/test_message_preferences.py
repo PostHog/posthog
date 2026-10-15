@@ -125,6 +125,28 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertTemplateUsed(response, "message_preferences/error.html")
 
+    @parameterized.expand(
+        [
+            ("preferences", 200, {"valid": True}, {}),
+            ("one_click_unsubscribe", 200, {"valid": True}, {"one_click_unsubscribe": "1"}),
+            ("invalid_token", 400, {"valid": False}, {}),
+        ]
+    )
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
+    def test_preferences_pages_inline_the_stylesheet(
+        self, _name, expected_status, token_response, query, mock_validate_messaging_preferences_token
+    ):
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {**token_response, "team_id": self.team.id, "identifier": self.recipient.identifier}
+        )
+        response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}), query)
+
+        self.assertEqual(response.status_code, expected_status)
+        content = response.content.decode()
+        self.assertNotIn('rel="stylesheet"', content)
+        self.assertIn("<style nonce=", content)
+        self.assertIn(".bg-gray-50", content)
+
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_update_preferences_valid(self, mock_validate_messaging_preferences_token):
         data = {"token": self.token, "preferences[]": [f"{self.category.id}:true", f"{self.category2.id}:false"]}

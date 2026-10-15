@@ -10,8 +10,9 @@
  * PostHog CSS variables, so building them against the app theme would drop those utilities.
  *
  * Regenerate with `pnpm --filter=@posthog/frontend build:message-preferences` after editing
- * either template. The output is committed so the dev server and collectstatic both have it,
- * the same way frontend/public/posthog-ai-onboarding holds committed build output.
+ * a template. The output is committed next to the view, which inlines it into each page. It is not
+ * a static file: `{% static %}` resolves to a hashed manifest name in production, and the CDN that
+ * serves top-level /static/ paths only holds the unhashed build output, so a linked copy 404s.
  *
  * The script runs this file through the same PostCSS plugins as the app's own CSS build, so the
  * pages get the app's production browser targets. Tailwind 4 writes colors as oklch(), which older
@@ -22,7 +23,7 @@
  * this file into frontend/src, which made the output four times larger and, worse, let it
  * satisfy classes these templates never reference. */
 @import 'tailwindcss' source(none);
-@source '../../../posthog/templates/message_preferences';
+@source '../../../products/messaging/backend/templates/message_preferences';
 
 /* The toggle knobs in preferences.html set `border-4` with no border color. Tailwind 4 draws an
  * uncolored border in currentColor, which is black on these pages, so this sets gray-200 as the

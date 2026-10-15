@@ -306,9 +306,6 @@
     .relative {
         position: relative;
     }
-    .static {
-        position: static;
-    }
     .top-4 {
         top: calc(var(--spacing) * 4);
     }

@@ -4,8 +4,9 @@ from pathlib import Path
 from django.conf import settings
 from django.test import SimpleTestCase
 
-TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "message_preferences"
-STYLESHEET = Path(settings.BASE_DIR) / "frontend" / "public" / "message-preferences.css"
+MESSAGING_BACKEND = Path(settings.BASE_DIR) / "products" / "messaging" / "backend"
+TEMPLATE_DIR = MESSAGING_BACKEND / "templates" / "message_preferences"
+STYLESHEET = MESSAGING_BACKEND / "presentation" / "message-preferences.css"
 REBUILD = "pnpm --filter=@posthog/frontend build:message-preferences"
 
 # Tailwind compiles these templates ahead of time, so a class added to the markup does nothing
@@ -58,9 +59,12 @@ def _selector_present(css: str, utility: str) -> bool:
 class TestMessagePreferenceStyles(SimpleTestCase):
     def test_every_class_in_the_templates_is_in_the_compiled_stylesheet(self) -> None:
         css = STYLESHEET.read_text()
+        # An empty glob passes vacuously, which is how a template move went unnoticed before
+        templates = sorted(TEMPLATE_DIR.glob("*.html"))
+        assert templates, f"No templates found in {TEMPLATE_DIR}"
 
         missing: dict[str, set[str]] = {}
-        for template in sorted(TEMPLATE_DIR.glob("*.html")):
+        for template in templates:
             for attribute in _CLASS_ATTRIBUTE.findall(template.read_text()):
                 for token in _TEMPLATE_TAG.sub(" ", attribute).split():
                     if token in _SCRIPT_HOOKS or _TEMPLATE_SYNTAX.search(token) or not _UTILITY.match(token):

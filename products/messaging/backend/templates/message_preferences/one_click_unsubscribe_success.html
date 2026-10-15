@@ -1,4 +1,3 @@
-{% load static %}
 <!DOCTYPE html>
 <html>
     <head>
@@ -7,7 +6,7 @@
         <title>Message preferences</title>
         {# Compiled from the Tailwind classes in this directory. Run #}
         {# `pnpm --filter=@posthog/frontend build:message-preferences` after changing a class here. #}
-        <link rel="stylesheet" href="{% static 'message-preferences.css' %}" />
+        <style nonce="{{ request.csp_nonce }}">{{ stylesheet }}</style>
     </head>
     <body>
         {% block content %}
