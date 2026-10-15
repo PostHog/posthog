@@ -56,7 +56,7 @@ from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.facade.models import Insight
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 from ee.clickhouse.materialized_columns.analyze import materialize
 
@@ -7064,14 +7064,16 @@ class TestCohortTypeIntegration(APIBaseTest):
         if usage == "trigger":
             action = {"id": "trigger_node", "type": "trigger", "config": {"type": "cohort", "cohort_id": cohort_id}}
         else:
-            condition = {"filters": {"properties": [{"key": "id", "type": "cohort", "value": cohort_id}]}}
+            filter_type = "precalculated-cohort" if usage == "branch_precalculated" else "cohort"
+            condition = {"filters": {"properties": [{"key": "id", "type": filter_type, "value": cohort_id}]}}
             action = {"id": "branch", "type": "conditional_branch", "config": {"conditions": [condition]}}
-        HogFlow.objects.create(team=self.team, name=f"Workflow {usage}", status=status, actions=[action])
+        create_workflow_for_test(team_id=self.team.id, name=f"Workflow {usage}", status=status, actions=[action])
 
     @parameterized.expand(
         [
             ("active_trigger", "trigger", "active", 400),
             ("active_branch", "branch", "active", 400),
+            ("active_branch_precalculated", "branch_precalculated", "active", 400),
             ("draft_trigger", "trigger", "draft", 200),
         ]
     )
@@ -7084,6 +7086,26 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert response.status_code == expected, response.json()
         if expected == 400:
             assert f"used in 1 active workflow(s): Workflow {usage}" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("without_workflow_read", ["cohort:write"], False),
+            ("with_workflow_read", ["cohort:write", "hog_flow:read"], True),
+        ]
+    )
+    def test_blocked_delete_names_workflows_only_for_workflow_readers(self, _name, scopes, names_shown):
+        cohort_id = self._create_realtime_cohort()
+        self._create_workflow_using_cohort(cohort_id, "trigger", "active")
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}", {"deleted": True}, HTTP_AUTHORIZATION=f"Bearer {key}"
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "used in 1 active workflow(s)" in response.json()["detail"]
+        assert ("Workflow trigger" in response.json()["detail"]) == names_shown
 
     def test_edit_that_stops_realtime_is_blocked_by_active_workflows_using_it(self):
         cohort_id = self._create_realtime_cohort()

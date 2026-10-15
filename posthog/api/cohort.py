@@ -80,6 +80,7 @@ from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS, Pro
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
+from posthog.permissions import get_authenticator_scopes
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
@@ -123,6 +124,14 @@ from products.feature_flags.backend.models.team_feature_flags_config import (
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.product_analytics.backend.facade.models import Insight
 from products.workflows.backend.facade.api import get_active_workflows_using_realtime_cohort
+
+
+def _workflow_names_suffix(request: Request, workflow_names: list[str]) -> str:
+    # A token without workflow read access learns how many workflows block the change, not their names.
+    scopes = get_authenticator_scopes(request.successful_authenticator)
+    if scopes is not None and not {"*", "hog_flow:read", "hog_flow:write"} & set(scopes):
+        return ""
+    return f": {', '.join(workflow_names)}"
 
 
 class CohortPersonsResponseSerializer(serializers.Serializer):
@@ -1538,10 +1547,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 team_id=cohort.team_id, cohort_id=cohort.id
             )
             if workflows_relying_on_realtime:
-                workflow_names = [workflow.name for workflow in workflows_relying_on_realtime]
+                names = _workflow_names_suffix(request, [workflow.name for workflow in workflows_relying_on_realtime])
                 raise ValidationError(
                     f"This change stops the cohort updating in real time, and {len(workflows_relying_on_realtime)} "
-                    f"active workflow(s) rely on that: {', '.join(workflow_names)}. "
+                    f"active workflow(s) rely on that{names}. "
                     "Please remove the cohort from these workflows before making this change."
                 )
 
@@ -1568,10 +1577,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     team_id=cohort.team_id, cohort_id=cohort.id
                 )
                 if workflows_with_cohort:
-                    workflow_names = [workflow.name for workflow in workflows_with_cohort]
+                    names = _workflow_names_suffix(request, [workflow.name for workflow in workflows_with_cohort])
                     raise ValidationError(
-                        f"This cohort is used in {len(workflows_with_cohort)} active workflow(s): "
-                        f"{', '.join(workflow_names)}. Please remove the cohort from these workflows before deleting it."
+                        f"This cohort is used in {len(workflows_with_cohort)} active workflow(s){names}. "
+                        "Please remove the cohort from these workflows before deleting it."
                     )
 
                 # Check if cohort is used in test_account_filters
