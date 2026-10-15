@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom'
 
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { createXAxisTickCallback } from '@posthog/quill-charts'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
@@ -39,6 +40,7 @@ import { getBIChartRecord } from 'products/business_intelligence/frontend/biDril
 import { biDrilldownLogic } from 'products/business_intelligence/frontend/biDrilldownLogic'
 import { BIDrilldownModal } from 'products/business_intelligence/frontend/BIDrilldownModal'
 import { getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
+import { createBIMemberFormatter } from 'products/business_intelligence/frontend/biMemberAliases'
 import { BIPivotTable } from 'products/business_intelligence/frontend/BIPivotTable'
 import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
@@ -283,6 +285,97 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
 
+    const biConfig = query.kind === NodeKind.BIVisualizationNode ? query.config : undefined
+    const sqlChartData = useMemo(() => {
+        if (!isSqlChartVisualizationType(effectiveVisualizationType)) {
+            return null
+        }
+        const chartXData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        const chartYData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+        const xDimension = biConfig
+            ? getBIResultDimensions(biConfig).find(({ column }) => column === chartXData?.column.name)
+            : undefined
+        const aliasFormatter = biConfig && xDimension ? createBIMemberFormatter(biConfig, xDimension.field) : undefined
+        const fallbackTickFormatter = aliasFormatter
+            ? (dateAxis?.tickFormatter ??
+              (isDateXAxis
+                  ? createXAxisTickCallback({ allDays: chartXData?.data ?? [], timezone, interval: dateBucket })
+                  : undefined))
+            : undefined
+        return {
+            xData: chartXData,
+            yData: chartYData,
+            labelFormatter: aliasFormatter,
+            xAxis: aliasFormatter
+                ? {
+                      ...dateAxis,
+                      tickFormatter: (value: string, index: number): string | null => {
+                          const label = aliasFormatter(value)
+                          return label !== value
+                              ? label
+                              : fallbackTickFormatter
+                                ? fallbackTickFormatter(value, index)
+                                : value
+                      },
+                  }
+                : dateAxis,
+        }
+    }, [
+        effectiveVisualizationType,
+        seriesBreakdownData,
+        xData,
+        yData,
+        biConfig,
+        dateAxis,
+        isDateXAxis,
+        timezone,
+        dateBucket,
+    ])
+
+    const pieDisplayData = useMemo(() => {
+        if (!PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+            return null
+        }
+        const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
+        const pieDimension =
+            query.kind === NodeKind.BIVisualizationNode
+                ? getBIResultDimensions(query.config).find(
+                      ({ column }) => column === (chartSettings.seriesBreakdownColumn ?? pieData.xData?.column.name)
+                  )
+                : undefined
+        const aliasLabels = new Map<string, string>()
+        let pieXData = pieData.xData
+        let pieYData = pieData.yData
+        const memberFormatter =
+            query.kind === NodeKind.BIVisualizationNode && pieDimension
+                ? createBIMemberFormatter(query.config, pieDimension.field)
+                : undefined
+        if (memberFormatter) {
+            if (pieData.yData.every((series) => 'breakdownValue' in series)) {
+                pieYData = pieData.yData.map((series) => {
+                    const key = JSON.stringify([series.breakdownValue, series.name])
+                    aliasLabels.set(key, series.settings?.display?.label ?? series.name)
+                    return { ...series, name: key }
+                })
+            } else if (pieXData && pieData.yData.length === 1) {
+                pieXData = {
+                    ...pieXData,
+                    data: pieXData.data.map((value) => {
+                        const key = JSON.stringify(value ?? null)
+                        aliasLabels.set(key, memberFormatter(value))
+                        return key
+                    }),
+                }
+            }
+        }
+
+        return {
+            xData: pieXData,
+            yData: pieYData,
+            labelFormatter: aliasLabels.size ? (label: string): string => aliasLabels.get(label) ?? label : undefined,
+        }
+    }, [effectiveVisualizationType, seriesBreakdownData, xData, yData, query, chartSettings.seriesBreakdownColumn])
+
     let component: JSX.Element | null = null
 
     if (responseError) {
@@ -343,15 +436,13 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 onInspect={canDrill ? inspect : undefined}
             />
         )
-    } else if (isSqlChartVisualizationType(effectiveVisualizationType)) {
-        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+    } else if (sqlChartData) {
+        const { xData: _xData, yData: _yData } = sqlChartData
         component = (
             <BindLogic logic={insightLogic} props={alertsInsightProps}>
                 <SqlChart
                     className="p-3"
-                    xData={_xData}
-                    yData={_yData}
+                    {...sqlChartData}
                     visualizationType={effectiveVisualizationType}
                     chartSettings={chartSettings}
                     dashboardId={dashboardId}
@@ -361,7 +452,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     presetChartHeight={presetChartHeight}
                     embedded={props.embedded}
                     directPointClick={canDrill}
-                    xAxis={dateAxis}
                     margins={dateMargins}
                     onPointClick={
                         canDrill
@@ -391,14 +481,11 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 </SqlChart>
             </BindLogic>
         )
-    } else if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
-        const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
-
+    } else if (pieDisplayData) {
         component = (
             <PartOfWholeChart
                 className="p-3"
-                xData={pieData.xData}
-                yData={pieData.yData}
+                {...pieDisplayData}
                 visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
