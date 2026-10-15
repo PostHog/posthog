@@ -1326,7 +1326,10 @@ class FeatureFlagListSerializer(serializers.ListSerializer):
                 ).values_list("id", "name")
             }
         self.child.context[COHORT_NAMES_CONTEXT_KEY] = cohort_names
-        return super().to_representation(flags)
+        try:
+            return super().to_representation(flags)
+        finally:
+            self.child.context.pop(COHORT_NAMES_CONTEXT_KEY, None)
 
 
 class FeatureFlagSerializer(
