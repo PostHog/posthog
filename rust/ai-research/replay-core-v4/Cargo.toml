@@ -13,6 +13,7 @@ aes-gcm = "0.10"
 base64 = { workspace = true }
 hkdf = "0.12"
 hmac = { workspace = true }
+md5 = "0.8"
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }

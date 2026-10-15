@@ -1,0 +1,532 @@
+{
+  "cases": [
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000000",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000001",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000002",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000003",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000004",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000005",
+      "inSample": {
+        "0": false,
+        "10": true,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000006",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000007",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000008",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000009",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000010",
+      "inSample": {
+        "0": false,
+        "10": true,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000011",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000012",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000013",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000014",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000015",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000016",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000017",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000018",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000019",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000020",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000021",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000022",
+      "inSample": {
+        "0": false,
+        "10": true,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000023",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000024",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000025",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000026",
+      "inSample": {
+        "0": false,
+        "10": true,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000027",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000028",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000029",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000030",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000031",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000032",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000033",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000034",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000035",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000036",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000037",
+      "inSample": {
+        "0": false,
+        "10": true,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000038",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019a2f3e-8c00-7000-8000-000000000039",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019A2F3E-8C00-7000-B000-AAAAAAAAAAA3",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019A2F3E-8C00-7000-B000-AAAAAAAAAAA8",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "019A2F3E-8C00-7000-B000-AAAAAAAAAAA9",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": false,
+        "100": true,
+        "0.5": false,
+        "33.33": false,
+        "99.99": true
+      }
+    },
+    {
+      "sessionId": "Custom-Session-ABC",
+      "inSample": {
+        "0": false,
+        "10": false,
+        "50": true,
+        "100": true,
+        "0.5": false,
+        "33.33": true,
+        "99.99": true
+      }
+    }
+  ]
+}
