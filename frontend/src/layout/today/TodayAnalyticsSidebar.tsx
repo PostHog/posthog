@@ -97,7 +97,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 >
                     <TodayPaneRow
                         value="monitor:alerts"
-                        label="My alerts"
+                        label="Alerts"
                         icon={<IconBell />}
                         to={urls.alerts()}
                         active={path === urls.alerts()}
@@ -105,7 +105,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                     />
                     <TodayPaneRow
                         value="monitor:subscriptions"
-                        label="My subscriptions"
+                        label="Subscriptions"
                         icon={<IconNotification />}
                         to={`${urls.subscriptions()}?tab=mine`}
                         active={path === urls.subscriptions()}
