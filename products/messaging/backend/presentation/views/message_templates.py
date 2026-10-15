@@ -474,12 +474,16 @@ class MessageTemplatesViewSet(
             serializer.is_valid(raise_exception=True)
             return serializer.validated_data["content"]
 
-        if template.transactional_hog_flow_id:
-            self._require_workflow_editor(template.transactional_hog_flow_id)
         with transaction.atomic():
+            # Checked under the row lock, so a template made transactional meanwhile is checked too.
+            hog_flow_id = lock_transactional_workflow_id(self.team_id, template.id)
+            if hog_flow_id:
+                self._require_workflow_editor(hog_flow_id)
             locked = edit_template_content(self.team_id, template.id, apply_operations)
-            if locked.transactional_hog_flow_id:
+            if hog_flow_id:
                 self._sync_transactional_workflow(template.id)
+                # The sync unlinks the template when its workflow was deleted.
+                locked = get_template(self.team_id, template.id)
 
         self._emit_resource_edited(locked)
         return Response(self._serialize(locked))

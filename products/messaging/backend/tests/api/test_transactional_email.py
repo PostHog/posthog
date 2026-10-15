@@ -50,18 +50,55 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
 
+    @parameterized.expand(
+        [
+            ("update", "", {"name": "Reset"}),
+            (
+                "design",
+                "design/",
+                {"operations": [{"op": "update_content", "id": "txt1", "patch": {"values": {"text": "<p>New</p>"}}}]},
+            ),
+        ]
+    )
+    @patch(
+        "products.messaging.backend.presentation.views.message_templates.render_design_html",
+        return_value="<p>New</p>",
+    )
     def test_a_deleted_workflow_unlinks_the_template_until_it_is_made_transactional_again(
-        self, mock_post, _flag, _capture
+        self, _name, suffix, body, _render, mock_post, _flag, _capture
     ):
+        design = {
+            "body": {
+                "id": "body1",
+                "rows": [
+                    {
+                        "id": "row1",
+                        "cells": [1],
+                        "columns": [
+                            {
+                                "id": "col1",
+                                "contents": [{"id": "txt1", "type": "text", "values": {"text": "<p>Old</p>"}}],
+                                "values": {},
+                            }
+                        ],
+                        "values": {},
+                    }
+                ],
+                "values": {},
+            }
+        }
+        MessageTemplate.objects.filter(id=self.template.id).update(
+            content={"email": {**self.template.content["email"], "design": design}}
+        )
         deleted = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}")
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         template_url = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/"
 
-        renamed = self.client.patch(template_url, {"name": "Reset"}, format="json")
+        edited = self.client.patch(f"{template_url}{suffix}", body, format="json")
         remade = self.client.post(f"{template_url}make_transactional/", {}, format="json")
 
-        assert renamed.status_code == status.HTTP_200_OK, renamed.json()
-        assert renamed.json()["transactional_hog_flow_id"] is None
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+        assert edited.json()["transactional_hog_flow_id"] is None
         assert remade.json()["transactional_hog_flow_id"] not in (None, str(self.hog_flow_id))
 
     def test_is_hidden_while_the_flag_is_off(self, mock_post, flag, _capture):
