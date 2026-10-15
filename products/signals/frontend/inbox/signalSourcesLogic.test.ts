@@ -11,6 +11,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, ExternalDataJobStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SignalSourceProduct, SignalSourceType } from './types'
 
@@ -129,6 +131,90 @@ describe('signalSourcesLogic', () => {
         }).toDispatchActions(['toggleCiSignals', action])
 
         expect(logic.values.dataSourceSetupSource).toBe(setup)
+    })
+
+    it.each([
+        {
+            source: 'jira' as const,
+            warehouseType: 'Jira' as const,
+            table: 'issues',
+            recordType: SignalSourceType.Issue,
+            refresh: true,
+        },
+        {
+            source: 'semgrep' as const,
+            warehouseType: 'Semgrep' as const,
+            table: 'sast_findings',
+            recordType: SignalSourceType.ScannerFinding,
+            refresh: true,
+        },
+        {
+            source: 'intercom' as const,
+            warehouseType: 'Intercom' as const,
+            table: 'conversations',
+            recordType: SignalSourceType.Ticket,
+            refresh: false,
+        },
+    ])(
+        'enables $source using its existing connection and required record type',
+        async ({ source, warehouseType, table, recordType, refresh }) => {
+            const configWrites: unknown[] = []
+            const schemaWrites: unknown[] = []
+            warehouseSources = [
+                {
+                    ...githubSource,
+                    source_type: warehouseType,
+                    schemas: [{ ...githubSchema('schema-1', table), sync_type: 'incremental' }],
+                },
+            ]
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/signals/source_configs/': async ({ request }) => {
+                        configWrites.push(await request.json())
+                        return [200, { ...githubIssuesConfig, source_product: source, source_type: recordType }]
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/external_data_schemas/:id/': async ({ request }) => {
+                        schemaWrites.push(await request.json())
+                        return [200, {}]
+                    },
+                },
+            })
+            logic.actions.loadSourceConfigsSuccess([])
+            sourcesDataLogic.actions.loadSourcesSuccess({ results: warehouseSources, next: null, previous: null })
+            await expectLogic(logic, () =>
+                logic.actions.initiateDataWarehouseSourceToggle(source)
+            ).toFinishAllListeners()
+            expect(logic.values.dataSourceSetupSource).toBeNull()
+            expect(configWrites).toEqual([
+                { source_product: source, source_type: recordType, enabled: true, config: {} },
+            ])
+            expect(schemaWrites).toEqual(refresh ? [{ should_sync: true, sync_type: 'full_refresh' }] : [])
+            expect(logic.values.externalSourceStates[source].loading).toBe(false)
+        }
+    )
+
+    it('sorts connected sources first and filters the catalog without hiding PostHog sources', () => {
+        sourcesDataLogic.actions.loadSourcesSuccess({
+            results: [{ ...githubSource, source_type: 'Jira' }],
+            next: null,
+            previous: null,
+        })
+        logic.actions.loadSourceConfigsSuccess([])
+        expect(logic.values.rosterGroups.find((group) => group.id === 'external')?.agents[0].source).toBe('jira')
+        expect(logic.values.externalSourceStates.jira).toMatchObject({ connected: true, requiresSetup: false })
+        expect(logic.values.externalSourceStates.sentry).toMatchObject({ connected: false, requiresSetup: true })
+        logic.actions.setSourceCategory('Error tracking')
+        logic.actions.setSourceSearchQuery('SENTRY')
+        expect(
+            logic.values.filteredRosterGroups
+                .find((group) => group.id === 'external')
+                ?.agents.map((source) => source.source)
+        ).toEqual(['sentry'])
+        expect(
+            logic.values.filteredRosterGroups.find((group) => group.id === 'posthog')?.agents.length
+        ).toBeGreaterThan(0)
     })
 
     it('carries the card guidance onto an error tracking signal type turned on later', async () => {
