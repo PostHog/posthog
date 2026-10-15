@@ -41,6 +41,7 @@ class TestStableChunks(SimpleTestCase):
             ("empty imports", {**VALID_MANIFEST, "imports": {}}, False),
             ("preload url is not a string", {**VALID_MANIFEST, "preload": {"js": [1], "authenticatedJs": []}}, False),
             ("eager css url is not a string", {**VALID_MANIFEST, "eagerCss": [1]}, False),
+            ("logged-out import is not a string", {**VALID_MANIFEST, "loggedOutImports": [1]}, False),
         ]
     )
     def test_manifest_problems_fall_back_to_the_default_build(self, _name, manifest, expect_stable):
@@ -170,6 +171,24 @@ class TestStableChunks(SimpleTestCase):
         assert context["preload_css_url"] == ""
         assert context["stable_preload_css_urls"] == stable.eager_css_urls
 
+    @parameterized.expand(
+        [
+            ("only its part of the map", frozenset({"@c/eAAAA"}), {"@c/eAAAA"}),
+            ("the whole map from a build with no logged-out part", None, {"@c/eAAAA", "@c/eBBBB"}),
+        ]
+    )
+    def test_a_logged_out_page_renders(self, _name, logged_out_specifiers, expected_specifiers):
+        stable = StableChunks(
+            imports={"@c/eAAAA": "static/index-S0000000000.js", "@c/eBBBB": "static/Insight-S1111111111.js"},
+            preload_js_urls=(),
+            authenticated_preload_js_urls=(),
+            logged_out_specifiers=logged_out_specifiers,
+        )
+
+        context = self._context_with_stable_chunks(stable)
+
+        assert set(json.loads(context["stable_chunks_importmap"])["imports"]) == expected_specifiers
+
     def test_no_eager_css_urls_keeps_the_single_preload_link(self):
         stable = StableChunks(
             imports={"@c/eAAAA": "static/index-S0000000000.js"}, preload_js_urls=(), authenticated_preload_js_urls=()
@@ -208,8 +227,12 @@ class TestStableChunksChoiceSurvivesTheRequest(APIBaseTest):
     )
     def test_the_flag_picks_the_build_it_bootstraps(self, _name, query, flags, expect_stable):
         request = self._user_request(query)
+        # The logged-out part of the map leaves the entry out, so only the whole map holds it.
         stable = StableChunks(
-            imports={"@c/eAAAA": "static/index-S0000000000.js"}, preload_js_urls=(), authenticated_preload_js_urls=()
+            imports={"@c/eAAAA": "static/index-S0000000000.js"},
+            preload_js_urls=(),
+            authenticated_preload_js_urls=(),
+            logged_out_specifiers=frozenset(),
         )
 
         with (
@@ -219,6 +242,10 @@ class TestStableChunksChoiceSurvivesTheRequest(APIBaseTest):
             context = get_context_for_template("index.html", request)
 
         assert context.get("stable_chunks", False) == expect_stable
+        if expect_stable:
+            assert json.loads(context["stable_chunks_importmap"])["imports"] == {
+                "@c/eAAAA": f"{context['js_url']}/static/index-S0000000000.js"
+            }
         assert context["posthog_bootstrap"].get("featureFlags") == flags
         get_all_flags.assert_called_once()
         assert get_all_flags.call_args.kwargs["only_evaluate_locally"] is True

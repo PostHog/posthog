@@ -4,6 +4,8 @@
  *   - esbuild/Vite: message contains `'Failed to fetch dynamically imported module'`
  *   - Firefox: native `TypeError: error loading dynamically imported module: <url>` (deferred import of a now-deleted chunk after a deploy)
  *   - WebKit/Safari: `Importing a module script failed.` (module script fails to load, e.g. transient network failure)
+ *   - stable chunk build: a native `TypeError` that names an `@c/` specifier the page's import map does not hold
+ *     (a logged-out page gets only the logged-out part of the map, see posthog/stable_chunks.py)
  *
  * Safari's/Firefox's generic network TypeErrors (`isGenericNetworkTypeError`) are also a failed
  * `import()`'s shape in those browsers, but the message can't tell that apart from an unrelated
@@ -11,6 +13,9 @@
  * for a `SyntaxError` from a chunk that fails to parse.
  */
 const markedChunkLoadErrors = new WeakSet<object>()
+
+// Chrome, Firefox and Safari quote the specifier with ", “ or ' in their unresolved-specifier messages.
+const UNMAPPED_STABLE_CHUNK_SPECIFIER = /["“']@c\/[A-Za-z0-9]+["”']/
 
 export function markAsChunkLoadError(error: unknown): void {
     if (!error || typeof error !== 'object') {
@@ -52,6 +57,7 @@ export function isChunkLoadError(error: unknown): boolean {
         info.name === 'ChunkLoadError' ||
         info.message.includes('Failed to fetch dynamically imported module') ||
         info.message.includes('Importing a module script failed') ||
-        (isTypeError && info.message.includes('error loading dynamically imported module'))
+        (isTypeError && info.message.includes('error loading dynamically imported module')) ||
+        (isTypeError && UNMAPPED_STABLE_CHUNK_SPECIFIER.test(info.message))
     )
 }
