@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from collections import Counter, defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import field
 from functools import partial
 from typing import TypeVar
@@ -205,7 +205,9 @@ def _execute_plan(
     if person is None:
         return [_person_action(plan, "skipped_not_live")]
     if plan.kind == "stale" and not include_stale:
-        refusal: datatypes.RepairOutcome | None = "skipped_stale"
+        refusal: datatypes.RepairOutcome | None = (
+            "would_repair" if not apply and stale_merge_distinct_id is not None else "skipped_stale"
+        )
         if apply and stale_merge_distinct_id is not None:
             missing = stale_merge._clickhouse_only_properties(plan)
             # A later reset that finds nothing missing raises Postgres. Capture accepting the $set does not mean
@@ -379,6 +381,8 @@ def repair_persons(
     max_writes_per_second: float | None = None,
     on_action: Callable[[datatypes.RepairAction], None],
     log: Callable[[str], None],
+    republish_equal: Collection[str] = (),
+    stale_merge_distinct_ids: Mapping[str, str] | None = None,
 ) -> datatypes.RepairSummary:
     """Republish the Postgres state of each target person and its mappings where ClickHouse disagrees.
 
@@ -388,6 +392,10 @@ def repair_persons(
 
     ``include_stale`` also repairs stale persons and their mappings. That replaces their ClickHouse properties
     with the Postgres ones for good, so never use it on a team waiting for a restore from ClickHouse.
+
+    ``republish_equal`` names persons to republish although ClickHouse holds their Postgres version.
+    ``stale_merge_distinct_ids`` maps a stale person to the distinct id that sends its ClickHouse-only properties
+    to ingestion; a rerun after ingestion applied them raises and republishes the person.
     """
     if max_writes_per_second is not None and max_writes_per_second <= 0:
         raise ValueError("max_writes_per_second must be above 0")
@@ -423,7 +431,9 @@ def repair_persons(
                 continue
             for chunk in lookups._chunks(person_uuids, _REPAIR_CHUNK_SIZE):
                 plans = _retry_transient(
-                    partial(repair_plan._plan_chunk, team_id, chunk), what=f"team {team_id}: planning", log=log
+                    partial(repair_plan._plan_chunk, team_id, chunk, republish_equal=frozenset(republish_equal)),
+                    what=f"team {team_id}: planning",
+                    log=log,
                 )
                 for plan in plans:
                     # Only the attempt that succeeds returns actions, so a retried person is counted once.
@@ -435,6 +445,7 @@ def repair_persons(
                             include_stale=include_stale,
                             before_write=pacer.before_write,
                             published=deliveries.track,
+                            stale_merge_distinct_id=(stale_merge_distinct_ids or {}).get(plan.person_uuid),
                         ),
                         what=f"team {team_id} person {plan.person_uuid}",
                         log=log,
