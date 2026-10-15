@@ -170,6 +170,7 @@ export function createCohortFormData(
                           ).filters.properties,
                           id: undefined,
                       },
+                      filterTestAccounts: cohort.filters.filterTestAccounts,
                   }
         ),
     }
@@ -727,5 +728,12 @@ export function cohortBroadcastDisabledReason(cohort: CohortType): string | null
 }
 
 export function urlForCohortBroadcast(cohort: { id: number; name?: string }): string {
-    return messageAudienceUrl({ properties: cohortAudienceProperties(cohort), source: 'cohort' }, 'broadcast')
+    return messageAudienceUrl(
+        {
+            properties: cohortAudienceProperties(cohort),
+            source: 'cohort',
+            draftSource: { source: 'cohort', source_id: String(cohort.id) },
+        },
+        'broadcast'
+    )
 }

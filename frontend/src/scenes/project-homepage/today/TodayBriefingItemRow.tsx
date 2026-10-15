@@ -9,6 +9,7 @@ import { TodayReportRowDetail } from './TodayReportRowDetail'
 import { TodayRow } from './TodayRow'
 import { pullRequestFact, rowFacts } from './todayRowFacts'
 import { briefingItemIcon } from './todayRowIcons'
+import { reportTitle } from './todaySignalReports'
 import { TodayVerdictButtons } from './TodayVerdictButtons'
 import type { TodayReportVerdictTarget } from './todayVerdictLogic'
 
@@ -34,10 +35,11 @@ export function TodayBriefingItemRow({ item, done }: { item: BriefingItemApi; do
     const reportId = itemReportId(item)
     const preview = reportPreviews[item.key]
     const to = itemHref(item)
+    const title = item.report ? reportTitle(item) : item.title
     const target: TodayReportVerdictTarget | null = reportId
         ? {
               reportId,
-              title: item.title,
+              title,
               hasOpenPullRequest:
                   !!item.report?.pull_request_url &&
                   item.report.pull_request_state !== 'closed' &&
@@ -48,7 +50,7 @@ export function TodayBriefingItemRow({ item, done }: { item: BriefingItemApi; do
         <TodayRow
             tone={priorityTone(priority)}
             icon={briefingItemIcon(item)}
-            title={item.title}
+            title={title}
             label={priority ?? undefined}
             facts={
                 done

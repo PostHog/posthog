@@ -38,7 +38,7 @@ from .highlight_types import CACHE_SECONDS, Candidate, Context, Found, Source, p
 logger = structlog.get_logger(__name__)
 
 FAILED_CACHE_SECONDS = 60
-COMPUTING_SECONDS = 2 * 60
+COMPUTING_SECONDS = 5 * 60
 START_LOCK_SECONDS = 30
 MAX_ITEMS = 6
 MAX_PER_FAMILY = 2
@@ -142,7 +142,12 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
     found = {result.source_name: _FOUND.validate_json(result.found) for result in inputs.results if result.found}
     highlights = build_highlights(load_sources(), found, Team.objects.get(id=inputs.team_id), row.local_day)
     failed = [result for result in inputs.results if result.failed]
-    row.status = HighlightsStatus.FAILED if failed and len(failed) == len(inputs.results) else HighlightsStatus.READY
+    usable = bool(highlights.items or highlights.pulse)
+    row.status = (
+        HighlightsStatus.FAILED
+        if failed and len(failed) == len(inputs.results) and not usable
+        else HighlightsStatus.READY
+    )
     row.content = _HIGHLIGHTS.dump_python(highlights, mode="json")
     row.failed_sources = bool(failed)
     row.ready_at = timezone.now()

@@ -1,8 +1,13 @@
+import { IconArrowRight } from '@posthog/icons'
+
+import { SearchItem } from 'lib/components/Search/searchItems'
+
 import { fileSystemTypes } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { OrganizationMemberType, UserType } from '~/types'
 
-import { FilterOptions, ValueOption } from './commandKQuery'
+import { FilterOptions, ResolvedQuery, ValueOption } from './commandKQuery'
+import type { ViewAll } from './commandKSections'
 
 /** Short words people type for a type, on top of its name and key. */
 const TYPE_ALIASES: Record<string, string[]> = {
@@ -13,12 +18,29 @@ const TYPE_ALIASES: Record<string, string[]> = {
     notebook: ['doc'],
 }
 
+interface FileSystemTypeDefinition {
+    name?: string
+    iconType?: string
+    listHref?: () => string
+}
+
+const FILE_SYSTEM_TYPES = fileSystemTypes as Record<string, FileSystemTypeDefinition>
+
+const typeDefinition = (type: string): FileSystemTypeDefinition | undefined =>
+    Object.hasOwn(FILE_SYSTEM_TYPES, type) ? FILE_SYSTEM_TYPES[type] : undefined
+
+// Some manifest names are already plural, such as "Tasks".
+export const pluralTypeName = (label: string): string => {
+    const name = label.toLowerCase()
+    return name.endsWith('s') ? name : `${name}s`
+}
+
 let cachedTypeOptions: ValueOption[] | null = null
 
 /** Every file system type from the product manifests, alphabetized. The manifests never change at runtime. */
 const typeOptions = (): ValueOption[] => {
     if (cachedTypeOptions === null) {
-        cachedTypeOptions = Object.entries(fileSystemTypes as Record<string, { name?: string; iconType?: string }>)
+        cachedTypeOptions = Object.entries(FILE_SYSTEM_TYPES)
             .flatMap(([type, definition]) =>
                 definition.name
                     ? [
@@ -66,4 +88,33 @@ export function buildFilterOptions(
         in: (folders ?? []).map((folder) => ({ value: folder.path, label: folder.path })),
         name: [],
     }
+}
+
+/** List pages for types whose manifest registers no `listHref`. */
+const LIST_HREF_FALLBACKS: Record<string, string> = {
+    dashboard: '/dashboard',
+    notebook: '/notebooks',
+}
+
+// With only filters the list page is the likely target; once there is search text, the matches matter more.
+export function viewAllFor({ filters, freeText }: ResolvedQuery): ViewAll | null {
+    const chip = filters.find((candidate) => candidate.key === 'is' && !candidate.negated)
+    if (!chip) {
+        return null
+    }
+    const href = typeDefinition(chip.value)?.listHref?.() ?? LIST_HREF_FALLBACKS[chip.value]
+    if (!href) {
+        return null
+    }
+    const name = `View all ${pluralTypeName(chip.label)}`
+    const item: SearchItem = {
+        id: `view-all-${chip.value}`,
+        name,
+        displayName: name,
+        category: 'results',
+        href,
+        icon: <IconArrowRight className="size-4 shrink-0 text-muted-foreground" />,
+        record: { type: chip.value },
+    }
+    return { item, placement: freeText.trim() ? 'trail' : 'lead' }
 }
