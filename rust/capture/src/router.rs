@@ -20,7 +20,6 @@ use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::otel;
 use crate::outputs::OutputRegistry;
 use crate::test_endpoint;
-use crate::v0_request::DataType;
 use crate::{ai_endpoint, time::TimeSource, v0_endpoint};
 use common_ingestion_warnings::WarningEmitter;
 use common_redis::Client;
@@ -143,12 +142,10 @@ impl HistoricalConfig {
         }
     }
 
-    pub fn should_reroute(&self, data_type: DataType, timestamp: DateTime<Utc>) -> bool {
+    /// Whether `timestamp` is stale enough to reroute. Callers apply it only
+    /// to events that have a historical counterpart.
+    pub fn should_reroute(&self, timestamp: DateTime<Utc>) -> bool {
         if !self.enable_historical_rerouting {
-            return false;
-        }
-
-        if data_type != DataType::AnalyticsMain {
             return false;
         }
 

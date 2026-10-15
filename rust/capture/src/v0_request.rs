@@ -255,6 +255,48 @@ impl DataType {
             Self::SnapshotMain => None,
         }
     }
+
+    pub fn is_ai(self) -> bool {
+        self == Self::AiEvents
+    }
+
+    pub fn is_historical(self) -> bool {
+        self == Self::AnalyticsHistorical
+    }
+
+    pub fn is_session_replay(self) -> bool {
+        self == Self::SnapshotMain
+    }
+
+    pub fn overflow_budget(self) -> Option<OverflowBudget> {
+        match self {
+            Self::AnalyticsMain => Some(OverflowBudget::Analytics),
+            Self::AiEvents => Some(OverflowBudget::Ai),
+            Self::AnalyticsHistorical
+            | Self::ClientIngestionWarning
+            | Self::HeatmapMain
+            | Self::ExceptionErrorTracking
+            | Self::SnapshotMain => None,
+        }
+    }
+
+    pub fn to_historical(self) -> Option<Self> {
+        match self {
+            Self::AnalyticsMain => Some(Self::AnalyticsHistorical),
+            Self::AnalyticsHistorical
+            | Self::ClientIngestionWarning
+            | Self::HeatmapMain
+            | Self::ExceptionErrorTracking
+            | Self::SnapshotMain
+            | Self::AiEvents => None,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum OverflowBudget {
+    Analytics,
+    Ai,
 }
 
 #[derive(Debug, Clone)]

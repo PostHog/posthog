@@ -24,7 +24,7 @@ use std::sync::Arc;
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use metrics::counter;
 
-use crate::v0_request::{DataType, OverflowReason, ProcessedEvent};
+use crate::v0_request::{OverflowBudget, OverflowReason, ProcessedEvent};
 
 /// Stamp `ProcessedEventMetadata::overflow_reason` on every overflowing-lane
 /// event in `events`, consulting the lane's limiter and the pre-existing
@@ -74,10 +74,10 @@ pub fn stamp_overflow_reason(
     ai_limiter: Option<&Arc<OverflowLimiter>>,
 ) {
     for event in events.iter_mut() {
-        let lane_limiter = match event.metadata.data_type {
-            DataType::AnalyticsMain => analytics_limiter,
-            DataType::AiEvents => ai_limiter,
-            _ => continue,
+        let lane_limiter = match event.metadata.data_type.overflow_budget() {
+            Some(OverflowBudget::Analytics) => analytics_limiter,
+            Some(OverflowBudget::Ai) => ai_limiter,
+            None => continue,
         };
 
         if event.metadata.force_overflow {
@@ -128,7 +128,7 @@ pub fn stamp_overflow_reason(
 mod tests {
     use super::*;
     use crate::utils::uuid_v7_from_datetime;
-    use crate::v0_request::{ProcessedEvent, ProcessedEventMetadata};
+    use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use std::num::NonZeroU32;
 
