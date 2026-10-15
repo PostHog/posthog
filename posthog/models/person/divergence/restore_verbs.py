@@ -269,14 +269,21 @@ def _restore_persons(rows: list[dict[str, Any]], context: VerbContext) -> set[st
     return restored
 
 
-def _pairs(rows: list[dict[str, Any]], verb: str) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    pairs: defaultdict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+@frozen
+class _Pair:
+    # The old person whose ids moved, and the person that holds them now.
+    old: str
+    new: str
+
+
+def _pairs(rows: list[dict[str, Any]], verb: str) -> dict[_Pair, list[dict[str, Any]]]:
+    pairs: defaultdict[_Pair, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         group = row.get("group") or ""
         old, _, new = group.removeprefix(f"{verb}:").partition(">")
         if not group.startswith(f"{verb}:") or not old or not new:
             continue
-        pairs[(old, new)].append(row)
+        pairs[_Pair(old=old, new=new)].append(row)
     return pairs
 
 
@@ -297,8 +304,8 @@ def fold(rows: list[dict[str, Any]], context: VerbContext) -> None:
         for row in rows:
             context.action(row, "skipped_person_processing_off")
         return
-    for (old, new), group_rows in _pairs(rows, "fold").items():
-        _fold_pair(old, new, group_rows, context)
+    for pair, group_rows in _pairs(rows, "fold").items():
+        _fold_pair(pair.old, pair.new, group_rows, context)
 
 
 def _fold_pair(old: str, new: str, rows: list[dict[str, Any]], context: VerbContext) -> None:
@@ -361,7 +368,8 @@ def merge(rows: list[dict[str, Any]], context: VerbContext) -> None:
             context.action(row, "skipped_person_processing_off")
         return
     token = Team.objects.only("api_token").get(id=context.team_id).api_token
-    for (old, new), group_rows in _pairs(rows, "merge").items():
+    for pair, group_rows in _pairs(rows, "merge").items():
+        old, new = pair.old, pair.new
         states = observe.pg_person_states(context.team_id, [old, new])
         if any(u not in states or states[u].is_deleted for u in (old, new)):
             for row in group_rows:
