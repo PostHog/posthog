@@ -11,7 +11,7 @@ import {
     type ViewToken,
 } from 'react-native'
 
-import type { DashboardView, PinDisplayMode, ViewEntry } from '@/model/views'
+import type { DashboardView, InsightSnapshot, PinDisplayMode, ViewEntry } from '@/model/views'
 import { ChartCanvasBudget, useCanvasBudgetViewport } from '@/ui/chart/budget/ChartCanvasBudget'
 import { useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
 import { colors, layout, type } from '@/ui/tokens'
@@ -194,6 +194,14 @@ function DashboardHeader({ screen, dashboard, dashboardRef }: DashboardHeaderPro
     const rangeTile = screen.tiles.find((tile) => tile.view.kind === 'insight' && !tile.view.usesOwnRange)
     const { snapshot } = useTileData(rangeTile ?? NO_TILE)
     const resolved = snapshot?.resolvedRange ?? null
+    const { item } = useViewsContext()
+    // Every tile resolves in the project timezone, also one with its own range, so any of them gives today's date.
+    const zoneHint =
+        screen.tiles
+            .map((tile) =>
+                tile.queryKey ? item.client.getQueryData<InsightSnapshot>(tile.queryKey)?.resolvedRange?.to : undefined
+            )
+            .find((to) => typeof to === 'string') ?? null
     // While a new range loads, the tile has no snapshot yet, so the dates of the previous range stay in place.
     const shownDates = useRef<string | null>(null)
     if (snapshot) {
@@ -216,6 +224,7 @@ function DashboardHeader({ screen, dashboard, dashboardRef }: DashboardHeaderPro
                         range={screen.range}
                         resolved={resolved}
                         detail={detail}
+                        zoneHint={zoneHint}
                         compare={dashboardCompareRow(screen.range, screen.compareSupported)}
                     />
                 }

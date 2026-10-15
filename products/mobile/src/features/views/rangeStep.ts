@@ -51,11 +51,14 @@ function startOfYear(day: string, yearsAhead = 0): string {
 
 /**
  * Today in the project timezone. The resolved range carries the project's UTC offset (`2026-10-14T23:59:59-07:00`),
- * so applying that offset to server now gives the project's date without a timezone database.
+ * so applying that offset to server now gives the project's date without a timezone database. Without one, the
+ * phone's own offset is the closer guess. UTC would enable tomorrow in the calendar on every evening in the Americas.
  */
 export function projectToday(resolvedTo: string | null, now: number): string {
     const offset = resolvedTo ? /([+-])(\d{2}):(\d{2})$/.exec(resolvedTo) : null
-    const offsetMs = offset ? (offset[1] === '-' ? -1 : 1) * (Number(offset[2]) * 60 + Number(offset[3])) * 60_000 : 0
+    const offsetMs = offset
+        ? (offset[1] === '-' ? -1 : 1) * (Number(offset[2]) * 60 + Number(offset[3])) * 60_000
+        : -new Date(now).getTimezoneOffset() * 60_000
     return fromUtc(now + offsetMs)
 }
 

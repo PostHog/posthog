@@ -29,6 +29,11 @@ interface ViewRangeControlProps {
     loading?: boolean
     /** The resolved dates under the control, which the sheet repeats. */
     detail: string | null
+    /**
+     * Another server time with the project's UTC offset, such as the resolved end of a tile with its own range. The
+     * calendar takes the project's today from it while the range on screen has no resolved window.
+     */
+    zoneHint?: string | null
     /** Null leaves the compare row out of the sheet. */
     compare: RangeCompareRow | null
 }
@@ -48,6 +53,7 @@ export function ViewRangeControl({
     loading = false,
     detail,
     compare,
+    zoneHint = null,
 }: ViewRangeControlProps): ReactElement {
     const [open, setOpen] = useState(false)
     const [pressed, setPressed] = useState(false)
@@ -56,7 +62,7 @@ export function ViewRangeControl({
     const context = stepContext(steppable)
     const canPrev = range.canStep(-1, context)
     const canNext = range.canStep(1, context)
-    const today = projectToday(resolved?.to ?? null, context.now)
+    const today = projectToday(resolved?.to ?? zoneHint, context.now)
     const label = range.label ?? EMPTY_LABEL
 
     const step = (direction: StepDirection): void => {
