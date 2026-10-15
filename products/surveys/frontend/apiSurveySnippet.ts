@@ -38,7 +38,7 @@ function responseLines(question: SurveyQuestion): string[] {
 export function buildApiSurveySnippet(survey: Survey | NewSurvey): string {
     const id = survey.id && survey.id !== 'new' ? survey.id : UNSAVED_SURVEY_ID
 
-    return [
+    const body = [
         'posthog.getActiveMatchingSurveys((surveys) => {',
         `    const survey = surveys.find((s) => s.id === ${quote(id)})`,
         '    if (!survey) return',
@@ -59,5 +59,7 @@ export function buildApiSurveySnippet(survey: Survey | NewSurvey): string {
         '        })',
         `    const onDismiss = () => posthog.capture(${quote(SurveyEventName.DISMISSED)}, surveyProperties)`,
         '})',
-    ].join('\n')
+    ]
+    // Flags must load first or a flag-targeted survey matches nobody on the first page load
+    return ['posthog.onFeatureFlags(() => {', ...body.map((line) => (line ? `    ${line}` : line)), '})'].join('\n')
 }
