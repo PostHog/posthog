@@ -5,6 +5,7 @@ import { EntityTypes, type FunnelStepWithConversionMetrics } from '~/types'
 import {
     buildFunnelStepsBarData,
     FUNNEL_STEPS_SERIES_KEY_PREFIX,
+    placeStepConversionChips,
     resolveFunnelStepClick,
     type FunnelStepsBarSeriesMeta,
 } from './funnelStepsBarTransforms'
@@ -243,5 +244,33 @@ describe('resolveFunnelStepClick', () => {
 
     it('returns null when the clicked column has no step', () => {
         expect(resolveFunnelStepClick(noBreakdownSteps, makeClick({ dataIndex: 99 }))).toBeNull()
+    })
+})
+
+describe('placeStepConversionChips', () => {
+    test.each([
+        {
+            name: 'centers a chip in each wide gap, keyed to the step it converts into',
+            bands: [
+                { left: 40, width: 100 },
+                { left: 240, width: 100 },
+                { left: 440, width: 100 },
+            ],
+            expected: [
+                { stepIndex: 1, centerX: 190 },
+                { stepIndex: 2, centerX: 390 },
+            ],
+        },
+        {
+            name: 'skips a gap too narrow for the chip',
+            bands: [
+                { left: 40, width: 100 },
+                { left: 180, width: 100 },
+            ],
+            expected: [],
+        },
+        { name: 'places nothing for a single step', bands: [{ left: 40, width: 100 }], expected: [] },
+    ])('$name', ({ bands, expected }) => {
+        expect(placeStepConversionChips(bands)).toEqual(expected)
     })
 })

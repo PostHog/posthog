@@ -153,3 +153,30 @@ export function resolveFunnelStepClick(
 export function formatFunnelStepBarLabel(ratePercent: number): string {
     return percentage(ratePercent / RATE_TO_PERCENT, 0)
 }
+
+// A narrower gap makes the chip touch the bars on both sides.
+export const STEP_CONVERSION_CHIP_MIN_GAP_PX = 48
+
+export interface StepBandBox {
+    left: number
+    width: number
+}
+
+export interface StepConversionChipPlacement {
+    /** The step the chip converts into. The chip sits in the gap before this step's bars. */
+    stepIndex: number
+    centerX: number
+}
+
+export function placeStepConversionChips(bands: StepBandBox[]): StepConversionChipPlacement[] {
+    const placements: StepConversionChipPlacement[] = []
+    for (let stepIndex = 1; stepIndex < bands.length; stepIndex++) {
+        const previousRight = bands[stepIndex - 1].left + bands[stepIndex - 1].width
+        const gap = bands[stepIndex].left - previousRight
+        if (gap < STEP_CONVERSION_CHIP_MIN_GAP_PX) {
+            continue
+        }
+        placements.push({ stepIndex, centerX: previousRight + gap / 2 })
+    }
+    return placements
+}
