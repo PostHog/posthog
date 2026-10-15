@@ -5,6 +5,8 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 import fakeredis
 from parameterized import parameterized
 
@@ -27,7 +29,7 @@ def _message(task: str, **kwargs) -> bytes:
     return json.dumps([{"body": body, "headers": {"task": task, "retries": 2}}, "", "celery"]).encode()
 
 
-class TestFindStuckDeletions(BaseTest):
+class TestFindStuckDeletions(SimpleTestCase):
     def test_lists_only_delete_tasks_in_the_age_window_across_pages_of_tied_scores(self):
         redis = fakeredis.FakeRedis()
         deletes: dict[str | bytes, float] = {f"tag-{i}": _NOW - 7200 for i in range(5)}
