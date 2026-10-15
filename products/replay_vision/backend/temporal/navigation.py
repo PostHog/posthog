@@ -15,6 +15,8 @@ class NavigationEntry(BaseModel, frozen=True):
     """One change of the page or tab on screen, as the prompt's navigation timeline shows it."""
 
     vid_t: int = Field(ge=0)
+    # The last video second the page is on screen, or None when it stays until the video ends.
+    end_t: int | None = None
     # The window number the frame footer shows, `WINDOW: <n> of ...`.
     tab: int
     url: str
@@ -24,13 +26,18 @@ class NavigationEntry(BaseModel, frozen=True):
 
 def navigation_timeline(changes: Sequence[NavigationChange]) -> tuple[list[NavigationEntry], int]:
     entries: list[NavigationEntry] = []
+    ends: list[int | None] = []
     seen_tabs: set[int] = set()
     last_change: NavigationChange | None = None
     for change in changes:
+        # Every change ends the visit on screen, including one to a URL the gate drops.
+        if ends and ends[-1] is None:
+            ends[-1] = max(entries[-1].vid_t, int(change.video_s) - 1)
         if not _is_navigable_url(change.url):
             continue
         # A URL the gate drops can sit between two sightings of the same page, which would repeat it.
         if last_change and last_change.window_number == change.window_number and last_change.url == change.url:
+            ends[-1] = None
             continue
         last_change = change
         url = change.url if len(change.url) <= _MAX_NAVIGATION_URL_LEN else change.url[:_MAX_NAVIGATION_URL_LEN] + "…"
@@ -39,6 +46,8 @@ def navigation_timeline(changes: Sequence[NavigationChange]) -> tuple[list[Navig
         entries.append(
             NavigationEntry(vid_t=int(change.video_s), tab=change.window_number, url=url, new_window=new_window)
         )
+        ends.append(None)
+    entries = [entry.model_copy(update={"end_t": end}) for entry, end in zip(entries, ends)]
 
     kept: list[NavigationEntry] = []
     url_chars = 0

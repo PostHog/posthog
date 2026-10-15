@@ -51,6 +51,30 @@ class TestNavigationTimeline:
 
         assert (len(entries), dropped_count) == (kept, dropped)
 
+    def test_each_visit_ends_where_the_next_change_shows_including_ones_the_timeline_drops(self) -> None:
+        changes = [
+            _change(0, "https://ex.com/a"),
+            _change(20.6, "https://ex.com/b"),
+            _change(30, "about:blank"),
+            _change(31, "https://ex.com/b"),
+            _change(40, "https://ex.com/c"),
+            _change(40.4, "https://ex.com/d"),
+        ]
+
+        entries, _ = navigation_timeline(changes)
+
+        assert [(e.url[-1], e.vid_t, e.end_t) for e in entries] == [
+            ("a", 0, 19),
+            ("b", 20, 39),
+            ("c", 40, 40),
+            ("d", 40, None),
+        ]
+
+    def test_the_last_kept_visit_ends_at_the_first_change_the_budget_drops(self) -> None:
+        entries, dropped = navigation_timeline([_change(i, f"https://ex.com/page-{i}") for i in range(60)])
+
+        assert (entries[-1].vid_t, entries[-1].end_t, dropped) == (49, 49, 10)
+
     def test_truncates_a_long_url_without_merging_pages_that_share_the_prefix(self) -> None:
         prefix = "https://ex.com/" + "a" * 400
         entries, _ = navigation_timeline([_change(0, prefix + "/one"), _change(5, prefix + "/two")])
