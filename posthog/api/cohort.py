@@ -1808,6 +1808,18 @@ def _used_in_block(page: list[dict], total: int) -> dict[str, Any]:
     return {"results": page, "total": total, "has_more": total > len(page)}
 
 
+def _workflows_block(
+    request: Request, user_access_control: Optional[UserAccessControl], cohort: Cohort
+) -> dict[str, Any]:
+    workflows = _workflows_relying_on_cohort(cohort)
+    visible = _visible_workflows(request, user_access_control, cohort.team_id, workflows)
+    page = [
+        {"id": workflow.id, "name": workflow.name, "status": workflow.status}
+        for workflow in visible[:COHORT_USED_IN_PAGE_SIZE]
+    ]
+    return {**_used_in_block(page, len(workflows)), "hidden": len(workflows) - len(visible)}
+
+
 def _truncate_used_in_queryset(qs: QuerySet) -> tuple[list[dict], int]:
     """Return up to COHORT_USED_IN_PAGE_SIZE rows plus the total count.
 
@@ -2377,24 +2389,23 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         cohorts_page, cohorts_total = _truncate_used_in_queryset(cohorts_qs.values("id", "name"))
         cohorts_data = [{"id": c["id"], "name": c["name"] or "Unnamed"} for c in cohorts_page]
 
-        workflows = _workflows_relying_on_cohort(cohort)
-        visible_workflows = _visible_workflows(request, uac, cohort.team_id, workflows)
-        workflows_data = [
-            {"id": workflow.id, "name": workflow.name, "status": workflow.status}
-            for workflow in visible_workflows[:COHORT_USED_IN_PAGE_SIZE]
-        ]
-
         return Response(
             {
                 "feature_flags": _used_in_block(flags_data[:COHORT_USED_IN_PAGE_SIZE], len(flags_data)),
                 "insights": _used_in_block(insights_data, insights_total),
                 "cohorts": _used_in_block(cohorts_data, cohorts_total),
-                "workflows": {
-                    **_used_in_block(workflows_data, len(workflows)),
-                    "hidden": len(workflows) - len(visible_workflows),
-                },
+                "workflows": _workflows_block(request, uac, cohort),
             }
         )
+
+    @extend_schema(
+        description="Active workflows that block deleting this cohort or editing it so it stops updating in real time.",
+        responses=CohortUsedInWorkflowsBlockSerializer,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
+    def blocking_workflows(self, request: request.Request, **kwargs) -> Response:
+        cohort: Cohort = self.get_object()
+        return Response(_workflows_block(request, self.user_access_control, cohort))
 
     def perform_create(self, serializer):
         serializer.save()

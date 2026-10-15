@@ -525,6 +525,26 @@ export interface PatchedAddPersonsToStaticCohortRequestApi {
     person_ids?: string[]
 }
 
+export interface CohortUsedInWorkflowApi {
+    /** Workflow ID (UUID) */
+    id: string
+    /** Workflow display name */
+    name: string
+    /** Workflow status. Always 'active', because only active workflows rely on the cohort */
+    status: string
+}
+
+export interface CohortUsedInWorkflowsBlockApi {
+    /** Active workflows relying on this cohort that the caller can view, capped at 100 results */
+    results: CohortUsedInWorkflowApi[]
+    /** Total number of active workflows relying on this cohort, including ones the caller cannot view */
+    total: number
+    /** Number of relying workflows the caller cannot view. They count toward total but are never listed */
+    hidden: number
+    /** True when some relying workflows are not listed in results */
+    has_more: boolean
+}
+
 /**
  * The actor's properties.
  */
@@ -634,26 +654,6 @@ export interface CohortUsedInCohortsBlockApi {
     /** Total number of cohorts referencing this cohort, before truncation */
     total: number
     /** True when more cohorts exist beyond the truncation cap */
-    has_more: boolean
-}
-
-export interface CohortUsedInWorkflowApi {
-    /** Workflow ID (UUID) */
-    id: string
-    /** Workflow display name */
-    name: string
-    /** Workflow status. Always 'active', because only active workflows rely on the cohort */
-    status: string
-}
-
-export interface CohortUsedInWorkflowsBlockApi {
-    /** Active workflows relying on this cohort that the caller can view, capped at 100 results */
-    results: CohortUsedInWorkflowApi[]
-    /** Total number of active workflows relying on this cohort, including ones the caller cannot view */
-    total: number
-    /** Number of relying workflows the caller cannot view. They count toward total but are never listed */
-    hidden: number
-    /** True when some relying workflows are not listed in results */
     has_more: boolean
 }
 

@@ -178,16 +178,11 @@ describe('cohortsSceneLogic', () => {
         })
 
         describe('workflows that rely on the cohort', () => {
-            const usedIn = (workflowsTotal: number): Record<string, any> => ({
-                feature_flags: { results: [], total: 0, has_more: false },
-                insights: { results: [], total: 0, has_more: false },
-                cohorts: { results: [], total: 0, has_more: false },
-                workflows: {
-                    results: workflowsTotal ? [{ id: 'flow-1', name: 'Welcome series', status: 'active' }] : [],
-                    total: workflowsTotal,
-                    hidden: 0,
-                    has_more: false,
-                },
+            const workflowsBlock = (workflowsTotal: number): Record<string, any> => ({
+                results: workflowsTotal ? [{ id: 'flow-1', name: 'Welcome series', status: 'active' }] : [],
+                total: workflowsTotal,
+                hidden: 0,
+                has_more: false,
             })
 
             it.each([
@@ -195,7 +190,9 @@ describe('cohortsSceneLogic', () => {
                 ['deletes when no workflow relies on the cohort', 0],
             ])('%s', async (_, workflowsTotal) => {
                 await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
-                useMocks({ get: { '/api/projects/:team/cohorts/:id/used_in/': usedIn(workflowsTotal) } })
+                useMocks({
+                    get: { '/api/projects/:team/cohorts/:id/blocking_workflows/': workflowsBlock(workflowsTotal) },
+                })
 
                 const blocked = workflowsTotal > 0
                 const request = expectLogic(logic, () => logic.actions.requestDeleteCohort({ id: 1 }))
@@ -204,7 +201,7 @@ describe('cohortsSceneLogic', () => {
                     : request.toDispatchActions(['requestDeleteCohort', 'deleteCohort']))
 
                 expect(cohortBlockingWorkflowsModalLogic.values.blocking).toEqual(
-                    blocked ? { action: 'delete', workflows: usedIn(1).workflows } : null
+                    blocked ? { action: 'delete', workflows: workflowsBlock(1) } : null
                 )
             })
         })

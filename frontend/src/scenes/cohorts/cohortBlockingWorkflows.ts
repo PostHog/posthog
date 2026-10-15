@@ -1,6 +1,8 @@
 import posthog from 'posthog-js'
 
-import { cohortsUsedInRetrieve } from 'products/cohorts/frontend/generated/api'
+import { ApiError } from 'lib/api-error'
+
+import { cohortsBlockingWorkflowsRetrieve } from 'products/cohorts/frontend/generated/api'
 import type { CohortUsedInWorkflowsBlockApi } from 'products/cohorts/frontend/generated/api.schemas'
 
 // pinned: error code the cohort API returns when workflows block a change, see posthog/api/cohort.py
@@ -16,11 +18,13 @@ export async function loadBlockingWorkflows(
     cohortId: number
 ): Promise<CohortUsedInWorkflowsBlockApi | null> {
     try {
-        const usedIn = await cohortsUsedInRetrieve(String(projectId), cohortId)
-        // A backend from before the workflows block returns no `workflows` key during a deploy.
-        return usedIn.workflows?.total ? usedIn.workflows : null
+        const workflows = await cohortsBlockingWorkflowsRetrieve(String(projectId), cohortId)
+        return workflows.total ? workflows : null
     } catch (error) {
-        posthog.captureException(error, { feature: 'cohort-blocking-workflows' })
+        // A 404 means the endpoint is not deployed yet, which is expected during a deploy.
+        if (!(error instanceof ApiError) || error.status !== 404) {
+            posthog.captureException(error, { feature: 'cohort-blocking-workflows' })
+        }
         return null
     }
 }

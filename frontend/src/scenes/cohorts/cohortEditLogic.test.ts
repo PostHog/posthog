@@ -433,10 +433,7 @@ describe('cohortEditLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/cohorts/:id/used_in/': {
-                        ...mockUsedInResponse,
-                        workflows: blockingWorkflows,
-                    },
+                    '/api/projects/:team_id/cohorts/:id/blocking_workflows/': blockingWorkflows,
                 },
                 patch: {
                     '/api/projects/:team_id/cohorts/:id/': () => [

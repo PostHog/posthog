@@ -7135,7 +7135,8 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert "used in 2 active workflow(s): Workflow branch and 1 more." in response.json()["detail"]
         assert "Workflow trigger" not in response.json()["detail"]
 
-    def test_used_in_lists_viewable_workflows_relying_on_the_cohort(self):
+    @parameterized.expand([("used_in", "workflows"), ("blocking_workflows", None)])
+    def test_lists_viewable_workflows_relying_on_the_cohort(self, path, key):
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
@@ -7156,10 +7157,10 @@ class TestCohortTypeIntegration(APIBaseTest):
         )
 
         with patch("posthog.api.cohort.COHORT_USED_IN_PAGE_SIZE", 1):
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in/")
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/{path}/")
 
         assert response.status_code == 200, response.json()
-        workflows = response.json()["workflows"]
+        workflows = response.json()[key] if key else response.json()
         assert [workflow["id"] for workflow in workflows["results"]] in [[visible_id] for visible_id in visible_ids]
         assert {key: workflows[key] for key in ("total", "hidden", "has_more")} == {
             "total": 3,
