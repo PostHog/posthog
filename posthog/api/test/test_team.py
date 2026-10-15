@@ -815,8 +815,7 @@ def team_api_test_factory():
             self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(backup)).exists())
             self.assertTrue(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
 
-            # The new primary only authenticates through its mirror row now that the legacy
-            # verifiers are off, so rotation must create one with the migrated scopes.
+            # Only the mirror row authenticates the new primary, so rotation must create it.
             self.team.refresh_from_db()
             new_row = ProjectSecretAPIKey.objects.get(secure_value=hash_key_value(self.team.secret_api_token))
             self.assertEqual(new_row.team_id, self.team.id)
@@ -826,6 +825,27 @@ def team_api_test_factory():
             response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
+
+        def test_rotation_from_a_stale_instance_does_not_orphan_mirror_rows(self):
+            # A rotation computing from stale token fields would leave the other rotation's
+            # mirror row authenticating forever, with no column referencing its token.
+            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            first = Team.objects.get(pk=self.team.pk)
+            stale = Team.objects.get(pk=self.team.pk)
+            first.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+            stale.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+
+            self.team.refresh_from_db()
+            mirrored = set(
+                ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("secure_value", flat=True)
+            )
+            self.assertEqual(
+                mirrored,
+                {hash_key_value(self.team.secret_api_token), hash_key_value(self.team.secret_api_token_backup)},
+            )
 
         def test_retiring_a_token_never_touches_another_teams_row(self):
             # secure_value is globally unique, so when two teams hold the same string the
@@ -973,6 +993,33 @@ def team_api_test_factory():
             # Make sure it's unchanged
             self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
             self.assertIsNone(self.team.secret_api_token_backup)
+
+        def test_rotate_secret_token_requires_caller_to_hold_minted_scopes(self):
+            # Rotation mints a PSAK with the migrated scopes, so a scoped token lacking
+            # them must not escalate through this endpoint.
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            lacking = self.create_personal_api_key_with_scopes(["project:write"])
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/rotate_secret_token/",
+                HTTP_AUTHORIZATION=f"Bearer {lacking}",
+            )
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
+
+            holding = self.create_personal_api_key_with_scopes(
+                ["project:write", "feature_flag:read", "support_ticket:read"]
+            )
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/rotate_secret_token/",
+                HTTP_AUTHORIZATION=f"Bearer {holding}",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         def test_delete_secret_token_backup_insufficient_privileges(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER

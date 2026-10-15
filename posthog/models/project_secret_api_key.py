@@ -102,8 +102,7 @@ def delete_project_secret_api_keys_for_token(team_id: int, token: str) -> None:
     ProjectSecretAPIKey.objects.filter(team_id=team_id, secure_value=hash_key_value(token)).delete()
 
 
-# The surfaces the #63111 backfill granted to migrated legacy tokens; a rotated-in
-# token gets the same ones so rotation does not widen or narrow access.
+# The scopes the #63111 backfill granted; rotation must neither widen nor narrow access.
 MIRRORED_LEGACY_TOKEN_SCOPES = ["feature_flag:read", "support_ticket:read"]
 
 MIRRORED_LEGACY_TOKEN_LABEL = "Migrated legacy secret API key"
@@ -115,8 +114,7 @@ def create_project_secret_api_key_for_token(team_id: int, token: str) -> None:
     secure_value = hash_key_value(token)
     label = MIRRORED_LEGACY_TOKEN_LABEL
     if ProjectSecretAPIKey.objects.filter(team_id=team_id, label=label).exists():
-        # (team, label) is unique and the old primary's migrated row keeps its label
-        # while it serves as backup; the hash suffix matches the backfill's fallback.
+        # (team, label) is unique and the backup's migrated row keeps the plain label.
         label = f"{label} {secure_value[-8:]}"
     ProjectSecretAPIKey.objects.create(
         team_id=team_id,

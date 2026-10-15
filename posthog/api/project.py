@@ -20,6 +20,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from posthog.schema import ProductKey
 
 from posthog.api import project_tags
+from posthog.api.project_secret_api_key import _enforce_caller_holds_scopes
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
@@ -98,6 +99,7 @@ from posthog.models.product_intent.product_intent import (
     enqueue_product_activation_calc_debounced,
 )
 from posthog.models.project import Project
+from posthog.models.project_secret_api_key import MIRRORED_LEGACY_TOKEN_SCOPES
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, Team
@@ -1914,6 +1916,8 @@ class ProjectViewSet(
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
         validate_secret_token_generation(project.passthrough_team)
+        # Rotation mints a PSAK mirror row, so the caller must hold the scopes it grants.
+        _enforce_caller_holds_scopes(request, MIRRORED_LEGACY_TOKEN_SCOPES)
         project.passthrough_team.rotate_secret_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
