@@ -93,7 +93,8 @@ export function GuestGrantsSelector({ inviteIndex }: { inviteIndex: number }): J
                         onChange={() => toggleAll(activeResource)}
                         data-attr="invite-guest-grant-all"
                     />
-                    <div className="flex flex-col max-h-60 overflow-y-auto">
+                    {/* About 10 rows, so a long list scrolls instead of growing the modal. */}
+                    <div className="flex flex-col max-h-80 overflow-y-auto">
                         {optionsLoading ? (
                             <LemonSkeleton className="h-5 my-1" repeat={3} />
                         ) : !options.length ? (
@@ -125,7 +126,11 @@ export function GuestGrantsSelector({ inviteIndex }: { inviteIndex: number }): J
                     {!previewItems.length ? (
                         <div className="text-secondary">Nothing yet. Pick what they can view.</div>
                     ) : (
-                        previewItems.map((item) => <PreviewItem key={`${item.resource}-${item.id}`} item={item} />)
+                        <div className="flex flex-col gap-3 max-h-80 overflow-y-auto">
+                            {previewItems.map((item) => (
+                                <PreviewItem key={`${item.resource}-${item.id}`} item={item} />
+                            ))}
+                        </div>
                     )}
                 </div>
             </div>
