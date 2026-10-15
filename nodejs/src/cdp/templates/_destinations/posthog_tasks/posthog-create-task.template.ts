@@ -114,7 +114,7 @@ return task
             secret: false,
             required: false,
             description:
-                'GitHub repository the agent works in, like your-org/your-repo. Switch to Template to set it from the trigger or an earlier step, like `{event.properties.repository}`. A template that does not render to your-org/your-repo fails the step. Leave empty for no repository.',
+                'GitHub repository the agent works in, e.g. your-org/your-repo. Leave empty for no repository.',
         },
         {
             key: 'connectors',
