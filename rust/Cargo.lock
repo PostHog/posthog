@@ -10937,7 +10937,13 @@ name = "replay-recorder-v4"
 version = "0.1.0"
 dependencies = [
  "arc-swap",
+ "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws-sdk-kms",
+ "aws-sdk-s3",
  "axum 0.7.9",
+ "chrono",
  "common-alloc",
  "common-database",
  "common-kafka",
@@ -10946,6 +10952,7 @@ dependencies = [
  "lifecycle",
  "metrics",
  "posthog-replay-anonymizer",
+ "rand 0.8.5",
  "rdkafka",
  "replay-core-v4",
  "serde_json",
@@ -10953,6 +10960,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "zstd 0.13.3",
 ]
 
 [[package]]
