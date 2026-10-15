@@ -10,11 +10,13 @@ GET /api/surveys/?token=<project token>
 
 Use the PostHog host for the project's region (or the user's proxy). The project token is the public project API key, not a personal API key. The response is `{"surveys": [...]}` and holds running, non-archived surveys. It does not apply per-person eligibility. Find the survey by `id`, then decide eligibility with the server SDK's feature flag evaluation for that person:
 
-- `linked_flag_key`, when set, must be enabled for the person. If `conditions.linkedFlagVariant` is set, the flag must return that variant.
+- `linked_flag_key`, when set, must be enabled for the person. If `conditions.linkedFlagVariant` is set to a variant, the flag must return that variant. The value `any` accepts every enabled variant.
 - `targeting_flag_key`, when set, must be enabled.
 - `internal_targeting_flag_key` must be enabled, unless the survey can show repeatedly (`schedule` is `always`, or `conditions.events.repeatedActivation` is true with events set) or the person has a partial submission in progress that they are finishing. It turns off for people who already responded, dismissed, or saw a survey within the wait period, based on the person properties below.
 
 Skip any flag that is null. URL, selector and device conditions describe a browser page, so apply them in your own routing if the survey uses them.
+
+A repeatable survey skips the internal flag, and with it the wait period. If it sets `conditions.seenSurveyWaitPeriodInDays`, store when you last showed a survey to each person, and skip the survey until that many days have passed.
 
 ## Capture the events
 

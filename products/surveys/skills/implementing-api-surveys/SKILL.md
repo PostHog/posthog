@@ -38,26 +38,33 @@ Pick the path:
 
 Require posthog-js 1.249.2 or newer. Older versions do not set the person properties and seen state on capture. Tell the user to upgrade rather than adding them by hand.
 
-Look the survey up once flags have loaded, because targeting is evaluated with flags. `onFeatureFlags` runs its callback right away when flags are ready, and again on every flag reload (after `identify`, and after each response), so guard against rendering twice.
+The lookup only works once both flags and the surveys bundle have loaded, because targeting is evaluated with flags and `getActiveMatchingSurveys` does nothing before surveys load. Register one retry for each at startup, and guard against rendering twice, since `onFeatureFlags` also runs on every flag reload (after `identify`, and after each response).
 
 ```js
+let triggered = false
 let rendered = false
 
-function showSurveyIfEligible() {
-  if (rendered) return
-  posthog.onFeatureFlags(() => {
-    if (rendered) return
-    posthog.getActiveMatchingSurveys((surveys) => {
-      const survey = surveys.find((s) => s.id === SURVEY_ID)
-      if (!survey || rendered) return
-      rendered = true
-      renderSurvey(survey)
-    })
+function tryShowSurvey() {
+  if (!triggered || rendered) return
+  posthog.getActiveMatchingSurveys((surveys) => {
+    const survey = surveys.find((s) => s.id === SURVEY_ID)
+    if (!survey || rendered) return
+    rendered = true
+    renderSurvey(survey)
   })
+}
+
+// Register once at startup, not per trigger.
+posthog.onFeatureFlags(tryShowSurvey)
+posthog.onSurveysLoaded(tryShowSurvey)
+
+function showSurveyIfEligible() {
+  triggered = true
+  tryShowSurvey()
 }
 ```
 
-Call `showSurveyIfEligible()` from the app's trigger, such as after a checkout completes, or on page load if the survey belongs there. `SURVEY_ID` is the id from step 1. `renderSurvey` mounts the component you build from the app's own UI, and that component calls the handlers below. `getActiveMatchingSurveys` applies the survey's targeting for this person, so render only what it returns.
+Call `showSurveyIfEligible()` from the app's trigger, such as after a checkout completes, or right after setup if the survey belongs on page load. In a single-page app, register the two listeners where the app initializes PostHog, and call the functions they return to unsubscribe if that code can unmount. `SURVEY_ID` is the id from step 1. `renderSurvey` mounts the component you build from the app's own UI, and that component calls the handlers below. `getActiveMatchingSurveys` applies the survey's targeting for this person, so render only what it returns.
 
 Capture three events. `answers` maps each question id to its answer, and holds every answer given so far in this submission. Exact property names and value shapes are in [event-contract.md](references/event-contract.md).
 
@@ -67,6 +74,10 @@ function onShown(survey) {
     $survey_id: survey.id,
     $survey_iteration: survey.current_iteration,
   })
+  // posthog-js reads this key for the survey wait period; only its own renderer writes it.
+  try {
+    localStorage.setItem('lastSeenSurveyDate', new Date().toISOString())
+  } catch {}
 }
 
 function onSubmit(survey, answers, submissionId, completed) {
