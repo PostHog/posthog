@@ -7,7 +7,7 @@ import { biMemberAliasesLogic } from './biMemberAliasesLogic'
 
 export function BIMemberAliasesModal({ tabId }: { tabId: string }): JSX.Element {
     const logic = biMemberAliasesLogic({ tabId })
-    const { field, draft, draftByValue, query } = useValues(logic)
+    const { field, draft, draftByValue, savedLabels, query } = useValues(logic)
     const { close, setAlias, save } = useActions(logic)
     const valuesLogic = biFilterValuesLogic({ query, active: !!field })
     const { options, optionsLoading, optionsError, hasMore, search } = useValues(valuesLogic)
@@ -18,7 +18,7 @@ export function BIMemberAliasesModal({ tabId }: { tabId: string }): JSX.Element 
             String(value ?? '(no value)')
                 .toLowerCase()
                 .includes(search.toLowerCase()) ||
-            draftByValue.get(value)?.toLowerCase().includes(search.toLowerCase())
+            savedLabels.get(value)?.toLowerCase().includes(search.toLowerCase())
     )
     return (
         <LemonModal
