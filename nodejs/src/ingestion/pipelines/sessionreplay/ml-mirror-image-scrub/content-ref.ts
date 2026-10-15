@@ -40,6 +40,19 @@ export function isRawTeamId(value: unknown): boolean {
     return typeof value === 'string' && /^[1-9][0-9]{0,15}$/.test(value) && Number.isSafeInteger(Number(value))
 }
 
+/** Parses `imageurl:v4:{team}:{YYYY-MM-DD}:{hash}`. `parseImageRef` refuses it, so no v2 or v3 reader takes one. */
+export function parseV4UrlRef(s: string): { teamId: number; keyDay: string; hash: string } | null {
+    const match = /^imageurl:v4:([1-9][0-9]{0,15}):([0-9]{4}-[0-9]{2}-[0-9]{2}):([A-Za-z0-9_-]{22})$/.exec(s)
+    if (!match || !isRawTeamId(match[1])) {
+        return null
+    }
+    const dayStart = Date.parse(`${match[2]}T00:00:00Z`)
+    if (Number.isNaN(dayStart) || new Date(dayStart).toISOString().slice(0, 10) !== match[2]) {
+        return null
+    }
+    return { teamId: Number(match[1]), keyDay: match[2], hash: match[3] }
+}
+
 /** Parses either kind of ref. `source` says which promise the hash carries. */
 export function parseImageRef(s: string): {
     teamId?: string
