@@ -430,6 +430,18 @@ def get_kwargs_for_client(
     creds = get_clickhouse_creds(ch_user)
     base_kwargs = {"user": creds.user, "password": creds.password}
 
+    if workload == Workload.NEW_EVENTS_CLUSTER:
+        from posthog.models.event.new_events_schema import get_new_events_cluster_host  # noqa: PLC0415
+
+        host = get_new_events_cluster_host()
+        if not host:
+            raise ValueError("Native events ClickHouse host is not configured")
+        return {
+            **get_kwargs_for_client(Workload.DEFAULT, team_id, readonly, ch_user),
+            "host": host,
+            "verify": settings.CLICKHOUSE_VERIFY,
+        }
+
     if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
         user_settings = settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)]
         return {**base_kwargs, **user_settings}
