@@ -750,6 +750,7 @@ class _Groups:
         self.person_verbs: dict[str, str | None] = {}
         self.primary_person_rows: set[str] = set()
         self.no_live_mapping_persons: set[str] = set()
+        self.ghost_mapping_owners: set[str] = set()
 
     def observe(self, row: dict[str, Any]) -> None:
         if row["kind"] == "mapping" and row["flavor"] == "diverged" and row["sub_flavor"] in ("a_absent", "a_live"):
@@ -757,6 +758,8 @@ class _Groups:
             new = row["evidence"]["pg"]["person_uuid"]
             self.new_by_old[old].add(new)
             self.old_by_new[new].add(old)
+        elif row["kind"] == "mapping" and row["flavor"] == "ghost" and row["sub_flavor"] == "owner_ghost":
+            self.ghost_mapping_owners.add(row["evidence"]["ch"]["winner_person_uuid"])
         elif row["kind"] == "person":
             if row["flavor"] == "no_live_mappings":
                 self.no_live_mapping_persons.add(row["key"])
@@ -775,6 +778,11 @@ class _Groups:
     def ambiguous(self, old: str) -> bool:
         return old in self.new_by_old and self.pair_for_old(old) is None
 
+    def fold_mode(self, old: str) -> str:
+        # A full fold restores the old person with its ghost mappings, then merges it with an event.
+        # Without a ghost mapping there is no distinct id to merge from, so a light fold moves the data instead.
+        return "full" if old in self.ghost_mapping_owners else "light"
+
 
 def _regroup(row: dict[str, Any], groups: _Groups, plan: ScanPlan) -> dict[str, Any] | None:
     """Apply the cross-key decisions to one row. Returns None for a row merged into another."""
@@ -789,6 +797,7 @@ def _regroup(row: dict[str, Any], groups: _Groups, plan: ScanPlan) -> dict[str, 
             pair = groups.pair_for_old(key)
             if pair is not None:
                 row["verb"], row["group"] = "fold", f"fold:{pair.old}>{pair.new}"
+                row["fold_mode"] = groups.fold_mode(pair.old)
             elif groups.ambiguous(key):
                 row["verb"], row["group"] = None, f"ambiguous:{key}"
             elif row["verb"] == "restore":
@@ -804,6 +813,8 @@ def _regroup(row: dict[str, Any], groups: _Groups, plan: ScanPlan) -> dict[str, 
             row["group"] = f"ambiguous:{new}" if len(groups.old_by_new[new]) > 1 else f"ambiguous:{old}"
         else:
             row["group"] = f"{row['verb']}:{pair.old}>{pair.new}"
+            if row["verb"] == "fold":
+                row["fold_mode"] = groups.fold_mode(pair.old)
     elif flavor == "ghost":
         owner = row["evidence"]["ch"]["winner_person_uuid"]
         if not plan.team_exists:
@@ -813,6 +824,7 @@ def _regroup(row: dict[str, Any], groups: _Groups, plan: ScanPlan) -> dict[str, 
             pair = groups.pair_for_old(owner)
             if pair is not None:
                 row["verb"], row["group"] = "fold", f"fold:{pair.old}>{pair.new}"
+                row["fold_mode"] = groups.fold_mode(pair.old)
             elif groups.ambiguous(owner):
                 row["verb"], row["group"] = None, f"ambiguous:{owner}"
             else:
@@ -844,6 +856,7 @@ def finalize(scan_dir: Path, *, partial: bool = False) -> dict[str, Any]:
     reported: Counter[tuple[str, str, str | None, str | None]] = Counter()
     group_sizes: defaultdict[str, Counter[str]] = defaultdict(Counter)
     group_verbs: dict[str, str | None] = {}
+    fold_modes: dict[str, str] = {}
     tmp = scan_dir / (REPORT_FILE + ".tmp")
     with tmp.open("w") as out:
         for row in _iter_rows(runs):
@@ -855,6 +868,8 @@ def finalize(scan_dir: Path, *, partial: bool = False) -> dict[str, Any]:
             if final["group"] is not None:
                 group_sizes[final["group"]][final["kind"]] += 1
                 group_verbs[final["group"]] = final["verb"]
+                if "fold_mode" in final:
+                    fold_modes[final["group"]] = final["fold_mode"]
     os.replace(tmp, scan_dir / REPORT_FILE)
 
     classified: Counter[str] = Counter()
@@ -885,8 +900,15 @@ def finalize(scan_dir: Path, *, partial: bool = False) -> dict[str, Any]:
         "verbs": {verb: dict(c) for verb, c in sorted(verbs.items())},
         "groups": {
             "count": len(group_sizes),
+            "fold_modes": dict(sorted(Counter(fold_modes.values()).items())),
             "largest": [
-                {"group": group, "verb": group_verbs[group], "person_rows": c["person"], "mapping_rows": c["mapping"]}
+                {
+                    "group": group,
+                    "verb": group_verbs[group],
+                    "fold_mode": fold_modes.get(group),
+                    "person_rows": c["person"],
+                    "mapping_rows": c["mapping"],
+                }
                 for group, c in largest
             ],
         },
