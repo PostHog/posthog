@@ -46,10 +46,10 @@ FROM (
             SELECT addDays(toStartOfDay(now()), toInt(arrayJoin(range(32))) - 32) AS day
         ) AS calendar
         LEFT JOIN (
-            SELECT toStartOfDay(created_at) AS day, count() AS event_count
+            SELECT toStartOfDay(timestamp) AS day, count() AS event_count
             FROM events
-            WHERE created_at >= addDays(toStartOfDay(now()), -32)
-                AND created_at < toStartOfDay(now())
+            WHERE timestamp >= addDays(toStartOfDay(now()), -32)
+                AND timestamp < toStartOfDay(now())
             GROUP BY day
         ) AS counts ON calendar.day = counts.day
     )
@@ -75,12 +75,13 @@ def _create_default_ingestion_alert(team: Team, user: User) -> UUID | None:
     insight = Insight.objects.create(
         team=team,
         created_by=user,
-        name="Event ingestion changes",
+        name="Event volume changes",
         description=(
-            "Compare each complete day with the previous day by ingestion time. "
+            "Compare each complete day with the previous day by event date. "
             "Alert on unusual changes above 50% and at least 100 events. "
             "Use 14 previous daily changes as history. Start after 16 complete days. "
-            "Weekend checks are off. Edit the insight or alert to change these settings."
+            "Weekend checks are off. Late events count on their event date. "
+            "Edit the insight or alert to change these settings."
         ),
         filters={"default_ingestion_alert": True},
         query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": INGESTION_QUERY}},
@@ -96,7 +97,7 @@ def _create_default_ingestion_alert(team: Team, user: User) -> UUID | None:
         user=user,
         data={
             "insight": insight.id,
-            "name": "Event ingestion changes",
+            "name": "Event volume changes",
             "calculation_interval": "daily",
             "condition": {"type": "absolute_value"},
             "threshold": {"configuration": {"type": "absolute", "bounds": {}}},

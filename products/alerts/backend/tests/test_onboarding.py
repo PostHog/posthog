@@ -158,7 +158,7 @@ class TestIngestionComparison(ClickhouseTestMixin, BaseTest):
     @time_machine.travel("2026-10-19T12:00:00Z", tick=False)
     @patch("products.alerts.backend.facade.onboarding.feature_enabled_or_false", return_value=True)
     @patch("products.alerts.backend.facade.onboarding.is_email_available", return_value=True)
-    def test_daily_ingestion_comparison(
+    def test_daily_event_volume_comparison(
         self,
         _name: str,
         timezone: str,
@@ -182,9 +182,17 @@ class TestIngestionComparison(ClickhouseTestMixin, BaseTest):
                     team=self.team,
                     event="example_event",
                     distinct_id="example-user",
-                    timestamp=(ingested_at - timedelta(days=5)).isoformat(),
-                    created_at=ingested_at,
+                    timestamp=ingested_at.isoformat(),
+                    created_at=datetime.now(UTC),
                 )
+
+        _create_event(
+            team=self.team,
+            event="old_event",
+            distinct_id="example-user",
+            timestamp=(datetime.now(UTC) - timedelta(days=90)).isoformat(),
+            created_at=datetime.now(UTC),
+        )
 
         assert alert.insight.query is not None
         query = HogQLQuery.model_validate(alert.insight.query["source"])
@@ -196,6 +204,7 @@ class TestIngestionComparison(ClickhouseTestMixin, BaseTest):
         assert latest[0].date().isoformat() == (today - timedelta(days=1)).isoformat()
         assert tuple(latest[1:3]) == (current_count, previous_count)
         assert latest[5] == expected_change
+        assert sum(row[1] for row in result.results) == previous_count + current_count
 
         assert alert.detector_config is not None
         detector = get_detector(alert.detector_config)
