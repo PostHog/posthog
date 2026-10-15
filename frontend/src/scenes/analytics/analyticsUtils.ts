@@ -1,11 +1,12 @@
 import { combineUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { fileSystemTypes, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import type { InsightShortId, UserBasicType } from '~/types'
+import { type InsightShortId, SavedInsightsTabs, type UserBasicType } from '~/types'
 
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 import type { DashboardBasicApi } from 'products/dashboards/frontend/generated/api.schemas'
@@ -286,10 +287,30 @@ export function isFromPostHogItem(item: Pick<FileSystemImport, 'iconType'>): boo
 
 export function fromPostHogProducts(): FromPostHogItem[] {
     const products = getTreeItemsProducts()
-    return FROM_POSTHOG_ICON_TYPES.flatMap((iconType) => {
-        const item = products.find((product) => product.iconType === iconType)
-        return item?.href ? [{ key: iconType, label: fileSystemEntryName(item), href: item.href, item }] : []
-    })
+    // Product analytics has no page of its own in the manifest; its ready-made analysis is the Insights home tab.
+    const productAnalytics = products.find((product) => product.type === 'insight' && product.href === urls.insights())
+    const home: FromPostHogItem[] = productAnalytics
+        ? [
+              {
+                  key: 'product_analytics',
+                  label: 'Product analytics',
+                  href: urls.savedInsights(SavedInsightsTabs.Home),
+                  item: {
+                      ...productAnalytics,
+                      iconType: 'product_analytics',
+                      href: urls.savedInsights(SavedInsightsTabs.Home),
+                      flag: FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB,
+                  },
+              },
+          ]
+        : []
+    return [
+        ...home,
+        ...FROM_POSTHOG_ICON_TYPES.flatMap((iconType) => {
+            const item = products.find((product) => product.iconType === iconType)
+            return item?.href ? [{ key: iconType, label: fileSystemEntryName(item), href: item.href, item }] : []
+        }),
+    ]
 }
 
 export function fromPostHogItems(featureFlags: Record<string, unknown>): FromPostHogItem[] {
