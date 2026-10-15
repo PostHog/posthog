@@ -960,8 +960,8 @@ describe('dashboardLogic', () => {
         })
 
         it.each([
-            [21, true],
-            [22, false],
+            [20, true],
+            [21, false],
         ])('previews filter changes automatically with %i insights: %s', async (insightCount, autoPreview) => {
             await expectLogic(logic).toFinishAllListeners()
             const dashboard = {
