@@ -6513,6 +6513,13 @@ export namespace Schemas {
         eventName: string | null;
         properties: Array<ActivityEventsPropertyFilter> | null;
     }>;
+    export type ErrorTrackingOrderBy =
+        | "last_seen"
+        | "first_seen"
+        | "occurrences"
+        | "users"
+        | "sessions"
+        | "severity";
     export type WidgetAssigneeFilter = {
         id: string | number;
         type: "user" | "role";
@@ -6522,12 +6529,7 @@ export namespace Schemas {
         filterTestAccounts: boolean | null;
         widgetFilters: Record<string, WidgetFilterEntry> | null;
         limit: number;
-        orderBy:
-            | "last_seen"
-            | "first_seen"
-            | "occurrences"
-            | "users"
-            | "sessions";
+        orderBy: ErrorTrackingOrderBy;
         orderDirection: "ASC" | "DESC";
         status:
             | "archived"
@@ -8460,13 +8462,6 @@ export namespace Schemas {
         useSessionsTable?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
-    export type ErrorTrackingOrderBy =
-        | "last_seen"
-        | "first_seen"
-        | "occurrences"
-        | "users"
-        | "sessions"
-        | "severity";
     export type OrderDirection2 = "ASC" | "DESC";
     export type ErrorTrackingPendingFingerprintIssueStateUpdate = {
         assigned_role_id?: (string | null) | undefined;
