@@ -711,11 +711,12 @@ def get_environment_scoped_models(team_scoped: set[str]) -> set[str]:
 
     Project-level models drop out in two ways. RootTeamMixin (and its fail-closed
     TeamScopedRootMixin) and ProductTeamModel rewrite team_id to the project's root
-    team on save. Models with a `project` field (own or inherited) are keyed by the
-    project directly.
+    team on save. Models with a `project` relation to Project (own or inherited) are
+    keyed by the project directly.
     """
     from django.apps import apps
 
+    from posthog.models.project import Project
     from posthog.models.scoping.product_mixin import ProductTeamModel
     from posthog.models.utils import RootTeamMixin
 
@@ -725,8 +726,11 @@ def get_environment_scoped_models(team_scoped: set[str]) -> set[str]:
             continue
         if issubclass(model, (RootTeamMixin, ProductTeamModel)):
             continue
-        field_names = {field.name for field in model._meta.get_fields()}
-        if "project" in field_names or "project_id" in field_names:
+        # A field named `project` can hold something else, such as a release's application name.
+        has_project_relation = any(
+            field.name == "project" and field.related_model is Project for field in model._meta.get_fields()
+        )
+        if has_project_relation:
             continue
         environment_scoped.add(model.__name__)
     return environment_scoped

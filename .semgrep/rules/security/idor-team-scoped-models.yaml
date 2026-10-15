@@ -1053,6 +1053,7 @@ rules:
                         |ErrorTrackingIssueFingerprint
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRecommendation
+                        |ErrorTrackingRelease
                         |ErrorTrackingSettings
                         |ErrorTrackingSpikeDetectionConfig
                         |ErrorTrackingSpikeEvent
