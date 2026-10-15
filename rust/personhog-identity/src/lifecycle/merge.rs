@@ -259,8 +259,7 @@ fn record_transition(from: &str, to: &str) {
 /// Count settled per-source outcomes. Shared by the saga's terminal record
 /// and the entrance's inline settlement, so the counter covers every
 /// requested source — not just the ones that entered the saga. `stage` is
-/// `inline` or the step the op settled from, so a noop recorded from
-/// `started` is a classification the claim found stale.
+/// `inline` or the step the op settled from.
 pub(crate) fn record_outcome_count(stage: &'static str, outcome: &str, count: u64) {
     common_metrics::inc(
         OUTCOMES_TOTAL,

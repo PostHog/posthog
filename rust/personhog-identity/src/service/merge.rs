@@ -51,6 +51,7 @@ const RESULT_COMPLETED: &str = "completed";
 const RESULT_ABORTED: &str = "aborted";
 const RESULT_ABORTED_CLAIM: &str = "aborted_claim";
 const RESULT_ERROR: &str = "error";
+const RESULT_CANCELLED: &str = "cancelled";
 
 /// `Adopted`: establishment attached the target distinct id to a source's person.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,25 +77,78 @@ struct MergeShape {
     target: &'static str,
     sources: &'static str,
     mode: &'static str,
-    /// `aborted_claim` ended inside the claim transaction, before any fence.
     result: &'static str,
 }
 
-fn record_call(shape: &MergeShape, start: Instant) {
-    let labels = [
-        ("path", shape.path),
-        ("target", shape.target),
-        ("sources", shape.sources),
-        ("mode", shape.mode),
-        ("result", shape.result),
-    ]
-    .map(|(key, value)| (key.to_string(), value.to_string()));
-    common_metrics::inc(MERGE_CALLS_TOTAL, &labels, 1);
-    common_metrics::histogram(
-        MERGE_CALL_DURATION,
-        &labels,
-        start.elapsed().as_secs_f64() * 1000.0,
-    );
+/// Records the call once, on `finish` or on drop. A caller deadline or
+/// disconnect drops the handler future mid-call, and those calls are the
+/// slow ones, so they are recorded as `cancelled` rather than lost.
+struct MergeCall {
+    shape: MergeShape,
+    start: Instant,
+    recorded: bool,
+}
+
+impl MergeCall {
+    fn start(request: &MergePersonsRequest) -> Self {
+        Self {
+            shape: MergeShape {
+                path: PATH_UNCLASSIFIED,
+                target: "unresolved",
+                sources: if request.sources.len() > 1 {
+                    "multi"
+                } else {
+                    "single"
+                },
+                mode: if request.allow_identified_sources {
+                    "dangerous"
+                } else {
+                    "identify"
+                },
+                result: RESULT_ERROR,
+            },
+            start: Instant::now(),
+            recorded: false,
+        }
+    }
+
+    fn finish(mut self, ok: bool) {
+        if !ok {
+            self.shape.result = RESULT_ERROR;
+        }
+        self.record();
+    }
+
+    fn record(&mut self) {
+        if self.recorded {
+            return;
+        }
+        self.recorded = true;
+        let shape = &self.shape;
+        let labels = [
+            ("path", shape.path),
+            ("target", shape.target),
+            ("sources", shape.sources),
+            ("mode", shape.mode),
+            ("result", shape.result),
+        ]
+        .map(|(key, value)| (key.to_string(), value.to_string()));
+        common_metrics::inc(MERGE_CALLS_TOTAL, &labels, 1);
+        common_metrics::histogram(
+            MERGE_CALL_DURATION,
+            &labels,
+            self.start.elapsed().as_secs_f64() * 1000.0,
+        );
+    }
+}
+
+impl Drop for MergeCall {
+    fn drop(&mut self) {
+        if !self.recorded {
+            self.shape.result = RESULT_CANCELLED;
+            self.record();
+        }
+    }
 }
 
 fn saga_result(row: &OpRow) -> &'static str {
@@ -149,27 +203,9 @@ impl MergeEntrance {
         &self,
         request: MergePersonsRequest,
     ) -> Result<MergePersonsResponse, Status> {
-        let start = Instant::now();
-        let mut shape = MergeShape {
-            path: PATH_UNCLASSIFIED,
-            target: "unresolved",
-            sources: if request.sources.len() > 1 {
-                "multi"
-            } else {
-                "single"
-            },
-            mode: if request.allow_identified_sources {
-                "dangerous"
-            } else {
-                "identify"
-            },
-            result: RESULT_ERROR,
-        };
-        let response = self.run(request, &mut shape).await;
-        if response.is_err() {
-            shape.result = RESULT_ERROR;
-        }
-        record_call(&shape, start);
+        let mut call = MergeCall::start(&request);
+        let response = self.run(request, &mut call.shape).await;
+        call.finish(response.is_ok());
         response
     }
 
