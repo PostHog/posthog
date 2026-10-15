@@ -32,7 +32,7 @@ Two scanners watch sampled sessions that open the picker:
 - A **summarizer** describes how the user browsed and picked.
 
 Results arrive as `$recording_observed` events.
-Tags are in `scanner_output_tags`, cited moments in `reasoning_segments`.
+Tags are in `scanner_output_tags`, cited moments in `scanner_output_reasoning_segments`.
 
 - **Good for:** why a pattern happens, and failures telemetry misses.
 - **Bad for:** exact rates.
