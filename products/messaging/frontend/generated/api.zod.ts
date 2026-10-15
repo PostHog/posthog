@@ -580,3 +580,37 @@ export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.obj
             "Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — otherwise the template is unchanged. Reference blocks by id so you never resend the whole design."
         ),
 })
+
+/**
+ * Send one transactional email from this template to one recipient. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps, so marketing templates are rejected. Pass an `Idempotency-Key` header to make retries safe.
+ * @summary Send a transactional email
+ */
+export const messagingTemplatesSendCreateBodyIdentifiersOneDistinctIdMax = 400
+
+export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
+    to: zod.email().describe('Email address of the recipient.'),
+    identifiers: zod
+        .object({
+            distinct_id: zod
+                .string()
+                .max(messagingTemplatesSendCreateBodyIdentifiersOneDistinctIdMax)
+                .nullish()
+                .describe(
+                    "Distinct ID of the recipient's person. Attaches the email's engagement events (sent, delivered, opened, clicked, bounced) to that person, and makes their properties available to the template as `person.properties`."
+                ),
+        })
+        .optional()
+        .describe('Who the email is for, used to attribute engagement events.'),
+    message_data: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Data for the template\'s Liquid placeholders, available as `variables`. For example `{\"reset_link\": \"https:\/\/...\"}` fills `{{ variables.reset_link }}`.'
+        ),
+    from_integration_id: zod
+        .number()
+        .nullish()
+        .describe(
+            "ID of the verified email sender integration to send from. Defaults to the project's default sender."
+        ),
+})

@@ -32,6 +32,8 @@ import type {
     PatchedMessageTemplateApi,
     PreferencesLinkApi,
     RemoveOptOutRequestApi,
+    SendTransactionalEmailApi,
+    SendTransactionalEmailResponseApi,
     WebhookUrlApi,
 } from './api.schemas'
 
@@ -719,5 +721,27 @@ export const messagingTemplatesDesignPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedDesignPatchApi),
+    })
+}
+
+export const getMessagingTemplatesSendCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_templates/${id}/send/`
+}
+
+/**
+ * Send one transactional email from this template to one recipient. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps, so marketing templates are rejected. Pass an `Idempotency-Key` header to make retries safe.
+ * @summary Send a transactional email
+ */
+export const messagingTemplatesSendCreate = async (
+    projectId: string,
+    id: string,
+    sendTransactionalEmailApi: SendTransactionalEmailApi,
+    options?: RequestInit
+): Promise<SendTransactionalEmailResponseApi> => {
+    return apiMutator<SendTransactionalEmailResponseApi>(getMessagingTemplatesSendCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendTransactionalEmailApi),
     })
 }

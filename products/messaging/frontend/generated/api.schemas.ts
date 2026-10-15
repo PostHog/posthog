@@ -492,6 +492,41 @@ export interface PatchedDesignPatchApi {
     operations?: DesignOperationApi[]
 }
 
+/**
+ * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
+ */
+export type SendTransactionalEmailApiMessageData = { [key: string]: unknown }
+
+export interface TransactionalEmailIdentifiersApi {
+    /**
+     * Distinct ID of the recipient's person. Attaches the email's engagement events (sent, delivered, opened, clicked, bounced) to that person, and makes their properties available to the template as `person.properties`.
+     * @maxLength 400
+     * @nullable
+     */
+    distinct_id?: string | null
+}
+
+export interface SendTransactionalEmailApi {
+    /** Email address of the recipient. */
+    to: string
+    /** Who the email is for, used to attribute engagement events. */
+    identifiers?: TransactionalEmailIdentifiersApi
+    /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+    message_data?: SendTransactionalEmailApiMessageData
+    /**
+     * ID of the verified email sender integration to send from. Defaults to the project's default sender.
+     * @nullable
+     */
+    from_integration_id?: number | null
+}
+
+export interface SendTransactionalEmailResponseApi {
+    /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
+    message_id: string
+    /** True when an earlier request with the same Idempotency-Key already queued this email. */
+    replayed: boolean
+}
+
 export type MessagingCategoriesListParams = {
     /**
      * Number of results to return per page.
