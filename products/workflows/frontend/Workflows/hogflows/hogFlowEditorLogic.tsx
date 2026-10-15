@@ -185,6 +185,7 @@ export const HOG_FLOW_EDITOR_MODES = ['build', 'variables', 'test', 'metrics', '
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
 export const HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH = 592
 export type HogFlowEditorLayout = 'simple' | 'advanced'
+const EDITED_EVENT_MIN_INTERVAL_MS = 10_000
 export type HogFlowEditorActionMetrics = {
     actionId: string
     succeeded: number
@@ -214,6 +215,7 @@ export interface hogFlowEditorLogicValues {
     edgesByActionId: Record<string, HogFlowEdge[]> // workflowLogic
     hogFunctionTemplatesById: Record<string, HogFunctionTemplateType> // workflowLogic
     workflow: HogFlow // workflowLogic
+    workflowChanged: boolean // workflowLogic
     actionMetricsById: Record<string, HogFlowEditorActionMetrics> | null
     actionMetricsByIdLoading: boolean
     animatingEdgePair: string | null
@@ -1975,6 +1977,16 @@ export interface hogFlowEditorLogicActions {
               }
         payload?: any
     } // workflowLogic
+    autoSaveWorkflow: () => {
+        value: true
+    } // workflowLogic
+    saveWorkflowSuccess: (
+        originalWorkflow: HogFlow,
+        payload?: HogFlow
+    ) => {
+        originalWorkflow: HogFlow
+        payload?: HogFlow
+    } // workflowLogic
     setWorkflowAction: (
         actionId: string,
         action: HogFlowAction
@@ -2191,7 +2203,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     connect(() => ({
         values: [
             workflowLogic,
-            ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById'],
+            ['workflow', 'workflowChanged', 'edgesByActionId', 'hogFunctionTemplatesById'],
             optOutCategoriesLogic(),
             ['categories', 'categoriesLoading'],
             integrationsLogic,
@@ -2201,7 +2213,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
         actions: [
             workflowLogic,
-            ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess'],
+            [
+                'setWorkflowInfo',
+                'setWorkflowAction',
+                'setWorkflowActionEdges',
+                'loadWorkflowSuccess',
+                'autoSaveWorkflow',
+                'saveWorkflowSuccess',
+            ],
             optOutCategoriesLogic(),
             ['loadCategories'],
         ],
@@ -2502,9 +2521,26 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
     })),
-    listeners(({ values, actions }) => {
+    listeners(({ values, actions, cache }) => {
         let animationTimeout: ReturnType<typeof setTimeout> | null = null
+        const captureWithEditorLayout = (event: 'workflow edited' | 'workflow saved'): void => {
+            posthog.capture(event, {
+                workflow_id: values.workflow.id,
+                editor_layout: values.editorLayout === 'simple' ? 'list' : 'graph',
+            })
+        }
+        const wasEditCapturedRecently = (now: number): boolean =>
+            now - (cache.editCapturedAt ?? 0) < EDITED_EVENT_MIN_INTERVAL_MS
         return {
+            autoSaveWorkflow: () => {
+                const now = Date.now()
+                if (!values.workflowChanged || wasEditCapturedRecently(now)) {
+                    return
+                }
+                cache.editCapturedAt = now
+                captureWithEditorLayout('workflow edited')
+            },
+            saveWorkflowSuccess: () => captureWithEditorLayout('workflow saved'),
             onEdgesChange: ({ edges }) => {
                 actions.setEdges(applyEdgeChanges(edges, values.edges))
             },

@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -742,6 +743,55 @@ describe('hogFlowEditorLogic', () => {
             logic.actions.setEdges(edges)
             logic.actions.showDropzones()
             expect(branchJoinDropzones()).toEqual(expected)
+        })
+    })
+
+    describe('editor layout analytics', () => {
+        let captureSpy: jest.SpyInstance
+
+        const capturedProperties = (event: string): unknown[] =>
+            captureSpy.mock.calls.filter(([name]) => name === event).map(([, properties]) => properties)
+
+        const renameWorkflow = (name: string): void => workflowLogic().actions.setWorkflowInfo({ name })
+
+        beforeEach(() => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-01-01T00:00:00Z'))
+            captureSpy = jest.spyOn(posthog, 'capture').mockImplementation()
+        })
+
+        afterEach(() => {
+            captureSpy.mockRestore()
+            jest.useRealTimers()
+        })
+
+        it.each([
+            { layout: 'simple', expected: 'list' },
+            { layout: 'advanced', expected: 'graph' },
+        ] as const)('reports the $expected view on edit and auto-save', ({ layout, expected }) => {
+            logic.actions.setEditorLayout(layout)
+
+            renameWorkflow('Renamed')
+            workflowLogic().actions.markAutoSave(true)
+            logic.actions.saveWorkflowSuccess(logic.values.workflow)
+
+            const reported = expect.objectContaining({ editor_layout: expected })
+            expect(capturedProperties('workflow edited')).toEqual([reported])
+            expect(capturedProperties('workflow saved')).toEqual([reported])
+        })
+
+        it('reports at most one edit per ten seconds', () => {
+            renameWorkflow('First')
+            renameWorkflow('Second')
+            jest.setSystemTime(new Date('2026-01-01T00:00:11Z'))
+            renameWorkflow('Third')
+
+            expect(capturedProperties('workflow edited')).toHaveLength(2)
+        })
+
+        it('does not report a write that leaves the workflow unchanged', () => {
+            logic.actions.autoSaveWorkflow()
+
+            expect(capturedProperties('workflow edited')).toEqual([])
         })
     })
 })
