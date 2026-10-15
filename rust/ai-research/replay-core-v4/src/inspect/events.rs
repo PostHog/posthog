@@ -78,7 +78,6 @@ impl EventCounter {
         }
         let Some(data) = event.data else { return false };
         match (event.kind, event.source) {
-            (Some(FULL_SNAPSHOT), _) => stats.full_snapshots += 1,
             (Some(META | CUSTOM), _) => {
                 let [href, payload, tag, width, height] = fields(
                     inner,
@@ -339,15 +338,7 @@ mod tests {
             (stats.viewport_width, stats.viewport_height),
             (Some(1280), Some(720))
         );
-        assert_eq!(
-            (
-                stats.full_snapshots,
-                stats.clicks,
-                stats.touches,
-                stats.keypresses
-            ),
-            (1, 2, 1, 1)
-        );
+        assert_eq!((stats.clicks, stats.touches, stats.keypresses), (2, 1, 1));
         assert!(stats.touch_input);
         assert_eq!(
             (

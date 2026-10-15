@@ -40,6 +40,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+url = { workspace = true }
 zstd = { workspace = true }
 
 [dev-dependencies]
