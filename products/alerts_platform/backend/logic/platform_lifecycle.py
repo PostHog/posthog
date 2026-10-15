@@ -5,7 +5,7 @@ and every write to these rows, stays here. A source never holds one of these mod
 """
 
 from collections.abc import Collection, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Final
 
 from django.db import transaction
@@ -17,8 +17,10 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
+    PlatformOwnershipHandover,
     source_condition,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.facade.platform_metrics import increment_history_rows_dropped, safe_record
 from products.alerts_platform.backend.facade.scheduling import (
     advance_schedule,
@@ -135,6 +137,7 @@ def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> Platfo
         last_notified_at=alert.last_notified_at if alert else None,
         snooze_until=alert.snooze_until if alert else None,
         firing_started_at=alert.firing_started_at if alert else None,
+        owned_by_platform=c.owner == PlatformAlertConfiguration.Owner.PLATFORM,
     )
 
 
@@ -241,8 +244,14 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
     by_id = {str(o.configuration_id): o for o in outcomes}
 
     with transaction.atomic():
+        # Locked in a fixed order, so an ownership handover waits for this write or this write
+        # re-reads the row after it and finds it no longer due.
         configurations = list(
-            PlatformAlertConfiguration.objects.for_team(team_id).filter(id__in=by_id).filter(due_q(now))
+            PlatformAlertConfiguration.objects.for_team(team_id)
+            .select_for_update()
+            .filter(id__in=by_id)
+            .filter(due_q(now))
+            .order_by("id")
         )
         if not configurations:
             return 0
@@ -348,6 +357,47 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
         alert.snooze_until = upsert.snooze_until
         alert.save(update_fields=["snooze_until"])
     return created
+
+
+# Firing episodes are keyed per stack, so a firing alert stays with its source until it resolves.
+_HANDOVER_STATES: Final = frozenset(
+    {PlatformAlertState.NOT_FIRING, PlatformAlertState.ERRORED, PlatformAlertState.BROKEN}
+)
+_HANDOVER_FENCE: Final = timedelta(minutes=1)
+
+
+def take_ownership(handover: PlatformOwnershipHandover) -> bool:
+    """Makes the platform the owner of a copied alert, carrying on from the source's state.
+
+    The second writer of an alert's state beside `record_outcomes`. The caller holds the source's
+    row lock and writes the source's owner in the same transaction, so both rows change together.
+    Returns False, changing nothing, when the copy is inside a firing of its own: a team on live
+    delivery can have one open while its source is quiet, and replacing it would orphan the incident.
+    Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied.
+    """
+    if handover.state not in _HANDOVER_STATES:
+        raise ValueError(f"an alert in state {handover.state} stays with its source until it resolves")
+    with transaction.atomic():
+        configuration = (
+            PlatformAlertConfiguration.objects.for_team(handover.team_id)
+            .select_for_update()
+            .get(legacy_configuration_id=handover.legacy_configuration_id)
+        )
+        alert = _alerts_for_write(handover.team_id, [configuration])[str(configuration.id)]
+        if alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None:
+            return False
+        configuration.owner = PlatformAlertOwner.PLATFORM
+        configuration.owner_changed_at = handover.at
+        configuration.consecutive_failures = handover.consecutive_failures
+        # A platform check that started before the handover records only rows still due, so a
+        # schedule after the handover keeps it from recording over the carried state.
+        configuration.next_check_at = max(handover.next_check_at, handover.at + _HANDOVER_FENCE)
+        configuration.save(update_fields=["owner", "owner_changed_at", "consecutive_failures", "next_check_at"])
+
+        alert.state = handover.state
+        alert.last_notified_at = handover.last_notified_at
+        alert.save(update_fields=["state", "last_notified_at"])
+    return True
 
 
 def disable_configurations(source_kind: str, *, team_id: int | None = None) -> int:

@@ -396,6 +396,7 @@ def _request(
         # Logs does not group, so its one row has the empty grouping key.
         incident_actions={"": incident_action} if incident_action is not None else {},
         sends_messages=sends_messages,
+        owned_by_platform=check.owned_by_platform,
     )
 
 

@@ -23,15 +23,15 @@ use personhog_proto::personhog::types::v1::{
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsMode as ProtoDeletePersonsMode,
     DeletePersonsRequest, DeletePersonsResponse, DeleteTombstonedPersonsRequest,
-    DeleteTombstonedPersonsResponse, DistinctIdWithVersion, EnsurePersonVersionFloorsRequest,
-    EnsurePersonVersionFloorsResponse, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
-    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
-    GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    DeleteTombstonedPersonsResponse, DistinctIdRow as ProtoDistinctIdRow, DistinctIdWithVersion,
+    EnsurePersonVersionFloorsRequest, EnsurePersonVersionFloorsResponse, GetDistinctIdRowsRequest,
+    GetDistinctIdRowsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonTombstonesRequest, GetPersonTombstonesResponse, GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest, GroupKey,
@@ -40,7 +40,8 @@ use personhog_proto::personhog::types::v1::{
     HashKeyOverride, HashKeyOverrideContext as ProtoHashKeyOverrideContext,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
-    ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, PersonDistinctIds,
+    ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, ListPersonsForTeamRequest,
+    ListPersonsForTeamResponse, PersonDistinctIds, PersonListEntry as ProtoPersonListEntry,
     PersonTombstoneQueueEntry, PersonVersionFloorResult, PersonWithDistinctIds,
     PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
     PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
@@ -66,6 +67,9 @@ const MAX_SPLIT_BATCH_SIZE: usize = 250;
 // Version floors also run in one transaction holding
 // row locks, so they take the same cap as splits.
 const MAX_LOCKED_WRITE_BATCH_SIZE: usize = 250;
+const MAX_DISTINCT_ID_ROWS_SIZE: usize = 1000;
+const DEFAULT_LIST_PERSONS_LIMIT: i64 = 1000;
+const MAX_LIST_PERSONS_LIMIT: i64 = 10_000;
 
 use consistency::{reject_strong_consistency, to_storage_consistency};
 use error::log_and_convert_error;
@@ -1590,6 +1594,84 @@ impl PersonHogReplica for PersonHogReplicaService {
                     version: r.version,
                 })
                 .collect(),
+        }))
+    }
+    async fn get_distinct_id_rows(
+        &self,
+        request: Request<GetDistinctIdRowsRequest>,
+    ) -> Result<Response<GetDistinctIdRowsResponse>, Status> {
+        let req = request.into_inner();
+        if req.distinct_ids.len() > MAX_DISTINCT_ID_ROWS_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_DISTINCT_ID_ROWS_SIZE} distinct ids per request"
+            )));
+        }
+        let consistency = to_storage_consistency(&req.read_options);
+        let rows = self
+            .storage
+            .get_distinct_id_rows(req.team_id, &req.distinct_ids, consistency)
+            .await
+            .map_err(|e| log_and_convert_error(e, "get_distinct_id_rows"))?;
+
+        Ok(Response::new(GetDistinctIdRowsResponse {
+            rows: rows
+                .into_iter()
+                .map(|row| ProtoDistinctIdRow {
+                    distinct_id: row.distinct_id,
+                    person_id: row.person_id,
+                    person_uuid: row.person_uuid.map(|u| u.to_string()),
+                    version: row.version,
+                    is_deleted: row.is_deleted,
+                    person_is_deleted: row.person_is_deleted,
+                })
+                .collect(),
+        }))
+    }
+
+    async fn list_persons_for_team(
+        &self,
+        request: Request<ListPersonsForTeamRequest>,
+    ) -> Result<Response<ListPersonsForTeamResponse>, Status> {
+        let req = request.into_inner();
+        reject_strong_consistency(&req.read_options)?;
+        let limit = match req.limit {
+            0 => DEFAULT_LIST_PERSONS_LIMIT,
+            l if (1..=MAX_LIST_PERSONS_LIMIT).contains(&l) => l,
+            _ => {
+                return Err(Status::invalid_argument(format!(
+                    "limit must be between 1 and {MAX_LIST_PERSONS_LIMIT}"
+                )))
+            }
+        };
+        let persons = self
+            .storage
+            .list_persons_for_team(
+                req.team_id,
+                req.after_person_id,
+                req.before_person_id,
+                limit,
+            )
+            .await
+            .map_err(|e| log_and_convert_error(e, "list_persons_for_team"))?;
+
+        let next_after_person_id = if persons.len() as i64 >= limit {
+            persons.last().map(|p| p.id)
+        } else {
+            None
+        };
+        Ok(Response::new(ListPersonsForTeamResponse {
+            persons: persons
+                .into_iter()
+                .map(|p| ProtoPersonListEntry {
+                    id: p.id,
+                    uuid: p.uuid.to_string(),
+                    version: p.version,
+                    is_deleted: p.is_deleted,
+                    has_live_distinct_ids: p.has_live_distinct_ids,
+                    created_at_ms: p.created_at.timestamp_millis(),
+                })
+                .collect(),
+            next_after_person_id,
         }))
     }
 }

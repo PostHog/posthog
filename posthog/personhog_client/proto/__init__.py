@@ -109,5 +109,9 @@ from personhog.types.v1.person_pb2 import (
     PersonVersionFloor,
     EnsurePersonVersionFloorsRequest,
     EnsurePersonVersionFloorsResponse,
+    GetDistinctIdRowsRequest,
+    GetDistinctIdRowsResponse,
+    ListPersonsForTeamRequest,
+    ListPersonsForTeamResponse,
     PersonVersionFloorResult,
 )

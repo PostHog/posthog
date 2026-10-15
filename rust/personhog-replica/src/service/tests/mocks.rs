@@ -181,6 +181,15 @@ impl storage::PersonLookup for FailingStorage {
     ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
         Err(self.error.clone())
     }
+    async fn list_persons_for_team(
+        &self,
+        _team_id: i64,
+        _after_person_id: i64,
+        _before_person_id: Option<i64>,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::types::PersonListEntry>> {
+        Err(self.error.clone())
+    }
 }
 
 #[async_trait]
@@ -203,6 +212,14 @@ impl storage::DistinctIdLookup for FailingStorage {
         _consistency: storage::postgres::ConsistencyLevel,
         _limit_per_person: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdMapping>> {
+        Err(self.error.clone())
+    }
+    async fn get_distinct_id_rows(
+        &self,
+        _team_id: i64,
+        _distinct_ids: &[String],
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<Vec<storage::types::DistinctIdRow>> {
         Err(self.error.clone())
     }
 }
@@ -602,6 +619,15 @@ impl storage::PersonLookup for SuccessStorage {
     ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
         Ok(Vec::new())
     }
+    async fn list_persons_for_team(
+        &self,
+        _team_id: i64,
+        _after_person_id: i64,
+        _before_person_id: Option<i64>,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::types::PersonListEntry>> {
+        Ok(Vec::new())
+    }
 }
 
 #[async_trait]
@@ -624,6 +650,14 @@ impl storage::DistinctIdLookup for SuccessStorage {
         _consistency: storage::postgres::ConsistencyLevel,
         _limit_per_person: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdMapping>> {
+        Ok(Vec::new())
+    }
+    async fn get_distinct_id_rows(
+        &self,
+        _team_id: i64,
+        _distinct_ids: &[String],
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<Vec<storage::types::DistinctIdRow>> {
         Ok(Vec::new())
     }
 }
@@ -1082,6 +1116,15 @@ impl storage::PersonLookup for PopulatedStorage {
     ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
         Ok(Vec::new())
     }
+    async fn list_persons_for_team(
+        &self,
+        _team_id: i64,
+        _after_person_id: i64,
+        _before_person_id: Option<i64>,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::types::PersonListEntry>> {
+        Ok(Vec::new())
+    }
 }
 
 #[async_trait]
@@ -1104,6 +1147,14 @@ impl storage::DistinctIdLookup for PopulatedStorage {
         _consistency: storage::postgres::ConsistencyLevel,
         _limit_per_person: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdMapping>> {
+        Ok(Vec::new())
+    }
+    async fn get_distinct_id_rows(
+        &self,
+        _team_id: i64,
+        _distinct_ids: &[String],
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<Vec<storage::types::DistinctIdRow>> {
         Ok(Vec::new())
     }
 }
@@ -1538,6 +1589,15 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
     ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
         Ok(Vec::new())
     }
+    async fn list_persons_for_team(
+        &self,
+        _team_id: i64,
+        _after_person_id: i64,
+        _before_person_id: Option<i64>,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::types::PersonListEntry>> {
+        Ok(Vec::new())
+    }
 }
 
 #[async_trait]
@@ -1561,6 +1621,15 @@ impl storage::DistinctIdLookup for ConsistencyTrackingStorage {
         consistency: storage::postgres::ConsistencyLevel,
         _limit_per_person: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdMapping>> {
+        self.record(consistency);
+        Ok(Vec::new())
+    }
+    async fn get_distinct_id_rows(
+        &self,
+        _team_id: i64,
+        _distinct_ids: &[String],
+        consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<Vec<storage::types::DistinctIdRow>> {
         self.record(consistency);
         Ok(Vec::new())
     }
