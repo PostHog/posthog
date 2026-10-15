@@ -8,6 +8,7 @@ pub mod gate;
 pub mod keys;
 pub mod payload;
 pub mod refs;
+pub mod scan;
 pub mod seal;
 pub mod session;
 pub mod url_policy;

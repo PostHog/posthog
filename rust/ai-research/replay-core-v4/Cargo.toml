@@ -42,3 +42,4 @@ zstd = { workspace = true }
 
 [dev-dependencies]
 flate2 = { workspace = true }
+tokio = { workspace = true }
