@@ -17,7 +17,7 @@ from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.api.fields import JSONTolerantListField
+from posthog.api.fields import JSONTolerantListField, RepeatedOrCommaSeparatedListField
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
@@ -2333,17 +2333,12 @@ class TaskSummarySerializer(DataclassSerializer):
         ]
 
 
-class CommaTolerantListField(JSONTolerantListField):
-    """Also accepts one comma-joined value, which the generated frontend client sends for an array.
+class TaskSourcesListField(RepeatedOrCommaSeparatedListField, JSONTolerantListField):
+    """Repeated keys, one comma-joined value (the generated frontend client) or one JSON array (the MCP client).
 
-    An empty value is an empty list, so the client's encoding of `[]` applies no filter.
+    The base order matters: JSONTolerantListField reads a JSON array before
+    RepeatedOrCommaSeparatedListField splits on commas.
     """
-
-    def get_value(self, dictionary: Any) -> Any:
-        value = super().get_value(dictionary)
-        if isinstance(value, list) and len(value) == 1 and isinstance(value[0], str):
-            return [part.strip() for part in value[0].split(",") if part.strip()]
-        return value
 
 
 class TaskListQuerySerializer(serializers.Serializer):
@@ -2360,7 +2355,7 @@ class TaskListQuerySerializer(serializers.Serializer):
         choices=tasks_facade.TaskOriginProduct.choices,
         help_text="Exclude tasks with this origin product from the results",
     )
-    sources = CommaTolerantListField(
+    sources = TaskSourcesListField(
         required=False,
         child=serializers.ChoiceField(choices=tasks_facade.TaskListSource.choices),
         help_text=(
