@@ -22,23 +22,28 @@ use rocksdb::{
     ReadOptions, SingleThreaded, WriteBatch, WriteOptions,
 };
 use thiserror::Error;
-use tracing::warn;
+use tracing::{info, warn};
+
+use cohort_core::partitioner::COHORT_PARTITION_COUNT;
+use cohort_core::seed::CoverageStartMs;
 
 use super::column_families::{self, Cf, OpaqueCf};
+use super::coverage::{SliceCoverage, SliceTenure};
 use super::keys::{
     self, MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2CohortPrefix, Stage2DirtyKey,
     Stage2Key, Stage2TransferredRegisterKey, Stage2TransferredRegisterPersonPrefix, TombstoneKey,
     STAGE2_DIRTY_KEY_LEN,
 };
 use super::keyspace::{
-    BehavioralKey, Keyspace, Meta, PersonPrefix, PersonRecordKey, META_SCHEMA_VERSION,
+    BehavioralKey, Keyspace, Meta, PersonPrefix, PersonRecordKey, SliceCoverageKey, SliceCoverages,
+    META_SCHEMA_VERSION, META_SLICE_COVERAGE,
 };
 use super::staged::{StagedBatch, StagedOp};
 use crate::observability::metrics::{
-    CHECKPOINT_DURATION_SECONDS, STAGE2_SCAN_UNDECODABLE_KEYS_TOTAL, STORE_ERRORS_TOTAL,
-    STORE_READS_TOTAL, STORE_READ_DURATION_SECONDS, STORE_SCHEMA_MISMATCH_WIPES_TOTAL,
-    STORE_WRITE_BATCH_TOTAL, STORE_WRITE_DURATION_SECONDS, WAL_FSYNC_DURATION_SECONDS,
-    WAL_FSYNC_ERRORS_TOTAL,
+    CHECKPOINT_DURATION_SECONDS, SLICES_ADOPTED_TOTAL, STAGE2_SCAN_UNDECODABLE_KEYS_TOTAL,
+    STORE_ERRORS_TOTAL, STORE_READS_TOTAL, STORE_READ_DURATION_SECONDS,
+    STORE_SCHEMA_MISMATCH_WIPES_TOTAL, STORE_WRITE_BATCH_TOTAL, STORE_WRITE_DURATION_SECONDS,
+    WAL_FSYNC_DURATION_SECONDS, WAL_FSYNC_ERRORS_TOTAL,
 };
 
 /// On-disk store schema version, stamped into `cf_meta` at first open and checked on every reopen.
@@ -112,6 +117,8 @@ pub struct StoreConfig {
     /// `cf_person_records` **only** — never `cf_behavioral`, whose eviction deadlines are the sweep's
     /// contract. See [`super::ttl_filter`].
     pub person_record_ttl_days: u32,
+    /// Partitions adopted as complete when the store predates coverage records.
+    pub partition_count: u16,
 }
 
 impl Default for StoreConfig {
@@ -134,6 +141,7 @@ impl Default for StoreConfig {
             periodic_compaction_seconds: 0,
             max_background_jobs: 0,
             person_record_ttl_days: 0,
+            partition_count: COHORT_PARTITION_COUNT as u16,
         }
     }
 }
@@ -320,6 +328,8 @@ impl CohortStore {
     /// which destroys and recreates the store, then stamps the fresh one. A store carrying a CF outside
     /// `Cf::ALL` never reaches this guard: it fails earlier in [`Self::open_inner`] (see there for the
     /// extra-vs-subset asymmetry the version key exists to close).
+    ///
+    /// An existing store without the coverage stamp adopts every partition as complete.
     pub fn open(config: &StoreConfig) -> Result<Self, StoreError> {
         let db_opts = db_options(config);
 
@@ -331,7 +341,12 @@ impl CohortStore {
         loop {
             let store = Self::open_inner(config, &db_opts)?;
             match store.check_schema(path_existed, config.wipe_on_schema_mismatch)? {
-                SchemaCheck::Ok => return Ok(store),
+                SchemaCheck::Ok => {
+                    if path_existed {
+                        store.settle_coverage(config.partition_count)?;
+                    }
+                    return Ok(store);
+                }
                 SchemaCheck::WipeAndRetry => {
                     // Drop the handle before destroy: RocksDB cannot destroy an open DB.
                     drop(store);
@@ -396,7 +411,7 @@ impl CohortStore {
         wipe_on_schema_mismatch: bool,
     ) -> Result<SchemaCheck, StoreError> {
         if !path_existed {
-            self.stamp_schema_version()?;
+            self.stamp_new_store()?;
             return Ok(SchemaCheck::Ok);
         }
         let found = self
@@ -418,11 +433,71 @@ impl CohortStore {
         }
     }
 
-    /// Stamp `cf_meta[b"schema_version"]` with the current schema version (big-endian `u32`).
-    fn stamp_schema_version(&self) -> Result<(), StoreError> {
+    /// Stamp a new store with the schema version (big-endian `u32`) and the coverage stamp.
+    fn stamp_new_store(&self) -> Result<(), StoreError> {
         self.write_batch(|batch| {
             batch.put::<Meta>(&META_SCHEMA_VERSION, &STORE_SCHEMA_VERSION.to_be_bytes());
+            batch.put::<Meta>(&META_SLICE_COVERAGE, &[]);
         })
+    }
+
+    /// Adopt every partition as complete in a store without the coverage stamp. The stamp rides the
+    /// same batch, so adoption happens once.
+    fn settle_coverage(&self, partition_count: u16) -> Result<(), StoreError> {
+        if self
+            .get(Meta::CF, &Meta::encode(&META_SLICE_COVERAGE))?
+            .is_some()
+        {
+            return Ok(());
+        }
+        let complete = SliceCoverage::Complete.encode();
+        self.write_batch(|batch| {
+            for partition_id in 0..partition_count {
+                batch.put::<SliceCoverages>(&SliceCoverageKey(partition_id), &complete);
+            }
+            batch.put::<Meta>(&META_SLICE_COVERAGE, &[]);
+        })?;
+        counter!(SLICES_ADOPTED_TOTAL).increment(u64::from(partition_count));
+        info!(
+            partitions = partition_count,
+            "store predates slice coverage records; adopted every partition as complete",
+        );
+        Ok(())
+    }
+
+    /// `None` when the slice has no readable record.
+    pub fn slice_coverage(&self, partition_id: u16) -> Result<Option<SliceCoverage>, StoreError> {
+        let key = SliceCoverages::encode(&SliceCoverageKey(partition_id));
+        let Some(value) = self.get(SliceCoverages::CF, &key)? else {
+            return Ok(None);
+        };
+        let coverage = SliceCoverage::decode(&value);
+        if coverage.is_none() {
+            warn!(
+                partition_id,
+                "undecodable slice coverage record; the slice begins again"
+            );
+        }
+        Ok(coverage)
+    }
+
+    /// Begins the slice at `start` when it has no record. The commit loop's fsync makes the write
+    /// durable before any offset commits.
+    pub fn resume_or_begin_slice(
+        &self,
+        partition_id: u16,
+        start: CoverageStartMs,
+    ) -> Result<SliceTenure, StoreError> {
+        if let Some(coverage) = self.slice_coverage(partition_id)? {
+            return Ok(SliceTenure::Resumed(coverage));
+        }
+        self.write_batch(|batch| {
+            batch.put::<SliceCoverages>(
+                &SliceCoverageKey(partition_id),
+                &SliceCoverage::Since(start).encode(),
+            );
+        })?;
+        Ok(SliceTenure::Begun(start))
     }
 
     /// Read a raw value from any CF.
@@ -2615,6 +2690,80 @@ mod tests {
         let mut sorted = lsks.clone();
         sorted.sort();
         assert_eq!(lsks, sorted, "leaves come back in lsk-byte order");
+    }
+
+    #[test]
+    fn slice_coverage_is_settled_once_per_store_and_dies_with_its_slice() {
+        let t = CoverageStartMs(1_791_547_200_000);
+        let later = CoverageStartMs(t.0 + 60_000);
+        let created = TempDir::new().unwrap();
+        let config = StoreConfig {
+            path: created.path().join("db"),
+            partition_count: 4,
+            ..StoreConfig::default()
+        };
+        {
+            let store = CohortStore::open(&config).unwrap();
+            assert_eq!(
+                store.slice_coverage(0).unwrap(),
+                None,
+                "a created store adopts nothing"
+            );
+            for partition_id in [1, 2] {
+                assert_eq!(
+                    store.resume_or_begin_slice(partition_id, t).unwrap(),
+                    SliceTenure::Begun(t),
+                );
+            }
+        }
+
+        // Reopened: records resume, and nothing is adopted.
+        let store = CohortStore::open(&config).unwrap();
+        assert_eq!(store.slice_coverage(0).unwrap(), None);
+        assert_eq!(
+            store.resume_or_begin_slice(1, later).unwrap(),
+            SliceTenure::Resumed(SliceCoverage::Since(t)),
+        );
+
+        // The record dies with its slice.
+        store.delete_partition(1).unwrap();
+        assert_eq!(
+            store.resume_or_begin_slice(1, later).unwrap(),
+            SliceTenure::Begun(later),
+        );
+        assert_eq!(
+            store.slice_coverage(2).unwrap(),
+            Some(SliceCoverage::Since(t))
+        );
+
+        // A store without the stamp adopts every partition.
+        let legacy = TempDir::new().unwrap();
+        let config = StoreConfig {
+            path: legacy.path().join("db"),
+            ..config
+        };
+        CohortStore::open(&config)
+            .unwrap()
+            .write_batch(|batch| batch.delete::<Meta>(&META_SLICE_COVERAGE))
+            .unwrap();
+        let store = CohortStore::open(&config).unwrap();
+        assert_eq!(
+            (0..5)
+                .map(|partition_id| store.slice_coverage(partition_id).unwrap())
+                .collect::<Vec<_>>(),
+            [[Some(SliceCoverage::Complete); 4].as_slice(), &[None]].concat(),
+        );
+
+        // Adoption happens once.
+        store.delete_partition(0).unwrap();
+        drop(store);
+        assert_eq!(
+            CohortStore::open(&config)
+                .unwrap()
+                .slice_coverage(0)
+                .unwrap(),
+            None
+        );
     }
 
     #[test]

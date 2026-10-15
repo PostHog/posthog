@@ -1,6 +1,7 @@
 //! RocksDB state store.
 
 pub mod column_families;
+pub mod coverage;
 pub mod durability;
 pub mod handle;
 pub mod keys;
@@ -13,6 +14,7 @@ pub use column_families::{
     Cf, OpaqueCf, CF_BEHAVIORAL, CF_MERGE_APPLIED, CF_MERGE_DRAINS_APPLIED, CF_MERGE_TOMBSTONES,
     CF_META, CF_PENDING_TRANSFERS, CF_PERSON_RECORDS, CF_STAGE2,
 };
+pub use coverage::{SliceCoverage, SliceTenure};
 pub use handle::{OffloadConfig, OffloadMode, ReadLane, StoreHandle};
 pub use keys::{
     MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2CohortPrefix, Stage2DirtyKey,
@@ -21,7 +23,7 @@ pub use keys::{
 };
 pub use keyspace::{
     Behavioral, BehavioralKey, Keyspace, Meta, MetaKey, PersonPrefix, PersonRecordKey,
-    PersonRecords,
+    PersonRecords, SliceCoverageKey, SliceCoverages,
 };
 pub use rocks::{
     BatchBuilder, CfStats, CohortStore, EventSnapshotRaw, Stage2DirtyTrackingGuard, StoreConfig,

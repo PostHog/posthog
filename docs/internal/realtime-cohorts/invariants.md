@@ -189,10 +189,14 @@ Most of these are not enforced by a single test, and a violation usually shows u
 
 - Why: live output is at most once, so only a full re-telling repairs downstream, and a stale definition must never be certified.
 - Kept by: the walk emits members and explicit non-members alike, and each request carries the pinned shape hash of its kind, checked on every drain.
+  The request also carries its run's boundary, and the guard withholds it when the partition's [slice coverage](state-store-and-durability.md#slice-coverage) begins after that boundary.
+  A withheld request emits a `reconcile_withheld` marker and no rows.
 - Limit: the walk composes the processor's current tree, and the guard ignores the composition and the other kind's hash.
   Django's finalizer checks those before it stamps.
 - Limit: the walk covers only rows the store holds.
   It cannot restore a skipped event or find a person whose first Stage 2 row was never written.
+  Coverage catches a slice that lost its history, but not a stale slice, one whose partition another writer advanced while this store held older state.
+  Nothing in one pod produces a stale slice except a rollback of the store or a checkpoint restore.
 
 **25. A run completes only with proof.**
 

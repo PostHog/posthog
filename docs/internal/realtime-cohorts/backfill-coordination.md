@@ -161,7 +161,11 @@ Missing one of them fails quietly, so they are worth knowing.
 | Behavioral scan limit                    | `create_cohort_backfill_run` refuses a behavioral team run when its pinned event names had more events than `BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY` on the busiest of the last 7 complete UTC days. `--max-scan-events-per-day` overrides it for one invocation, and 0 skips the count and the check. The save path does not check it                                                                 |
 
 The Rust services have their own switches, and Django cannot see them.
-Two of them gate person runs, and they must open in order.
+A team must reach the processor's copy of `REALTIME_COHORT_TEAM_ALLOWLIST` before the seeder's.
+A processor that does not hold the team withholds every reconcile request of its runs with `team_absent`, and the seeder supersedes those participations.
+No new run is owed afterwards, so the team never becomes ready until an operator creates one.
+`seeder_reconcile_cohorts_withheld_total{reason="team_absent"}` shows that this happened.
+Two of the switches gate person runs, and they must open in order.
 The processor's `COHORT_SEED_PERSON_APPLY_ENABLED` must be on everywhere before the seeder's `SEEDER_PERSON_SEEDS_ENABLED`, or the processor skips and commits the seeds.
 The seeder's switch must be on before a team with person-leaf cohorts joins the trigger allowlist.
 Until it is, the seeder never discovers person runs, so each one waits in `awaiting_boundary`, holding its cohort's run slot.
@@ -230,9 +234,9 @@ Other cases to know:
 - **A cohort leaves the realtime set mid-run.**
   A soft delete, a switch to static, or losing realtime support skips hash maintenance, so Django does not supersede the run, and the finalizer does not re-check `deleted` or `cohort_type`.
   At its next catalog refresh the processor drops a cohort that is deleted or no longer `realtime`.
-  It then discards each of the cohort's reconcile requests without a marker, once a catalog refresh that began after the request arrived has run.
-  So the run stamps only if every marker landed first.
-  Otherwise a soft delete ends with the seeder superseding the participation, and losing realtime support leaves a retryable shortfall that holds the run in `reconciling`.
+  It then withholds each of the cohort's reconcile requests with a `reconcile_withheld` marker, once a catalog refresh that began after the request arrived has run.
+  So the run stamps only if every completion marker landed first.
+  Otherwise the seeder supersedes the participation when it reads a withheld marker, and the run finishes without the cohort.
 - **A cohort re-enters the realtime set without a leaf change.**
   An undelete, a static-to-dynamic switch, or regained realtime support leaves the hashes as they were, so no run is owed, and the cohort keeps whatever stamps it had.
 - **A save from a stale copy of the row.**
