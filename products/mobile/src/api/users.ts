@@ -10,6 +10,8 @@ export interface OrganizationApi {
     id: string
     name: string
     teams: TeamApi[]
+    /** Null means not approved, as the server treats anything but `true`. */
+    is_ai_data_processing_approved?: boolean | null
 }
 
 export interface OrganizationBasicApi {

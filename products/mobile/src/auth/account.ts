@@ -12,6 +12,8 @@ export interface AuthUser {
 export interface AuthOrganization {
     id: string
     name: string
+    /** Undefined in a session persisted before the app stored it, until the next account reload. */
+    aiDataProcessingApproved?: boolean
 }
 
 export interface AuthProject {
@@ -48,7 +50,11 @@ export function buildAccount(me: MeApi, organizations: OrganizationApi[]): Accou
     }
     return {
         user: { id: me.id, uuid: me.uuid, distinctId: me.distinct_id, email: me.email, name: displayName(me) },
-        organizations: organizations.map((organization) => ({ id: organization.id, name: organization.name })),
+        organizations: organizations.map((organization) => ({
+            id: organization.id,
+            name: organization.name,
+            aiDataProcessingApproved: organization.is_ai_data_processing_approved === true,
+        })),
         projects,
         webTeamId: me.team?.id ?? null,
     }

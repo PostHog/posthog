@@ -10,6 +10,7 @@ The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteraction
 | File | Role |
 | --- | --- |
 | `src/features/chat/ChatSheet.tsx` | The sheet: header, thread or empty state, composer, the options reducer, draft restore |
+| `src/features/chat/ChatAccessGate.tsx` | The organization AI approval and the personal consent before the composer (see [AI consent](#ai-consent)) |
 | `src/features/chat/session/useSession.ts` | `useSession({ taskId?, runId? })`: create, follow, send, sync options, resume, stop, answer, reset, demo replies |
 | `src/features/chat/session/sessionRun.ts` | Pure request bodies: the create shapes, run fields, the `set_config_option` plan, the tracked run config |
 | `src/features/chat/session/sessionReducer.ts` | Folds run log lines and stream frames into the thread, as the web's `foldLogFromCheckpoint` does |
@@ -26,6 +27,20 @@ The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteraction
 
 The transport is `src/api/tasks.ts`, shared with the hand-off (see [HANDOFF.md](HANDOFF.md)).
 Every request carries `X-PostHog-Client-Platform: mobile`, so `run/` never reuses a warm run a web composer booted.
+
+## AI consent
+
+The composer area shows only when both checks pass. `ChatAccessGate` (`src/features/chat/ChatAccessGate.tsx`) wraps the composer and the decision panel, so every chat entry, including a report's Chat button, goes through it.
+
+- **Organization approval.** `/api/users/@me/` and `/api/organizations/{id}/` carry `is_ai_data_processing_approved`; the auth store keeps it on each organization as `aiDataProcessingApproved`.
+  The flag of the selected project's organization counts. When it is not `true`, a notice takes the composer's place, as the web blocks its chat.
+  Open settings goes to `{host}/project/{project id}/settings/organization-details#organization-ai-consent` (the "AI service providers" switch), and Check again reloads the account.
+  A session stored before the app kept the flag reloads the account once; if that fails, the notice says the app could not check and offers Check again.
+- **Personal consent.** The first time a person opens the composer on this device, a sheet says what is sent (messages, attached reports, project data the agent reads), where it goes (PostHog AI and its third-party model providers), and links to https://posthog.com/privacy.
+  Continue stores consent in AsyncStorage (`posthog-mobile-ai-consent`, keyed `{host}|{user uuid}`). Not now, a drag down, or a tap on the scrim closes the chat.
+  Sign out and session expiry clear every stored consent, so the next sign-in asks again.
+- Demo mode skips both checks, because demo chats send nothing.
+- Analytics: `mobile_ai_consent_shown`, `mobile_ai_consent_accepted`, `mobile_ai_consent_declined`, `mobile_ai_org_notice_shown` (with `reason`: `not_approved` or `unknown`) and `mobile_ai_org_settings_opened`.
 
 ## Composer drafts
 

@@ -23,6 +23,7 @@ import { useSheetDrag } from '@/ui/useSheetDrag'
 import { defaultModelSelection, isPermissionMode, modeLabel } from '../handoff/runOptions'
 import { useModelCatalogue, useRunDefaults } from '../handoff/useRunOptions'
 import { useInboxItems } from '../inbox/hooks'
+import { ChatAccessGate } from './ChatAccessGate'
 import { ChatEmptyState } from './ChatEmptyState'
 import { type ChatOptionsPage, ChatOptionsSheet } from './ChatOptionsSheet'
 import { Composer } from './Composer'
@@ -351,39 +352,41 @@ export function ChatSheet({ initialReportId, initialTaskId, initialRunId, onClos
                                 />
                             )}
                             <View style={styles.composerArea}>
-                                <SessionDecisionPanel
-                                    decision={session.decision}
-                                    notice={session.notice}
-                                    pending={session.isSending}
-                                    onAnswer={(answerInput) => void session.answer(answerInput)}
-                                    onDismissNotice={session.dismissNotice}
-                                />
-                                {/* A pending decision has its own reply field, so it replaces the composer, as on the web. */}
-                                {session.decision ? null : (
-                                    <>
-                                        {mentionOpen ? (
-                                            <MentionPopover items={mentionItems} now={now} onPick={pickMention} />
-                                        ) : null}
-                                        <Composer
-                                            ref={input}
-                                            text={text}
-                                            onChangeText={changeText}
-                                            chips={chips}
-                                            mentionOpen={mentionOpen}
-                                            onToggleMention={toggleMention}
-                                            modelLabel={chipModelLabel(modelCatalogue.catalogue, runOptions.model)}
-                                            modeLabel={modeLabel(permissionMode)}
-                                            openOption={optionsOpen ? optionsPage : null}
-                                            optionsDisabled={optionsDisabled}
-                                            onOpenModel={() => openOptions('model')}
-                                            onOpenMode={() => openOptions('mode')}
-                                            onSend={send}
-                                            canSend={canSend}
-                                            isStreaming={session.phase !== 'idle'}
-                                            onStop={session.stop}
-                                        />
-                                    </>
-                                )}
+                                <ChatAccessGate onDecline={close}>
+                                    <SessionDecisionPanel
+                                        decision={session.decision}
+                                        notice={session.notice}
+                                        pending={session.isSending}
+                                        onAnswer={(answerInput) => void session.answer(answerInput)}
+                                        onDismissNotice={session.dismissNotice}
+                                    />
+                                    {/* A pending decision has its own reply field, so it replaces the composer, as on the web. */}
+                                    {session.decision ? null : (
+                                        <>
+                                            {mentionOpen ? (
+                                                <MentionPopover items={mentionItems} now={now} onPick={pickMention} />
+                                            ) : null}
+                                            <Composer
+                                                ref={input}
+                                                text={text}
+                                                onChangeText={changeText}
+                                                chips={chips}
+                                                mentionOpen={mentionOpen}
+                                                onToggleMention={toggleMention}
+                                                modelLabel={chipModelLabel(modelCatalogue.catalogue, runOptions.model)}
+                                                modeLabel={modeLabel(permissionMode)}
+                                                openOption={optionsOpen ? optionsPage : null}
+                                                optionsDisabled={optionsDisabled}
+                                                onOpenModel={() => openOptions('model')}
+                                                onOpenMode={() => openOptions('mode')}
+                                                onSend={send}
+                                                canSend={canSend}
+                                                isStreaming={session.phase !== 'idle'}
+                                                onStop={session.stop}
+                                            />
+                                        </>
+                                    )}
+                                </ChatAccessGate>
                             </View>
                         </Animated.View>
                     </Animated.View>
