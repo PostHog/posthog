@@ -246,9 +246,15 @@ Both regions read the same flag, so one override applies everywhere, if the regi
 | `dismiss_lowvalue` | Every report          | 21             |
 
 `action` counts intent from every surface, not only the cloud inbox list.
-A report is a positive when someone clicked an intent action in the inbox UI (create PR, implement, copy the prompt, discuss, open or view a PR, edit the reviewers, restore), or when a person or an external agent claimed it, linked a PR, left a note, discussed it in Slack, or resolved it with a reason.
+A report is a positive when someone clicked an intent action in the inbox UI (create PR, implement, copy the prompt, discuss, open or view a PR, edit the reviewers, restore), or when a person or an external agent claimed it, linked a PR, left a note, discussed it in Slack, or resolved it.
+A resolve counts when it carries a reason or when its `actor_kind` is `user` or `agent`, so the one-click Today resolve counts.
 Self-driving's own `task` and `system` writes do not count: they are internal operational work.
-A resolve without a reason is the automatic resolve after a tracked PR merges, so it does not count either.
+A resolve with no reason and no human actor is the automatic resolve after a tracked PR merges, so it does not count either.
+
+`fixed` counts a resolve without a not-fixed reason, and a dismissal with a fixed reason.
+A reason-less resolve by a `user` or an `agent` waits for a 24-hour grace window first.
+It counts as fixed only when the window closed before the snapshot and no not-fixed reason arrived inside it as a `reason_added` row.
+The label is dated from the resolve, and a reason after the window cannot take it back, so the label only grows.
 
 The Today home sends the same client events as the Inbox, with `surface: 'today'` and a `list` property (`briefing` or `sidebar_more`) on impressions and opens.
 Filter on `surface` where a metric must stay Inbox-only.
