@@ -467,6 +467,13 @@ def _evaluate_warehouse_access_control_flag(team: Team) -> bool:
     """Never cached, in the flag cache or via cached sources: this flag gates enforcement. A stale
     False (a flag flip, or a transient SDK failure that feature_enabled_or_false reports as False)
     would keep warehouse access control off for every query on the team until a TTL expires."""
+    from products.authz.backend.facade import api as authz  # noqa: PLC0415 -- avoid the authz/model import cycle
+    from products.authz.backend.facade.contracts import Resource  # noqa: PLC0415
+    from products.authz.backend.facade.enums import ResourceType  # noqa: PLC0415
+
+    if authz.uses_openfga(Resource(type=ResourceType.WAREHOUSE_TABLE, organization_id=team.organization_id)):
+        return True
+
     return feature_enabled_or_false(
         "hogql-warehouse-access-control",
         str(team.uuid),

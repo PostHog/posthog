@@ -87,6 +87,11 @@ def permissions(
     return rollout.permissions(resource, subject, context)
 
 
+def uses_openfga(resource: contracts.Resource) -> bool:
+    """Whether the rollout selects OpenFGA enforcement for this resource category."""
+    return rollout.mode(authorization.organization_id(resource), resource.type) == "v2"
+
+
 def list_resources(
     *,
     resource: contracts.Resource,

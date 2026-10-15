@@ -95,3 +95,14 @@ class TestOpenFgaResourceLists(SimpleTestCase):
         assert result.complete and result.allows("2") and not result.allows("1")
         assert self.fga_client.streamed_list_objects.call_args.args[0].user == "share_link:7"
         self.legacy.assert_not_called()
+
+    def test_warehouse_query_requests_the_model_query_permission(self) -> None:
+        self.fga_client.check.return_value.allowed = False
+        self.stream([f"warehouse_table:{self.org_id}/1/00000000-0000-0000-0000-000000000001"])
+        result = api.list_resources(
+            resource=Resource(type=ResourceType.WAREHOUSE_TABLE, project_id=1, organization_id=self.org_id),
+            action=Action.QUERY,
+            subject=self.subject,
+        )
+        assert result.allows("00000000-0000-0000-0000-000000000001")
+        assert self.fga_client.streamed_list_objects.call_args.args[0].relation == "can_query"

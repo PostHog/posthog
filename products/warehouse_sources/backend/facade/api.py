@@ -89,6 +89,8 @@ __all__ = [
     "direct_access_table_ids",
     "allowed_table_ids",
     "queryable_table_ids",
+    "authorization_sources",
+    "authorization_tables",
     "all_queryable_tables",
     "all_queryable_table_columns",
     "list_tables_for_source",
@@ -472,6 +474,25 @@ def direct_access_table_ids(team_id: int) -> set[UUID]:
         .values_list("id", flat=True)
     )
     return set(rows)
+
+
+def authorization_sources(team_id: int, ids: Collection[UUID] | None = None) -> list[contracts.AuthorizationSource]:
+    sources = _ExternalDataSource.objects.filter(team_id=team_id, deleted=False)
+    if ids is not None:
+        sources = sources.filter(id__in=ids)
+    return [
+        contracts.AuthorizationSource(id=id, created_by_id=creator)
+        for id, creator in sources.values_list("id", "created_by_id")
+    ]
+
+
+def authorization_tables(team_id: int) -> list[contracts.AuthorizationTable]:
+    return [
+        contracts.AuthorizationTable(id=id, created_by_id=creator, external_data_source_id=source)
+        for id, creator, source in _DataWarehouseTable.raw_objects.queryable()
+        .filter(team_id=team_id)
+        .values_list("id", "created_by_id", "external_data_source_id")
+    ]
 
 
 def queryable_table_ids(team_id: int) -> frozenset[UUID]:

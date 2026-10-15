@@ -31,6 +31,7 @@ from products.dashboards.backend.facade.enums import PrivilegeLevel, Restriction
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 DASHBOARD_PERMISSIONS = {
     "none": frozenset(),
@@ -957,3 +958,84 @@ class TestOpenFgaDashboardMirror(BaseTest):
             resource=self._resource(), action=Action.VIEW, subject=self.subject, limit=len(expected_ids)
         )
         assert listed.complete and all(listed.allows(str(id)) for id in expected_ids)
+
+    def test_warehouse_source_fallback_tracks_rules_reparenting_and_deletion(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.uses_most_specific_access_resolution = True
+            self.organization.save()
+            source = ExternalDataSource.objects.create(
+                team=self.team,
+                source_id="example-source",
+                connection_id="example-connection",
+                source_type="Zendesk",
+                created_by=self.other_user,
+            )
+            other_source = ExternalDataSource.objects.create(
+                team=self.team,
+                source_id="other-source",
+                connection_id="other-connection",
+                source_type="Stripe",
+                created_by=self.user,
+            )
+            table = DataWarehouseTable.objects.create(
+                team=self.team,
+                name="tickets",
+                format="Parquet",
+                columns={},
+                external_data_source=source,
+                created_by=self.user,
+            )
+            standalone = DataWarehouseTable.objects.create(
+                team=self.team, name="uploads", format="Parquet", columns={}, created_by=self.user
+            )
+            source_rule = access_control_testing.create_access_control(
+                team_id=self.team.id, resource="external_data_source", resource_id=str(source.id), access_level="none"
+            )
+        tables = Resource(type=ResourceType.WAREHOUSE_TABLE, project_id=self.team.id)
+        target = Resource(type=ResourceType.WAREHOUSE_TABLE, project_id=self.team.id, id=str(table.id))
+        source_target = Resource(type=ResourceType.EXTERNAL_DATA_SOURCE, project_id=self.team.id, id=str(source.id))
+        assert api.check(resource=source_target, action=Action.VIEW, subject=self.subject)
+        assert not api.check(resource=target, action=Action.QUERY, subject=self.subject)
+        listed = api.list_resources(resource=tables, action=Action.QUERY, subject=self.subject)
+        assert listed.complete and not listed.allows(str(table.id)) and listed.allows(str(standalone.id))
+        with self.captureOnCommitCallbacks(execute=True):
+            table_rule = access_control_testing.create_access_control(
+                team_id=self.team.id, resource="warehouse_table", resource_id=str(table.id), access_level="viewer"
+            )
+        assert api.check(resource=target, action=Action.QUERY, subject=self.subject)
+        assert api.list_resources(resource=tables, action=Action.QUERY, subject=self.subject).allows(str(table.id))
+        with self.captureOnCommitCallbacks(execute=True):
+            access_control_testing.set_access_control_level(team_id=self.team.id, rule_id=table_rule, access_level=None)
+        assert not api.check(resource=target, action=Action.QUERY, subject=self.subject)
+        with self.captureOnCommitCallbacks(execute=True):
+            table.external_data_source = other_source
+            table.save(update_fields=["external_data_source"])
+        assert api.check(resource=target, action=Action.QUERY, subject=self.subject)
+        assert api.list_resources(resource=tables, action=Action.QUERY, subject=self.subject).allows(str(table.id))
+        with self.captureOnCommitCallbacks(execute=True):
+            other_source.deleted = True
+            other_source.save(update_fields=["deleted"])
+        assert not api.check(resource=target, action=Action.QUERY, subject=self.subject)
+        with self.captureOnCommitCallbacks(execute=True):
+            access_control_testing.set_access_control_level(
+                team_id=self.team.id, rule_id=source_rule, access_level="viewer"
+            )
+            own_table = DataWarehouseTable.objects.create(
+                team=self.team, name="owned_uploads", format="Parquet", columns={}, created_by=self.other_user
+            )
+            access_control_testing.create_access_control(
+                team_id=self.team.id,
+                resource="project",
+                resource_id=str(self.team.id),
+                access_level="none",
+                organization_member_id=self.membership.id,
+            )
+        assert not api.check(
+            resource=Resource(type=ResourceType.WAREHOUSE_TABLE, project_id=self.team.id, id=str(own_table.id)),
+            action=Action.QUERY,
+            subject=self.subject,
+        )
+        denied = api.list_resources(resource=tables, action=Action.QUERY, subject=self.subject, creator_exempt=True)
+        assert denied.complete and not denied.allows(
+            str(own_table.id), created_by_user_id=self.other_user.id, subject_user_id=self.other_user.id
+        )

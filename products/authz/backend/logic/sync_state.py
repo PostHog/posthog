@@ -5,6 +5,9 @@ from redis.exceptions import WatchError
 
 from posthog import redis
 
+# Older projections omit warehouse objects; their ready state must not authorize the new routes.
+READY_PREFIX = b"ready:v2:"
+
 
 def state_key(organization_id: UUID) -> str:
     return f"authz:sync-state:{organization_id}"
@@ -27,7 +30,7 @@ def mark_ready(organization_id: UUID, pending: bytes) -> None:
             pipeline.watch(key)
             if cast(bytes | None, pipeline.get(key)) == pending:
                 pipeline.multi()
-                pipeline.set(key, pending.replace(b"pending:", b"ready:", 1))
+                pipeline.set(key, READY_PREFIX + pending.removeprefix(b"pending:"))
                 pipeline.execute()
         except WatchError:
             # A later commit is pending and its reconciliation must publish readiness.

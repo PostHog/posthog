@@ -24,7 +24,7 @@ RESOURCE_CATEGORIES = {ResourceType(child): ResourceType(parent) for child, pare
 
 def ready_state(organization_id: UUID) -> bytes | None:
     state = sync_state.current_state(organization_id)
-    return state if state is not None and state.startswith(b"ready:") else None
+    return state if state is not None and state.startswith(sync_state.READY_PREFIX) else None
 
 
 @cache
@@ -102,11 +102,13 @@ def object_key(resource: Resource, *, org_id: UUID | None = None) -> str:
         ResourceType.INSIGHT,
         ResourceType.NOTEBOOK,
         ResourceType.SESSION_RECORDING,
+        ResourceType.WAREHOUSE_TABLE,
+        ResourceType.EXTERNAL_DATA_SOURCE,
     ):
         raise NotImplementedError(f"OpenFGA synchronization does not yet support {resource.type}")
     if resource.project_id is None:
         raise ValueError(f"Provide a project id for {resource.type} authorization")
-    if resource.type == ResourceType.NOTEBOOK:
+    if resource.type in (ResourceType.NOTEBOOK, ResourceType.WAREHOUSE_TABLE, ResourceType.EXTERNAL_DATA_SOURCE):
         id = str(UUID(resource.id))
     elif resource.type == ResourceType.SESSION_RECORDING:
         if not resource.id or len(resource.id) > 200 or any(c.isspace() or c in "#:" for c in resource.id):
@@ -219,7 +221,10 @@ def list_resources(
     org_id = organization_id(resource)
     type_name = resource.type.value
     prefix = f"{type_name}:{org_id}/{resource.project_id}/"
-    relation = action_relation(f"{prefix}0", READ_ACTIONS.get(action, action))
+    resolved_action = READ_ACTIONS.get(action, action)
+    if action == Action.QUERY and "can_query" in model_relations().get(type_name, ()):
+        resolved_action = Action.QUERY
+    relation = action_relation(f"{prefix}0", resolved_action)
     category_key = object_key(resource, org_id=org_id)
     user = actor_key(subject)
     capped = ResourceIds(ids=frozenset(), complete=False)

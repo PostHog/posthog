@@ -392,6 +392,7 @@ depends_on = [
     "products.warehouse_sources_queue",
     "products.workflows",
     "products.managed_warehouse", "products.access_control",
+    "products.authz",
 ]
 layer = "modules"
 

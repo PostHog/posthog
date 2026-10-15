@@ -101,7 +101,11 @@ Tables without an access-control ID column still require unrestricted access.
 
 ## 2. Warehouse tables and views
 
-Gated by the `hogql-warehouse-access-control` feature flag (checked in `Database._fetch_sources`).
+Enabled by the `hogql-warehouse-access-control` feature flag or by `authz-rebac=v2` for warehouse tables (checked in `Database._fetch_sources`).
+The SDK routes warehouse table queries and external data source permissions to OpenFGA in v2.
+Synchronization projects their policies, creators, project membership, and each table’s direct `source` relationship.
+Table query checks use `can_query`; the model aliases it to the resolved view permission.
+Warehouse views keep their Python resolver, including checks of the tables their definitions reference.
 
 ### Resource-level: the `warehouse_objects` umbrella
 
