@@ -3,11 +3,13 @@ import { type AccessibilityActionEvent, type AccessibilityActionInfo, StyleSheet
 
 import { track } from '@/lib/analytics'
 import { formatRelativeAgo } from '@/lib/dates'
+import { pullRequestNumber } from '@/model/adapters/report'
 import { sourceInfo } from '@/model/sources'
 import type { InboxItem } from '@/model/types'
 import { IconTile } from '@/ui/IconTile'
+import { GitBranchIcon } from '@/ui/icons/GitBranchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
-import { colors, iconSizes, type } from '@/ui/tokens'
+import { colors, iconSizes, radii, type } from '@/ui/tokens'
 
 import type { RowAnchor } from './contextMenuPlacement'
 import { SwipeToReadRow } from './SwipeToReadRow'
@@ -16,6 +18,7 @@ import { useRowMenuTrigger } from './useRowMenuTrigger'
 // A swipe is invisible to a screen reader, so the row offers the same change as a named action.
 const MARK_READ_ACTION: AccessibilityActionInfo = { name: 'mark_read', label: 'Mark as read' }
 const MARK_UNREAD_ACTION: AccessibilityActionInfo = { name: 'mark_unread', label: 'Mark as unread' }
+const PR_ICON_SIZE = 11
 
 interface InboxRowProps {
     item: InboxItem
@@ -52,6 +55,7 @@ export const InboxRow = memo(function InboxRow({
     const muted = done || item.state === 'snoozed'
     const when =
         item.state === 'snoozed' && item.snoozeLabel ? item.snoozeLabel : formatRelativeAgo(item.updatedAt, now)
+    const prNumber = item.pullRequestUrl ? pullRequestNumber(item.pullRequestUrl) : undefined
     return (
         <SwipeToReadRow onMarkRead={() => swipe(true)} onMarkUnread={() => swipe(false)}>
             {(pressBlocked) => (
@@ -66,7 +70,7 @@ export const InboxRow = memo(function InboxRow({
                     }}
                     pressedBackground={colors.sunken}
                     style={styles.row}
-                    accessibilityLabel={`${item.title}, ${item.sourceLabel}, ${when}${!item.read ? ', unread' : ''}${item.needsInput ? ', needs your input' : ''}`}
+                    accessibilityLabel={`${item.title}, ${item.sourceLabel}${prNumber === undefined ? '' : `, PR #${prNumber}`}, ${when}${!item.read ? ', unread' : ''}${item.needsInput ? ', needs your input' : ''}`}
                     testID={`inbox-row-${item.reportId}`}
                 >
                     <IconTile muted={muted} needsInput={item.needsInput}>
@@ -84,6 +88,21 @@ export const InboxRow = memo(function InboxRow({
                                 {item.sourceLabel}
                             </Text>
                             <View style={styles.dot} />
+                            {prNumber === undefined ? null : (
+                                <>
+                                    <View style={styles.prBadge} testID={`inbox-pr-${item.reportId}`}>
+                                        <GitBranchIcon
+                                            size={PR_ICON_SIZE}
+                                            strokeWidth={2}
+                                            color={muted ? colors.tertiary : colors.secondary}
+                                        />
+                                        <Text style={[styles.prText, muted && styles.mutedTitle]} numberOfLines={1}>
+                                            #{prNumber}
+                                        </Text>
+                                    </View>
+                                    <View style={styles.dot} />
+                                </>
+                            )}
                             <Text style={styles.metaText} numberOfLines={1}>
                                 {when}
                             </Text>
@@ -134,6 +153,23 @@ const styles = StyleSheet.create({
         ...type.meta,
         color: colors.secondary,
         flexShrink: 1,
+    },
+    // The 14pt line plus the 1pt borders stays inside the 17pt meta line, so a badge does not make the row taller.
+    prBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 3,
+        flexShrink: 0,
+        paddingHorizontal: 5,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: radii.pill,
+    },
+    prText: {
+        ...type.meta,
+        lineHeight: 14,
+        fontWeight: '500',
+        color: colors.secondary,
     },
     dot: {
         width: 3,
