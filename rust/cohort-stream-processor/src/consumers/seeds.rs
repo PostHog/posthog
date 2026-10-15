@@ -541,7 +541,6 @@ impl SeedFollowerConsumer {
                         fsync_then_commit(
                             self.dispatcher.handle(),
                             &self.consumer,
-                            &self.dispatcher.merge_deps().seed_tracker,
                             self.owned_committable_offsets(),
                             &self.topic,
                             CommitMode::Async,
@@ -571,7 +570,6 @@ impl SeedFollowerConsumer {
         fsync_then_commit(
             self.dispatcher.handle(),
             &self.consumer,
-            &self.dispatcher.merge_deps().seed_tracker,
             offsets,
             &self.topic,
             CommitMode::Sync,
