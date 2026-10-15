@@ -37,6 +37,8 @@ A call site reaching one of those wrappers can still land on the legacy path.
 `TaxonomicPopover` renders the rebuild only when `newMenuSupportsCallSite` holds (`!allowClear && closeOnChange && ref == null`), because the rebuilt menu can't honor those three capabilities.
 So "does this reach the rebuild?" depends on the wrapper and the props that call site passes.
 `ActionFilterRow` goes through `TaxonomicPopover` and passes none of the three, so it does reach the rebuild.
+`TaxonomicPropertyFilter` has a legacy branch too: a new or empty row, or a HogQL row, sets `showInitialSearchInline` and renders the legacy picker inline, whatever the flag and toggle say.
+Only an existing, non-HogQL row reaches the flag and toggle check.
 
 Many call sites skip the wrappers and mount the legacy picker directly, so they always render legacy.
 Examples are `ColumnConfigurator.tsx` (inline `<TaxonomicFilter>`), `UniversalFilters.tsx` (`PureTaxonomicFilter`) and `TaxonomicBreakdownPopover.tsx`.

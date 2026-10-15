@@ -12,7 +12,8 @@ A user picks a category, then searches for something that lives in another group
   Selection rate drops ~30 points (~56% vs ~85%).
 - **Caveat:** the ~3% is too low.
   Opens that stay on Suggested send no empty-result event, so their empty states are not counted.
-  The ~5.5x order ratio does not depend on Suggested, so lean on it first.
+  The same gap pushes the ~5.5x order ratio up, because an empty search on Suggested before a category pick is never counted.
+  The selection drop does not use empty-result events, so lean on it first.
 - **Why:** the active category silently narrows search.
   Users don't hold the category in mind once they start typing.
 - **Fix direction:** search all groups even when a tab is active.

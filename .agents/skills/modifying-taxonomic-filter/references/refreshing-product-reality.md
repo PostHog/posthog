@@ -102,7 +102,7 @@ The buckets overlap.
 Write back relative shares only.
 `from_recents_pct` counts recents from any tab.
 `from_recents_in_suggested_pct` counts only the Suggested tab, which backs the "Recents inside Suggested" row in [feature-inventory](feature-inventory.md).
-The rebuild's merged `all` scope has no `groupType`, so its recents fall outside that column.
+The rebuild's `all`, `recent` and `pinned` scopes have no `groupType`, so the query is legacy only and every column shares one base.
 
 ```sql
 SELECT
@@ -113,6 +113,7 @@ SELECT
   round(100 * countIf(toBool(properties.wasFromPinnedList)) / count(), 1) AS from_pinned_pct
 FROM events
 WHERE event = 'taxonomic filter item selected'
+  AND coalesce(toString(properties.surface), '') != 'rebuild-menu'
   AND timestamp >= now() - INTERVAL 90 DAY
 ```
 
@@ -172,7 +173,8 @@ The rebuild is left out, because its close event fires on every close and its ca
 `taxonomic filter category selected` also fires when the user switches to Suggested, Recent or Pinned.
 Those switches do not narrow search, so the query drops them, and "category pick" means a real group.
 Suggested sends no `taxonomic filter empty result`, so the without-category empty rate is too low.
-With the switches dropped, `category_then_empty_ratio` only compares opens that picked a real group, so this gap does not skew it.
+The same gap biases `category_then_empty_ratio` upward: an empty search on Suggested followed by a category pick never counts in its base.
+`selection_after_category_pct` and `selection_without_category_pct` do not use empty-result events, so they are the most reliable output of this query.
 Drives failure mode 1 in [failure-modes](failure-modes.md).
 
 ```sql
@@ -249,12 +251,17 @@ Only the legacy `infiniteListLogic` sends fetch failures, but both surfaces send
 Filter both sides to `legacy-pill` so the rate does not fall as rebuild use grows.
 There is no honest rate per group: a list also fails while it feeds Suggested, and then the failure logs its own group but the search logs `suggested_filters`.
 Rank groups by share of failures, and report one overall rate.
-Failures also fire on initial loads, so the overall rate is per typed search, not per request.
+Failures also fire on the first load, when the query is empty, and no search event matches those.
+So the overall rate counts only failures with a typed query.
+The share ranking keeps first-load failures, because they show which groups fail.
 The health dashboard divides by timed searches instead, so its rate is higher.
 
 ```sql
 WITH f AS (
-  SELECT toString(properties.groupType) AS g, count() AS n
+  SELECT
+    toString(properties.groupType) AS g,
+    count() AS n,
+    countIf(length(trim(toString(properties.searchQuery))) > 0) AS typed_n
   FROM events
   WHERE event = 'taxonomic filter fetch failed'
     AND properties.surface = 'legacy-pill'
@@ -271,7 +278,7 @@ s AS (
 SELECT
   f.g AS group_type,
   round(100 * f.n / sum(f.n) OVER (), 1) AS share_of_failures_pct,
-  round(100 * (SELECT sum(n) FROM f) / (SELECT n FROM s), 2) AS overall_failures_per_100_searches
+  round(100 * (SELECT sum(typed_n) FROM f) / (SELECT n FROM s), 2) AS typed_failures_per_100_searches
 FROM f
 ORDER BY share_of_failures_pct DESC
 LIMIT 15
