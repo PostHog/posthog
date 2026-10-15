@@ -545,7 +545,12 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 mode === 'feed' ? feed.loading : folderContentsLoading,
         ],
         // Rows fetched before the personal filter, so the end sentinel keeps loading while hidden rows arrive.
-        loadedCount: [(s) => [s.feed], (feed: AnalyticsFeed): number => feed.items.length],
+        // Rows loaded so far in either mode, so the scroll sentinel re-checks after each page.
+        loadedCount: [
+            (s) => [s.mode, s.feed, s.folderContents],
+            (mode: AnalyticsListMode, feed: AnalyticsFeed, folderContents: FolderContents | null): number =>
+                mode === 'folder' ? (folderContents?.entries.length ?? 0) : feed.items.length,
+        ],
         hasMore: [
             (s) => [s.mode, s.feed, s.folderContents, s.filters],
             (

@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
@@ -30,7 +31,20 @@ import {
 // Top-level folders come a page at a time; a project with more than this many is unlikely but handled.
 const SPACES_PAGE_SIZE = 200
 // Marks the shortcuts this page makes, so other folder shortcuts (such as a home folder) stay off the list.
-const SPACE_SHORTCUT_REF = 'analytics-space'
+// kea-localstorage keys by logic path, and starred spaces belong to one person in one project. Without
+// both ids (OAuth mode can load this module early) nothing persists, so one account never sees another's.
+const SHORTCUTS_TEAM_ID = getCurrentTeamIdOrNone()
+const SHORTCUTS_USER_ID = getCurrentUserIdOrNone()
+const SHORTCUTS_PERSIST_OPTIONS =
+    SHORTCUTS_TEAM_ID && SHORTCUTS_USER_ID
+        ? { persist: true, prefix: `${SHORTCUTS_TEAM_ID}__${SHORTCUTS_USER_ID}__` }
+        : { persist: false }
+
+/** A space is a top-level folder that is not the unfiled area or someone's home folder. */
+export function isSpacePath(path: string): boolean {
+    const segments = splitPath(path)
+    return segments.length === 1 && !([UNFILED_FOLDER, USERS_FOLDER] as string[]).includes(segments[0])
+}
 
 /** A starred space: its shortcut row, so the star can be removed again. */
 export interface StarredSpace {
@@ -266,8 +280,7 @@ export const analyticsSpacesLogic = kea<analyticsSpacesLogicType>([
             { loadSpaces: () => false, loadSpacesSuccess: () => false, loadSpacesFailure: () => true },
         ],
         // The last loaded shortcuts persist, so starred spaces show at once on the next visit and refresh in place.
-        // pinned: storage key for the persisted shortcuts. Renaming it blanks everyone's sidebar until the load.
-        shortcuts: [[] as FileSystemEntry[], { persist: true }, {}],
+        shortcuts: [[] as FileSystemEntry[], SHORTCUTS_PERSIST_OPTIONS, {}],
         // The path being starred or unstarred, so its button shows progress and ignores a second click.
         starring: [null as string | null, { toggleStar: (_, { space }) => space.path, toggleStarDone: () => null }],
         deletingSpace: [
@@ -289,7 +302,7 @@ export const analyticsSpacesLogic = kea<analyticsSpacesLogicType>([
             (s) => [s.shortcuts],
             (shortcuts: FileSystemEntry[]): StarredSpace[] =>
                 shortcuts.flatMap((shortcut) =>
-                    shortcut.type === 'folder' && shortcut.ref === SPACE_SHORTCUT_REF && shortcut.id
+                    shortcut.type === 'folder' && shortcut.id && isSpacePath(shortcut.path)
                         ? [{ shortcutId: shortcut.id, path: shortcut.path, name: fileSystemEntryName(shortcut) }]
                         : []
                 ),
@@ -307,7 +320,8 @@ export const analyticsSpacesLogic = kea<analyticsSpacesLogicType>([
                     await api.fileSystemShortcuts.delete(starred.shortcutId)
                     lemonToast.success(`Removed ${space.name} from your sidebar`)
                 } else {
-                    await api.fileSystemShortcuts.create({ path: space.path, type: 'folder', ref: SPACE_SHORTCUT_REF })
+                    // A folder shortcut keeps its path as ref, so a rename moves the star with the folder.
+                    await api.fileSystemShortcuts.create({ path: space.path, type: 'folder', ref: space.path })
                     lemonToast.success(`Added ${space.name} to your sidebar`)
                 }
                 actions.loadShortcuts()

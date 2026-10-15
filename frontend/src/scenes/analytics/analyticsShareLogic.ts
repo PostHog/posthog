@@ -3,9 +3,13 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+
+import { canvasesRetrieve } from 'products/canvas/frontend/generated/api'
+import { taskChannelsRetrieve } from 'products/tasks/frontend/generated/api'
 
 import { fileSystemTypeParams } from './analyticsFeed'
 import { AnalyticsSpace, analyticsSpacesLogic } from './analyticsSpacesLogic'
@@ -83,6 +87,19 @@ export type analyticsShareLogicType = MakeLogicType<
     Record<string, any>,
     analyticsShareLogicMeta
 >
+
+// A canvas stays visible to its channel's members alone, whatever folder holds it, so a space can only
+// share one that sits in a public channel.
+async function assertCanvasShareable(ref: string): Promise<void> {
+    const projectId = String(teamLogic.values.currentTeamId)
+    const canvas = await canvasesRetrieve(projectId, ref)
+    const channel = await taskChannelsRetrieve(projectId, canvas.channel)
+    if (channel.channel_type !== 'public') {
+        throw new Error(
+            'This canvas is in a private channel, so only its members can open it. Move it to a public channel first.'
+        )
+    }
+}
 
 async function findEntry(target: ShareToSpaceTarget): Promise<FileSystemEntry | null> {
     const found = await api.fileSystem.list({ ref: target.ref, ...fileSystemTypeParams(target.type) })
@@ -168,6 +185,9 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
                 const entry = values.target && values.entry ? values.entry : await findEntry(target)
                 if (!entry) {
                     throw new Error('This item has no row in the project file system yet.')
+                }
+                if (target.type === 'canvas' && space) {
+                    await assertCanvasShareable(target.ref)
                 }
                 const wasShared = analyticsSpaceOfPath(entry.path) !== null
                 const folder = space ? space.path : `${UNFILED_FOLDER}/${ANALYTICS_TYPE_INFO[target.type].pluralLabel}`

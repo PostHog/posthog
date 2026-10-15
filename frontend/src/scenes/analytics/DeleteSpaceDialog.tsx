@@ -25,8 +25,7 @@ export function DeleteSpaceDialog(): JSX.Element {
                     <DialogTitle>{deletingSpace ? `Delete "${deletingSpace.name}"` : 'Delete space'}</DialogTitle>
                     <DialogDescription>
                         Nothing inside gets deleted. Its dashboards, insights, notebooks and canvases go back to
-                        unfiled, where only their creators see them until someone shares them into a space again.
-                        Folders in this space are removed.
+                        unfiled, as personal items outside every space. Folders in this space are removed.
                     </DialogDescription>
                 </DialogHeader>
                 <DialogFooter>

@@ -191,7 +191,7 @@ function AnalyticsListContent(): JSX.Element {
                                 ? 'Share something into this space from its page and it shows up here.'
                                 : scope === 'mine'
                                   ? 'Canvases, dashboards, notebooks and insights you create show up here.'
-                                  : 'Analytics shared into a space show up here. Yours stay personal until you share them.'}
+                                  : 'Canvases, dashboards, notebooks and insights show up here as people create them.'}
                         </EmptyDescription>
                     </EmptyHeader>
                     <EmptyContent>

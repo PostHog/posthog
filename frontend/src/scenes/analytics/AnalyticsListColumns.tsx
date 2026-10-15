@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { IconFolderMove, IconFolderOpen, IconShare, IconX } from '@posthog/icons'
 import {
     Button,
-    DataTableProps,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
@@ -14,10 +13,13 @@ import {
     TooltipContent,
     TooltipTrigger,
 } from '@posthog/quill'
+import type { DataTableProps } from '@posthog/quill-components'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+
+import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { AnalyticsOwner } from './AnalyticsOwner'
 import { analyticsShareLogic } from './analyticsShareLogic'
@@ -88,7 +90,9 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-60">
                 <DropdownMenuItem
-                    onClick={() => router.actions.push(urls.analyticsList({ folder: item.spaceName ?? '' }))}
+                    onClick={() =>
+                        router.actions.push(urls.analyticsList({ folder: escapePath(item.spaceName ?? '') }))
+                    }
                     data-attr="analytics-list-row-open-space"
                 >
                     <IconFolderOpen />
@@ -203,16 +207,6 @@ export function analyticsListColumns({
             cell: ({ row }) => (
                 <div className="w-24">
                     <TimeCell time={row.original.createdAt} />
-                </div>
-            ),
-        },
-        {
-            id: 'accessed',
-            header: 'Last viewed',
-            enableSorting: false,
-            cell: ({ row }) => (
-                <div className="w-28">
-                    <TimeCell time={row.original.lastAccessedAt} />
                 </div>
             ),
         },

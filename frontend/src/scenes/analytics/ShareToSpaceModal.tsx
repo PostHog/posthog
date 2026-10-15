@@ -80,7 +80,7 @@ export function ShareToSpaceModal(): JSX.Element {
                             <span className="flex flex-col items-start">
                                 <span>Make it personal</span>
                                 <span className="text-xs text-secondary">
-                                    Take it out of every space; only you will see it in Analytics.
+                                    Take it out of every space. It stays in View all as a personal item.
                                 </span>
                             </span>
                         </LemonButton>
