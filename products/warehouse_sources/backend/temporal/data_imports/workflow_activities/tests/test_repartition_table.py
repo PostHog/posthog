@@ -60,6 +60,7 @@ PENDING_TARGET = {
     "trigger_reason": "proactive_threshold",
     "attempts": 0,
 }
+ADMIN_TARGET = {**PENDING_TARGET, "trigger_reason": "admin"}
 
 
 def _read_only_transaction_error() -> InternalError:
@@ -91,6 +92,7 @@ def _schema(
     schema.resolved_s3_folder_name = s3_folder_name
     schema.team_id = TEAM_ID
     schema.delta_revive_required = None
+    schema.is_append = False
     schema.repartition_swap = swap
     schema.repartition_pending = pending
     schema.repartition_rewrite = rewrite
@@ -1442,8 +1444,10 @@ class TestFullRefreshDeferral:
         # The next full refresh deletes the table and writes it again, so a rewrite only copies rows
         # that sync throws away, and the sync moves the live version under any checkpoint it saves.
         mock_schema_model.SyncType.FULL_REFRESH = "full_refresh"
-        schema = _schema(name="contacts", s3_folder_name="contacts", swap=swap)
+        pending = ADMIN_TARGET if sync_type == "append" else PENDING_TARGET
+        schema = _schema(name="contacts", s3_folder_name="contacts", pending=pending, swap=swap)
         schema.sync_type = sync_type
+        schema.is_append = sync_type == "append"
         if swap_after_refresh is not None:
             schema.refresh_from_db.side_effect = lambda **_kwargs: setattr(
                 schema, "repartition_swap", swap_after_refresh
@@ -1479,6 +1483,7 @@ def _reset_schema(
 ) -> MagicMock:
     schema = _schema(name="contacts", s3_folder_name="contacts", pending=pending, swap=swap, rewrite=rewrite)
     schema.sync_type = sync_type
+    schema.is_append = sync_type == "append"
     schema.is_webhook = sync_type == "webhook"
     schema.sync_type_config = {"reset_pipeline": True} if config_reset else {}
     schema.initial_sync_complete = initial_sync_complete
@@ -1536,7 +1541,10 @@ class TestResetDeferral:
         expect_rewrite: bool,
     ) -> None:
         mock_schema_model.SyncType.FULL_REFRESH = "full_refresh"
-        schema = _reset_schema(sync_type=sync_type, config_reset=config_reset, swap=swap, rewrite=dict(CHECKPOINT))
+        pending = ADMIN_TARGET if sync_type == "append" else PENDING_TARGET
+        schema = _reset_schema(
+            sync_type=sync_type, config_reset=config_reset, pending=pending, swap=swap, rewrite=dict(CHECKPOINT)
+        )
         mock_schema_model.objects.select_related.return_value.get.return_value = schema
         mock_repartition.return_value = {"outcome": "completed"}
         mock_purge.return_value = True
@@ -1554,7 +1562,7 @@ class TestResetDeferral:
             mock_purge.assert_not_awaited()
             return
         # The queued target stays for the reset to write, and for a later rewrite if no reset happens.
-        assert schema.repartition_pending == PENDING_TARGET
+        assert schema.repartition_pending == pending
         schema.set_repartition_pending.assert_not_called()
         schema.clear_repartition_pending.assert_not_called()
         schema.stamp_last_repartition_at.assert_not_called()

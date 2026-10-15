@@ -283,6 +283,40 @@ class TestRepartitionDetection:
         assert schema.repartition_pending["partition_mode"] is None
         assert schema.repartition_pending["partition_keys"] == ["id"]
 
+    @pytest.mark.parametrize("trigger", ["over_budget", "oom_history"])
+    def test_an_append_table_is_never_split(self, team, trigger):
+        schema = _make_schema(
+            team,
+            {
+                "partitioning_enabled": True,
+                "partition_mode": "datetime",
+                "partition_format": "day",
+                "partitioning_keys": ["ts"],
+            },
+        )
+        schema.sync_type = ExternalDataSchema.SyncType.APPEND
+        schema.save()
+        if trigger == "oom_history":
+            for _ in range(3):
+                ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(
+                    team_id=schema.team_id, schema=schema
+                )
+
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["2026-10-01", "2026-10-01", "2026-10-02"])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=1 if trigger == "over_budget" else 10**12),
+                patch.object(ctrl, "repartition_oom_threshold", return_value=3),
+                patch.object(ctrl, "min_splittable_partition_bytes", return_value=1),
+                patch.object(ctrl, "capture_repartition_event") as capture,
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        assert schema.repartition_pending is None
+        assert schema.last_repartition_at is None
+        assert capture.call_count == 0
+
 
 class TestPartitionMeasurementRecord:
     @pytest.mark.parametrize(
@@ -1293,6 +1327,42 @@ class TestRepartitionActivity:
         # Clearing pending alone re-arms the loop — detection re-flags the unchanged table next sync.
         # The cooldown stamp is what actually stops the flag → start → skip churn every 5 minutes.
         assert schema.last_repartition_at is not None
+
+    @pytest.mark.parametrize(
+        "trigger_reason,dropped",
+        [("proactive_threshold", True), ("oom_history", True), ("admin", False), ("coarsening", False)],
+    )
+    def test_an_automatic_split_queued_on_an_append_table_is_dropped(self, team, trigger_reason, dropped):
+        schema = _make_schema(team, {})
+        schema.sync_type = ExternalDataSchema.SyncType.APPEND
+        schema.save()
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": trigger_reason,
+                "attempts": 0,
+            }
+        )
+        schema.set_repartition_rewrite({"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10})
+        mocked = AsyncMock(return_value={"outcome": "completed", "row_count": 6, "partition_mode_after": "md5"})
+        purge = AsyncMock(return_value=True)
+        with patch.object(repartition_table, "purge_abandoned_rewrite_temp", new=purge):
+            capture = self._run(self._inputs(team, schema), mocked)
+
+        schema.refresh_from_db()
+        if dropped:
+            mocked.assert_not_called()
+            assert purge.await_args is not None
+            assert purge.await_args.args[2] == "s3://bucket/t__repartitioned_x"
+            assert schema.repartition_pending is None
+            assert schema.repartition_rewrite is None
+            skipped = [c.args[1] for c in capture.call_args_list if c.args[0] == "warehouse_repartition_skipped"]
+            assert [props["reason"] for props in skipped] == ["append_never_merges"]
+        else:
+            mocked.assert_awaited_once()
+            purge.assert_not_called()
 
     def test_failure_increments_attempts_without_clearing(self, team):
         schema = _make_schema(team, {})

@@ -65,6 +65,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     MAX_REPARTITION_ATTEMPTS,
     base_event_props,
     capture_repartition_event,
+    is_automatic_split_of_append_table,
     maybe_flag_for_repartition,
     needs_pre_extraction_detection,
     pre_extraction_measurement_is_redundant,
@@ -435,6 +436,11 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         else _target_from_schema(schema)
     )
     trigger_reason = (pending or {}).get("trigger_reason", "resume")
+
+    # Before the reset deferral too, because a reset would write this split into the new table.
+    if swap is None and is_automatic_split_of_append_table(schema, trigger_reason):
+        _drop_append_split(inputs, schema, table_ref, trigger_reason, logger)
+        return
 
     # Never while a swap is staged: live may already be deleted, and temp is then the only intact copy.
     if replaces_table:
@@ -1147,6 +1153,48 @@ def _give_up(
     # already bound (bind_job_context) so the issue is attributed to the connector and table.
     capture_exception(error)
     DELTA_REPARTITION_TOTAL.labels(outcome="failed").inc()
+
+
+def _drop_append_split(
+    inputs: RepartitionActivityInputs,
+    schema: ExternalDataSchema,
+    table_ref: DeltaTableRef,
+    trigger_reason: str,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Discard an automatic split queued for an append table, with the temp table of its rewrite.
+
+    Same order as `_give_up`: the fresh claim fences out a predecessor that may still run as a
+    zombie, and the temp table goes before the checkpoint that records where it is.
+    """
+    claim_token = str(uuid.uuid4())
+    if not schema.set_repartition_claim(
+        {"token": claim_token, "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
+    ):
+        logger.info("repartition: append split drop superseded by a newer claim")
+        return
+    # A predecessor can stage a swap before the claim above fences it out. Temp is then the only
+    # intact copy, so the swap must finish, and the next run drops nothing.
+    schema.refresh_from_db(fields=["sync_type_config"])
+    if schema.repartition_swap is not None:
+        logger.info("repartition: a swap is staged, so the append split stays until it lands")
+        return
+    rewrite_rows = _rewrite_rows_written(schema)
+    _purge_abandoned_temp(schema, table_ref, claim_token, logger)
+    if not schema.abandon_repartition_if_claimed(claim_token):
+        logger.info("repartition: append split drop superseded by a newer claim")
+        return
+    logger.info(
+        f"repartition: dropped the queued split of an append table, which never merges "
+        f"schema_id={schema.id} trigger_reason={trigger_reason} rewrite_rows={rewrite_rows}",
+        schema_id=str(schema.id),
+        trigger_reason=trigger_reason,
+        rewrite_rows=rewrite_rows,
+    )
+    DELTA_REPARTITION_TOTAL.labels(outcome="skipped").inc()
+    props = base_event_props(schema, schema.source, inputs.job_id)
+    props.update({"trigger_reason": trigger_reason, "reason": "append_never_merges", "rewrite_rows": rewrite_rows})
+    capture_repartition_event("warehouse_repartition_skipped", props)
 
 
 def _charge_attempt(
