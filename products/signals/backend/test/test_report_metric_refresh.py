@@ -341,7 +341,10 @@ class TestReportMetricQueryShapes(APIBaseTest):
         with patch(
             "products.signals.backend.report_metric_refresh.run_cached_trends_query", return_value=response
         ) as run_query:
-            whole_window_value(_metric()["query"], self.team, **({"ch_user": ch_user} if ch_user else {}))
+            if ch_user is None:
+                whole_window_value(_metric()["query"], self.team)
+            else:
+                whole_window_value(_metric()["query"], self.team, ch_user=ch_user)
 
         assert run_query.call_args.kwargs["cache_age_seconds"] == 15 * 60
         assert run_query.call_args.kwargs["ch_user"] == (ch_user or ClickHouseUser.DEFAULT)
