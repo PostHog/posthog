@@ -62,7 +62,8 @@ export interface CIExplorerLogicProps {
     sourceId: string | null
 }
 
-export type CIExplorerView = 'overview' | 'activity'
+const CI_EXPLORER_VIEWS = ['overview', 'activity', 'timeline'] as const
+export type CIExplorerView = (typeof CI_EXPLORER_VIEWS)[number]
 export type CIExplorerDrawerTab = 'details' | 'context'
 
 /** Where the person is in the explorer. The URL holds the same three facts. */
@@ -95,7 +96,7 @@ const CI_EXPLORER_ROUTE = `/engineering-analytics/repos/:repoOwner/:repoName/pul
 function locationSearchParams(current: Record<string, any>, location: CIExplorerLocation): Record<string, any> {
     const searchParams = { ...current }
     const own: [string, string | null][] = [
-        [VIEW_PARAM, location.view === 'activity' ? 'activity' : null],
+        [VIEW_PARAM, location.view === 'overview' ? null : location.view],
         [SHA_PARAM, location.headSha],
         [NODE_PARAM, location.nodeId],
     ]
@@ -947,7 +948,7 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
                 return
             }
             const location: CIExplorerLocation = {
-                view: searchParams[VIEW_PARAM] === 'activity' ? 'activity' : 'overview',
+                view: CI_EXPLORER_VIEWS.find((view) => view === searchParams[VIEW_PARAM]) ?? 'overview',
                 // The router reads an all-digit value as a number.
                 headSha: searchParams[SHA_PARAM] == null ? null : String(searchParams[SHA_PARAM]),
                 nodeId: searchParams[NODE_PARAM] == null ? null : String(searchParams[NODE_PARAM]),
