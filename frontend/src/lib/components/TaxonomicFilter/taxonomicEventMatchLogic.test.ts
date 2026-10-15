@@ -380,29 +380,35 @@ describe('taxonomicEventMatchLogic', () => {
         expect(excludingLogic.values.hint).toBeNull()
     })
 
-    it('hides the All tab button while All is empty, and records the hint click', async () => {
-        enroll('test')
-        matches = []
-        outcome = 'only_values'
-        const { allTabFilterLogic, allTabLogic } = mountAllTabPicker()
-        allTabFilterLogic.actions.setActiveTab(TaxonomicFilterGroupType.Events)
+    it.each([
+        { picker: 'events only', taxonomicGroupTypes: [TaxonomicFilterGroupType.Events], hint: null },
+        {
+            picker: 'events and event properties',
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            hint: { kind: 'value' },
+        },
+    ])(
+        'points a value search at properties only where one can be picked: $picker',
+        async ({ taxonomicGroupTypes, hint }) => {
+            enroll('test')
+            matches = []
+            outcome = 'only_values'
+            const pickerProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: `event-match-value-hint-${taxonomicGroupTypes.join('-')}`,
+                taxonomicGroupTypes,
+            }
+            const pickerFilterLogic = taxonomicFilterLogic(pickerProps)
+            pickerFilterLogic.mount()
+            const pickerLogic = taxonomicEventMatchLogic(pickerProps)
+            pickerLogic.mount()
+            pickerFilterLogic.actions.setActiveTab(TaxonomicFilterGroupType.Events)
 
-        allTabFilterLogic.actions.setSearchQuery('ada@example.com')
-        await expectLogic(allTabLogic).toFinishAllListeners()
+            pickerFilterLogic.actions.setSearchQuery('ada@example.com')
+            await expectLogic(pickerLogic).toFinishAllListeners()
 
-        expect(allTabLogic.values.hint).toEqual({ kind: 'value' })
-        expect(allTabLogic.values.canSearchAllCategories).toBe(false)
-
-        const captureSpy = jest.spyOn(posthog, 'capture')
-        allTabLogic.actions.searchAllCategories()
-        expect(captureSpy).toHaveBeenCalledWith('taxonomic filter event match hint clicked', {
-            surface: 'legacy-pill',
-            tab: 'events',
-            hint: 'value',
-        })
-        expect(allTabFilterLogic.values.activeTab).toEqual(TaxonomicFilterGroupType.SuggestedFilters)
-        expect(allTabLogic.values.canSearchAllCategories).toBe(false)
-    })
+            expect(pickerLogic.values.hint).toEqual(hint)
+        }
+    )
 
     it('shows no hint when the model simply found nothing likely', async () => {
         enroll('test')

@@ -58,6 +58,17 @@ const reportedEligible = new Set<string>()
 
 const matchKey = (projectId: number, query: string): string => `${projectId}:${query}`
 
+// A value belongs to a property, so the value hint only helps in a picker where the person can pick one.
+const PROPERTY_GROUP_TYPES = [
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.SessionProperties,
+]
+
+function offersProperties(taxonomicGroupTypes: TaxonomicFilterGroupType[]): boolean {
+    return PROPERTY_GROUP_TYPES.some((groupType) => taxonomicGroupTypes.includes(groupType))
+}
+
 export function resetEventMatchMemoryForTests(): void {
     unavailableProjectIds.clear()
     answeredMatches.clear()
@@ -111,8 +122,6 @@ export interface taxonomicEventMatchLogicValues {
     searchQuery: string // taxonomicFilterLogic
     taxonomicGroupTypes: TaxonomicFilterGroupType[] // taxonomicFilterLogic
     taxonomicGroups: TaxonomicFilterGroup[] // taxonomicFilterLogic
-    infiniteListCounts: { [k: string]: number } // taxonomicFilterLogic
-    canSearchAllCategories: boolean
     currentAnswer: EventMatches | null
     eventMatches: EventMatches | null
     hint: EventMatchHint | null
@@ -135,17 +144,11 @@ export interface taxonomicEventMatchLogicActions {
         meta: SelectItemMeta | undefined
         value: TaxonomicFilterValue
     } // taxonomicFilterLogic
-    setActiveTab: (activeTab: TaxonomicFilterGroupType) => {
-        activeTab: TaxonomicFilterGroupType
-    } // taxonomicFilterLogic
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
     } // taxonomicFilterLogic
     findEventMatches: (searchQuery: string) => {
         searchQuery: string
-    }
-    searchAllCategories: () => {
-        value: true
     }
     selectEventMatch: (match: EventMatchApi) => {
         match: EventMatchApi
@@ -170,14 +173,9 @@ export interface taxonomicEventMatchLogicMeta {
         hint: (
             currentAnswer: EventMatches | null,
             suggestedEvents: EventMatchApi[],
-            taxonomicGroups: TaxonomicFilterGroup[]
+            taxonomicGroups: TaxonomicFilterGroup[],
+            taxonomicGroupTypes: TaxonomicFilterGroupType[]
         ) => EventMatchHint | null
-        canSearchAllCategories: (
-            hint: EventMatchHint | null,
-            activeTab: TaxonomicFilterGroupType,
-            taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            infiniteListCounts: { [k: string]: number }
-        ) => boolean
         suggestedEvents: (
             currentAnswer: EventMatches | null,
             taxonomicGroups: TaxonomicFilterGroup[]
@@ -219,16 +217,15 @@ export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
             projectLogic,
             ['currentProjectId'],
             taxonomicFilterLogic(props),
-            ['activeTab', 'searchQuery', 'taxonomicGroupTypes', 'taxonomicGroups', 'infiniteListCounts'],
+            ['activeTab', 'searchQuery', 'taxonomicGroupTypes', 'taxonomicGroups'],
         ],
-        actions: [taxonomicFilterLogic(props), ['selectItem', 'setSearchQuery', 'setActiveTab']],
+        actions: [taxonomicFilterLogic(props), ['selectItem', 'setSearchQuery']],
     })),
     actions({
         findEventMatches: (searchQuery: string) => ({ searchQuery }),
         startEventMatch: (query: string) => ({ query }),
         setEventMatches: (eventMatches: EventMatches | null) => ({ eventMatches }),
         selectEventMatch: (match: EventMatchApi) => ({ match }),
-        searchAllCategories: true,
     }),
     reducers({
         eventMatches: [
@@ -259,17 +256,18 @@ export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
                     : null,
         ],
         hint: [
-            (s) => [s.currentAnswer, s.suggestedEvents, s.taxonomicGroups],
+            (s) => [s.currentAnswer, s.suggestedEvents, s.taxonomicGroups, s.taxonomicGroupTypes],
             (
                 currentAnswer: EventMatches | null,
                 suggestedEvents: EventMatchApi[],
-                taxonomicGroups: TaxonomicFilterGroup[]
+                taxonomicGroups: TaxonomicFilterGroup[],
+                taxonomicGroupTypes: TaxonomicFilterGroupType[]
             ): EventMatchHint | null => {
                 if (!currentAnswer || suggestedEvents.length > 0) {
                     return null
                 }
                 if (currentAnswer.outcome === 'only_values') {
-                    return { kind: 'value' }
+                    return offersProperties(taxonomicGroupTypes) ? { kind: 'value' } : null
                 }
                 if (currentAnswer.outcome === 'not_ingested') {
                     const events = withoutExcluded(currentAnswer.unsent, taxonomicGroups)
@@ -277,21 +275,6 @@ export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
                 }
                 return null
             },
-        ],
-        canSearchAllCategories: [
-            (s) => [s.hint, s.activeTab, s.taxonomicGroupTypes, s.infiniteListCounts],
-            (
-                hint: EventMatchHint | null,
-                activeTab: TaxonomicFilterGroupType,
-                taxonomicGroupTypes: TaxonomicFilterGroupType[],
-                infiniteListCounts: { [k: string]: number }
-            ): boolean =>
-                // A value belongs to a property, and the All tab is where the picker looks across properties.
-                // The jump only helps when All has results, as in the list's own "See results from other categories".
-                hint?.kind === 'value' &&
-                activeTab !== TaxonomicFilterGroupType.SuggestedFilters &&
-                taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
-                (infiniteListCounts[TaxonomicFilterGroupType.SuggestedFilters] ?? 0) > 0,
         ],
         suggestedEvents: [
             (s) => [s.currentAnswer, s.taxonomicGroups],
@@ -379,15 +362,6 @@ export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
             actions.setEventMatches({ projectId, query, ...answer })
             reportSuggested(values.suggestedEvents, values.activeTab)
             reportHint(values.hint, values.activeTab)
-        },
-        searchAllCategories: () => {
-            // pinned: analytics event name and properties, the flag's success metric reads them
-            posthog.capture('taxonomic filter event match hint clicked', {
-                surface: legacyTaxonomicSurface(),
-                tab: values.activeTab,
-                hint: values.hint?.kind,
-            })
-            actions.setActiveTab(TaxonomicFilterGroupType.SuggestedFilters)
         },
         selectEventMatch: ({ match }) => {
             const eventsGroup = values.taxonomicGroups.find((group) => group.type === TaxonomicFilterGroupType.Events)

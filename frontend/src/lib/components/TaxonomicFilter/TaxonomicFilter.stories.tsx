@@ -953,7 +953,7 @@ export const EmptyEventsWithValueHint: Story = {
     render: (args) => <EventMatchStoryRender {...args} resetMatches />,
     args: {
         taxonomicFilterLogicKey: 'events-event-match-value',
-        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
     },
     decorators: [eventMatchAnswerMock({ matches: [], outcome: 'only_values', unsent: [] })],
     parameters: {

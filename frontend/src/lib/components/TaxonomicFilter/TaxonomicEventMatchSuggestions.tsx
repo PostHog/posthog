@@ -14,15 +14,7 @@ function listOfNames(names: string[]): string {
     return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
 }
 
-function EventMatchHintMessage({
-    hint,
-    canSearchAllCategories,
-    onSearchAllCategories,
-}: {
-    hint: EventMatchHint
-    canSearchAllCategories: boolean
-    onSearchAllCategories: () => void
-}): JSX.Element {
+function EventMatchHintMessage({ hint }: { hint: EventMatchHint }): JSX.Element {
     if (hint.kind === 'unsent') {
         return (
             <div className="flex flex-col items-center gap-y-1" data-attr="taxonomic-event-match-unsent">
@@ -39,16 +31,6 @@ function EventMatchHintMessage({
             <span className="text-secondary text-center max-w-80">
                 This looks like a value, not an event name. Pick the property that holds it, then filter on the value.
             </span>
-            {canSearchAllCategories && (
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    data-attr="taxonomic-event-match-search-all"
-                    onClick={onSearchAllCategories}
-                >
-                    Search all categories
-                </LemonButton>
-            )}
         </div>
     )
 }
@@ -56,8 +38,8 @@ function EventMatchHintMessage({
 export function TaxonomicEventMatchSuggestions(): JSX.Element | null {
     const { props } = useMountedLogic(infiniteListLogic)
     const logic = taxonomicEventMatchLogic(props)
-    const { suggestedEvents, isMatching, hint, canSearchAllCategories } = useValues(logic)
-    const { selectEventMatch, searchAllCategories } = useActions(logic)
+    const { suggestedEvents, isMatching, hint } = useValues(logic)
+    const { selectEventMatch } = useActions(logic)
 
     if (isMatching) {
         return (
@@ -69,13 +51,7 @@ export function TaxonomicEventMatchSuggestions(): JSX.Element | null {
     }
 
     if (suggestedEvents.length === 0) {
-        return hint ? (
-            <EventMatchHintMessage
-                hint={hint}
-                canSearchAllCategories={canSearchAllCategories}
-                onSearchAllCategories={searchAllCategories}
-            />
-        ) : null
+        return hint ? <EventMatchHintMessage hint={hint} /> : null
     }
 
     return (
