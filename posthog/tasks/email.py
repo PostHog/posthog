@@ -1331,7 +1331,6 @@ def send_warehouse_destination_paused(
     message.send()
 
 
-MAX_VIEWS_PER_DIGEST_EMAIL = 30
 MAX_ERROR_CHARS = 255
 
 
@@ -1398,6 +1397,16 @@ def send_matview_failure_digest() -> None:
     logger.info("Completed materialized view failure digest fan-out")
 
 
+def _parse_suspended_at(value: object) -> datetime.datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=datetime.UTC)
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], suspended_query_ids: list[str]) -> None:
@@ -1429,6 +1438,8 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     ):
         latest_jobs[str(latest_job.saved_query_id)] = latest_job
 
+    now = timezone.now()
+    new_since = now - datetime.timedelta(hours=24)
     views = []
     for qid, suspended in [(qid, False) for qid in failed_query_ids] + [(qid, True) for qid in suspended_query_ids]:
         sq = queries.get(qid)
@@ -1438,15 +1449,16 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         # Suspending rewrites the job error to lead with a sentence about the suspension, which the
         # status column already says. The marker kept the error that caused it, so read that instead
         # and leave the row's 90 characters to the part the reader can act on.
-        marker_reason: str | None = (
-            suspension_state_for_saved_query(sq).get(str(DataModelingJobEngine.CLICKHOUSE), {}).get("reason")
-            if suspended
-            else None
+        marker: dict = (
+            suspension_state_for_saved_query(sq).get(str(DataModelingJobEngine.CLICKHOUSE), {}) if suspended else {}
         )
-        error = marker_reason or (job.error if job else None) or sq.latest_error or "Unknown error"
+        error = marker.get("reason") or (job.error if job else None) or sq.latest_error or "Unknown error"
         if len(error) > MAX_ERROR_CHARS:
             error = error[: MAX_ERROR_CHARS - 3] + "..."
         run_at = (job.last_run_at if job else None) or sq.last_run_at
+        suspended_at = _parse_suspended_at(marker.get("at")) or run_at
+        # A view that broke before the last digest is old news, so it goes below the ones that broke since.
+        stale = suspended and suspended_at is not None and suspended_at < new_since
         views.append(
             {
                 "id": str(sq.id),
@@ -1455,6 +1467,10 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
                 "last_run_at": run_at.strftime("%b %d, %H:%M UTC") if run_at else "Unknown",
                 "last_run_at_ts": run_at.timestamp() if run_at else 0,
                 "suspended": suspended,
+                "stale": stale,
+                "suspended_since": suspended_at.strftime("%b %d") if suspended_at else "Unknown",
+                "suspended_days": (now - suspended_at).days if suspended_at else None,
+                "suspended_at_ts": suspended_at.timestamp() if suspended_at else 0,
                 # Reverting clears the schedule, so promising a retry here would be false. `is not
                 # False` keeps a never-written flag on the retrying side, as `exclude(deleted=True)`
                 # does above.
@@ -1467,28 +1483,48 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         logger.warning("No failed or suspended views found")
         return
 
-    # Rows needing action outrank rows that heal themselves, so the cap keeps them.
-    views.sort(key=lambda v: (not v["suspended"], v["scheduled"], -cast(float, v["last_run_at_ts"])))
+    # Within the new rows, the ones that need action come before the ones that heal themselves.
+    new_views = sorted(
+        (v for v in views if not v["stale"]),
+        key=lambda v: (not v["suspended"], v["scheduled"], -cast(float, v["last_run_at_ts"])),
+    )
+    stale_views = sorted(
+        (v for v in views if v["stale"]),
+        key=lambda v: -cast(float, v["suspended_at_ts"]),
+    )
+    views = new_views + stale_views
     for v in views:
         v.pop("last_run_at_ts", None)
+        v.pop("suspended_at_ts", None)
 
     today = datetime.date.today().strftime("%Y-%m-%d")
     campaign_key = f"matview_failure_digest_{team_id}_{today}"
 
     for memberships, visible_views in group_members_by_visible_views(memberships_to_email, team, views, queries):
-        omitted_count = max(0, len(visible_views) - MAX_VIEWS_PER_DIGEST_EMAIL)
-        listed_views = visible_views[:MAX_VIEWS_PER_DIGEST_EMAIL]
+        visible_new = [v for v in visible_views if not v["stale"]]
+        visible_stale = [v for v in visible_views if v["stale"]]
+        if visible_new:
+            subject = (
+                f"PostHog: {len(visible_new)} new materialized view failure{'s' if len(visible_new) != 1 else ''}"
+                f" in {team.name}"
+            )
+        else:
+            subject = (
+                f"PostHog: {len(visible_stale)} materialized view{'s' if len(visible_stale) != 1 else ''}"
+                f" still suspended in {team.name}"
+            )
 
         message = EmailMessage(
             campaign_key=campaign_key,
-            subject=f"PostHog: Materialized view failures in {team.name}",
+            subject=subject,
             template_name="matview_failure_digest",
             template_context={
                 "team": team,
-                "views": listed_views,
-                "has_suspended": any(v["suspended"] for v in listed_views),
-                "has_unscheduled": any(not v["suspended"] and not v["scheduled"] for v in listed_views),
-                "omitted_count": omitted_count,
+                "views": visible_views,
+                "new_views": visible_new,
+                "stale_views": visible_stale,
+                "has_suspended": any(v["suspended"] for v in visible_new),
+                "has_unscheduled": any(not v["suspended"] and not v["scheduled"] for v in visible_new),
                 "views_url": f"{settings.SITE_URL}/project/{team_id}/models",
             },
         )
@@ -1498,10 +1534,10 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         message.send()
 
         logger.info(
-            "Sent materialized view failure digest email for team %d: %d views (%d suspended) to %d members",
+            "Sent materialized view failure digest email for team %d: %d new and %d stale views to %d members",
             team_id,
-            len(listed_views),
-            sum(1 for v in listed_views if v["suspended"]),
+            len(visible_new),
+            len(visible_stale),
             len(memberships),
         )
 

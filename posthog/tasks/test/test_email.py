@@ -24,7 +24,6 @@ from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.tasks.email import (
-    MAX_VIEWS_PER_DIGEST_EMAIL,
     get_members_to_notify_for_pipeline_error,
     login_from_new_device_notification,
     send_async_migration_complete_email,
@@ -2958,14 +2957,42 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert "action required" not in html
             assert "suspended_view" not in html
 
-    def test_send_matview_failure_digest_caps_the_rows_and_counts_the_rest(self, MockEmailMessage: MagicMock) -> None:
-
+    def test_send_matview_failure_digest_lists_every_view_with_long_suspended_ones_last(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
         self.user.save()
 
-        for index in range(MAX_VIEWS_PER_DIGEST_EMAIL + 4):
+        for name, suspended_days_ago in [("suspended_last_week", 7), ("suspended_long_ago", 80)]:
+            sq = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=name,
+                query={"query": "SELECT 1", "kind": "HogQLQuery"},
+                sync_frequency_interval=dt.timedelta(hours=1),
+                is_materialized=True,
+            )
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=sq,
+                status=DataModelingJob.Status.FAILED,
+                error="Memory limit exceeded",
+                last_run_at=timezone.now() - dt.timedelta(days=suspended_days_ago),
+            )
+            node = sync_saved_query_to_dag(sq)
+            assert node is not None
+            with time_machine.travel(timezone.now() - dt.timedelta(days=suspended_days_ago), tick=False):
+                mark_node_suspended(
+                    node,
+                    engine=DataModelingJobEngine.CLICKHOUSE,
+                    reason="Memory limit exceeded",
+                    job_id=str(uuid.uuid4()),
+                )
+            node.save()
+
+        failing_count = 40
+        for index in range(failing_count):
             sq = DataWarehouseSavedQuery.objects.create(
                 team=self.team,
                 name=f"failing_view_{index}",
@@ -2983,9 +3010,19 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_matview_failure_digest()
 
         assert len(mocked_email_messages) == 1
-        assert len(mocked_email_messages[0].properties["views"]) == MAX_VIEWS_PER_DIGEST_EMAIL
-        assert mocked_email_messages[0].properties["omitted_count"] == 4
-        assert "4</strong> more failing views" in mocked_email_messages[0].html_body
+        message = mocked_email_messages[0]
+        assert len(message.properties["new_views"]) == failing_count
+        assert [(v["name"], v["suspended_days"]) for v in message.properties["stale_views"]] == [
+            ("suspended_last_week", 7),
+            ("suspended_long_ago", 80),
+        ]
+        assert message.properties["has_suspended"] is False
+        assert f"PostHog: {failing_count} new materialized view failures in" in message.subject
+
+        html = message.html_body
+        assert "more failing view" not in html
+        assert html.index("failing_view_39") < html.index("Still suspended (2)") < html.index("suspended_long_ago")
+        assert "action required" not in html
 
     @parameterized.expand(
         [

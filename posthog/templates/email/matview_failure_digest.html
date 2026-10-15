@@ -2,94 +2,148 @@
 {% block preheader %}Materialized view failures in {{ team.name }}{% endblock %}
 {% block heading %}Materialized view failures{% endblock %}
 {% block section %}
-    <p style="color: #374151;">
-        Some materialized views are failing in project <strong>{{ team.name }}</strong>. Their data may be out of date
-        until a run succeeds.
-        {% if has_suspended %}
-            Views marked <strong>suspended</strong> failed too many times in a row, so we stopped running them. Open the
-            view, fix the error, and run it once to start it again.
-        {% endif %}
-        {% if has_unscheduled %}
-            Views marked <strong>not scheduled</strong> are no longer materialized, so they will not run again until
-            you materialize them.
-        {% endif %}
-    </p>
-    <div style="background-color: #ffffff;
-                border: 1px solid #e5e7eb;
-                border-left: 4px solid {% if has_suspended %}#dc3545{% else %}#fd7e14{% endif %};
-                border-radius: 8px;
-                padding: 16px 20px;
-                margin-bottom: 12px">
-        <table width="100%"
-               cellpadding="0"
-               cellspacing="0"
-               border="0"
-               style="border-collapse: collapse">
-            {% for view in views %}
-                <tr>
-                    <td align="left"
-                        style="padding: 9px 8px 9px 0;
-                               border-top: 1px solid #f3f4f6;
-                               vertical-align: top;
-                               text-align: left;
-                               white-space: nowrap">
-                        <a href="{{ view.url }}"
-                           target="_blank"
-                           style="text-decoration: none;
-                                  color: #111827;
-                                  font-weight: 600;
-                                  font-size: 0.9em">{{ view.name|truncatechars:40 }}</a>
-                        <br />
-                        <span style="color: #9ca3af; font-size: 0.75em;">{{ view.last_run_at }}</span>
-                    </td>
-                    <td align="left"
-                        style="padding: 9px 8px;
-                               border-top: 1px solid #f3f4f6;
-                               vertical-align: top;
-                               text-align: left;
-                               color: #6b7280;
-                               font-size: 0.85em;
-                               word-break: break-word">{{ view.error|truncatechars:90 }}</td>
-                    <td align="right"
-                        style="padding: 9px 0 9px 8px;
-                               border-top: 1px solid #f3f4f6;
-                               vertical-align: top;
-                               text-align: right;
-                               white-space: nowrap">
-                        {% if view.suspended %}
-                            <span style="background-color: #fee2e2;
-                                         color: #b91c1c;
-                                         border-radius: 9999px;
-                                         padding: 2px 10px;
-                                         font-size: 0.75em;
-                                         font-weight: 600">Suspended, action required</span>
-                        {% elif not view.scheduled %}
-                            <span style="background-color: #fef3c7;
-                                         color: #92400e;
-                                         border-radius: 9999px;
-                                         padding: 2px 10px;
-                                         font-size: 0.75em;
-                                         font-weight: 600">Not scheduled</span>
-                        {% else %}
-                            <span style="background-color: #f3f4f6;
-                                         color: #6b7280;
-                                         border-radius: 9999px;
-                                         padding: 2px 10px;
-                                         font-size: 0.75em">Will retry</span>
-                        {% endif %}
-                    </td>
-                </tr>
-            {% endfor %}
-        </table>
-    </div>
-    {% if omitted_count %}
-        <p style="font-size: 0.9em; color: #374151; margin-top: 8px;">
-            &hellip;and <strong>{{ omitted_count }}</strong> more failing view{{ omitted_count|pluralize }}.
-            <a href="{{ views_url }}"
-               target="_blank"
-               style="color: #111827;
-                      font-weight: 600">View them all in PostHog</a>.
+    {% if new_views %}
+        <p style="color: #374151;">
+            {{ new_views|length }} materialized view{{ new_views|length|pluralize }} in project <strong>{{ team.name }}</strong>
+            failed in the last 24 hours. Their data may be out of date until a run succeeds.
+            {% if has_suspended %}
+                Views marked <strong>suspended</strong> failed too many times in a row, so we stopped running them. Open
+                the view, fix the error, and run it once to start it again.
+            {% endif %}
+            {% if has_unscheduled %}
+                Views marked <strong>not scheduled</strong> are no longer materialized, so they will not run again until
+                you materialize them.
+            {% endif %}
         </p>
+        <div style="background-color: #ffffff;
+                    border: 1px solid #e5e7eb;
+                    border-left: 4px solid {% if has_suspended %}#dc3545{% else %}#fd7e14{% endif %};
+                    border-radius: 8px;
+                    padding: 16px 20px;
+                    margin-bottom: 12px">
+            <table width="100%"
+                   cellpadding="0"
+                   cellspacing="0"
+                   border="0"
+                   style="border-collapse: collapse">
+                {% for view in new_views %}
+                    <tr>
+                        <td align="left"
+                            style="padding: 9px 8px 9px 0;
+                                   border-top: 1px solid #f3f4f6;
+                                   vertical-align: top;
+                                   text-align: left;
+                                   white-space: nowrap">
+                            <a href="{{ view.url }}"
+                               target="_blank"
+                               style="text-decoration: none;
+                                      color: #111827;
+                                      font-weight: 600;
+                                      font-size: 0.9em">{{ view.name|truncatechars:40 }}</a>
+                            <br />
+                            <span style="color: #9ca3af; font-size: 0.75em;">{{ view.last_run_at }}</span>
+                        </td>
+                        <td align="left"
+                            style="padding: 9px 8px;
+                                   border-top: 1px solid #f3f4f6;
+                                   vertical-align: top;
+                                   text-align: left;
+                                   color: #6b7280;
+                                   font-size: 0.85em;
+                                   word-break: break-word">{{ view.error|truncatechars:90 }}</td>
+                        <td align="right"
+                            style="padding: 9px 0 9px 8px;
+                                   border-top: 1px solid #f3f4f6;
+                                   vertical-align: top;
+                                   text-align: right;
+                                   white-space: nowrap">
+                            {% if view.suspended %}
+                                <span style="background-color: #fee2e2;
+                                             color: #b91c1c;
+                                             border-radius: 9999px;
+                                             padding: 2px 10px;
+                                             font-size: 0.75em;
+                                             font-weight: 600">Suspended, action required</span>
+                            {% elif not view.scheduled %}
+                                <span style="background-color: #fef3c7;
+                                             color: #92400e;
+                                             border-radius: 9999px;
+                                             padding: 2px 10px;
+                                             font-size: 0.75em;
+                                             font-weight: 600">Not scheduled</span>
+                            {% else %}
+                                <span style="background-color: #f3f4f6;
+                                             color: #6b7280;
+                                             border-radius: 9999px;
+                                             padding: 2px 10px;
+                                             font-size: 0.75em">Will retry</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </table>
+        </div>
+    {% endif %}
+    {% if stale_views %}
+        <p style="color: #374151; margin-top: 24px;">
+            <strong>Still suspended ({{ stale_views|length }})</strong>
+            <br />
+            <span style="color: #6b7280; font-size: 0.9em;">
+                These views stopped running before the last 24 hours and still need a fix. Open a view, fix the error,
+                and run it once to start it again. If you no longer need a view, delete it to stop these reminders.
+                <a href="{{ views_url }}"
+                   target="_blank"
+                   style="color: #111827;
+                          font-weight: 600">See all views in PostHog</a>.
+            </span>
+        </p>
+        <div style="background-color: #f9fafb;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 8px;
+                    padding: 8px 20px;
+                    margin-bottom: 12px">
+            <table width="100%"
+                   cellpadding="0"
+                   cellspacing="0"
+                   border="0"
+                   style="border-collapse: collapse">
+                {% for view in stale_views %}
+                    <tr>
+                        <td align="left"
+                            style="padding: 6px 8px 6px 0;
+                                   border-top: 1px solid #f3f4f6;
+                                   vertical-align: top;
+                                   text-align: left;
+                                   white-space: nowrap">
+                            <a href="{{ view.url }}"
+                               target="_blank"
+                               style="text-decoration: none;
+                                      color: #374151;
+                                      font-size: 0.85em">{{ view.name|truncatechars:40 }}</a>
+                        </td>
+                        <td align="left"
+                            style="padding: 6px 8px;
+                                   border-top: 1px solid #f3f4f6;
+                                   vertical-align: top;
+                                   text-align: left;
+                                   color: #9ca3af;
+                                   font-size: 0.8em;
+                                   word-break: break-word">{{ view.error|truncatechars:60 }}</td>
+                        <td align="right"
+                            style="padding: 6px 0 6px 8px;
+                                   border-top: 1px solid #f3f4f6;
+                                   vertical-align: top;
+                                   text-align: right;
+                                   color: #6b7280;
+                                   font-size: 0.75em;
+                                   white-space: nowrap">
+                            Since {{ view.suspended_since }}
+                            {% if view.suspended_days is not None %}({{ view.suspended_days }} day{{ view.suspended_days|pluralize }}){% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </table>
+        </div>
     {% endif %}
     <p style="font-size: 0.85em; color: #6b7280; margin-top: 16px;">
         Click a view name to open it in the SQL editor and see its full error details.
