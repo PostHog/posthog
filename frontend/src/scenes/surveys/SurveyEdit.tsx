@@ -280,7 +280,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         hasTargetingSet,
         selectedPageIndex,
         selectedSection,
-        isEditingSurvey,
         targetingFlagFilters,
         hasBranchingLogic,
         deviceTypesMatchTypeValidationError,
@@ -1949,7 +1948,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                 previewPageIndex={selectedPageIndex || 0}
                                 survey={previewSurvey}
                                 handleSetSelectedPageIndex={(pageIndex) => setSelectedPageIndex(pageIndex)}
-                                isEditingSurvey={isEditingSurvey}
                             />
                         </div>
                     </div>
