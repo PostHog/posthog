@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { CSSProperties, useCallback, useMemo, useRef } from 'react'
+import { CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react'
 import { List, useListRef } from 'react-window'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -106,6 +106,15 @@ export function TraceDialogSpanTree(): JSX.Element {
         },
         [openedIndex, listRef]
     )
+    // Keep each span J and K step to in view. While the opened span still waits for its centred reveal
+    // above, this leaves it alone.
+    const selectedSpanId = missingParentSpanId ?? selectedSpan?.span_id ?? null
+    useEffect(() => {
+        const index = spanRows.findIndex((row) => row.kind === 'span' && row.node.span.span_id === selectedSpanId)
+        if (index >= 0 && (selectedSpanId !== openedSpanId || revealedIndexRef.current !== null)) {
+            listRef.current?.scrollToRow({ index, align: 'smart' })
+        }
+    }, [spanRows, selectedSpanId, openedSpanId, listRef])
 
     return (
         <div className="flex flex-col h-full min-h-0">
@@ -143,7 +152,7 @@ export function TraceDialogSpanTree(): JSX.Element {
                                 collapsedSpanIds,
                                 timeline,
                                 serviceColorMap,
-                                selectedSpanId: missingParentSpanId ?? selectedSpan?.span_id ?? null,
+                                selectedSpanId,
                                 openedSpanId,
                                 openedAtUs,
                                 onSelect: selectSpan,

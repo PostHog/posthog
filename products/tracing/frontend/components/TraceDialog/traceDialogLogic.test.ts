@@ -238,4 +238,90 @@ describe('traceDialogLogic', () => {
 
         await expectLogic(logic, open).toMatchValues({ isOpen: false })
     })
+
+    it('drops the log from a previous open, so a later open has no stale strip or marker', async () => {
+        logic.actions.openTraceDialog(
+            { traceId: 'abc123', ts: '2026-05-01T12:00:00.000Z' },
+            { body: 'run_sql failed', severity: 'error' }
+        )
+        expect(logic.values.openedAtUs).not.toBeNull()
+
+        // A metrics link passes a time near the trace, which is no point in it to mark.
+        await expectLogic(logic, () => {
+            logic.actions.openTraceDialog({ traceId: 'def456', ts: '2026-05-01T12:00:00.000Z' })
+        }).toMatchValues({ openedFrom: null, openedAtUs: null })
+    })
+
+    describe('span keys', () => {
+        let pageListener: jest.Mock
+
+        beforeEach(async () => {
+            getTraceSpy.mockResolvedValue({ results: [span('a'), span('b')], hasMore: false, nextOffset: null })
+            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' })
+            await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+            // Stands in for the logs list under the dialog, which binds J and K on window too.
+            pageListener = jest.fn()
+            window.addEventListener('keydown', pageListener)
+        })
+
+        afterEach(() => {
+            window.removeEventListener('keydown', pageListener)
+        })
+
+        const press = (key: string, target: EventTarget = document.body): void => {
+            target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+        }
+
+        it('steps through spans and keeps the key from the page under the dialog', () => {
+            press('j')
+            expect(logic.values.selectedSpan?.span_id).toBe('b')
+            press('k')
+            expect(logic.values.selectedSpan?.span_id).toBe('a')
+            expect(pageListener).not.toHaveBeenCalled()
+        })
+
+        it('steps onto a missing parent row and on past it', async () => {
+            const orphan = { ...span('b'), parent_span_id: 'GONE' }
+            getTraceSpy.mockResolvedValue({ results: [span('a'), orphan], hasMore: false, nextOffset: null })
+            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' })
+            await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+
+            press('j')
+            expect(logic.values.missingParentSpanId).toBe('GONE')
+            press('j')
+            expect(logic.values.missingParentSpanId).toBeNull()
+            expect(logic.values.selectedSpan?.span_id).toBe('b')
+            press('k')
+            expect(logic.values.missingParentSpanId).toBe('GONE')
+            press('k')
+            expect(logic.values.selectedSpan?.span_id).toBe('a')
+        })
+
+        it('leaves keys typed into an input in the dialog alone, but not one hidden behind it', () => {
+            const dialog = document.createElement('div')
+            dialog.setAttribute('data-attr', 'trace-dialog')
+            const inDialog = document.createElement('input')
+            const behind = document.createElement('textarea')
+            dialog.appendChild(inDialog)
+            document.body.append(dialog, behind)
+
+            press('j', inDialog)
+            expect(logic.values.selectedSpan?.span_id).toBe('a')
+            expect(pageListener).toHaveBeenCalledTimes(1)
+
+            press('j', behind)
+            expect(logic.values.selectedSpan?.span_id).toBe('b')
+            expect(pageListener).toHaveBeenCalledTimes(1)
+            dialog.remove()
+            behind.remove()
+        })
+
+        it('stops listening once the dialog closes', () => {
+            logic.actions.closeTraceDialog()
+            press('j')
+
+            expect(logic.values.selectedSpan?.span_id).toBe('a')
+            expect(pageListener).toHaveBeenCalledTimes(1)
+        })
+    })
 })
