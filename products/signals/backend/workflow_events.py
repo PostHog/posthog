@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import TypedDict
 
+from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
@@ -111,13 +112,27 @@ def _claim_ready_event(team_id: int, report_id: str, source_products: list[str])
 
 def _renew_stale_claim(team_id: int, report_id: str, claimed_at: datetime) -> bool:
     """Take the claim over for a retry, or give it back when the report is no longer ready."""
-    claim = SignalReport.objects.filter(
+    if (
+        _stale_claim(team_id, report_id, claimed_at)
+        .filter(status=SignalReport.Status.READY)
+        .update(ready_event_emitted_at=timezone.now())
+    ):
+        return True
+    _release_stale_claim(team_id, report_id, claimed_at)
+    return False
+
+
+def _release_stale_claim(team_id: int, report_id: str, claimed_at: datetime) -> None:
+    # A report that settled after the renew skipped its own emit on this claim, so the next sweep sends it.
+    _stale_claim(team_id, report_id, claimed_at).exclude(status=SignalReport.Status.READY).update(
+        ready_event_emitted_at=None, ready_event_source_products=None
+    )
+
+
+def _stale_claim(team_id: int, report_id: str, claimed_at: datetime) -> QuerySet[SignalReport]:
+    return SignalReport.objects.filter(
         id=report_id, team_id=team_id, ready_event_emitted_at=claimed_at, ready_event_delivered_at__isnull=True
     )
-    if claim.filter(status=SignalReport.Status.READY).update(ready_event_emitted_at=timezone.now()):
-        return True
-    claim.update(ready_event_emitted_at=None, ready_event_source_products=None)
-    return False
 
 
 def _event_properties(team_id: int, report_id: str, source_products: list[str]) -> InboxReportReadyProperties:

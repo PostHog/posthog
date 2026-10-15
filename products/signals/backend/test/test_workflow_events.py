@@ -13,6 +13,7 @@ from confluent_kafka import KafkaException
 from parameterized import parameterized
 
 from products.cdp.backend.internal_events import INBOX_REPORT_READY_EVENT
+from products.signals.backend import workflow_events
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.workflow_events import emit_inbox_report_ready_event, reconcile_stranded_ready_events
 
@@ -155,6 +156,23 @@ class TestEmitInboxReportReadyEvent(BaseTest):
 
         SignalReport.objects.filter(id=self.report.id).update(status=SignalReport.Status.READY)
         self._emit()
+        assert len(self._produced_events()) == 2
+
+    def test_the_sweep_keeps_the_claim_of_a_report_that_settles_while_it_runs(self) -> None:
+        self.produce.return_value = self._pending_delivery()
+        self._emit()
+        SignalReport.objects.filter(id=self.report.id).update(status=SignalReport.Status.IN_PROGRESS)
+        release_stale_claim = workflow_events._release_stale_claim
+
+        def settle_then_release(*args: Any) -> None:
+            SignalReport.objects.filter(id=self.report.id).update(status=SignalReport.Status.READY)
+            self._emit()
+            release_stale_claim(*args)
+
+        with patch.object(workflow_events, "_release_stale_claim", side_effect=settle_then_release):
+            self._sweep_after(timedelta(minutes=16))
+        self._sweep_after(timedelta(minutes=32))
+
         assert len(self._produced_events()) == 2
 
     def test_a_failed_retry_stays_claimed_for_the_next_sweep(self) -> None:
