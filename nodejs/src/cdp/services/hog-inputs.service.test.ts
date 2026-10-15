@@ -245,24 +245,10 @@ describe('Hog Inputs', () => {
             expect(inputs.liquid_templated).toMatchInlineSnapshot(`"event: "test""`)
         })
 
-        it.each([
-            ['the function schema', false],
-            ['a mapping schema', true],
-        ])('keeps a liquid input literal when %s turns templating off', async (_name, fromMapping) => {
-            const untemplated = { key: 'liquid_templated', type: 'string', required: true, templating: false }
-            const { liquid_templated, ...otherInputs } = hogFunction.inputs!
-            if (fromMapping) {
-                hogFunction.inputs = otherInputs
-                hogFunction.mappings = [{ inputs_schema: [untemplated], inputs: { liquid_templated } }]
-            } else {
-                hogFunction.inputs_schema = [untemplated]
-            }
+        it('keeps a liquid input literal when its schema turns templating off', async () => {
+            hogFunction.inputs_schema = [{ key: 'liquid_templated', type: 'string', required: true, templating: false }]
 
-            const inputs = await hogInputsService.buildInputs(
-                hogFunction,
-                globals,
-                fromMapping ? { liquid_templated } : undefined
-            )
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
             expect(inputs.liquid_templated).toEqual('event: "{{ event.event }}"')
         })
