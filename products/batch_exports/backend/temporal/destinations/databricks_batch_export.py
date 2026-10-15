@@ -33,7 +33,6 @@ from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
-    BatchExportSchema,
     DatabricksBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
@@ -1036,7 +1035,7 @@ class TableSettings(t.NamedTuple):
 
 
 def _get_databricks_table_settings(
-    model: BatchExportModel | BatchExportSchema | None,
+    model: BatchExportModel | None,
     record_batch_schema: pa.Schema,
     use_variant_type: bool,
 ) -> TableSettings:
@@ -1085,7 +1084,7 @@ def _get_databricks_table_settings(
 
 
 def _get_databricks_merge_config(
-    model: BatchExportModel | BatchExportSchema | None,
+    model: BatchExportModel | None,
 ) -> tuple[bool, list[str], list[str]]:
     requires_merge = False
     merge_key = []
@@ -1301,11 +1300,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
     )
 
     async with Heartbeater():
-        model: BatchExportModel | BatchExportSchema | None = None
-        if inputs.batch_export_schema is None:
-            model = inputs.batch_export_model
-        else:
-            model = inputs.batch_export_schema
+        model = inputs.batch_export_model
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_DATABRICKS_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -1485,7 +1480,6 @@ class DatabricksBatchExportWorkflow(PostHogWorkflow):
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
-            batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=databricks_default_fields(),
             integration_id=inputs.integration_id,

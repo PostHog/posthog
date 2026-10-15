@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BloggerSource(ResumableSource[BloggerSourceConfig, BloggerResumeConfig]):
+    codebase_detection = detect(env=("^BLOGGER_",))
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://developers.google.com/blogger/docs/3.0/reference/"

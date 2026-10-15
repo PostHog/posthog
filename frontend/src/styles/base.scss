@@ -1231,6 +1231,14 @@
         }
     }
 
+    // Icons that use a clip path share its id across every copy on the page, and the browser uses the first copy.
+    // If that copy sits in a `visibility: hidden` container (a closed drawer), the clip path inherits it and every
+    // copy of the icon goes blank. A clip path is never drawn by itself, so keeping it visible changes nothing else.
+    clipPath,
+    clipPath * {
+        visibility: visible;
+    }
+
     a:focus-visible,
     button:focus-visible,
     [data-highlighted]:not(:hover) {

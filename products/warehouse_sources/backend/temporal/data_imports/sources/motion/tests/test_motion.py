@@ -3,11 +3,19 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motion import MotionSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.motion.motion import (
     MotionResumeConfig,
     motion_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.motion.source import MotionSource
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.motion.motion"
 
@@ -19,19 +27,17 @@ def _manager(resume_state: MotionResumeConfig | None = None) -> mock.MagicMock:
     return manager
 
 
-def _response(status_code: int = 200) -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.status_code = status_code
-    response.ok = status_code < 400
-    return response
-
-
 class TestMotionSource:
     def test_a_saved_cursor_seeds_the_paginator(self) -> None:
-        with mock.patch(f"{_MODULE}.rest_api_resource") as rest_api_resource:
-            motion_source("key", "tasks", 1, "job", _manager(MotionResumeConfig(cursor="page-2")))
+        result = SourceDriver(MotionSource(), MotionSourceConfig(api_key="key")).run(
+            "tasks",
+            [ScriptedResponse(json={"tasks": [{"id": "task-2"}], "meta": {}})],
+            resume_state=MotionResumeConfig(cursor="page-2"),
+        )
 
-        assert rest_api_resource.call_args.kwargs["initial_paginator_state"] == {"cursor": "page-2"}
+        assert result.raised is None
+        assert result.params("cursor") == ["page-2"]
+        assert result.rows == [{"id": "task-2"}]
 
     @pytest.mark.parametrize(
         "state,expected_saves,expected_clears",
@@ -62,21 +68,18 @@ class TestMotionCredentials:
         [(200, True), (401, False), (403, False), (429, False), (500, False)],
     )
     def test_status_maps_to_a_verdict(self, status_code: int, expected_valid: bool) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(status_code)
-
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             valid, message = validate_credentials("key")
 
         assert valid is expected_valid
         assert (message is None) is expected_valid
+        assert {request.path for request in network.requests_log} == {"/v1/workspaces"}
+        assert all(request.headers["x-api-key"] == "key" for request in network.requests_log)
 
     def test_an_unreachable_api_is_reported_rather_than_raised(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = ConnectionError("no route")
-
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionError("no route"))) as network:
             valid, message = validate_credentials("key")
 
         assert valid is False
         assert message is not None
+        assert {request.path for request in network.requests_log} == {"/v1/workspaces"}

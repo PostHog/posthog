@@ -1,4 +1,13 @@
-import type { ChartDisplayType, FunnelResult, TrendsQuery } from './types'
+import type { Series } from '@posthog/quill-charts'
+
+import type {
+    ChartDisplayType,
+    FunnelResult,
+    HogQLResult,
+    TrendsQuery,
+    TrendsResultItem,
+    WebOverviewItem,
+} from './types'
 
 export function getDisplayType(query: TrendsQuery | undefined): ChartDisplayType {
     return query?.trendsFilter?.display || 'ActionsLineGraph'
@@ -18,12 +27,16 @@ export function insightQueryProperties(query: unknown): InsightQueryProperties {
     const node = query as Record<string, unknown>
     const hasSource = typeof node.source === 'object' && node.source !== null
     const source = (hasSource ? node.source : node) as Record<string, any>
-    const defaultDisplay =
-        source.kind === 'TrendsQuery' || source.kind === 'StickinessQuery' ? 'ActionsLineGraph' : undefined
     return {
         queryKind: typeof node.kind === 'string' ? node.kind : undefined,
         querySourceKind: hasSource && typeof source.kind === 'string' ? source.kind : undefined,
-        display: source.trendsFilter?.display ?? source.stickinessFilter?.display ?? defaultDisplay,
+        // Only what the query set, so an unset display stays empty instead of looking like a pick.
+        // SQL insights keep their display on the wrapper node, not on the HogQL source.
+        display:
+            source.trendsFilter?.display ??
+            source.stickinessFilter?.display ??
+            source.retentionFilter?.display ??
+            (node.kind === 'DataVisualizationNode' && typeof node.display === 'string' ? node.display : undefined),
         funnelVizType: source.funnelsFilter?.funnelVizType,
     }
 }
@@ -88,6 +101,18 @@ export function getSeriesLabel(item: { label?: string; action?: { name?: string 
     return item.label || item.action?.name || `Series ${index + 1}`
 }
 
+export function buildProportionBarSeries(results: TrendsResultItem[], getColor: (index: number) => string): Series[] {
+    // One bar has one total, so a previous period saved with compare on is left out.
+    return results
+        .filter((item) => item.compare_label !== 'previous')
+        .map((item, i) => ({
+            key: String(i),
+            label: getSeriesLabel(item, i),
+            data: [item.aggregated_value ?? 0],
+            color: getColor(i),
+        }))
+}
+
 export function normalizeFunnelSteps(results: FunnelResult): Array<{ name: string; count: number; order: number }> {
     if (results.length === 0) {
         return []
@@ -109,4 +134,88 @@ export function normalizeFunnelSteps(results: FunnelResult): Array<{ name: strin
             order: step.order ?? idx,
         })
     )
+}
+
+// Web stats columns that drive the web analytics UI only, not data.
+const HIDDEN_WEB_STATS_COLUMNS = new Set(['ui_fill_fraction', 'cross_sell'])
+
+// Worst band first, so the pages that need work lead the table.
+const WEB_VITALS_BANDS = [
+    ['poor', 'Poor'],
+    ['needs_improvements', 'Needs improvement'],
+    ['good', 'Good'],
+] as const
+
+function humanizeKey(key: string): string {
+    const text = key.replace(/_/g, ' ')
+    return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+function formatWebOverviewValue({ kind, value }: WebOverviewItem): string | null {
+    if (value === null || value === undefined) {
+        return null
+    }
+    if (kind === 'percentage') {
+        return `${value.toFixed(1)}%`
+    }
+    if (kind === 'duration_s') {
+        return formatDuration(value * 1000)
+    }
+    return formatNumber(value)
+}
+
+function webStatsCell(column: string, value: unknown): unknown {
+    // Metric cells are `[current, previous]` tuples; multi-part breakdowns (city, region) are tuples too.
+    if (Array.isArray(value) && column === 'breakdown_value') {
+        return value.filter((part) => part !== null && part !== '').join(', ')
+    }
+    const current = Array.isArray(value) ? value[0] : value
+    return typeof current === 'number' && /rate|percentage/.test(column) ? formatPercent(current) : current
+}
+
+/** Maps query results that have no chart of their own into the `columns`/`results` shape of the table. */
+export function toTableResult(query: unknown, results: unknown, columns: string[] | undefined): HogQLResult {
+    const node = (query ?? {}) as { kind?: unknown; breakdownBy?: unknown }
+    if (node.kind === 'WebOverviewQuery' && Array.isArray(results)) {
+        return {
+            columns: ['Metric', 'Value', 'Change'],
+            results: (results as WebOverviewItem[]).map((item) => [
+                humanizeKey(item.key),
+                formatWebOverviewValue(item),
+                typeof item.changeFromPreviousPct === 'number'
+                    ? `${item.changeFromPreviousPct > 0 ? '+' : ''}${item.changeFromPreviousPct}%`
+                    : null,
+            ]),
+        }
+    }
+    if (node.kind === 'WebStatsTableQuery' && Array.isArray(results)) {
+        const names = (columns ?? []).map((column) => column.replace(/^context\.columns\./, ''))
+        const kept = names.flatMap((name, index) => (HIDDEN_WEB_STATS_COLUMNS.has(name) ? [] : [index]))
+        return {
+            columns: kept.map((index) =>
+                names[index] === 'breakdown_value' && typeof node.breakdownBy === 'string'
+                    ? node.breakdownBy
+                    : humanizeKey(names[index]!)
+            ),
+            results: (results as unknown[][]).map((row) =>
+                kept.map((index) => webStatsCell(names[index]!, row[index]))
+            ),
+        }
+    }
+    if (node.kind === 'WebVitalsPathBreakdownQuery' && Array.isArray(results)) {
+        const { metric, percentile } = node as { metric?: string; percentile?: string }
+        // The response always holds one breakdown object, keyed by band.
+        const bands = (results[0] ?? {}) as Partial<Record<string, Array<{ path: string; value: number }>>>
+        return {
+            columns: ['Path', `${metric ?? 'Value'} (${percentile ?? 'p75'})`, 'Rating'],
+            results: WEB_VITALS_BANDS.flatMap(([band, label]) =>
+                (bands[band] ?? []).map(({ path, value }) => [
+                    path,
+                    metric === 'CLS' ? value.toFixed(2) : `${Math.round(value)} ms`,
+                    label,
+                ])
+            ),
+        }
+    }
+    return results as HogQLResult
 }

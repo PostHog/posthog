@@ -9,6 +9,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { BillingProductV2Type } from '~/types'
 
+import { canHaveBillingLimit } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductDisplayName } from './billingProductDisplayName'
 import { billingProductLogic } from './billingProductLogic'
@@ -32,7 +33,12 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
     const usingInitialBillingLimit = customLimitUsd === initialBillingLimit
     const hasBillingLimitNextPeriod = billingLimitNextPeriod !== null
 
-    if (billing?.billing_period?.interval !== 'month' || !product.subscribed || product.inclusion_only) {
+    if (
+        billing?.billing_period?.interval !== 'month' ||
+        !product.subscribed ||
+        product.inclusion_only ||
+        !canHaveBillingLimit(product)
+    ) {
         return null
     }
 

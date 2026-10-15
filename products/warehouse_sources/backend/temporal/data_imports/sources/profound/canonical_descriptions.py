@@ -65,6 +65,24 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "organization": "The organization the persona belongs to.",
         },
     },
+    "CitationCategories": {
+        "description": "The citation categories available in each category: the built-in buckets, such as Owned, Competition, and Earned Media, plus any custom ones.",
+        "docs_url": "https://docs.tryprofound.com/api-reference/organization/get-category-citation-categories",
+        "columns": {
+            "category_id": "The category this citation category belongs to, stamped on from the request.",
+            "value": "Value to pass to the v2 citations report `citation_category` filter.",
+            "name": "Display name of the citation category.",
+        },
+    },
+    "CitationTags": {
+        "description": "The custom citation tags defined in each category.",
+        "docs_url": "https://docs.tryprofound.com/api-reference/organization/get-category-citation-tags",
+        "columns": {
+            "category_id": "The category this citation tag belongs to, stamped on from the request.",
+            "value": "Value to pass to the v2 citations report `citation_tag` filter.",
+            "name": "Display name of the citation tag.",
+        },
+    },
     "Visibility": {
         "description": "Daily brand visibility per category: how often each brand appears in AI answers, with share of voice and average position.",
         "docs_url": "https://docs.tryprofound.com/rest-api/reports/query-visibility-v2",

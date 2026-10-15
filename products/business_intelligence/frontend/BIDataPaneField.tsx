@@ -17,7 +17,9 @@ import {
 
 function FieldTypeGlyph({ field, measure }: { field: BIField; measure: boolean }): JSX.Element {
     const glyph =
-        field.type === 'date' || field.type === 'datetime' ? (
+        field.localDefinition?.kind === 'expression' ? (
+            'ƒ'
+        ) : field.type === 'date' || field.type === 'datetime' ? (
             <IconCalendar />
         ) : measure || ['integer', 'float', 'decimal'].includes(field.type) ? (
             '#'
@@ -49,7 +51,7 @@ export function BIDataPaneField({
     measure: boolean
     path?: string[]
 }): JSX.Element {
-    const { addFieldToShelf, editLocalField } = useActions(biEditorLogic)
+    const { addFieldToShelf, editLocalField, editCalculatedField, removeLocalField } = useActions(biEditorLogic)
     const addField = (field: BIField): void => {
         const target = getBIDropTarget(field, 'rows')
         addFieldToShelf(target.field, target.shelf)
@@ -60,7 +62,7 @@ export function BIDataPaneField({
                 key={field.id}
                 type="button"
                 draggable
-                title={field.name}
+                title={field.localDefinition ? `${field.name} · worksheet-local field` : field.name}
                 className={cn(
                     'flex h-6 w-full min-w-0 cursor-grab items-center gap-1 rounded px-1 text-left text-xs hover:bg-fill-highlight-100',
                     'focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent'
@@ -85,19 +87,37 @@ export function BIDataPaneField({
             {(field.localDefinition || isNumericBIField(field) || ['string', 'boolean'].includes(field.type)) && (
                 <LemonMenu
                     items={
-                        field.localDefinition
+                        field.localDefinition?.kind === 'expression'
                             ? [
+                                  { label: 'Edit calculated field', onClick: () => editCalculatedField(field) },
                                   {
-                                      label: 'Edit local definition',
-                                      onClick: () => editLocalField(field, field.localDefinition!.kind),
+                                      label: 'Delete field and all uses',
+                                      status: 'danger',
+                                      onClick: () => removeLocalField(field.id),
                                   },
                               ]
-                            : [
-                                  { label: 'Group categories', onClick: () => editLocalField(field, 'groups') },
-                                  ...(isNumericBIField(field)
-                                      ? [{ label: 'Create numeric bins', onClick: () => editLocalField(field, 'bins') }]
-                                      : []),
-                              ]
+                            : field.localDefinition
+                              ? [
+                                    {
+                                        label: 'Edit local definition',
+                                        onClick: () =>
+                                            editLocalField(
+                                                field,
+                                                field.localDefinition?.kind === 'bins' ? 'bins' : 'groups'
+                                            ),
+                                    },
+                                ]
+                              : [
+                                    { label: 'Group categories', onClick: () => editLocalField(field, 'groups') },
+                                    ...(isNumericBIField(field)
+                                        ? [
+                                              {
+                                                  label: 'Create numeric bins',
+                                                  onClick: () => editLocalField(field, 'bins'),
+                                              },
+                                          ]
+                                        : []),
+                                ]
                     }
                 >
                     <LemonButton

@@ -1,12 +1,13 @@
-from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.geoip import _lookup_location, get_geoip_location
 
 
-class TestGeoipLocation(BaseTest):
+class TestGeoipLocation(SimpleTestCase):
     def setUp(self):
         super().setUp()
         # Lookups are memoized per process, so results would otherwise leak across tests that mock

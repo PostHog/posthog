@@ -1882,8 +1882,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "task_id": self.context.task_id,
                 "repository": self.context.repository,
                 "team_id": self.context.team_id,
-                "loop_id": self.context.loop_id,
-                "loop_trigger_id": self.context.loop_trigger_id,
             },
         )
 
@@ -1969,8 +1967,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "agent_session_dependencies_ms": agent_server_output.boot_phases_ms.get("session_dependencies"),
                 "agent_session_create_ms": agent_server_output.boot_phases_ms.get("session_create"),
                 "agent_shadow_launched": self._agent_shadow_launched,
-                "loop_id": self.context.loop_id,
-                "loop_trigger_id": self.context.loop_trigger_id,
             },
         )
         return sandbox_id, agent_server_output.sandbox_url, agent_server_output.connect_token
@@ -2751,10 +2747,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "organization": self.context.organization_id,
                 "project": self.context.team_uuid,
             },
-            capture_analytics=capture_analytics
-            and not bool(
-                (self.context.state or {}).get("scout_trial") or (self.context.state or {}).get("scout_trial_judge")
-            ),
+            capture_analytics=capture_analytics,
         )
         await workflow.execute_activity(
             track_workflow_event,

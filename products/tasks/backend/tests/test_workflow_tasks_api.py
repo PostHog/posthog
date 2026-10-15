@@ -15,7 +15,6 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.cdp.workflow_step_resume import RESULT_STRING_CAP
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -23,7 +22,9 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.test.authentication_checks import covers_authentication
 
+from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
 from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.tasks.backend.logic.services.workflow_tasks import (
@@ -34,6 +35,7 @@ from products.tasks.backend.models import Channel, Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
+from products.workflows.backend.presentation.views.workflow_tasks import WorkflowTasksJWTAuthentication
 
 SECRET = "test-tasks-create-jwt"
 
@@ -108,6 +110,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
             ]
         )
 
+    @covers_authentication(WorkflowTasksJWTAuthentication)
     def test_creates_a_task_and_run_attributed_to_the_workflow_and_its_owner(self) -> None:
         response = self._post()
 

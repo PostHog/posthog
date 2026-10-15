@@ -497,6 +497,17 @@ def get_context_for_template(
         return _build_template_context(template_name, request, context, team_for_public_context)
 
 
+def get_persisted_feature_flags_for_app_context() -> list[str]:
+    static_keys = list(settings.PERSISTED_FEATURE_FLAGS)
+    non_cloud = not is_cloud()
+    if non_cloud and settings.WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED:
+        static_keys = [*static_keys, *settings.WAREHOUSE_PERSON_PROPERTIES_PERSISTED_FEATURE_FLAGS]
+    flags = get_dynamic_persisted_feature_flags(posthoganalytics.feature_flag_definitions(), static_keys)
+    if non_cloud and not settings.WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED:
+        return [flag for flag in flags if flag not in settings.WAREHOUSE_PERSON_PROPERTIES_PERSISTED_FEATURE_FLAGS]
+    return flags
+
+
 def _build_template_context(
     template_name: str,
     request: HttpRequest,
@@ -572,9 +583,7 @@ def _build_template_context(
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: dict[str, Any] = {
-        "persisted_feature_flags": get_dynamic_persisted_feature_flags(
-            posthoganalytics.feature_flag_definitions(), settings.PERSISTED_FEATURE_FLAGS
-        ),
+        "persisted_feature_flags": get_persisted_feature_flags_for_app_context(),
         "anonymous": not request.user or not request.user.is_authenticated,
         "run_mode": run_mode().value,
     }
@@ -588,7 +597,7 @@ def _build_template_context(
         from posthog.api.file_system.user_product_list import UserProductListSerializer
         from posthog.api.project import ProjectSerializer
         from posthog.api.shared import TeamPublicSerializer
-        from posthog.api.team import TeamSerializer
+        from posthog.api.team.team_serializer import TeamSerializer
         from posthog.api.user import UserSerializer
         from posthog.models.file_system.user_product_list import UserProductList
         from posthog.models.user_home_settings import UserHomeSettings
@@ -628,6 +637,13 @@ def _build_template_context(
 
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
+            team = user.team
+            if team and not user_access_control.has_project_access:
+                user.current_team = None
+                user.team = None
+                user.save(update_fields=["current_team"])
+                user_permissions = UserPermissions(user=user, team=None)
+                user_access_control = UserAccessControl(user=user, team=None)
             with tracer.start_as_current_span("template.rbac.effective"):
                 effective_access: dict[str, Any] = {}
                 for resource in ACCESS_CONTROL_RESOURCES:

@@ -58,19 +58,55 @@ describe('tracingViewerLogic', () => {
         expect(getTraceSpy.mock.calls.length > 0).toBe(shouldFetch)
     })
 
+    it("does not carry a previous trace's load failure into a trace opened from a complete prefetch", () => {
+        logic.actions.openTrace('trace-a', { ts: '2024-01-01T00:00:00Z' })
+        tracingDataLogic().actions.loadTraceSpansFailure('boom')
+        expect(logic.values.traceSpansLoadFailed).toBe(true)
+
+        const spans = [makeSpan({ uuid: 'span-0', span_id: 'span-0', trace_id: 'trace-b', is_root_span: true })]
+        tracingDataLogic().actions.fetchSpansSuccess(spans)
+        logic.actions.openTrace('trace-b', { ts: '2024-01-01T00:00:00Z' })
+
+        expect(logic.values.selectedTraceId).toBe('trace-b')
+        expect(logic.values.traceSpansLoadFailed).toBe(true)
+        expect(logic.values.selectedTraceLoadFailed).toBe(false)
+    })
+
+    // A full fetch can fail, then a later list refresh prefetch the same trace complete (root span,
+    // under the cap). Reopening it skips the fetch and must not read the earlier attempt's failure.
+    it("does not carry a trace's own previous load failure into its reopen from a complete prefetch", () => {
+        logic.actions.openTrace('trace-a', { ts: '2024-01-01T00:00:00Z' })
+        tracingDataLogic().actions.loadTraceSpansFailure('boom')
+        expect(logic.values.selectedTraceLoadFailed).toBe(true)
+        logic.actions.closeTrace()
+
+        const spans = [makeSpan({ uuid: 'span-0', span_id: 'span-0', trace_id: 'trace-a', is_root_span: true })]
+        tracingDataLogic().actions.fetchSpansSuccess(spans)
+        logic.actions.openTrace('trace-a', { ts: '2024-01-01T00:00:00Z' })
+
+        expect(logic.values.selectedTraceId).toBe('trace-a')
+        expect(getTraceSpy).toHaveBeenCalledTimes(1)
+        expect(logic.values.selectedTraceLoadFailed).toBe(false)
+    })
+
     // Without a ts hint the lookup must not fall back to a date window, or a trace older than that
-    // window never loads. With a hint, the lookup stays bounded to the hint's narrow window.
+    // window never loads. With a hint, the lookup stays bounded to the hint's narrow window, and
+    // retries by id alone when the hint sits too far from the spans to find any.
+    const hintWindow = { date_from: '2023-12-31T23:00:00.000Z', date_to: '2024-01-01T01:00:00.000Z' }
     it.each([
-        [
-            'a ts hint',
-            '2024-01-01T00:00:00Z',
-            { date_from: '2023-12-31T23:00:00.000Z', date_to: '2024-01-01T01:00:00.000Z' },
-        ],
-        ['no ts hint', undefined, undefined],
-    ])('openTrace with %s sends the matching date range', async (_name, ts, dateRange) => {
+        ['a ts hint that finds spans', '2024-01-01T00:00:00Z', true, [hintWindow], 1],
+        ['a ts hint that finds no spans', '2024-01-01T00:00:00Z', false, [hintWindow, undefined], 1],
+        ['no ts hint', undefined, false, [undefined], 0],
+    ])('openTrace with %s sends the matching date ranges', async (_name, ts, firstFindsSpans, dateRanges, loaded) => {
+        const span = makeSpan({ uuid: 'span-0', span_id: 'span-0', trace_id: 'trace-x', is_root_span: true })
+        getTraceSpy
+            .mockResolvedValueOnce({ results: firstFindsSpans ? [span] : [], hasMore: false, nextOffset: null })
+            .mockResolvedValueOnce({ results: [span], hasMore: false, nextOffset: null })
+
         await expectLogic(logic, () => logic.actions.openTrace('trace-x', { ts })).toFinishAllListeners()
 
-        expect(getTraceSpy.mock.calls[0][1].dateRange).toEqual(dateRange)
+        expect(getTraceSpy.mock.calls.map(([, params]) => params.dateRange)).toEqual(dateRanges)
+        expect(tracingDataLogic().values.traceSpans).toHaveLength(loaded)
     })
 
     describe('identity resolution', () => {

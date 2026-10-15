@@ -1,11 +1,17 @@
 import { MakeLogicType, connect, kea, key, path, props, selectors } from 'kea'
 
-import { type ExperimentLogicProps, type ExperimentWarning, experimentLogic } from 'scenes/experiments/experimentLogic'
+import {
+    type ExperimentLogicProps,
+    type ExperimentWarning,
+    experimentLogic,
+    getSectionMetricUuids,
+} from 'scenes/experiments/experimentLogic'
 import { resolveMultipleVariantHandling } from 'scenes/experiments/utils'
 
-import type { ExperimentExposureCriteria, ExperimentMetricUnion } from '~/queries/schema/schema-general'
+import type { ExperimentExposureCriteria } from '~/queries/schema/schema-general'
 import type { Experiment, ExperimentIdType } from '~/types'
 
+import type { ExperimentHealthApi } from '../generated/api.schemas'
 import {
     type HealthDebugCheck,
     type HealthDebugFact,
@@ -22,26 +28,13 @@ export interface experimentHealthDebugLogicValues {
     browserExperimentWarning: ExperimentWarning | null // experimentLogic
     browserNoMetricsWarning: boolean // experimentLogic
     experiment: Experiment // experimentLogic
+    experimentHealth: ExperimentHealthApi | null // experimentLogic
     experimentLoadCount: number // experimentLogic
     exposureCriteria: ExperimentExposureCriteria | undefined // experimentLogic
     exposures: any // experimentLogic
     exposuresLoading: boolean // experimentLogic
     healthFindings: HealthPanelFinding[] | null // experimentLogic
     isExperimentDraft: boolean // experimentLogic
-    orderedPrimaryMetricsWithResults: {
-        displayIndex: number
-        error: any
-        metric: ExperimentMetricUnion
-        metricIndex: number
-        result: any
-    }[] // experimentLogic
-    orderedSecondaryMetricsWithResults: {
-        displayIndex: number
-        error: any
-        metric: ExperimentMetricUnion
-        metricIndex: number
-        result: any
-    }[] // experimentLogic
     healthDebugChecks: HealthDebugCheck[]
     healthDebugFacts: HealthDebugFact[]
     pageMetricCounts: HealthDebugInput['pageMetricCounts']
@@ -51,24 +44,10 @@ export interface experimentHealthDebugLogicValues {
 export interface experimentHealthDebugLogicMeta {
     key: ExperimentIdType
     __keaTypeGenInternalSelectorTypes: {
-        pageMetricCounts: (
-            orderedPrimaryMetricsWithResults: {
-                displayIndex: number
-                error: any
-                metric: ExperimentMetricUnion
-                metricIndex: number
-                result: any
-            }[],
-            orderedSecondaryMetricsWithResults: {
-                displayIndex: number
-                error: any
-                metric: ExperimentMetricUnion
-                metricIndex: number
-                result: any
-            }[]
-        ) => HealthDebugInput['pageMetricCounts']
+        pageMetricCounts: (experiment: Experiment) => HealthDebugInput['pageMetricCounts']
         healthDebugChecks: (
             experiment: Experiment,
+            experimentHealth: ExperimentHealthApi | null,
             healthFindings: HealthPanelFinding[] | null,
             browserExperimentWarning: ExperimentWarning | null,
             browserNoMetricsWarning: boolean,
@@ -83,6 +62,7 @@ export interface experimentHealthDebugLogicMeta {
         ) => HealthDebugCheck[]
         healthDebugFacts: (
             experiment: Experiment,
+            experimentHealth: ExperimentHealthApi | null,
             healthFindings: HealthPanelFinding[] | null,
             pageMetricCounts: {
                 primary: number
@@ -110,6 +90,7 @@ export const experimentHealthDebugLogic = kea<experimentHealthDebugLogicType>([
             experimentLogic(props),
             [
                 'experiment',
+                'experimentHealth',
                 'healthFindings',
                 'browserExperimentWarning',
                 'browserNoMetricsWarning',
@@ -117,23 +98,22 @@ export const experimentHealthDebugLogic = kea<experimentHealthDebugLogicType>([
                 'exposuresLoading',
                 'exposureCriteria',
                 'isExperimentDraft',
-                'orderedPrimaryMetricsWithResults',
-                'orderedSecondaryMetricsWithResults',
                 'experimentLoadCount',
             ],
         ],
     })),
     selectors({
         pageMetricCounts: [
-            (s) => [s.orderedPrimaryMetricsWithResults, s.orderedSecondaryMetricsWithResults],
-            (primary: unknown[], secondary: unknown[]): HealthDebugInput['pageMetricCounts'] => ({
-                primary: primary.length,
-                secondary: secondary.length,
+            (s) => [s.experiment],
+            (experiment: Experiment): HealthDebugInput['pageMetricCounts'] => ({
+                primary: getSectionMetricUuids(experiment, false).length,
+                secondary: getSectionMetricUuids(experiment, true).length,
             }),
         ],
         healthDebugChecks: [
             (s) => [
                 s.experiment,
+                s.experimentHealth,
                 s.healthFindings,
                 s.browserExperimentWarning,
                 s.browserNoMetricsWarning,
@@ -145,6 +125,7 @@ export const experimentHealthDebugLogic = kea<experimentHealthDebugLogicType>([
             ],
             (
                 experiment: Experiment,
+                experimentHealth: ExperimentHealthApi | null,
                 healthFindings: HealthPanelFinding[] | null,
                 browserWarning: HealthDebugInput['browserWarning'],
                 browserNoMetricsWarning: boolean,
@@ -155,7 +136,7 @@ export const experimentHealthDebugLogic = kea<experimentHealthDebugLogicType>([
                 exposureCriteria: ExperimentExposureCriteria | undefined
             ): HealthDebugCheck[] =>
                 buildHealthDebugChecks({
-                    health: experiment.health,
+                    health: experimentHealth,
                     panelFindings: healthFindings,
                     browserWarning,
                     browserNoMetricsWarning,
@@ -170,14 +151,15 @@ export const experimentHealthDebugLogic = kea<experimentHealthDebugLogicType>([
                 }),
         ],
         healthDebugFacts: [
-            (s) => [s.experiment, s.healthFindings, s.pageMetricCounts, s.experimentLoadCount],
+            (s) => [s.experiment, s.experimentHealth, s.healthFindings, s.pageMetricCounts, s.experimentLoadCount],
             (
                 experiment: Experiment,
+                experimentHealth: ExperimentHealthApi | null,
                 healthFindings: HealthPanelFinding[] | null,
                 pageMetricCounts: HealthDebugInput['pageMetricCounts'],
                 experimentLoadCount: number
             ): HealthDebugFact[] => [
-                { label: 'Server health', value: describeServerHealth(experiment.health) },
+                { label: 'Server health', value: describeServerHealth(experimentHealth) },
                 { label: 'Health panel', value: describePanel(healthFindings) },
                 {
                     label: 'Page load',

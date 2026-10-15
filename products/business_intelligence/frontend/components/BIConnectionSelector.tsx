@@ -13,7 +13,7 @@ export function BIConnectionSelector({ tabId }: { tabId: string }): JSX.Element 
 
     return (
         <LemonSelect
-            size="small"
+            size="xsmall"
             fullWidth
             className="min-w-0"
             truncateText={{ maxWidthClass: 'max-w-full' }}

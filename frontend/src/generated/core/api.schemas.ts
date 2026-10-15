@@ -509,6 +509,8 @@ export interface OrganizationInviteDelegateApi {
 }
 
 /**
+ * * `approval_requested` - approval_requested
+ * * `approval_resolved` - approval_resolved
  * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
  * * `discussions_mentioned` - discussions_mentioned
  * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -524,6 +526,8 @@ export interface OrganizationInviteDelegateApi {
 export type SettingEnumApi = (typeof SettingEnumApi)[keyof typeof SettingEnumApi]
 
 export const SettingEnumApi = {
+    ApprovalRequested: 'approval_requested',
+    ApprovalResolved: 'approval_resolved',
     DataCatalogWeeklyDigest: 'data_catalog_weekly_digest',
     DiscussionsMentioned: 'discussions_mentioned',
     ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
@@ -540,6 +544,8 @@ export const SettingEnumApi = {
 export interface OrganizationNotificationLockApi {
     /** Notification setting this rule enforces.
      *
+     * * `approval_requested` - approval_requested
+     * * `approval_resolved` - approval_resolved
      * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -582,6 +588,8 @@ export interface OrganizationNotificationLockChangeApi {
     user_id: number
     /** Notification setting to lock or unlock.
      *
+     * * `approval_requested` - approval_requested
+     * * `approval_resolved` - approval_resolved
      * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
@@ -1735,6 +1743,25 @@ export interface TeamWorkflowsConfigApi {
      * @nullable
      */
     workflow_task_team_rate_limit_per_day?: number | null
+    /**
+     * ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted.
+     * @nullable
+     */
+    default_email_integration_id?: number | null
+    /**
+     * Most marketing messages one person can get in the window, across all workflows. Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off.
+     * @minimum 1
+     * @maximum 1000
+     * @nullable
+     */
+    marketing_frequency_cap_max_messages?: number | null
+    /**
+     * Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.
+     * @minimum 1
+     * @maximum 30
+     * @nullable
+     */
+    marketing_frequency_cap_window_days?: number | null
 }
 
 export interface TeamFeatureFlagPolicyConfigApi {
@@ -5461,6 +5488,16 @@ export interface UploadedMediaApi {
     readonly content_type: string | null
     /** @nullable */
     readonly size_bytes: number | null
+    /**
+     * Width in pixels. Null for images uploaded before it was recorded.
+     * @nullable
+     */
+    readonly width: number | null
+    /**
+     * Height in pixels. Null for images uploaded before it was recorded.
+     * @nullable
+     */
+    readonly height: number | null
     /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
     readonly url: string
     readonly created_at: string
@@ -5473,6 +5510,19 @@ export interface PaginatedUploadedMediaListApi {
     /** @nullable */
     previous?: string | null
     results: UploadedMediaApi[]
+}
+
+export interface UploadedMediaCreatedApi {
+    /** Id of the uploaded image. */
+    readonly id: string
+    /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
+    readonly image_location: string
+    /** The file's original name. */
+    readonly name: string
+    /** Width in pixels. */
+    readonly width: number
+    /** Height in pixels. */
+    readonly height: number
 }
 
 export interface UploadedMediaStartUploadApi {
@@ -5608,6 +5658,34 @@ export const OrganizationPluginsAccessLevelEnumApi = {
     Number9: 9,
 } as const
 
+/**
+ * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
+ * Also used for nested serializers.
+ */
+export interface OrganizationTeamBasicApi {
+    readonly id: number
+    readonly uuid: string
+    readonly organization: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    readonly project_id: number
+    readonly api_token: string
+    readonly name: string
+    readonly completed_snippet_onboarding: boolean
+    readonly has_completed_onboarding_for: unknown
+    readonly ingested_event: boolean
+    readonly is_demo: boolean
+    readonly timezone: string
+    readonly access_control: boolean
+    /**
+     * The project group shown in the organization project switcher, or null if it has no group.
+     * @nullable
+     */
+    readonly project_group: string | null
+}
+
 export interface OrganizationMemberNoticeActionApi {
     /**
      * Text on the button shown next to the notice.
@@ -5631,8 +5709,6 @@ export interface OrganizationMemberNoticeApi {
     action?: OrganizationMemberNoticeActionApi | null
 }
 
-export type OrganizationApiTeamsItem = { [key: string]: unknown }
-
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type OrganizationApiMetadata = { [key: string]: string }
@@ -5654,7 +5730,7 @@ export interface OrganizationApi {
      */
     readonly membership_joined_at: string | null
     readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
-    readonly teams: readonly OrganizationApiTeamsItem[]
+    readonly teams: readonly OrganizationTeamBasicApi[]
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
     readonly available_product_features: readonly unknown[] | null
@@ -6906,6 +6982,10 @@ export type UploadedMediaListParams = {
      * The library to list.
      */
     purpose: UploadedMediaListPurpose
+    /**
+     * Only list images whose name contains this text, ignoring case.
+     */
+    search?: string
 }
 
 export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof typeof UploadedMediaListPurpose]
@@ -6932,8 +7012,6 @@ export type UploadedMediaCreateBody = {
     /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
     purpose?: UploadedMediaCreateBodyPurpose
 }
-
-export type UploadedMediaCreate201 = { [key: string]: unknown }
 
 export type UsersListParams = {
     email?: string

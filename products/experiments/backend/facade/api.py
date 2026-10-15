@@ -14,7 +14,10 @@ from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.health.context import load_health_context
-from products.experiments.backend.health.registry import evaluate as evaluate_health
+from products.experiments.backend.health.registry import (
+    EXPERIMENT_HEALTH_CHECKS,
+    evaluate as evaluate_health,
+)
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     get_exposure_event_and_property,
@@ -130,7 +133,7 @@ def get_experiment_health_findings(*, team_id: int, experiment_id: int) -> list[
         .prefetch_related("experimenttosavedmetric_set")
         .get(id=experiment_id)
     )
-    return evaluate_health(load_health_context(experiment))
+    return evaluate_health(load_health_context(experiment), EXPERIMENT_HEALTH_CHECKS)
 
 
 def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:

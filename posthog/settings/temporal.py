@@ -50,6 +50,21 @@ TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS: int | None = get_from_env(
     "TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS", None, optional=True, type_cast=int
 )
 
+# Opt-in task poller autoscaling. A MAX turns it on for that task type, and the SDK default
+# (5 pollers) applies when unset. Fixed poller counts leave a small worker fleet short of pollers.
+TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MIN: int | None = get_from_env(
+    "TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MIN", None, optional=True, type_cast=int
+)
+TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MAX: int | None = get_from_env(
+    "TEMPORAL_ACTIVITY_POLLER_AUTOSCALING_MAX", None, optional=True, type_cast=int
+)
+TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MIN: int | None = get_from_env(
+    "TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MIN", None, optional=True, type_cast=int
+)
+TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MAX: int | None = get_from_env(
+    "TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MAX", None, optional=True, type_cast=int
+)
+
 TEMPORAL_HEALTH_PORT: int | None = get_from_env("TEMPORAL_HEALTH_PORT", None, optional=True, type_cast=int)
 TEMPORAL_HEALTH_MAX_IDLE_SECONDS: float | None = get_from_env(
     "TEMPORAL_HEALTH_MAX_IDLE_SECONDS", None, optional=True, type_cast=float
@@ -106,6 +121,7 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEW
 # retries behind a cap that binds mid-run. Suggestion runs stay on the default. A PostHog
 # Desktop cloud run has no duration cap, so its cap only bounds a runaway run.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS: dict[str, str] = {
+    "signals_scout": "30",
     "signals_implementation": "20",
     "signals_inbox": "75",
     "signals_chat": "30",
@@ -275,6 +291,19 @@ DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED: bool = get_from_env(
 DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED: bool = get_from_env(
     "DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED", False, type_cast=str_to_bool
 )
+# At a worker shutdown the import pipeline stops waiting for a source that neither yields an item
+# nor reaches a safe point, and hands the run to another worker. It applies only to runs whose
+# hand-offs are free (DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED), because preemption makes
+# hand-offs frequent and they must not use the retry attempts.
+DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED", False, type_cast=str_to_bool
+)
+# How long a source has, after the shutdown starts, to hand off by itself before the pipeline preempts it.
+# Keep it above the read timeout of a source request, so a healthy source hands off first and
+# preemption is only the backstop.
+DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS: float = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS", 300.0, type_cast=float
+)
 # Restore unfinished append runs only after all extract and load workers have this implementation.
 DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED: bool = get_from_env(
     "DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED", False, type_cast=str_to_bool
@@ -332,6 +361,15 @@ if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
     )
+# The platform's parallel logs batches allowed to run at once, across every team. A batch runs its
+# cohort queries one after another, so this bounds the parallel run's concurrent logs queries.
+ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES: int = get_from_env(
+    "ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES", 5, type_cast=int
+)
+if ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform logs check starts"
+    )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)
 if ALERTS_MAX_INFLIGHT_EVALUATIONS <= 0:
@@ -362,6 +400,7 @@ MCPA_TASK_QUEUE = _set_temporal_task_queue(os.getenv("MCPA_TASK_QUEUE", "general
 ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue")
 ERROR_TRACKING_LIFECYCLE_TASK_QUEUE = _set_temporal_task_queue("error-tracking-lifecycle-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
+WEB_ANALYTICS_TASK_QUEUE = _set_temporal_task_queue("web-analytics-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 # Polled by the temporal-worker-self-driving fleet. The default matches it, so a deploy without the
 # env var still registers the autoresearch coordinator schedule on the queue that fleet polls.

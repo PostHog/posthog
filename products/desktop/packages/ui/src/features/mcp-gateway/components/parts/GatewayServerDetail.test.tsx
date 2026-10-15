@@ -192,6 +192,44 @@ describe("GatewayServerDetail", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("offers one reconnect action when your connection needs reauth", async () => {
+    const user = userEvent.setup();
+    const expiredServer = {
+      ...server,
+      your_connection: {
+        installation_id: "installation-1",
+        is_enabled: true,
+        pending_oauth: false,
+        needs_reauth: true,
+        last_used_at: null,
+      },
+    } as McpGatewayServer;
+    mocks.gateway = { ...mocks.gateway, servers: [expiredServer] };
+
+    render(
+      <Theme>
+        <GatewayServerDetail
+          serverId={expiredServer.id}
+          isAdmin={false}
+          canManageAgentAccess={false}
+          onNavigate={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    expect(screen.getByText("Reconnect required")).toBeInTheDocument();
+    const reconnectButtons = screen.getAllByRole("button", {
+      name: /Reconnect your account/,
+    });
+    expect(reconnectButtons).toHaveLength(1);
+    await user.click(reconnectButtons[0]);
+
+    expect(mocks.gateway.reconnect).toHaveBeenCalledWith({
+      installationId: "installation-1",
+      serverName: expiredServer.name,
+    });
+  });
+
   it("shows a single scope-aware bulk trio when a member views an agent scope", () => {
     const serverWithAgent = {
       ...server,

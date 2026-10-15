@@ -7,6 +7,8 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import (
+    EmailDraftFallbackReason,
+    EmailDraftOrigin,
     HogFlowBatchJobState,
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
@@ -159,6 +161,23 @@ class AudiencePage:
     has_more: bool
 
 
+class PeopleImportInvalid(Exception):
+    """The upload cannot be used. The message is shown to the person who sent it."""
+
+
+@frozen
+class PeopleImportSummary:
+    """What an uploaded people list kept, and how many rows it dropped and why."""
+
+    cohort_id: int
+    row_count: int
+    new_people: int
+    columns: list[str]
+    dropped_invalid_email: int
+    dropped_duplicate_email: int
+    dropped_too_large: int
+
+
 @frozen
 class EmailSendingTierLimits:
     """What a trust tier allows: two send-rate caps and a maximum batch audience."""
@@ -281,6 +300,10 @@ class WorkflowTemplate:
     actions: list[dict[str, Any]] | dict[str, Any]
     abort_action: str | None
     variables: list[dict[str, Any]] | None
+
+
+class WorkflowTemplateNotFound(Exception):
+    pass
 
 
 @frozen
@@ -446,6 +469,8 @@ class WorkflowRef:
     trigger_type: str | None
     trigger_filters: dict[str, Any]
     variables: list[dict[str, Any]] | None
+    # Read from the published steps, not the draft.
+    has_email_step: bool
 
 
 class WorkflowNotFound(Exception):
@@ -607,6 +632,7 @@ class WorkflowProposalRecord:
     resolved_at: datetime | None
     resolved_by: "User | None"
     applied_version: int | None
+    rejection_reason: str
 
 
 @frozen
@@ -628,3 +654,23 @@ class EmailDesignRenderingNotConfigured(Exception):
 
 class EmailDesignRenderFailed(Exception):
     pass
+
+
+class EmailDraftSourceNotFound(Exception):
+    """The project has no entity with that ID for the requested source."""
+
+
+class EmailDraftSourceForbidden(Exception):
+    """The user may not view the source entity, so its text must not be drafted from."""
+
+
+@frozen
+class EmailDraft:
+    """A first draft of an email about an error, feature, survey, flag or cohort. Nothing is saved."""
+
+    subject: str
+    preheader: str
+    html: str
+    text: str
+    generated_by: EmailDraftOrigin
+    fallback_reason: EmailDraftFallbackReason | None = None

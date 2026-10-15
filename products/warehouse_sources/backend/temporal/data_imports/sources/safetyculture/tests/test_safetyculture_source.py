@@ -64,15 +64,28 @@ class TestSafetyCultureSource:
         assert is_valid is expected_valid
         assert returned == expected_message
 
-    @parameterized.expand([(200, True), (401, False), (403, False)])
+    @parameterized.expand(
+        [
+            ("inspections", 200, True, "/feed/inspections", None),
+            ("inspections", 401, False, "/feed/inspections", None),
+            ("inspections", 403, False, "/feed/inspections", None),
+            ("structures", 200, True, "/structures/v1/structures/search", "SYSTEM_STRUCTURE_TYPE_SITE"),
+        ]
+    )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.source.check_access")
     def test_validate_credentials_for_schema_probes_that_feed(
-        self, status: int, expected_valid: bool, mock_check: mock.MagicMock
+        self,
+        schema_name: str,
+        status: int,
+        expected_valid: bool,
+        expected_path: str,
+        expected_structure_type: str | None,
+        mock_check: mock.MagicMock,
     ) -> None:
         mock_check.return_value = (status, None)
-        is_valid, _ = self.source.validate_credentials(self.config, self.team_id, schema_name="inspections")
+        is_valid, _ = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
         assert is_valid is expected_valid
-        mock_check.assert_called_once_with(self.config.api_token, "/feed/inspections")
+        mock_check.assert_called_once_with(self.config.api_token, expected_path, expected_structure_type)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.source.safetyculture_source"

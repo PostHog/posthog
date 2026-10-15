@@ -28,7 +28,7 @@ from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agent_instructions import AGENT_INSTRUCTIONS_MAX_LENGTH
-from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
+from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES, TASK_RUN_FAILURE_ERROR_TYPES
 from products.tasks.backend.facade.client_provenance import is_api_key_request, is_sandbox_oauth_request
 from products.tasks.backend.facade.contracts import (
     ChannelContributorsDTO,
@@ -80,6 +80,20 @@ from products.tasks.backend.facade.run_config import (
 logger = logging.getLogger(__name__)
 
 TASK_RUN_REASONING_EFFORT_CHOICES = [effort.value for effort in ReasoningEffort]
+
+PI_TASK_INCOMPATIBLE_RUN_FIELDS = ("runtime_adapter", "context_window", "fast_mode", "initial_permission_mode")
+
+
+def _pi_task_run_request_errors(attrs: dict[str, Any]) -> dict[str, str]:
+    errors: dict[str, str] = {}
+    if attrs.get("claude_model_access") == "own-subscription":
+        errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
+    if attrs.get("codex_model_access") == "own-subscription":
+        errors["codex_model_access"] = "Pi tasks cannot use a ChatGPT plan."
+    for field in PI_TASK_INCOMPATIBLE_RUN_FIELDS:
+        if attrs.get(field) is not None:
+            errors[field] = "This field cannot be used with a Pi task."
+    return errors
 
 
 def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
@@ -335,6 +349,12 @@ class TaskRunUpdateSerializer(serializers.Serializer):
     )
     error_message = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
+    )
+    error_type = serializers.ChoiceField(
+        choices=TASK_RUN_FAILURE_ERROR_TYPES,
+        required=False,
+        allow_null=True,
+        help_text="Why the run failed, set by the caller that marked it failed.",
     )
 
 
@@ -625,6 +645,12 @@ class TaskSerializer(DataclassSerializer):
             "`desktop_onboarding_session:<user_id>`. Null for tasks people create themselves."
         ),
     )
+    client_provenance = serializers.ChoiceField(
+        choices=tasks_facade.TaskClientProvenance.choices,
+        allow_null=True,
+        required=False,
+        help_text="First-party PostHog client that created this task.",
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -655,6 +681,7 @@ class TaskSerializer(DataclassSerializer):
             "channel",
             "slack_thread_references",
             "origin_key",
+            "client_provenance",
         ]
 
 
@@ -973,6 +1000,7 @@ class TaskWriteSerializer(serializers.Serializer):
             # forged origin would be free model access. Only create_wizard_cloud_run sets it,
             # behind its own rate limits and daily cap.
             tasks_facade.TaskOriginProduct.ONBOARDING,
+            tasks_facade.TaskOriginProduct.ACCOUNT_AUDIT,
             # Exempt from the Desktop code-access gate on run endpoints, so a forged origin
             # would bypass the waitlist. Only the signals scout-chat endpoint sets it.
             tasks_facade.TaskOriginProduct.SIGNALS_CHAT,
@@ -987,6 +1015,8 @@ class TaskWriteSerializer(serializers.Serializer):
             tasks_facade.TaskOriginProduct.SLACK,
             # Internal business-knowledge sandbox runs. Only that product's sandbox endpoint sets it.
             tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE,
+            # Maps to the billed `posthog_ai` gateway product. Only the metrics dashboard import sets it.
+            tasks_facade.TaskOriginProduct.METRICS_IMPORT,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
@@ -1392,10 +1422,11 @@ class TaskRunArtifactUploadSerializer(serializers.Serializer):
         help_text="Optional source label for the artifact, such as agent_output or user_attachment",
     )
     content = serializers.CharField(
+        trim_whitespace=False,
         help_text=(
             "Artifact contents encoded according to content_encoding. "
             f"Artifacts above {TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES // (1024 * 1024)} MB must use prepare_upload instead."
-        )
+        ),
     )
     content_encoding = serializers.ChoiceField(
         choices=TASK_RUN_ARTIFACT_CONTENT_ENCODING_CHOICES,
@@ -1420,8 +1451,11 @@ class TaskRunArtifactUploadSerializer(serializers.Serializer):
         content_encoding = attrs.get("content_encoding", "utf-8")
 
         if content_encoding == "base64":
+            encoded = content.strip()
+            if not encoded:
+                raise serializers.ValidationError({"content": self.fields["content"].error_messages["blank"]})
             try:
-                attrs["content_bytes"] = base64.b64decode(content, validate=True)
+                attrs["content_bytes"] = base64.b64decode(encoded, validate=True)
             except (binascii.Error, ValueError) as exc:
                 raise serializers.ValidationError({"content": "Invalid base64 content"}) from exc
         else:
@@ -1540,6 +1574,7 @@ class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
     content = serializers.CharField(
         required=False,
         allow_blank=True,
+        trim_whitespace=False,
         max_length=500000,
         help_text="Markdown or text content for the initial artifact version.",
     )
@@ -1650,6 +1685,7 @@ class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):
     content = serializers.CharField(
         required=False,
         allow_blank=True,
+        trim_whitespace=False,
         max_length=500000,
         help_text="Markdown or text content for the next version.",
     )
@@ -1811,6 +1847,14 @@ class TaskRunArtifactFinalizeUploadSerializer(serializers.Serializer):
         required=False,
         help_text="Skill bundle metadata, required when the artifact type is skill_bundle.",
     )
+    base_artifact_id = serializers.CharField(
+        max_length=255,
+        required=False,
+        help_text=(
+            "ID of the artifact in the same run that this file edits. An HTML edit can run scripts only when "
+            "its base artifact can."
+        ),
+    )
 
     def validate(self, attrs):
         return validate_task_run_artifact_metadata(attrs)
@@ -1966,6 +2010,16 @@ class TaskRunArtifactPresignRequestSerializer(serializers.Serializer):
 class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
     url = serializers.URLField(help_text="Presigned URL for downloading the artifact")
     expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
+
+
+class TaskRunArtifactPreviewResponseSerializer(serializers.Serializer):
+    url = serializers.URLField(help_text="Short-lived URL for the isolated HTML preview")
+    scripts_available = serializers.BooleanField(
+        help_text=(
+            "Whether the caller can request a preview that runs scripts. False when whoever wrote this artifact "
+            "version had limited network access, or when the version has no record of it."
+        )
+    )
 
 
 class TaskRunArtifactsDismissRequestSerializer(serializers.Serializer):
@@ -3642,7 +3696,10 @@ class TaskRunCreateRequestSerializer(
         required=False,
         default=None,
         allow_blank=False,
-        help_text="LLM model identifier. The server derives the runtime adapter when it is omitted.",
+        help_text=(
+            "LLM model identifier. The server derives the runtime adapter when it is omitted. "
+            "A Pi task runs any listed model and takes no runtime adapter."
+        ),
     )
     reasoning_effort = serializers.ChoiceField(
         choices=REASONING_EFFORT_CHOICES,
@@ -3697,7 +3754,7 @@ class TaskRunCreateRequestSerializer(
             if attrs.get("claude_model_access") == "own-subscription":
                 errors["claude_model_access"] = "Scheduled runs must use the PostHog gateway."
         if attrs.get("model") and attrs.get("runtime_adapter") is None:
-            attrs["runtime_adapter"] = get_runtime_adapter_for_model(attrs["model"]) or next(
+            model_runtime_adapter = get_runtime_adapter_for_model(attrs["model"]) or next(
                 (
                     RuntimeAdapter(choice.runtime_adapter)
                     for choice in available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
@@ -3705,12 +3762,12 @@ class TaskRunCreateRequestSerializer(
                 ),
                 None,
             )
-            if attrs["runtime_adapter"] is None:
+            if model_runtime_adapter is None:
                 errors["model"] = "Unknown model. Use tasks-models-retrieve to list available models."
+            elif not is_pi_task:
+                attrs["runtime_adapter"] = model_runtime_adapter
         if is_pi_task:
-            for field in ("runtime_adapter", "model", "reasoning_effort", "initial_permission_mode"):
-                if attrs.get(field) is not None:
-                    errors[field] = "This field cannot be used with a Pi task. Remove it and try again."
+            errors.update(_pi_task_run_request_errors(attrs))
         if collision_error := get_relayed_imported_mcp_name_collision_error(attrs):
             errors["relayed_mcp_servers"] = collision_error
         initial_permission_mode = attrs.get("initial_permission_mode")
@@ -3720,15 +3777,22 @@ class TaskRunCreateRequestSerializer(
 
         pending_user_message = attrs.get("pending_user_message")
         pending_user_artifact_ids = attrs.get("pending_user_artifact_ids") or []
-        if attrs.get("claude_model_access") == "own-subscription" and is_pi_task:
-            errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
-        if attrs.get("codex_model_access") == "own-subscription" and is_pi_task:
-            errors["codex_model_access"] = "Pi tasks cannot use a ChatGPT plan."
         if pending_user_message is not None:
             trimmed_message = pending_user_message.strip()
             attrs["pending_user_message"] = trimmed_message or None
         if not attrs.get("pending_user_message") and not pending_user_artifact_ids:
             attrs.pop("pending_user_message", None)
+
+        if is_pi_task:
+            if "model" not in errors and (
+                model_access_error := get_model_access_error(
+                    attrs.get("model"), distinct_id=request_distinct_id(self.context)
+                )
+            ):
+                errors["model"] = model_access_error
+            if errors:
+                raise serializers.ValidationError(errors)
+            return attrs
 
         runtime_fields = ("runtime_adapter", "model")
         has_runtime_selection = any(
@@ -3891,19 +3955,8 @@ class TaskRunBootstrapCreateRequestSerializer(
             errors["relayed_mcp_servers"] = collision_error
         initial_permission_mode = attrs.get("initial_permission_mode")
         runtime_adapter = attrs.get("runtime_adapter")
-        is_pi_task = _is_pi_task_run_request(self.context)
-        if is_pi_task:
-            if attrs.get("claude_model_access") == "own-subscription":
-                errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
-            if attrs.get("codex_model_access") == "own-subscription":
-                errors["codex_model_access"] = "Pi tasks cannot use a ChatGPT plan."
-            pi_incompatible_fields = ("runtime_adapter", "context_window", "fast_mode", "initial_permission_mode")
-            for field in pi_incompatible_fields:
-                if attrs.get(field) is not None:
-                    errors[field] = "This field cannot be used with a Pi task."
-            if attrs.get("reasoning_effort") == ReasoningEffort.ULTRACODE:
-                errors["reasoning_effort"] = "This reasoning effort cannot be used with a Pi task."
-
+        if _is_pi_task_run_request(self.context):
+            errors.update(_pi_task_run_request_errors(attrs))
             if errors:
                 raise serializers.ValidationError(errors)
             return attrs

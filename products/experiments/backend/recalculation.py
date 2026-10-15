@@ -4,9 +4,8 @@ Module-level free functions (not methods on ExperimentService) so the API view c
 
 - ``request_recalculation`` — idempotent create: returns the active run if one exists, else creates a pending job.
 - ``get_latest_recalculation`` — most recent recalc row for an experiment, or ``None``.
-- ``get_run_results`` — read-back of per-metric results for a specific run, scoped by recomputing each metric's
-  per-run recalc fingerprint (no FK on ExperimentMetricResult; the scoping key lives entirely on the job row +
-  the run id).
+- ``get_run_results`` — read-back of per-metric results for a specific run, through ``MetricResultStore.for_run``
+  (no FK on ExperimentMetricResult; the store finds a run's rows from the job row and the current metric config).
 """
 
 import asyncio
@@ -27,12 +26,12 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import get_current_team_id, team_scope
 from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.temporal.common.client import sync_connect
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
-from products.experiments.backend.metric_resolution import resolve_scheduled_metrics, scheduled_metric_definitions
+from products.experiments.backend.metric_calculation.config import build_calculation_configs
+from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -43,7 +42,6 @@ from products.experiments.backend.temporal.models import (
     METRICS_RECALCULATION_WORKFLOW_NAME,
     ExperimentMetricsRecalculationWorkflowInputs,
 )
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
@@ -57,6 +55,7 @@ _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 
 # rate limiting manual reloads (including agents).
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
+RECALCULATION_RATE_LIMIT_FEATURE_FLAG = "experiment-metric-recalculation-rate-limit"
 _RATE_LIMITED_TRIGGERS = frozenset(
     {
         ExperimentMetricsRecalculation.Trigger.MANUAL,
@@ -309,9 +308,21 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
             pass
 
 
-def _refresh_window_enforced() -> bool:
+def _refresh_window_enforced(experiment: Experiment) -> bool:
     # Local development skips the window so a developer can reload at will. Tests keep it, because they assert it.
-    return not settings.DEBUG or settings.TEST
+    if settings.DEBUG and not settings.TEST:
+        return False
+    organization_id = str(experiment.team.organization_id)
+    # Evaluated locally: this sits on the POST path, and a miss would otherwise block the request on a call
+    # to /flags. The flag has to target the organization id sent here, or it reads false for everyone.
+    return feature_enabled_or_false(
+        RECALCULATION_RATE_LIMIT_FEATURE_FLAG,
+        organization_id,
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
 
 
 def request_recalculation(experiment: Experiment, user: User | None, trigger: str = "manual") -> dict:
@@ -320,7 +331,8 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
     If an active (pending or in_progress) run already exists for this experiment, returns the existing run's
     serialized payload with ``is_existing=True`` — the caller should NOT start a new workflow in that case.
     A user-driven trigger inside ``MIN_USER_RECALCULATION_INTERVAL`` after the latest completed run finished
-    raises ``RecalculationRateLimited``. Otherwise creates a fresh pending row.
+    raises ``RecalculationRateLimited`` when the organization has the rate-limit flag on. Otherwise creates a
+    fresh pending row.
     """
     if not experiment.is_launched:
         raise ValidationError("Cannot recalculate metrics for experiment that hasn't started")
@@ -351,7 +363,7 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
             _recalculation_reuse_counter.inc()
             return build_job_payload(existing, is_existing=True)
 
-        if trigger in _RATE_LIMITED_TRIGGERS and _refresh_window_enforced():
+        if trigger in _RATE_LIMITED_TRIGGERS and _refresh_window_enforced(experiment):
             # get the latest terminal run and check against the rate limiting rules
             # if matched, increment counter and raise so the API answers 429 with Retry-After
             latest = _terminal_recalculations(experiment).order_by("-created_at").first()
@@ -451,57 +463,19 @@ def get_recalculation_by_id(experiment: Experiment, recalculation_id: str) -> Ex
         ).first()
 
 
-def _recalc_fingerprints_for_run(experiment: Experiment, recalc: ExperimentMetricsRecalculation) -> dict[str, str]:
-    """Recompute each metric's per-run recalc fingerprint (strategy 'a': no extra storage).
-
-    Returns ``{metric_uuid: recalc_fp}`` for metrics still resolvable on the experiment. A uuid present on the job
-    but no longer on the experiment is skipped (metric removed mid-run).
-
-    Divergence hazard: the fingerprint is derived from mutable experiment fields (start_date, exposure_criteria,
-    stats method, only_count_matured_users). If any of these change between the workflow's writes and a later
-    read, the recomputed fingerprints will not match the on-disk ones and the corresponding result rows become
-    unreachable (until the experiment fields revert). This is the explicit trade-off of "no FK on
-    ExperimentMetricResult" — the snapshot lives in the fingerprint, not in a stored column.
-    """
-    stats_method = get_experiment_stats_method(experiment)
-    definitions = scheduled_metric_definitions(experiment)
-    fingerprints: dict[str, str] = {}
-    for metric_uuid in recalc.metric_uuids or []:
-        metric_dict = definitions.get(metric_uuid)
-        if metric_dict is None:
-            continue
-        config_fp = compute_metric_fingerprint(
-            metric_dict,
-            experiment.start_date,
-            stats_method,
-            experiment.exposure_criteria,
-            only_count_matured_users=experiment.only_count_matured_users,
-            excluded_variants=experiment.excluded_variants,
-        )
-        fingerprints[metric_uuid] = compute_recalc_fingerprint(config_fp)
-    return fingerprints
-
-
 def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
     """Return the ExperimentMetricResult rows that belong to THIS run.
 
-    Scopes by recomputing each metric's recalc fingerprint and filtering ``fingerprint__in`` — never returns
-    rows from a previous run or from the timeseries workflow (which uses config fingerprints).
+    Never returns rows from a previous run or from the timeseries workflow (which uses config fingerprints).
 
-    See `_recalc_fingerprints_for_run` for the fingerprint-divergence hazard: if experiment fields that feed
-    the fingerprint change after the run wrote its rows, this can return [] for what is on-disk a successful
-    run. Symptom: "results disappeared after editing exposure_criteria / start_date / stats config."
+    Divergence hazard: the store finds a run's rows by recomputing each metric's fingerprint from mutable
+    experiment fields (start_date, exposure_criteria, stats method, only_count_matured_users). If any of these
+    change after the run wrote its rows, this can return [] for what is on-disk a successful run, until the
+    experiment fields revert. Symptom: "results disappeared after editing exposure_criteria / start_date / stats
+    config." This is the explicit trade-off of "no FK on ExperimentMetricResult": the snapshot lives in the
+    fingerprint, not in a stored column.
     """
-    fingerprints = _recalc_fingerprints_for_run(recalc.experiment, recalc)
-    if not fingerprints or recalc.query_to is None:
-        return []
-
-    # Scope to this run's window. The recalc fingerprint is now deterministic per config (not per run), so a
-    # running experiment accumulates one row per query_to under the same fingerprint; without this filter a
-    # later run would return every prior window's row and overcount. recalc.query_to pins the run's window.
-    rows = ExperimentMetricResult.objects.filter(
-        experiment=recalc.experiment, fingerprint__in=list(fingerprints.values()), query_to=recalc.query_to
-    )
+    rows = MetricResultStore(experiment_id=recalc.experiment_id).for_run(recalc)
     return [
         {
             "metric_uuid": row.metric_uuid,
@@ -526,35 +500,15 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
     and completed_at both pin to the freshest point's date. GET never triggers anything itself.
     """
     with team_scope(experiment.team_id, canonical=True):
-        metrics = resolve_scheduled_metrics(experiment)
-        stats_method = get_experiment_stats_method(experiment)
-
+        calculation_configs = build_calculation_configs(experiment)
+        store = MetricResultStore(experiment_id=experiment.id)
         now = timezone.now()
         results: list[dict] = []
         latest_query_to = None
-        for metric in metrics:
-            config_fp = compute_metric_fingerprint(
-                metric.definition,
-                experiment.start_date,
-                stats_method,
-                experiment.exposure_criteria,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants,
-            )
-            row = (
-                ExperimentMetricResult.objects.filter(
-                    experiment=experiment,
-                    metric_uuid=metric.uuid,
-                    fingerprint=config_fp,
-                    status=ExperimentMetricResult.Status.COMPLETED,
-                    # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry
-                    # a future query_to that would surface here as a future completion time.
-                    query_to__gte=now - TIMESERIES_FALLBACK_MAX_AGE,
-                    query_to__lte=now,
-                )
-                .order_by("-query_to")
-                .first()
-            )
+        for calculation_config in calculation_configs:
+            # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry a future
+            # query_to that would surface here as a future completion time.
+            row = store.latest_daily_point(calculation_config, since=now - TIMESERIES_FALLBACK_MAX_AGE, until=now)
             if row is None:
                 continue
             results.append(
@@ -575,7 +529,7 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
             "id": "timeseries-fallback",
             "experiment_id": experiment.id,
             "status": ExperimentMetricsRecalculation.Status.COMPLETED,
-            "total_metrics": len(metrics),
+            "total_metrics": len(calculation_configs),
             "completed_metrics": len(results),
             "failed_metrics": 0,
             "metric_errors": {},

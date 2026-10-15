@@ -105,6 +105,15 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     includeHiddenEvents?: boolean
     /** Drop axis ticks and titles, for thumbnail-sized renders such as the chart type gallery. */
     hideAxes?: boolean
+    /** Hide or resize the visualization selector when the host provides its own chart picker. */
+    chartTypeSelectorClassName?: string
+    onEditBIAxis?: (axis: 'x' | 'left' | 'right') => void
+    /** Hosts visualization settings in the scene's own panel instead of opening another sidebar. */
+    visualizationSettingsPanel?: {
+        isOpen: boolean
+        onToggle: () => void
+        container: HTMLElement | null
+    }
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

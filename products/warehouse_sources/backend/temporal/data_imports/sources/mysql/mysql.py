@@ -35,6 +35,7 @@ from pymysql.charset import charset_by_id
 from pymysql.connections import MySQLResult
 from pymysql.constants import CLIENT, CR, FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
+from pymysql.protocol import MysqlPacket
 from structlog.types import FilteringBoundLogger
 
 # Module-level error-capture seam. This module's best-effort probes (get_rows_to_sync,
@@ -124,6 +125,31 @@ STATEMENT_TIMEOUT_SECONDS = 600  # 10 mins
 # as long as the socket stays open. Schema discovery must also end before the 10 minute
 # `start_to_close_timeout` of its Temporal activity.
 METADATA_READ_TIMEOUT_SECONDS = 300
+
+# PyMySQL applies `read_timeout` to each socket read, not to a statement. It is thus a limit on one
+# silent wait: a read that keeps receiving rows never reaches it, and a server that goes silent
+# ends with error 2013 after this long. The limits above are sized for a slow query. The ones
+# below cover the two waits that those limits made too long.
+#
+# The TCP connect and the DNS lookup.
+CONNECT_TIMEOUT_SECONDS = 10
+# The server greeting and the login. Without it they wait for the read timeout of the caller, so a
+# server that accepts the socket and then says nothing costs up to 10 minutes for each of the
+# connect attempts.
+HANDSHAKE_READ_TIMEOUT_SECONDS = 30
+# One send of a statement. PyMySQL has no default, and a statement is small.
+WRITE_TIMEOUT_SECONDS = 60
+
+# TCP options that end a connection whose peer went away: a dead peer on an idle socket in about
+# 80 seconds, and data that the peer never acknowledges in 60. Both stay quiet while the peer
+# answers at the TCP level, so neither ends a statement that the server still works on. Each is
+# set only where the platform has it.
+_TCP_LIVENESS_OPTIONS: tuple[tuple[str, int], ...] = (
+    ("TCP_KEEPIDLE", 30),
+    ("TCP_KEEPINTVL", 10),
+    ("TCP_KEEPCNT", 5),
+    ("TCP_USER_TIMEOUT", 60_000),
+)
 
 # pymysql error code for "Lost connection to MySQL server during query" — the
 # symptom we see when the optimizer picks a bad plan (full scan + filesort) and
@@ -762,6 +788,9 @@ class _FieldCharsetResult(MySQLResult):
     pymysql decodes every column outside its own text types as ASCII. Some MySQL-compatible
     servers send ENUM and SET values under their own type codes, and newer servers add types
     pymysql predates, so one non-ASCII value in such a column fails the whole read.
+
+    The server does not check that stored bytes are valid in the charset it reports, so rows are
+    decoded with invalid bytes replaced by U+FFFD rather than failing every sync on one bad value.
     """
 
     def _get_descriptions(self) -> None:
@@ -772,9 +801,59 @@ class _FieldCharsetResult(MySQLResult):
             if encoding == "ascii" and field.type_code not in _ASCII_FIELD_TYPES:
                 self.converters[index] = (_field_encoding(field.charsetnr, connection_encoding), converter)  # type: ignore[attr-defined]
 
+    def _read_row_from_packet(self, packet: MysqlPacket) -> tuple[Any, ...]:
+        row: list[Any] = []
+        for encoding, converter in self.converters:  # type: ignore[attr-defined]
+            try:
+                data = packet.read_length_coded_string()
+            except IndexError:
+                break
+            if data is not None:
+                if encoding is not None:
+                    data = data.decode(encoding, errors="replace")
+                if converter is not None:
+                    data = converter(data)
+            row.append(data)
+        return tuple(row)
+
+
+def _set_tcp_liveness(sock: socket.socket) -> None:
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        for name, value in _TCP_LIVENESS_OPTIONS:
+            option = getattr(socket, name, None)
+            if option is not None:
+                sock.setsockopt(socket.IPPROTO_TCP, option, value)
+    except OSError as e:
+        # Best-effort: the read timeout still limits each wait on a socket that refuses an option.
+        structlog.get_logger().debug("Could not set TCP liveness options on a MySQL socket", error=str(e))
+
 
 class _SourceConnection(pymysql.Connection):
     """A pymysql connection that reads every result through `_FieldCharsetResult`."""
+
+    def connect(self, sock: socket.socket | None = None) -> None:
+        # pymysql keeps the read timeout in a private attribute and has no setter for it.
+        read_timeout: float | None = getattr(self, "_read_timeout", None)
+        handshake_read_timeout = (
+            HANDSHAKE_READ_TIMEOUT_SECONDS
+            if read_timeout is None
+            else min(read_timeout, HANDSHAKE_READ_TIMEOUT_SECONDS)
+        )
+        self._configured_read_timeout = read_timeout
+        setattr(self, "_read_timeout", handshake_read_timeout)  # noqa: B010
+        try:
+            super().connect(sock)
+        finally:
+            setattr(self, "_read_timeout", read_timeout)  # noqa: B010
+        _set_tcp_liveness(self._sock)  # type: ignore[attr-defined]
+
+    def _request_authentication(self) -> None:
+        super()._request_authentication()  # type: ignore[misc]
+        # pymysql runs SET NAMES, `init_command` and the autocommit setup right after the login,
+        # inside `connect`, so they get the configured limit and not the handshake limit.
+        if hasattr(self, "_configured_read_timeout"):
+            setattr(self, "_read_timeout", self._configured_read_timeout)  # noqa: B010
 
     def _read_query_result(self, unbuffered: bool = False) -> int:
         # Mirrors `pymysql.Connection._read_query_result` (1.1.1) with the result class swapped.
@@ -814,7 +893,20 @@ class _TLSRequiredConnection(_SourceConnection):
                 "The MySQL server did not offer a TLS connection. Turn off certificate "
                 "verification for this source, or enable TLS on the server.",
             )
-        super()._request_authentication()  # type: ignore[misc]
+        super()._request_authentication()
+
+
+def connection_timeouts(read_timeout: int) -> dict[str, int]:
+    """The pymysql timeout arguments of every source connection.
+
+    `read_timeout` has no default and no None on purpose: a connection without it waits on a silent
+    server for as long as the socket stays open.
+    """
+    return {
+        "connect_timeout": CONNECT_TIMEOUT_SECONDS,
+        "read_timeout": read_timeout,
+        "write_timeout": WRITE_TIMEOUT_SECONDS,
+    }
 
 
 def _new_connection(kwargs: dict[str, Any], **extra: Any) -> pymysql.Connection:
@@ -1193,7 +1285,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         self,
         config: MySQLSourceConfig,
         *,
-        read_timeout: int | None = METADATA_READ_TIMEOUT_SECONDS,
+        read_timeout: int = METADATA_READ_TIMEOUT_SECONDS,
         autocommit: bool = False,
         team_id: int | None = None,
     ) -> Iterator[pymysql.Connection]:
@@ -1230,7 +1322,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 "database": config.database,
                 "user": config.user,
                 "password": config.password,
-                "connect_timeout": 10,
+                **connection_timeouts(read_timeout),
                 "ssl_ca": ssl_ca,
                 # pymysql resolves `ssl_ca` on its own to `verify_mode=CERT_NONE`, so only an
                 # explicit True verifies. None leaves that prior behavior untouched.
@@ -1240,8 +1332,6 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 "autocommit": autocommit,
                 "init_command": "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None,
             }
-            if read_timeout is not None:
-                kwargs["read_timeout"] = read_timeout
             with _connect_with_transient_retry(kwargs, team_id) as conn:
                 yield conn
 
@@ -1965,6 +2055,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         enabled_columns=projection.enabled_columns,
                         primary_keys=primary_keys,
                         row_filters=row_filters,
+                        worker_deaths=inputs.worker_deaths,
                     )
 
                 # Only reached when the walk exhausted the table. An abandoned generator (draining

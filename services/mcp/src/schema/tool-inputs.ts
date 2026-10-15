@@ -507,7 +507,6 @@ export const InsightQueryInputSchema = z.preprocess(
     z.object({
         insightId: z
             .union([z.string(), z.number()])
-            .transform((value) => String(value))
             .describe('The insight to run: its numeric `id` or 8-character `short_id`.'),
         output_format: z
             .enum(['optimized', 'json'])

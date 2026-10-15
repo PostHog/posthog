@@ -91,6 +91,10 @@ const SERVER_CAPABILITIES = {
     tools: { listChanged: false },
     resources: { listChanged: false },
     prompts: { listChanged: false },
+    extensions: {
+        // Tokens the authorization server issues for an enterprise IdP's ID-JAG are accepted here.
+        'io.modelcontextprotocol/enterprise-managed-authorization': {},
+    },
 } as const
 
 function isRequest(msg: JSONRPCMessage): msg is JSONRPCRequest {
