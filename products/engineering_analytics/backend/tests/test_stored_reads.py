@@ -105,7 +105,7 @@ class TestStoredReads(BaseTest):
         assert [call.kwargs["query_type"] for call in mock_execute.call_args_list] == expected_reads
         # The first read that can take the stored rows starts a refresh, because no load refreshed them
         # while the team was not in use.
-        assert mock_refresh.delay.call_count == refreshes
+        assert mock_refresh.delay.call_count == 1
 
     @parameterized.expand(
         [
@@ -122,8 +122,6 @@ class TestStoredReads(BaseTest):
         with (
             patch(f"{_CI_PRECOMPUTE}.cache", LocMemCache(self.id(), {})),
             patch(f"{_CI_PRECOMPUTE}.history_start", return_value=first_day),
-            patch(f"{_CURATED}.refresh_ci_precompute"),
-            patch(f"{_CURATED}.team_flag", return_value=True),
             patch(
                 f"{_CI_PRECOMPUTE}.ensure_stored", return_value=SimpleNamespace(ready=True, job_ids=[uuid4()])
             ) as mock_ensure,

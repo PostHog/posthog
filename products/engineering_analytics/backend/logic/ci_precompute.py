@@ -36,8 +36,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
     parse_ttl_schedule,
 )
-from products.engineering_analytics.backend.facade.contracts import STORED_READS_FEATURE_FLAG
-from products.engineering_analytics.backend.logic.feature_flags import team_flag
 from products.engineering_analytics.backend.logic.queries._workflow_filters import JOB_FLOOR_SLACK_ON_RUN_STARTED
 from products.engineering_analytics.backend.logic.sources import JobSourceTables, resolve_precompute_sources
 from products.engineering_analytics.backend.logic.views import depot_ci, job_costs, workflow_jobs, workflow_runs
@@ -309,11 +307,6 @@ def refresh_after_load(team: Team) -> None:
             cache.delete(running)
 
 
-def _may_insert(team: Team, deadline: float) -> bool:
-    # The flag is checked before each step, so turning it off also stops a running refresh.
-    return time.monotonic() < deadline and bool(team_flag(STORED_READS_FEATURE_FLAG, team))
-
-
 def _refresh(team: Team) -> bool:
     """Whether an insert failed. A refresh that only ran out of its budget did not fail: the next
     load continues it."""
@@ -332,7 +325,7 @@ def _refresh(team: Team) -> bool:
     spans: list[tuple[StoredRows, JobSourceTables, Iterator[_Span]]] = []
     for source in sources:
         for stored in (STORED_RUNS, STORED_JOBS):
-            if not _may_insert(team, deadline):
+            if time.monotonic() >= deadline:
                 return failed
             try:
                 start = _find_history_start(stored, team, source, database)
@@ -358,7 +351,7 @@ def _refresh(team: Team) -> bool:
             if step is None:
                 spans.remove(span)
                 continue
-            if not _may_insert(team, deadline):
+            if time.monotonic() >= deadline:
                 return failed
             result = ensure_stored(
                 stored,

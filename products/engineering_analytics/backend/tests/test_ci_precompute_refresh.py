@@ -22,9 +22,7 @@ class TestRefreshAfterLoad(SimpleTestCase):
         super().setUp()
         self.first_created: str | None = "2026-10-04T08:00:00Z"
         self.runs_history_lookup_error: Exception | None = None
-        self.flag_checks_on = 1000
         self.ensure_stored = MagicMock(return_value=SimpleNamespace(ready=True, errors=[]))
-        flag_checks = iter(range(1000))
         source = SimpleNamespace(
             source_id="source",
             repository="posthog/posthog",
@@ -35,7 +33,6 @@ class TestRefreshAfterLoad(SimpleTestCase):
         for patcher in (
             time_machine.travel(_NOW, tick=False),
             patch(f"{_MODULE}.cache", LocMemCache(self.id(), {})),
-            patch(f"{_MODULE}.team_flag", side_effect=lambda *_args: next(flag_checks) < self.flag_checks_on),
             patch(f"{_MODULE}.resolve_precompute_sources", return_value=[source]),
             patch(f"{_MODULE}.Database.create_for"),
             patch(f"{_MODULE}.create_default_modifiers_for_team"),
@@ -93,16 +90,11 @@ class TestRefreshAfterLoad(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("in_use", True, 1000, 2),
-            ("not_read_within_the_hour", False, 1000, 0),
-            # The load's own check, the history lookups of both tables, then the runs table's insert.
-            ("flag_turned_off_mid_refresh", True, 4, 1),
+            ("in_use", True, 2),
+            ("not_read_within_the_hour", False, 0),
         ]
     )
-    def test_a_load_stores_days_only_while_the_team_is_read_and_flagged(
-        self, _name: str, in_use: bool, flag_checks_on: int, inserts: int
-    ) -> None:
-        self.flag_checks_on = flag_checks_on
+    def test_a_load_stores_days_only_while_the_team_is_read(self, _name: str, in_use: bool, inserts: int) -> None:
         if in_use:
             ci_precompute.mark_in_use(_TEAM)
         ci_precompute.refresh_after_load(_TEAM)
