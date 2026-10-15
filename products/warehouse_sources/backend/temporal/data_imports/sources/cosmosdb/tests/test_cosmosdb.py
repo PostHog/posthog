@@ -100,6 +100,8 @@ class TestPartitionKeyValue:
             ({"id": "x"}, ("/tenantId",), ""),
             ({"address": {"city": "Oslo"}}, ("/address/city",), '"Oslo"'),
             ({"address": "flat"}, ("/address/city",), ""),
+            ({"tenant/key": "t-1"}, ('/"tenant/key"',), '"t-1"'),
+            ({"a": {'say "hi"': 2}}, ('/a/"say \\"hi\\""',), "2"),
             ({"tenantId": "t-1", "region": "eu"}, ("/tenantId", "/region"), '["\\"t-1\\"","\\"eu\\""]'),
             ({"tenantId": "t-1"}, ("/tenantId", "/region"), '["\\"t-1\\"",""]'),
             ({"tenantId": "t-1", "region": None}, ("/tenantId", "/region"), '["\\"t-1\\"","null"]'),

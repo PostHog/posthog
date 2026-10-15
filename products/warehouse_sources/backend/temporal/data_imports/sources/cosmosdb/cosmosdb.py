@@ -267,9 +267,38 @@ def _collection_from_payload(item: dict[str, Any]) -> CosmosDBCollection:
 _MISSING = object()
 
 
+def split_path(path: str) -> list[str]:
+    """Split a Cosmos JSON path such as `/address/"zip/code"` into its property names.
+
+    A double-quoted segment may hold `/` and backslash-escaped quotes, so splitting on `/` alone
+    would resolve the wrong property.
+    """
+    segments: list[str] = []
+    current: list[str] = []
+    quoted = False
+    escaped = False
+    for char in path:
+        if escaped:
+            current.append(char)
+            escaped = False
+        elif quoted and char == "\\":
+            escaped = True
+        elif char == '"':
+            quoted = not quoted
+        elif char == "/" and not quoted:
+            if current:
+                segments.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    if current:
+        segments.append("".join(current))
+    return segments
+
+
 def _resolve_path(document: dict[str, Any], path: str) -> Any:
     value: Any = document
-    for segment in path.strip("/").split("/"):
+    for segment in split_path(path):
         if not isinstance(value, dict) or segment not in value:
             return _MISSING
         value = value[segment]
