@@ -4022,6 +4022,15 @@ class WorkflowNotLiveError(exceptions.APIException):
     default_code = "workflow_not_live"
 
 
+class WorkflowHasNoEmailStepError(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = (
+        "Self-driving only works on workflows that send email for now. "
+        "Add an email step and publish the workflow to turn it on."
+    )
+    default_code = "workflow_has_no_email_step"
+
+
 class WorkflowNotOptimisedError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
@@ -5645,6 +5654,10 @@ class HogFlowViewSet(
             enabled = param_serializer.validated_data["enabled"]
             if enabled and instance.status != HogFlowState.ACTIVE:
                 raise WorkflowNotLiveError()
+            # Suggestions judge email opens and clicks. Turning it off stays open, so a workflow already
+            # on can still be switched off after it loses its email step.
+            if enabled and not instance.has_email_step:
+                raise WorkflowHasNoEmailStepError()
             if enabled and not is_optimization_enabled(instance.id):
                 refusal = suggestions_scout_refusal(
                     self.team, acting_user=cast(User, request.user), may_grant=self._may_grant_scout(request)
