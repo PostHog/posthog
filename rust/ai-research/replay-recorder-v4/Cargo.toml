@@ -30,6 +30,7 @@ metrics = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
 sqlx = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
