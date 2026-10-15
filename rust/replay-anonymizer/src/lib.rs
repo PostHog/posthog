@@ -19,8 +19,9 @@
 //! The stable crates.io surface is what this page documents: [`AllowLists`], [`Ctx`], the event
 //! entry points ([`anonymize_message`], [`anonymize_event`], [`anonymize_line`] and friends), the
 //! byte-buffer snapshot pipeline ([`anonymize_kafka_payload`] and friends), the rrweb routing
-//! constants in [`event`], and — behind the default `typed-parse` feature — the typed rrweb parse
-//! in [`typed`] ([`parse_scrubbed_event`]). Everything `#[doc(hidden)]` stays `pub` only for this
+//! constants in [`event`], the byte-level JSON scanner in [`scan`] and the codecs in [`compression`]
+//! for readers that walk raw payloads without scrubbing them, and — behind the default
+//! `typed-parse` feature — the typed rrweb parse in [`typed`] ([`parse_scrubbed_event`]). Everything `#[doc(hidden)]` stays `pub` only for this
 //! workspace (the Node addon, the parity tests) — it is internal and may change or disappear in
 //! any release.
 
@@ -33,7 +34,6 @@ pub mod bytewalk;
 pub mod canvas;
 #[doc(hidden)]
 pub mod collect;
-#[doc(hidden)]
 pub mod compression;
 pub mod context;
 #[doc(hidden)]
@@ -48,7 +48,6 @@ pub mod event;
 #[doc(hidden)]
 pub mod json;
 mod json_ld;
-#[doc(hidden)]
 pub mod scan;
 pub mod snapshot;
 #[doc(hidden)]
