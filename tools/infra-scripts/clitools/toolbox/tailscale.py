@@ -102,14 +102,14 @@ def _current_tailnet(status: dict[str, Any] | None) -> str | None:
 
 
 def _confirm_switch(tailnet: str) -> bool:
-    """Ask before switching tailnets; a non-TTY stdin never switches so automation does not block."""
+    """Ask before switching tailnets, defaulting to yes; a non-TTY stdin never switches so automation does not block."""
     if not sys.stdin.isatty():
         return False
     try:
-        response = input(f"❓ Tailscale is connected to the '{tailnet}' tailnet. Switch to {POSTHOG_TAILNET}? [y/N]: ")
+        response = input(f"❓ Tailscale is connected to the '{tailnet}' tailnet. Switch to {POSTHOG_TAILNET}? [Y/n]: ")
     except (EOFError, KeyboardInterrupt):
         return False
-    return response.strip().lower() in ("y", "yes")
+    return response.strip().lower() not in ("n", "no")
 
 
 def switch_to_posthog_tailnet() -> dict[str, Any] | None:

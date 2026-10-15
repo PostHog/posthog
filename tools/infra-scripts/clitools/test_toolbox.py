@@ -941,13 +941,11 @@ class TestToolbox(unittest.TestCase):
         self.assertIn("tailscale switch posthog.com", output)
         self.assertEqual(mock_run.call_count, 1)
 
-    @patch("builtins.input", return_value="y")
+    @patch("builtins.input", return_value="")
     @patch("toolbox.tailscale.sys.stdin")
     @patch("toolbox.tailscale.subprocess.run")
     @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
-    def test_ensure_tailscale_connected_switches_tailnet_on_confirmation(
-        self, mock_which, mock_run, mock_stdin, mock_input
-    ):
+    def test_ensure_tailscale_connected_switches_tailnet_by_default(self, mock_which, mock_run, mock_stdin, mock_input):
         mock_stdin.isatty.return_value = True
         mock_run.side_effect = [
             self._tailscale_status_result(
