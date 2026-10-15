@@ -17,6 +17,26 @@ interface TicketBriefPanelProps {
     brief: TicketBriefApi
 }
 
+// Support triage quotes identifiers and error text in backticks, so those spans render as code.
+// Split rather than rendered as markdown: the text is the customer's, relayed by an agent, so
+// nothing else in it may become markup.
+function Inline({ text }: { text: string }): JSX.Element {
+    const parts = text.split(/`([^`]+)`/)
+    return (
+        <>
+            {parts.map((part, index) =>
+                index % 2 === 1 ? (
+                    <code key={index} className="rounded bg-accent-highlight-secondary px-1 text-[11px]">
+                        {part}
+                    </code>
+                ) : (
+                    part
+                )
+            )}
+        </>
+    )
+}
+
 function BriefSection({ label, items }: { label: string; items: string[] }): JSX.Element | null {
     if (items.length === 0) {
         return null
@@ -26,7 +46,9 @@ function BriefSection({ label, items }: { label: string; items: string[] }): JSX
             <div className="text-muted-alt">{label}</div>
             <ul className="m-0 mt-0.5 pl-4 list-disc space-y-0.5 break-words">
                 {items.map((item, index) => (
-                    <li key={`${item}-${index}`}>{item}</li>
+                    <li key={`${item}-${index}`}>
+                        <Inline text={item} />
+                    </li>
                 ))}
             </ul>
         </div>
@@ -88,7 +110,9 @@ export function TicketBriefPanel({ brief }: TicketBriefPanelProps): JSX.Element 
                         <div className="space-y-2 text-xs min-w-0">
                             <div className="min-w-0">
                                 <div className="text-muted-alt">Wants</div>
-                                <p className="m-0 mt-0.5 break-words">{brief.ask}</p>
+                                <p className="m-0 mt-0.5 break-words">
+                                    <Inline text={brief.ask} />
+                                </p>
                             </div>
                             <BriefSection label="Asking" items={brief.questions} />
                             <BriefSection label="Facts" items={brief.facts ?? []} />
