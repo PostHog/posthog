@@ -8,7 +8,7 @@ const {
     isExcludedFile,
     classifyOwner,
     teamSlugToLabel,
-    pinnedTeamsWithLabels,
+    teamRegistrySettings,
     partitionExternalTeams,
     computeOwnerFootprints,
     computeAdditionOwners,
@@ -216,23 +216,40 @@ const fp = (owner, lines, fileCount = 1, type = 'team') => ({
     lines,
 })
 
+const TEAMS_REGISTRY = {
+    'team-every-change': { slack: null, notifications: null, pr_label: 'feature/a', review_every_change: true },
+    'team-label-only': { slack: null, notifications: null, pr_label: 'feature/b', review_every_change: null },
+    'team-channel-only': { slack: '#c', notifications: null, pr_label: null, review_every_change: null },
+}
+
 for (const [description, footprints, expectedRequested, expectedLabels] of [
     [
-        'requests and labels a minor agent infra change next to a larger one',
-        [fp('@PostHog/team-surveys', 200), fp('@PostHog/team-agent-infrastructure', 1)],
-        ['@PostHog/team-surveys', '@PostHog/team-agent-infrastructure'],
-        ['feature/agent-infra'],
+        'requests and labels a minor change by a team that reviews every change',
+        [fp('@PostHog/team-surveys', 200), fp('@PostHog/team-every-change', 1)],
+        ['@PostHog/team-surveys', '@PostHog/team-every-change'],
+        ['feature/a'],
     ],
-    ['leaves a PR without agent infra code alone', [fp('@PostHog/team-surveys', 200)], ['@PostHog/team-surveys'], []],
+    [
+        'labels a minor change by a team with only a label, without requesting it',
+        [fp('@PostHog/team-surveys', 200), fp('@PostHog/team-label-only', 1)],
+        ['@PostHog/team-surveys'],
+        ['feature/b'],
+    ],
+    [
+        'leaves a team with only a channel to the size rules',
+        [fp('@PostHog/team-surveys', 200), fp('@PostHog/team-channel-only', 1)],
+        ['@PostHog/team-surveys'],
+        [],
+    ],
 ]) {
-    test(`pinnedTeamsWithLabels: ${description}`, () => {
-        const { teams, labels } = pinnedTeamsWithLabels(footprints)
-        const { requested } = classifyOwnersWithPinned(footprints, teams)
+    test(`teamRegistrySettings: ${description}`, () => {
+        const { reviewEveryChange, prLabels } = teamRegistrySettings(footprints, TEAMS_REGISTRY)
+        const { requested } = classifyOwnersWithPinned(footprints, reviewEveryChange)
         assert.deepEqual(
             requested.map((f) => f.owner),
             expectedRequested
         )
-        assert.deepEqual(labels, expectedLabels)
+        assert.deepEqual(prLabels, expectedLabels)
     })
 }
 

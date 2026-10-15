@@ -50,6 +50,14 @@ function resolveOwners(filenames) {
     if (filenames.length === 0) {
         return {}
     }
+    return runOwnersResolver([], filenames.join('\n'))
+}
+
+function readTeamsRegistry() {
+    return runOwnersResolver(['--teams'], '')
+}
+
+function runOwnersResolver(args, input) {
     const python = process.env.OWNERS_RESOLVER_PYTHON || 'python3'
     // Insert the package dir on sys.path *after* interpreter startup instead of
     // via PYTHONPATH: a PYTHONPATH entry is scanned by the `site` module at
@@ -63,8 +71,8 @@ function resolveOwners(filenames) {
     // importable.
     const launcher =
         "import sys, runpy; sys.path.insert(0, 'packages/owners-yaml'); runpy.run_module('owners_yaml', run_name='__main__')"
-    const result = spawnSync(python, ['-I', '-c', launcher], {
-        input: filenames.join('\n'),
+    const result = spawnSync(python, ['-I', '-c', launcher, ...args], {
+        input,
         encoding: 'utf8',
         maxBuffer: 64 * 1024 * 1024,
     })
@@ -170,11 +178,12 @@ function teamSlugToLabel(name) {
     return name.replace(/^team-/, 'team/')
 }
 
-const PINNED_TEAM_LABELS = new Map([['team-agent-infrastructure', 'feature/agent-infra']])
-
-function pinnedTeamsWithLabels(footprints) {
-    const teams = footprints.filter((footprint) => footprint.type === 'team' && PINNED_TEAM_LABELS.has(footprint.name))
-    return { teams, labels: teams.map((footprint) => PINNED_TEAM_LABELS.get(footprint.name)) }
+function teamRegistrySettings(footprints, teamsRegistry) {
+    const owningTeams = footprints.filter((footprint) => footprint.type === 'team' && teamsRegistry[footprint.name])
+    return {
+        reviewEveryChange: owningTeams.filter((footprint) => teamsRegistry[footprint.name].review_every_change),
+        prLabels: [...new Set(owningTeams.map((footprint) => teamsRegistry[footprint.name].pr_label).filter(Boolean))],
+    }
 }
 
 function partitionExternalTeams(teams) {
@@ -721,11 +730,11 @@ async function main() {
         const footprints = computeOwnerFootprints(resolutionByPath, changedFiles)
         const additionOwners = computeAdditionOwners(resolutionByPath, changedFiles)
         const sensitiveOwners = computeSensitiveOwners(resolutionByPath, changedFiles)
-        const pinnedTeams = pinnedTeamsWithLabels(footprints)
+        const teamSettings = teamRegistrySettings(footprints, readTeamsRegistry())
         const { requested, demoted } = classifyOwnersWithPinned(footprints, [
             ...additionOwners,
             ...sensitiveOwners,
-            ...pinnedTeams.teams,
+            ...teamSettings.reviewEveryChange,
         ])
 
         const teams = requested.filter((f) => f.type === 'team').map((f) => f.name)
@@ -743,14 +752,17 @@ async function main() {
         console.info()
 
         const { toLabel, toRequest } = isExternal ? partitionExternalTeams(teams) : { toLabel: [], toRequest: teams }
-        await applyTeamLabels([...pinnedTeams.labels, ...toLabel.map(teamSlugToLabel).filter(Boolean)])
+        await applyTeamLabels([...teamSettings.prLabels, ...toLabel.map(teamSlugToLabel).filter(Boolean)])
         await assignReviewers(toRequest, users)
 
         const commentBody = buildReviewerComment(
             requested,
             demoted,
             additionOwners,
-            sensitiveOwnersToExplain(sensitiveOwners, footprints, [...additionOwners, ...pinnedTeams.teams])
+            sensitiveOwnersToExplain(sensitiveOwners, footprints, [
+                ...additionOwners,
+                ...teamSettings.reviewEveryChange,
+            ])
         )
         if (commentBody) {
             await upsertReviewerComment(commentBody)
@@ -770,7 +782,7 @@ module.exports = {
     isExcludedFile,
     classifyOwner,
     teamSlugToLabel,
-    pinnedTeamsWithLabels,
+    teamRegistrySettings,
     partitionExternalTeams,
     computeOwnerFootprints,
     computeAdditionOwners,

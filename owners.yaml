@@ -13,9 +13,9 @@ codeowners:
     jest_root: frontend
     jest_root_tests: 'products/**/frontend/**'
     jest_root_packages: products
-# Slack channel per team, declared once for the whole repo (root-only registry).
-# A team only needs an entry where the derived '#<slug>' is wrong or missing; the
-# other 22 slugs in use derive correctly and are deliberately absent.
+# Settings per team, declared once for the whole repo (root-only registry).
+# A team only needs an entry where the derived '#<slug>' is wrong or missing, or to
+# set pr_label or review_every_change; the other slugs in use are deliberately absent.
 teams:
     # GitHub team slugs that predate the 'team-' convention: the slug is right,
     # the channel just doesn't match it.
@@ -36,6 +36,9 @@ teams:
         slack: '#team-platform-ux'
     team-data-stack:
         slack: '#group-data-stack'
+    team-agent-infrastructure:
+        pr_label: feature/agent-infra
+        review_every_change: true
     # PostHog Desktop's channel kept the name it was created under.
     team-posthog-desktop:
         slack: '#team-desktop'
