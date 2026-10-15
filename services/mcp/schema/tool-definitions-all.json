@@ -9177,7 +9177,8 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "llm-analytics-tags"
     },
     "llma-tagger-list": {
         "description": "List AI observability taggers for the current project. Supports filtering by enabled status, id__in, search, and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model configuration, creator, and timestamps.",
@@ -9191,7 +9192,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "llm-analytics-tags"
     },
     "llma-tagger-test-hog": {
         "description": "Test Hog tagger source code against recent $ai_generation events without saving a tagger. The source should return a tag name string, a list of tag name strings, or null. Optionally pass tags as a whitelist; returned tags outside the whitelist are filtered out. Results include input/output previews, selected tags, stdout reasoning, and any execution error for each sampled event.",
@@ -9205,7 +9207,8 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "llm-analytics-tags"
     },
     "llma-trace-review-create": {
         "description": "Save a trace review. Supports an optional comment, an optional scores array, and an optional queue_id to clear a matching pending review-queue item after the review is saved.",
