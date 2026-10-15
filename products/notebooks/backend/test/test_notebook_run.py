@@ -11,7 +11,9 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.models.scoping import team_scope
 from posthog.models.utils import UUIDT
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
+from products.notebooks.backend.facade.contracts import NotebookRunBusy
 from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.notebook_run import node_run_request_for, plan_notebook_cells
 from products.notebooks.backend.sql_v2_state import MAX_NOTEBOOK_CELLS, NotebookCellLimitExceeded
@@ -469,6 +471,35 @@ class TestNotebookRunEndpoints(APIBaseTest):
         run = NotebookRun.objects.for_team(self.team.id).get(id=run_id)
         assert run.finished_at is not None
         assert run.error == "The notebook was deleted."
+
+    @parameterized.expand(
+        [
+            ("stopped_run", "stopped", True, True),
+            ("busy_notebook", "busy", False, True),
+            ("missing_cell", "missing_cell", True, False),
+        ]
+    )
+    def test_dispatch_reports_only_unexpected_failures(
+        self, _start: MagicMock, _flag: MagicMock, _name: str, case: str, non_retryable: bool, expected: bool
+    ) -> None:
+        run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
+        index = 9 if case == "missing_cell" else 0
+        if case == "stopped":
+            self.client.post(f"{self.runs_url}{run_id}/interrupt/")
+
+        with (
+            patch(
+                "products.notebooks.backend.temporal.notebook_run.dispatch_node_run",
+                side_effect=NotebookRunBusy("busy"),
+            ),
+            self.assertRaises(ApplicationError) as raised,
+        ):
+            dispatch_notebook_cell_activity(
+                NotebookRunCellInput(notebook_run_id=run_id, team_id=self.team.id, index=index)
+            )
+
+        assert raised.exception.non_retryable == non_retryable
+        assert is_expected_activity_failure(raised.exception) == expected
 
     def test_a_stopped_run_leaves_the_notebook_free_to_run_again(self, _start, _flag) -> None:
         run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
