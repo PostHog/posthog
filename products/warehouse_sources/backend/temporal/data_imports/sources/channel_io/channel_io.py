@@ -292,6 +292,10 @@ def message_rows(
         # Staged before this page's rows, so an empty page or a page of deleted chats still moves the cursor on.
         checkpoint(0, first_message_cursor)
         for index, chat in enumerate(chats):
+            # Every chat before this one is written, including a deleted chat that answered 404 and yielded nothing.
+            if index:
+                checkpoint(index, None)
+            manager.safe_point()
             chat_desk_updated_at = to_datetime(chat["deskUpdatedAt"])
             message_cursor = first_message_cursor if index == 0 else None
             next_page: dict[str, str | None] = {}

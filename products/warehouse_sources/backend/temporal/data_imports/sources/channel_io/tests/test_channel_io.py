@@ -162,9 +162,12 @@ def test_messages_fan_out_per_chat_carry_the_chat_activity_time_and_skip_a_delet
     assert result.rows[0]["userChatDeskUpdatedAt"] == datetime(2024, 3, 29, 3, 28, 35, tzinfo=UTC)
     assert result.rows[2]["userChatDeskUpdatedAt"] == datetime(2024, 3, 29, 3, 28, 37, tzinfo=UTC)
     remaining = [{"id": chat["id"], "deskUpdatedAt": chat["deskUpdatedAt"]} for chat in chats]
-    assert result.committed_states[:2] == [
+    assert result.committed_states[:4] == [
+        ChannelIOResumeConfig(pending_chats=remaining, started_at_ms=NOW_MS),
         ChannelIOResumeConfig(pending_chats=remaining, message_cursor="m2", started_at_ms=NOW_MS),
         ChannelIOResumeConfig(pending_chats=remaining[1:], started_at_ms=NOW_MS),
+        # The deleted chat yields no rows, and the run still commits past it before the next chat.
+        ChannelIOResumeConfig(pending_chats=remaining[2:], started_at_ms=NOW_MS),
     ]
 
 
