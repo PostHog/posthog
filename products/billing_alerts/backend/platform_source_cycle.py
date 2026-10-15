@@ -113,7 +113,7 @@ def _decide(
     now: datetime,
     statuses: dict[UUID, _BillingStatus],
 ) -> PlatformAlertOutcome:
-    snapshot = _snapshot(check)
+    snapshot = _snapshot(check, alert)
     if alert is None:
         # The billing alert is gone or has moved to another team, so this copy can never run again.
         return _skipped(check, snapshot, now=now, disable=True)
@@ -131,7 +131,9 @@ def _decide(
     try:
         amount = current_period_amount(alert, status.response)
     except BillingAlertEvaluationError as error:
-        failed = CheckInput(threshold_breached=False, error_message=str(error), muted=muted)
+        # Billing's response, not the alert, is at fault, so it must not count toward breaking the copy:
+        # a broken copy stays out of discovery after billing recovers.
+        failed = CheckInput(threshold_breached=False, error_message=str(error), is_transient_error=True, muted=muted)
         return _verdict(check, snapshot, failed, now=now, skip=SkipReason.QUERY_FAILED)
 
     if amount is None:
@@ -148,12 +150,13 @@ def _decide(
     )
 
 
-def _snapshot(check: PlatformAlertCheckInput) -> AlertSnapshot:
+def _snapshot(check: PlatformAlertCheckInput, alert: BillingAlertConfiguration | None) -> AlertSnapshot:
     return AlertSnapshot(
         state=AlertState(check.state),
         cooldown=timedelta(minutes=check.cooldown_minutes),
         last_notified_at=check.last_notified_at,
-        snooze_until=check.snooze_until,
+        # The billing row's snooze, because the copy keeps the one the backfill saw after a user clears it.
+        snooze_until=alert.snoozed_until if alert is not None else check.snooze_until,
         consecutive_failures=check.consecutive_failures,
         firing_started_at=check.firing_started_at,
     )
