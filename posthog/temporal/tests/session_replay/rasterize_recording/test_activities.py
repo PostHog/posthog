@@ -53,6 +53,7 @@ def _make_asset(
     asset.export_format = export_format
     asset.content_location = content_location
     asset.source_authentication = None
+    asset.is_system = False
     asset.save = MagicMock()
     return asset
 
@@ -600,8 +601,10 @@ class TestFinalizeRasterization:
         defaults.update(overrides)
         return RasterizationActivityOutput(**defaults)
 
-    def test_happy_path(self):
+    @parameterized.expand([("system render", True), ("user export", False)])
+    def test_happy_path(self, _name: str, is_system: bool):
         asset = _make_asset(pk=42, export_context={"session_recording_id": "s1"})
+        asset.is_system = is_system
         navigation = [
             NavigationChange(
                 video_s=3.0, session_s=95.5, window_id="w-a", window_number=1, url="https://ex.com/billing"
@@ -622,7 +625,8 @@ class TestFinalizeRasterization:
         assert asset.export_context["file_size_bytes"] == 12345
         assert asset.export_context["session_recording_id"] == "s1"
         assert asset.export_context["render_fingerprint"] == "abc1234567890def"
-        assert asset.export_context["navigation"] == [n.model_dump() for n in navigation]
+        # Visited URLs would reach the exports API through a user's own video export.
+        assert asset.export_context.get("navigation") == ([n.model_dump() for n in navigation] if is_system else None)
         asset.save.assert_called_once_with(
             update_fields=["content_location", "export_context", "exception", "exception_type", "failure_type"]
         )

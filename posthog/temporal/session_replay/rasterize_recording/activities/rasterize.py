@@ -250,10 +250,12 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
                     "truncated",
                     "file_size_bytes",
                     "inactivity_periods",
-                    "navigation",
                 }
             )
         )
+        # The URLs a session visited stay on system renders, which the exports API never lists to users.
+        if asset.is_system:
+            asset.export_context["navigation"] = [change.model_dump() for change in result.navigation]
         asset.export_context[_RENDER_FINGERPRINT_KEY] = inputs.render_fingerprint
 
         asset.exception = None
