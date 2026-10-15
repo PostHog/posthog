@@ -38,5 +38,5 @@ def _set_team_scope(request):
 def _skip_stored_ci_refresh():
     # Celery runs tasks eagerly in tests, so the refresh a read starts would run every insert inside
     # the read. Tests of stored reads store their days themselves (see _StoredCiRowsMixin).
-    with patch("products.engineering_analytics.backend.logic.queries._curated.refresh_ci_precompute"):
+    with patch("products.engineering_analytics.backend.logic.queries._curated._start_refresh"):
         yield

@@ -89,7 +89,7 @@ class TestStoredReads(BaseTest):
 
         with (
             patch(f"{_CI_PRECOMPUTE}.cache", LocMemCache(self.id(), {})),
-            patch(f"{_CURATED}.refresh_ci_precompute") as mock_refresh,
+            patch(f"{_CURATED}._start_refresh") as mock_refresh,
             patch(f"{_CI_PRECOMPUTE}.ensure_stored", **lookup),
             patch(f"{_CURATED}.execute_hogql_query", side_effect=execute) as mock_execute,
         ):
@@ -103,4 +103,4 @@ class TestStoredReads(BaseTest):
         assert [call.kwargs["query_type"] for call in mock_execute.call_args_list] == expected_reads
         # The first read that can take the stored rows starts a refresh, because no load refreshed them
         # while the team was not in use.
-        assert mock_refresh.delay.call_count == 1
+        assert mock_refresh.call_count == 1

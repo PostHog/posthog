@@ -74,7 +74,6 @@ from products.engineering_analytics.backend.logic.views import (
     workflow_jobs,
     workflow_runs,
 )
-from products.engineering_analytics.backend.tasks.tasks import refresh_ci_precompute
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -146,6 +145,13 @@ def _stored_rows_rejected(error: Exception) -> bool:
         not isinstance(error, (*CH_TRANSIENT_ERRORS, UnknownPacketFromServerError, UnexpectedPacketFromServerError))
         and classify_query_error(error) in _STORED_READ_REJECTED
     )
+
+
+def _start_refresh(team: Team) -> None:
+    # The tasks module imports the logic package, so a module-level import of it here is circular.
+    from products.engineering_analytics.backend.tasks.tasks import refresh_ci_precompute  # noqa: PLC0415
+
+    refresh_ci_precompute.delay(team_id=team.pk)
 
 
 _READY_BY_PR_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
@@ -610,7 +616,7 @@ class CuratedGitHubSource:
             if depot != self._depot_job_attempts() or not self._may_read(filter(None, raw_tables)):
                 return None
         if mark_in_use(self._team):
-            refresh_ci_precompute.delay(team_id=self._team.pk)
+            _start_refresh(self._team)
         return StoredCiReader(self._team, source)
 
     def runs_cte(self) -> str:
