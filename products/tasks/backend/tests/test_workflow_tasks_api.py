@@ -15,6 +15,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -24,6 +25,7 @@ from posthog.models.team.team import Team
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from posthog.test.authentication_checks import covers_authentication
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
 from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
 from products.signals.backend.models import SignalReport
@@ -43,6 +45,11 @@ from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.presentation.views.workflow_tasks import WorkflowTasksJWTAuthentication
 
 SECRET = "test-tasks-create-jwt"
+
+INBOX_REPORT_TRIGGER = {
+    "type": "internal-event",
+    "filters": {"source": "internal-events", "events": [{"id": "$inbox_report_ready", "type": "events"}]},
+}
 
 
 def _token(
@@ -79,6 +86,15 @@ class TestWorkflowTasksAPI(APIBaseTest):
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {token or _token(self.team.id, str(self.hog_flow.id))}",
         )
+
+    def _start_from_inbox_reports(self, trigger: dict = INBOX_REPORT_TRIGGER) -> None:
+        self.hog_flow = create_workflow_for_test(
+            team_id=self.team.id, name="Inbox triage", created_by_id=self.user.id, trigger=trigger
+        )
+
+    def _post_for_inbox_report(self, report: SignalReport) -> Any:
+        Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+        return self._post({"inbox_report_id": str(report.id), "repository": "posthog/posthog"})
 
     def _seed_workflow_task(self, run_status: str) -> Task:
         task = Task.objects.create(
@@ -618,6 +634,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
     def test_claims_the_triggering_inbox_report_for_the_task(
         self, _name: str, send_report_id: bool, with_repository: bool, claimed: bool
     ) -> None:
+        self._start_from_inbox_reports()
         report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.READY, signal_count=1, total_weight=1.0
         )
@@ -638,7 +655,44 @@ class TestWorkflowTasksAPI(APIBaseTest):
         else:
             assert claim is None
 
+    @parameterized.expand(
+        [
+            ("a manual trigger", {"type": "manual"}, False, "not_inbox_trigger"),
+            (
+                "a captured product event with the same name",
+                {"type": "event", "filters": {"events": [{"id": "$inbox_report_ready", "type": "events"}]}},
+                False,
+                "not_inbox_trigger",
+            ),
+            ("an owner who cannot read Inbox reports", INBOX_REPORT_TRIGGER, True, "no_report_access"),
+        ]
+    )
+    def test_does_not_claim_a_report_the_workflow_may_not_claim(
+        self, _name: str, trigger: dict, deny_report_access: bool, reason: str
+    ) -> None:
+        self._start_from_inbox_reports(trigger)
+        if deny_report_access:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            AccessControl.objects.create(team=self.team, resource="task", access_level="none")
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, signal_count=1, total_weight=1.0
+        )
+
+        response = self._post_for_inbox_report(report)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert get_active_claim(team_id=self.team.id, report_id=report.id) is None
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state["inbox_report_claim"] == {"report_id": str(report.id), "claimed": False, "reason": reason}
+
     def test_runs_without_a_claim_when_signals_already_holds_the_report(self) -> None:
+        self._start_from_inbox_reports()
         report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.READY, signal_count=1, total_weight=1.0
         )
@@ -664,6 +718,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         ]
     )
     def test_finishing_the_run_settles_the_inbox_report_claim(self, _name: str, pr_url: str | None) -> None:
+        self._start_from_inbox_reports()
         report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.READY, signal_count=1, total_weight=1.0
         )

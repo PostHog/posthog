@@ -3629,6 +3629,43 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("live_run_by_a_member_who_reads_reports", False, False, 200),
+            ("live_run_by_a_member_without_report_access", False, True, 403),
+            ("mocked_run_by_a_member_without_report_access", True, True, 200),
+        ]
+    )
+    def test_live_test_invocation_of_an_inbox_report_workflow_requires_report_read_access(
+        self, _name: str, mock_async_functions: bool, deny_report_access: bool, expected_status: int
+    ) -> None:
+        # A live run can create a task that claims the report named in the forged event.
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Triage Inbox reports", "status": "active", "actions": [self._inbox_report_trigger_action()]},
+            format="json",
+        )
+        assert created.status_code == 201, created.json()
+        if deny_report_access:
+            self._deny_report_access()
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/invocations/",
+                {
+                    "globals": {"event": {"event": "$inbox_report_ready", "properties": {"report_id": "r"}}},
+                    "mock_async_functions": mock_async_functions,
+                },
+                format="json",
+            )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 403:
+            assert "task:read" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
             ("member_who_reads_reports", None, False, True),
             ("member_without_report_access", None, True, False),
             ("api_key_with_report_read", ["hog_flow:read", "task:read"], False, True),

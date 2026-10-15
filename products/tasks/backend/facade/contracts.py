@@ -894,6 +894,22 @@ class WorkflowTaskSlackContext:
     is_ext_shared_channel: bool = False
 
 
+class InboxReportClaimSkipReason(StrEnum):
+    NOT_INBOX_TRIGGER = "not_inbox_trigger"
+    NO_REPORT_ACCESS = "no_report_access"
+
+
+@dataclass(frozen=True, kw_only=True)
+class WorkflowTaskInboxReport:
+    """The Inbox report that started the workflow run.
+
+    ``claim_skip_reason`` is set when the workflow may not claim the report for its task.
+    """
+
+    report_id: str
+    claim_skip_reason: InboxReportClaimSkipReason | None = None
+
+
 @dataclass(frozen=True)
 class DesktopBetaTermsAcceptanceDTO:
     is_desktop_beta_terms_accepted: bool

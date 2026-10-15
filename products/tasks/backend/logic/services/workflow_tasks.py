@@ -163,7 +163,7 @@ def create_workflow_task(
     slack_context: contracts.WorkflowTaskSlackContext | None = None,
     rate_limits: contracts.WorkflowTaskRateLimits | None = None,
     output_schema: dict[str, Any] | None = None,
-    inbox_report_id: str | None = None,
+    inbox_report: contracts.WorkflowTaskInboxReport | None = None,
 ) -> contracts.WorkflowTaskDTO:
     """Create a workflow-origin task and start its agent run.
 
@@ -199,9 +199,9 @@ def create_workflow_task(
     `output_schema` is the schema `build_output_schema` made from the step's output fields. It
     becomes `Task.json_schema`, which the agent runtime enforces at the end of the run.
 
-    `inbox_report_id` names the Inbox report that triggered the run. A task with a repository
-    claims it, so the report shows the task and its pull request. A report another actor already
-    holds keeps its claim, and the task runs without one.
+    `inbox_report` names the Inbox report that triggered the run. A task with a repository claims
+    it, so the report shows the task and its pull request, unless the caller set a reason to skip
+    the claim. A report another actor already holds keeps its claim, and the task runs without one.
     """
     replay = _find_replayed_task(team.id, hog_flow_id, origin_key)
     if replay is not None:
@@ -402,8 +402,8 @@ def create_workflow_task(
                 _bind_slack_thread(team=team, task=task, binding=slack_binding)
                 _acknowledge_trigger_message(slack_binding)
 
-            if inbox_report_id is not None and repository:
-                claim_inbox_report(task, inbox_report_id)
+            if inbox_report is not None and repository:
+                claim_inbox_report(task, inbox_report)
     except IntegrityError:
         if origin_key is None:
             raise

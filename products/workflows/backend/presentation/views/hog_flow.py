@@ -278,6 +278,7 @@ from products.workflows.backend.facade.workflows import (
     get_workflow_edit_state,
     get_workflow_ref,
     list_workflows,
+    subscribes_to_inbox_reports,
     workflow_from_fields,
     workflow_publish_impact,
 )
@@ -925,13 +926,6 @@ def _may_read_inbox_reports(request: Request | None, team: Team) -> bool:
     if token_scopes is not None and not {"*", "task:read", "task:write"} & set(token_scopes):
         return False
     return may_read_reports(user=user, team=team)
-
-
-def _subscribes_to_inbox_reports(filters: object) -> bool:
-    events = filters.get("events") if isinstance(filters, dict) else None
-    return isinstance(events, list) and any(
-        isinstance(event, dict) and event.get("id") == INBOX_REPORT_READY_EVENT for event in events
-    )
 
 
 def _once_per_inbox_report_masking() -> dict[str, Any]:
@@ -1672,7 +1666,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                                 "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
                             }
                         )
-                if _subscribes_to_inbox_reports(filters) and not _may_read_inbox_reports(
+                if subscribes_to_inbox_reports(filters) and not _may_read_inbox_reports(
                     self.context.get("request"), self.context["get_team"]()
                 ):
                     raise serializers.ValidationError({"filters": INBOX_REPORT_ACCESS_MESSAGE})
@@ -3158,7 +3152,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         # Kafka redelivers, and Signals re-emits a report it already announced. Masking on the report keeps
         # one run per report, so it replaces whatever masking the caller sent.
-        if _subscribes_to_inbox_reports(data["trigger"].get("filters")):
+        if subscribes_to_inbox_reports(data["trigger"].get("filters")):
             data["trigger_masking"] = _once_per_inbox_report_masking()
 
         # Compute and store unique billable action types for efficient quota checking
@@ -4686,7 +4680,7 @@ class HogFlowViewSet(
         `person:read` and `group:read` on top of `hog_flow:write`.
         """
         hog_flow = self._workflow_ref()
-        if _subscribes_to_inbox_reports(hog_flow.trigger_filters) and not _may_read_inbox_reports(request, self.team):
+        if subscribes_to_inbox_reports(hog_flow.trigger_filters) and not _may_read_inbox_reports(request, self.team):
             raise exceptions.PermissionDenied(INBOX_REPORT_ACCESS_MESSAGE)
 
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
@@ -5794,6 +5788,14 @@ class HogFlowViewSet(
         serializer.is_valid(raise_exception=True)
 
         payload = dict(serializer.validated_data)
+        if (
+            not payload["mock_async_functions"]
+            and hog_flow is not None
+            and isinstance(hog_flow.trigger, dict)
+            and subscribes_to_inbox_reports(hog_flow.trigger.get("filters"))
+            and not _may_read_inbox_reports(request, self.team)
+        ):
+            raise exceptions.PermissionDenied(INBOX_REPORT_ACCESS_MESSAGE)
         if payload.pop("use_draft", False):
             # The staged draft was validated when written, so it goes to the executor inline exactly
             # like an explicit configuration override — workers never read (or cache) the draft column.
