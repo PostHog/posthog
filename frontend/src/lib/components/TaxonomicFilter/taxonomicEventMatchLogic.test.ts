@@ -296,6 +296,7 @@ describe('taxonomicEventMatchLogic', () => {
 
         expect(matchRequests).toHaveLength(1)
         expect(logic.values.suggestedEvents).toEqual([])
+        expect(logic.values.isMatching).toBe(false)
         // A 404 must not make the test arm look less exposed than control.
         expect(captureSpy.mock.calls.filter(([event]) => event === ELIGIBLE_EVENT)).toHaveLength(2)
     })
@@ -326,6 +327,7 @@ describe('taxonomicEventMatchLogic', () => {
             enroll(variant)
             const captureSpy = jest.spyOn(posthog, 'capture')
 
+            // A prefix typed before the pause ends must not count as a search.
             filterLogic.actions.setSearchQuery('browser')
             await search('browser capture')
             logic.unmount()
@@ -385,6 +387,16 @@ describe('taxonomicEventMatchLogic', () => {
         {
             picker: 'events and event properties',
             taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            hint: { kind: 'value' },
+        },
+        {
+            picker: 'events and person properties',
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
+            hint: { kind: 'value' },
+        },
+        {
+            picker: 'events and session properties',
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.SessionProperties],
             hint: { kind: 'value' },
         },
     ])(
