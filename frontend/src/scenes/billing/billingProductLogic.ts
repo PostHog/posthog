@@ -102,6 +102,7 @@ export interface billingProductLogicValues {
     isUnlicensedDebug: boolean // billingLogic
     platformAddons: BillingProductV2AddonType[] // billingLogic
     scrollToProductKey: ProductKey | null // billingLogic
+    selfServeBillingNotice: string | null // billingLogic
     timeRemainingInSeconds: number // billingLogic
     timeTotalInSeconds: number // billingLogic
     unsubscribeError: UnsubscribeError | null // billingLogic
@@ -587,6 +588,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'timeRemainingInSeconds',
                 'timeTotalInSeconds',
                 'unusedPlatformAddonAmount',
+                'selfServeBillingNotice',
             ],
             featureFlagLogic,
             ['featureFlags'],
@@ -1304,6 +1306,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
         },
         handleProductUpgrade: async ({ products, redirectPath }) => {
             try {
+                if (values.selfServeBillingNotice) {
+                    lemonToast.info(values.selfServeBillingNotice)
+                    return
+                }
                 await paymentEntryLogic.asyncActions.upgradeProducts(products, redirectPath || null)
             } finally {
                 actions.setBillingProductLoading(null)
