@@ -429,13 +429,17 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
 
 
 def disable_configurations(source_kind: str, *, team_id: int | None = None) -> int:
-    """Switches off a source's copies, or one team's, and returns how many it switched off.
+    """Switches off a source's parallel-run copies, or one team's, and returns how many it switched off.
 
     Rows, state and history stay, so a comparison can still read what ran. Discovery and the batch
     read both skip a disabled row, so no new check starts after this. Checks already running finish.
     """
-    # Cross-team on purpose, for an operator stopping a whole source at once.
-    rows = PlatformAlertConfiguration.objects.unscoped().filter(source_kind=source_kind, enabled=True)
+    # Cross-team on purpose, for an operator stopping a whole source at once. Only copies the source
+    # still owns: once the platform owns an alert, its copy is the production alert, and switching it
+    # off would silence real notifications rather than stop a parallel check.
+    rows = PlatformAlertConfiguration.objects.unscoped().filter(
+        source_kind=source_kind, enabled=True, owner=PlatformAlertOwner.SOURCE
+    )
     if team_id is not None:
         rows = rows.filter(team_id=team_id)
     return rows.update(enabled=False)
