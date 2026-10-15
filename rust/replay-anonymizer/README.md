@@ -6,6 +6,7 @@ Consumers:
 
 - `replay-anonymizer-node` (this workspace) wraps it as a Neon addon for the Node ingestion workers.
 - The MLHog training pipelines consume it from crates.io.
+- `replay-core-v4` (this workspace) reads raw v4 recordings with its byte scanner (`scan`) and codecs (`compression`), without scrubbing.
 
 Behavior is pinned by the JSON fixtures under `tests/fixtures/`, shared with the Node addon's Jest suite. Scrubbing operates on untrusted input; the public entry points contain panics and convert them to errors, so callers fail closed (drop the message) without their own `catch_unwind`. Under `panic = "abort"` that backstop cannot run — builds that must fail closed need `panic = "unwind"`.
 
