@@ -10874,6 +10874,14 @@ snapshots:
         hash: v1.k794b7964.9d4260c0f995e7dab1dce843dea2bb4d65cde7985de37c3d9c22bc1076e99222.0K0DVWC3ZQ2Azz6yFsqNOS-6TDOAzN1irTWpegrFNks
     scenes-app-heatmap--generating--light:
         hash: v1.k794b7964.3bb8caf591d48254690d88d7fd91f56d37f174fd436856e05068fc48b6447c8c.sj0fwc61KHPb3o_hlXH-J5n47Aa8TVTmCRmQvWWcaDM
+    scenes-app-heatmap--historical-day--dark:
+        hash: v1.k794b7964.2e4ffd7d5626936008038af691026115e73084a3b60fc1566b7b3b853c951c22.J5o3V5sje7hrWnHfIxFv8CZ-js6Gmm59OjPIGRDvdDQ
+    scenes-app-heatmap--historical-day--light:
+        hash: v1.k794b7964.50014e66961df3b9b4ff6ae15fb699dce99914b489144448ecce5c20c2cad474.imke0qNh5hu3gsKYEfmjLnOHqnzP5FJ_8mF1eFBPYq8
+    scenes-app-heatmap--historical-day-narrow--dark:
+        hash: v1.k794b7964.975049d7b4e3f60a43f8bf05ff6156372e84bc02ed4220d435aeddd6bd9710ea.OJF7JsONehAysRwV14mVAZjQmVP2Fu3V5DZ6GDtM2pI
+    scenes-app-heatmap--historical-day-narrow--light:
+        hash: v1.k794b7964.6b2487ec31c787c26982f8860229a20d407d5b4313aa8f11da9a7afdca7bf9e8.g-rTb-3eQKxQayKSRoAgci6m9YYHwPCNT_Tz_whTHi0
     scenes-app-heatmap--iframe-example--dark:
         hash: v1.k794b7964.edc8641f41da1365aaa55e532b36b6fe272234b86f6ce1ef317d0d3d586eac79.kgs_gmdNN7IN2c8RZPsQrShFeZ8ChwmTy0atI73o1ws
     scenes-app-heatmap--iframe-example--light:
@@ -10886,6 +10894,10 @@ snapshots:
         hash: v1.k794b7964.cfd075c10189496c867372e36391cf5985948fe5a8137c434545f5825b15ac7e.IUvQTi7vHNPSGeWj-q6upJsHMLU3UpumxHwGBndOhYE
     scenes-app-heatmap--new--light:
         hash: v1.k794b7964.ec5a5410104285363cbd9367af0620e4e9674399712a898f32cc400fa7a993e7.I9v4DCi_Vj_NoXXOcFYninqMnCS3vrIk9uN6cBPEBtk
+    scenes-app-heatmap--page-history--dark:
+        hash: v1.k794b7964.f76d7aa4688924fb38b129a7ef371bf056f45dfa662823cd394a5e29f2039015.V5cgLSSLk_vGCvcoN7TPnKbbn-VYRno8f0AefSYbqJg
+    scenes-app-heatmap--page-history--light:
+        hash: v1.k794b7964.aa5526deff5fbfd96d91993227dd123a7fb6edcb2b3702f5b0e2ea0295969de2.xZfKHj2RTpsL-AJZ5bmN9iTqdigEP94NtDKmIwRLUUI
     scenes-app-heatmap--page-settings-dialog--dark:
         hash: v1.k794b7964.4ec34661c29e460870e68fb4e5c372b3df3dd26c62289881c2636aa9018e8fb7.wA3prs5fChc4NeAfoN2lJS1iM0HN5Wrp0s0-r9B0jzA
     scenes-app-heatmap--page-settings-dialog--light:
