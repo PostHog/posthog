@@ -79,7 +79,9 @@ Put the header and the TL;DR in the initial markdown, then add one cell per sect
 5. **Focus area:** where they are, evidence of need, what they already built, limits, and 4–6 questions to ask. This is the section the reader came for.
 6. **Stack and workflows:** tools they name, how data moves, what stays outside PostHog, then a SQL cell for connected tools.
 7. **Last 60 days:** shared channel newest first, recorded calls, internal threads. One line per thread, each with its permalink.
-8. **Open threads and risks**, then **Sources checked** with what each source returned.
+8. **Open threads and risks:** one item per open topic, with links to the unanswered message, the full thread, any internal escalation, and an open ticket (`generate-app-url` with `/support/tickets/{ticketId}`).
+   Link a reply inside a thread as `p<reply ts>?thread_ts=<thread ts>&cid=<CHANNEL_ID>`.
+   Then **Sources checked** with what each source returned.
 
 Keep SQL cells for numbers a reader may want to re-run. Write prose for conversations; do not paste raw message dumps.
 Fix a wrong statement in place with `notebooks-update-cell` (markdown cells take `markdown`), so the link stays the same.
