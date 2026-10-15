@@ -184,6 +184,8 @@ describe('replayScannerLogic', () => {
                 experiment_targeting: null,
             })
             expect(logic.values.scanner?.query).toMatchObject({ events: query.events })
+            // The experiment fixes the type, so the wizard offers no other type and no template step.
+            expect(logic.values.lockedToExperimentScanner).toBe(true)
         })
     })
 
@@ -477,6 +479,7 @@ describe('replayScannerLogic', () => {
             expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 } })
             // The goal page and template step promise to keep watching only a linked experiment.
             expect(logic.values.linkedExperimentContext).toBeNull()
+            expect(logic.values.lockedToExperimentScanner).toBe(false)
             router.actions.push(urls.replayVisionScannerTemplate('new'))
 
             await expectLogic(logic, () =>

@@ -517,6 +517,7 @@ export interface replayScannerLogicValues {
     isScannerSubmitting: boolean
     isScannerValid: boolean
     linkedExperimentContext: ExperimentScannerContext | null
+    lockedToExperimentScanner: boolean
     observationBackfillFilter: string | null
     observationDateFrom: string | null
     observationDateTo: string | null
@@ -960,6 +961,10 @@ export interface replayScannerLogicMeta {
             experimentContext: ExperimentScannerContext | null,
             experimentContextLinked: boolean
         ) => ExperimentScannerContext | null
+        lockedToExperimentScanner: (
+            linkedExperimentContext: ExperimentScannerContext | null,
+            scanner: ScannerFormValues
+        ) => boolean
         hasUnsavedChanges: (scanner: ScannerFormValues, originalScanner: ScannerFormValues | null) => boolean
         hasObservationsInFlight: (observationStatsApi: ObservationStatsApi | null) => boolean
         hasActiveObservationFilters: (
@@ -1738,6 +1743,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 experimentContext: ExperimentScannerContext | null,
                 experimentContextLinked: boolean
             ): ExperimentScannerContext | null => (experimentContextLinked ? experimentContext : null),
+        ],
+        // Started from an experiment as an experiment scanner: the experiment fixes the type, so the
+        // wizard offers no other type and no template step.
+        lockedToExperimentScanner: [
+            (s) => [s.linkedExperimentContext, s.scanner],
+            (linkedExperimentContext: ExperimentScannerContext | null, scanner: ScannerFormValues | null): boolean =>
+                !!linkedExperimentContext && scanner?.scanner_type === 'experiment',
         ],
         hasUnsavedChanges: [
             (s) => [s.scanner, s.originalScanner],
