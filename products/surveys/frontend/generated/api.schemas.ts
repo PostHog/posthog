@@ -1251,19 +1251,6 @@ export interface SurveyEventsConditionSchemaApi {
     values?: SurveyConditionEventValueSchemaApi[]
 }
 
-/**
- * * `Desktop` - Desktop
- * * `Mobile` - Mobile
- * * `Tablet` - Tablet
- */
-export type DeviceTypesEnumApi = (typeof DeviceTypesEnumApi)[keyof typeof DeviceTypesEnumApi]
-
-export const DeviceTypesEnumApi = {
-    Desktop: 'Desktop',
-    Mobile: 'Mobile',
-    Tablet: 'Tablet',
-} as const
-
 export interface SurveyConditionsSchemaApi {
     url?: string
     selector?: string
@@ -1282,8 +1269,8 @@ export interface SurveyConditionsSchemaApi {
      * * `not_icontains` - not_icontains */
     urlMatchType?: SurveyMatchTypeEnumApi
     events?: SurveyEventsConditionSchemaApi
-    /** Device types that should match for this survey to be shown. */
-    deviceTypes?: DeviceTypesEnumApi[]
+    /** Device types that should match for this survey to be shown. Canonical values are 'Desktop', 'Mobile' and 'Tablet'. Any string or regex pattern is accepted and is matched with deviceTypesMatchType. */
+    deviceTypes?: string[]
     /** URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).
      *
      * * `regex` - regex
