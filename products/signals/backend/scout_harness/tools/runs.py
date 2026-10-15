@@ -43,8 +43,8 @@ if TYPE_CHECKING:
 DEFAULT_RUN_SEARCH_LIMIT = 20
 MAX_RUN_SEARCH_LIMIT = 100
 
-# The columns `_to_summary` reads. The joined TaskRun row carries large JSON columns (`output`,
-# `artifacts`, `state`) that no run read uses, and loading them made every list read hit disk.
+# The columns `_to_summary` reads, so the run reads skip the large TaskRun JSON columns (`output`,
+# `artifacts`, `state`). Add a field here when `_to_summary` reads it, or each row costs one more query.
 RUN_SUMMARY_FIELDS = (
     "id",
     "skill_name",
