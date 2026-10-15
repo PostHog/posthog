@@ -79,7 +79,8 @@ async function waitForSlices(): Promise<void> {
 }
 
 describe('SqlPieGraph', () => {
-    it('keeps null and empty breakdown aliases on separate slices', async () => {
+    it('keeps aliased slices distinct and reuses their data when settings open', async () => {
+        let aliasReads = 0
         const field = (name: string): BIField => ({
             id: name,
             name,
@@ -98,13 +99,20 @@ describe('SqlPieGraph', () => {
                 {
                     field: region,
                     aliases: [
-                        { value: null, label: 'Missing' },
+                        {
+                            value: null,
+                            get label(): string {
+                                aliasReads++
+                                return 'Missing'
+                            },
+                        },
                         { value: '', label: 'Blank' },
                     ],
                 },
             ],
         }
         renderDataVisualization({
+            readOnly: false,
             query: {
                 ...buildBIQuery(config)!.node,
                 kind: NodeKind.BIVisualizationNode,
@@ -130,6 +138,10 @@ describe('SqlPieGraph', () => {
             },
         })
         await waitForSlices()
+        expect(sliceLabelLines()).toEqual([['Missing'], ['Blank']])
+        const readsBeforeSettings = aliasReads
+        await userEvent.click(screen.getByRole('button', { name: 'Visualization settings' }))
+        expect(aliasReads).toBe(readsBeforeSettings)
         expect(sliceLabelLines()).toEqual([['Missing'], ['Blank']])
     })
     it('defaults to values and the total when slice content is unset (existing chart)', async () => {
