@@ -6978,7 +6978,7 @@
         }
     },
     "inbox-report-artefacts-list": {
-        "description": "List every artefact on a signal report — the full picture of why it exists and what has been done about it: `signal_finding` entries (the evidence behind the report), status judgments (safety / actionability / priority, repo_selection, suggested_reviewers — the newest row of each status type is the canonical status), and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or adding to the log.",
+        "description": "List every artefact on a signal report — the full picture of why it exists and what has been done about it: `signal_finding` entries (the evidence behind the report), status judgments (safety / actionability / priority, repo_selection, suggested_reviewers — the newest row of each status type is the canonical status), and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or adding to the log. `ranking_score` entries are compact: each model keeps its scores, lifts, and head readability, but not its training metadata. Use inbox-report-artefacts-retrieve to read one in full.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's artefacts",
@@ -6992,7 +6992,7 @@
         }
     },
     "inbox-report-artefacts-retrieve": {
-        "description": "Get one artefact by id. Content is parsed (and suggested_reviewers enriched with PostHog user info) the same way as inbox-report-artefacts-list.",
+        "description": "Get one artefact by id. Content is parsed (and suggested_reviewers enriched with PostHog user info) the same way as inbox-report-artefacts-list. A `ranking_score` keeps its full model metadata, including training and evaluation data.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get a single artefact",
