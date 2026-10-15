@@ -141,12 +141,17 @@ class TestStoredReads(BaseTest):
             ("stored_rows_newer_than_the_sync", True, timedelta(minutes=1), True, timedelta(minutes=5)),
             # The CI cards read runs alone, so stored runs bound the age without stored jobs.
             ("only_the_runs_are_stored", True, timedelta(minutes=30), False, timedelta(minutes=30)),
-            ("flag_off", False, timedelta(minutes=30), True, timedelta(minutes=5)),
+            ("no_day_is_stored", False, timedelta(minutes=30), False, timedelta(minutes=5)),
             ("the_stored_days_lookup_fails", True, OperationalError("down"), True, timedelta(minutes=5)),
         ]
     )
     def test_ci_data_freshness_is_as_old_as_the_stored_rows_reads_take(
-        self, _name: str, flag: bool, stored_age: timedelta | Exception, jobs_stored: bool, expected_age: timedelta
+        self,
+        _name: str,
+        runs_stored: bool,
+        stored_age: timedelta | Exception,
+        jobs_stored: bool,
+        expected_age: timedelta,
     ) -> None:
         now = timezone.now()
         ExternalDataSchema.objects.filter(team=self.team).update(last_synced_at=now - timedelta(minutes=5))
@@ -154,13 +159,12 @@ class TestStoredReads(BaseTest):
         def lookup(stored: Any, *_args: Any, **_kwargs: Any) -> SimpleNamespace:
             if isinstance(stored_age, Exception):
                 raise stored_age
-            ready = jobs_stored or stored is STORED_RUNS
+            ready = runs_stored if stored is STORED_RUNS else jobs_stored
             return SimpleNamespace(ready=ready, job_ids=[uuid4()], computed_at=now - stored_age)
 
         with (
             patch(f"{_CI_PRECOMPUTE}.cache", LocMemCache(self.id(), {})),
             patch(f"{_CURATED}.refresh_ci_precompute"),
-            patch(f"{_CURATED}.team_flag", return_value=flag),
             patch(f"{_CI_PRECOMPUTE}.history_start", return_value=now - timedelta(days=400)),
             patch(f"{_CI_PRECOMPUTE}.ensure_stored", side_effect=lookup),
         ):
