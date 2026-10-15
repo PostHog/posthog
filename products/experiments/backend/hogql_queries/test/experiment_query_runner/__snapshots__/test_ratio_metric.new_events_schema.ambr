@@ -355,7 +355,8 @@
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
             least(greatest(percentiles.numerator_lower_bound, entity_metrics.numerator_value), percentiles.numerator_upper_bound) AS numerator_value,
-            least(greatest(percentiles.denominator_lower_bound, entity_metrics.denominator_value), percentiles.denominator_upper_bound) AS denominator_value
+            least(greatest(percentiles.denominator_lower_bound, entity_metrics.denominator_value), percentiles.denominator_upper_bound) AS denominator_value,
+            or(and(ifNull(equals(percentiles.numerator_upper_bound, 0), 0), ifNull(greater(entity_metrics.numerator_value, 0), 0)), and(ifNull(equals(percentiles.denominator_upper_bound, 0), 0), ifNull(greater(entity_metrics.denominator_value, 0), 0))) AS clamped_by_zero_upper_bound
      FROM entity_metrics
      CROSS JOIN percentiles)
   SELECT winsorized_entity_metrics.variant AS variant,
@@ -364,7 +365,8 @@
          sum(power(winsorized_entity_metrics.numerator_value, 2)) AS total_sum_of_squares,
          sum(winsorized_entity_metrics.denominator_value) AS denominator_sum,
          sum(power(winsorized_entity_metrics.denominator_value, 2)) AS denominator_sum_squares,
-         sum(multiply(winsorized_entity_metrics.numerator_value, winsorized_entity_metrics.denominator_value)) AS numerator_denominator_sum_product
+         sum(multiply(winsorized_entity_metrics.numerator_value, winsorized_entity_metrics.denominator_value)) AS numerator_denominator_sum_product,
+         max(winsorized_entity_metrics.clamped_by_zero_upper_bound) AS upper_bound_is_zero
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
   LIMIT 50000 SETTINGS readonly=2,
@@ -462,7 +464,8 @@
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
             least(greatest(percentiles.numerator_lower_bound, entity_metrics.numerator_value), percentiles.numerator_upper_bound) AS numerator_value,
-            least(greatest(percentiles.denominator_lower_bound, entity_metrics.denominator_value), percentiles.denominator_upper_bound) AS denominator_value
+            least(greatest(percentiles.denominator_lower_bound, entity_metrics.denominator_value), percentiles.denominator_upper_bound) AS denominator_value,
+            or(and(ifNull(equals(percentiles.numerator_upper_bound, 0), 0), ifNull(greater(entity_metrics.numerator_value, 0), 0)), and(ifNull(equals(percentiles.denominator_upper_bound, 0), 0), ifNull(greater(entity_metrics.denominator_value, 0), 0))) AS clamped_by_zero_upper_bound
      FROM entity_metrics
      CROSS JOIN percentiles)
   SELECT winsorized_entity_metrics.variant AS variant,
@@ -471,7 +474,8 @@
          sum(power(winsorized_entity_metrics.numerator_value, 2)) AS total_sum_of_squares,
          sum(winsorized_entity_metrics.denominator_value) AS denominator_sum,
          sum(power(winsorized_entity_metrics.denominator_value, 2)) AS denominator_sum_squares,
-         sum(multiply(winsorized_entity_metrics.numerator_value, winsorized_entity_metrics.denominator_value)) AS numerator_denominator_sum_product
+         sum(multiply(winsorized_entity_metrics.numerator_value, winsorized_entity_metrics.denominator_value)) AS numerator_denominator_sum_product,
+         max(winsorized_entity_metrics.clamped_by_zero_upper_bound) AS upper_bound_is_zero
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
   LIMIT 50000 SETTINGS readonly=2,
@@ -575,6 +579,7 @@
             entity_metrics.variant AS variant,
             least(greatest(percentiles.numerator_lower_bound, entity_metrics.numerator_value), percentiles.numerator_upper_bound) AS numerator_value,
             least(greatest(percentiles.denominator_lower_bound, entity_metrics.denominator_value), percentiles.denominator_upper_bound) AS denominator_value,
+            or(and(ifNull(equals(percentiles.numerator_upper_bound, 0), 0), ifNull(greater(entity_metrics.numerator_value, 0), 0)), and(ifNull(equals(percentiles.denominator_upper_bound, 0), 0), ifNull(greater(entity_metrics.denominator_value, 0), 0))) AS clamped_by_zero_upper_bound,
             entity_metrics.breakdown_value_1 AS breakdown_value_1
      FROM entity_metrics
      JOIN percentiles ON equals(percentiles.breakdown_value_1, entity_metrics.breakdown_value_1))
@@ -585,7 +590,8 @@
          sum(power(winsorized_entity_metrics.numerator_value, 2)) AS total_sum_of_squares,
          sum(winsorized_entity_metrics.denominator_value) AS denominator_sum,
          sum(power(winsorized_entity_metrics.denominator_value, 2)) AS denominator_sum_squares,
-         sum(multiply(winsorized_entity_metrics.numerator_value, winsorized_entity_metrics.denominator_value)) AS numerator_denominator_sum_product
+         sum(multiply(winsorized_entity_metrics.numerator_value, winsorized_entity_metrics.denominator_value)) AS numerator_denominator_sum_product,
+         max(winsorized_entity_metrics.clamped_by_zero_upper_bound) AS upper_bound_is_zero
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant,
            winsorized_entity_metrics.breakdown_value_1

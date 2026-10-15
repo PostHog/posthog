@@ -1,13 +1,24 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
 
-import { IconCopy, IconEllipsis, IconPencil, IconSort, IconStack, IconTarget, IconTrash } from '@posthog/icons'
+import {
+    IconCopy,
+    IconEllipsis,
+    IconPencil,
+    IconSort,
+    IconStack,
+    IconTarget,
+    IconTrash,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { getEventPropertiesForExperiment } from 'lib/utils/eventUsageLogic'
 import { experimentLogic, getSectionMetricUuids } from 'scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogic'
 import { isMetricThresholdCueVisible } from 'scenes/experiments/ExperimentMetricThreshold'
@@ -93,6 +104,34 @@ const AddBreakdownMenuItem = ({
     )
 }
 
+const OutlierHandlingWarningTag = ({
+    experiment,
+    metric,
+    message,
+}: {
+    experiment: Experiment
+    metric: ExperimentMetric
+    message: string
+}): JSX.Element => {
+    useEffect(() => {
+        posthog.capture('experiment metric outlier handling warning shown', {
+            ...getEventPropertiesForExperiment(experiment),
+            metric_uuid: metric.uuid,
+            metric_type: metric.metric_type,
+        })
+        // Capture once per metric, not on every experiment object change.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [experiment.id, metric.uuid])
+
+    return (
+        <Tooltip title={message}>
+            <LemonTag type="warning" size="small" icon={<IconWarning />}>
+                Values capped to 0
+            </LemonTag>
+        </Tooltip>
+    )
+}
+
 export const MetricHeader = ({
     dragHandle,
     displayOrder,
@@ -105,6 +144,7 @@ export const MetricHeader = ({
     onBreakdownChange,
     onDeleteMetricClick,
     readOnly,
+    outlierHandlingWarning,
 }: {
     dragHandle?: JSX.Element | null
     displayOrder?: number
@@ -117,6 +157,7 @@ export const MetricHeader = ({
     onBreakdownChange: (breakdown: Breakdown) => void
     onDeleteMetricClick?: (metric: ExperimentMetric) => void
     readOnly?: boolean
+    outlierHandlingWarning?: string
 }): JSX.Element => {
     /**
      * This is necessary for legacy experiments support
@@ -397,6 +438,13 @@ export const MetricHeader = ({
                         <LemonTag type="option" size="small">
                             Shared
                         </LemonTag>
+                    )}
+                    {outlierHandlingWarning && (
+                        <OutlierHandlingWarningTag
+                            experiment={experiment}
+                            metric={metric}
+                            message={outlierHandlingWarning}
+                        />
                     )}
                 </div>
             </div>

@@ -7219,6 +7219,13 @@ export namespace Schemas {
       success_count: number;
     }
 
+    export interface ExperimentWinsorizationWarning {
+      /** Human-readable warning shown to the user */
+      message: string;
+      /** Tells warning kinds apart in the shared `warnings` list */
+      type?: 'winsorization_upper_bound_zero';
+    }
+
     export type ExperimentQueryResponseCredibleIntervals = {[key: string]: number[]} | null;
 
     export type ExperimentQueryResponseInsight = { [key: string]: unknown }[] | null;
@@ -7244,8 +7251,8 @@ export namespace Schemas {
       stats_version?: number | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
       variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[] | null;
-      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Data warehouse sync warnings and experiment winsorization warnings. */
+      warnings?: (DataWarehouseSyncWarning | ExperimentWinsorizationWarning)[] | null;
     }
 
     export interface ExperimentQuery {
@@ -92352,8 +92359,8 @@ export namespace Schemas {
       stats_version?: number | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
       variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[] | null;
-      /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-      warnings?: DataWarehouseSyncWarning[] | null;
+      /** Data warehouse sync warnings and experiment winsorization warnings. */
+      warnings?: (DataWarehouseSyncWarning | ExperimentWinsorizationWarning)[] | null;
     }
 
     export type QueryResponseAlternative21TotalExposures = {[key: string]: number};

@@ -1014,6 +1014,10 @@ export function MetricRowGroup({
                         onDuplicateAsSingleUseMetricClick={() => onDuplicateAsSingleUseMetric?.()}
                         onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                         onBreakdownChange={onBreakdownChange}
+                        outlierHandlingWarning={
+                            result.warnings?.find((warning) => warning.type === 'winsorization_upper_bound_zero')
+                                ?.message
+                        }
                     />
                 </td>
 

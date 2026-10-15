@@ -699,6 +699,7 @@
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
             least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value,
+            and(ifNull(equals(percentiles.upper_bound, 0), 0), ifNull(greater(entity_metrics.value, 0), 0)) AS clamped_by_zero_upper_bound,
             entity_metrics.breakdown_value_1 AS breakdown_value_1
      FROM entity_metrics
      JOIN percentiles ON equals(percentiles.breakdown_value_1, entity_metrics.breakdown_value_1))
@@ -706,7 +707,8 @@
          winsorized_entity_metrics.breakdown_value_1 AS breakdown_value_1,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.value) AS total_sum,
-         sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares,
+         max(winsorized_entity_metrics.clamped_by_zero_upper_bound) AS upper_bound_is_zero
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant,
            winsorized_entity_metrics.breakdown_value_1

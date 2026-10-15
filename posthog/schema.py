@@ -1727,6 +1727,17 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
     key: str
 
 
+class ExperimentWinsorizationWarning(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    message: str = Field(..., description="Human-readable warning shown to the user")
+    type: Literal["winsorization_upper_bound_zero"] = Field(
+        default="winsorization_upper_bound_zero",
+        description="Tells warning kinds apart in the shared `warnings` list",
+    )
+
+
 class FailureMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -20792,9 +20803,9 @@ class NewExperimentQueryResponse(BaseModel):
         description="Whether exposures were served from the precomputation system",
     )
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | ExperimentWinsorizationWarning] | None = Field(
         default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+        description=("Data warehouse sync warnings and experiment winsorization warnings."),
     )
 
 
@@ -27379,9 +27390,9 @@ class CachedNewExperimentQueryResponse(BaseModel):
     )
     timezone: str
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | ExperimentWinsorizationWarning] | None = Field(
         default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+        description=("Data warehouse sync warnings and experiment winsorization warnings."),
     )
 
 
@@ -32302,9 +32313,9 @@ class ExperimentQueryResponse(BaseModel):
     stats_version: int | None = None
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
     variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats] | None = None
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | ExperimentWinsorizationWarning] | None = Field(
         default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+        description=("Data warehouse sync warnings and experiment winsorization warnings."),
     )
 
 
@@ -32454,9 +32465,9 @@ class QueryResponseAlternative20(BaseModel):
     stats_version: int | None = None
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
     variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats] | None = None
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | ExperimentWinsorizationWarning] | None = Field(
         default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+        description=("Data warehouse sync warnings and experiment winsorization warnings."),
     )
 
 
@@ -32846,9 +32857,9 @@ class CachedExperimentQueryResponse(BaseModel):
     timezone: str
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
     variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats] | None = None
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | ExperimentWinsorizationWarning] | None = Field(
         default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+        description=("Data warehouse sync warnings and experiment winsorization warnings."),
     )
 
 

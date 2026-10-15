@@ -404,7 +404,8 @@ class MeanQueryBuilder:
                 SELECT
                     entity_metrics.entity_id AS entity_id,
                     entity_metrics.variant AS variant,
-                    least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value{winsorized_cuped_select}
+                    least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value,
+                    percentiles.upper_bound = 0 AND entity_metrics.value > 0 AS clamped_by_zero_upper_bound{winsorized_cuped_select}
                     -- breakdown columns added programmatically below
                 FROM entity_metrics
                 CROSS JOIN percentiles
@@ -415,7 +416,8 @@ class MeanQueryBuilder:
                 winsorized_entity_metrics.variant AS variant,
                 count(winsorized_entity_metrics.entity_id) AS num_users,
                 sum(winsorized_entity_metrics.value) AS total_sum,
-                sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares{cuped_selects}
+                sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares,
+                max(winsorized_entity_metrics.clamped_by_zero_upper_bound) AS upper_bound_is_zero{cuped_selects}
                 -- breakdown columns added programmatically below
             FROM winsorized_entity_metrics
             GROUP BY winsorized_entity_metrics.variant

@@ -6871,6 +6871,13 @@ export interface ExperimentBreakdownResultApi {
     variants: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[]
 }
 
+export interface ExperimentWinsorizationWarningApi {
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'winsorization_upper_bound_zero'
+}
+
 export type ExperimentQueryResponseApiCredibleIntervals = { [key: string]: number[] } | null
 
 export type ExperimentQueryResponseApiInsight = { [key: string]: unknown }[] | null
@@ -6901,8 +6908,8 @@ export interface ExperimentQueryResponseApi {
     stats_version?: number | null
     variant_results?: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[] | null
     variants?: ExperimentVariantTrendsBaseStatsApi[] | ExperimentVariantFunnelsBaseStatsApi[] | null
-    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-    warnings?: DataWarehouseSyncWarningApi[] | null
+    /** Data warehouse sync warnings and experiment winsorization warnings. */
+    warnings?: (DataWarehouseSyncWarningApi | ExperimentWinsorizationWarningApi)[] | null
 }
 
 export interface ExperimentQueryApi {

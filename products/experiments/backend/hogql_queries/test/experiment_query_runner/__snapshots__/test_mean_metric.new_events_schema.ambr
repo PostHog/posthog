@@ -174,13 +174,15 @@
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
+            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value,
+            and(ifNull(equals(percentiles.upper_bound, 0), 0), ifNull(greater(entity_metrics.value, 0), 0)) AS clamped_by_zero_upper_bound
      FROM entity_metrics
      CROSS JOIN percentiles)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.value) AS total_sum,
-         sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares,
+         max(winsorized_entity_metrics.clamped_by_zero_upper_bound) AS upper_bound_is_zero
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
@@ -313,13 +315,15 @@
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
+            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value,
+            and(ifNull(equals(percentiles.upper_bound, 0), 0), ifNull(greater(entity_metrics.value, 0), 0)) AS clamped_by_zero_upper_bound
      FROM entity_metrics
      CROSS JOIN percentiles)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.value) AS total_sum,
-         sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares,
+         max(winsorized_entity_metrics.clamped_by_zero_upper_bound) AS upper_bound_is_zero
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
@@ -387,13 +391,15 @@
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
+            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value,
+            and(ifNull(equals(percentiles.upper_bound, 0), 0), ifNull(greater(entity_metrics.value, 0), 0)) AS clamped_by_zero_upper_bound
      FROM entity_metrics
      CROSS JOIN percentiles)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.value) AS total_sum,
-         sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares,
+         max(winsorized_entity_metrics.clamped_by_zero_upper_bound) AS upper_bound_is_zero
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
@@ -461,13 +467,15 @@
        winsorized_entity_metrics AS
     (SELECT entity_metrics.entity_id AS entity_id,
             entity_metrics.variant AS variant,
-            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
+            least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value,
+            and(ifNull(equals(percentiles.upper_bound, 0), 0), ifNull(greater(entity_metrics.value, 0), 0)) AS clamped_by_zero_upper_bound
      FROM entity_metrics
      CROSS JOIN percentiles)
   SELECT winsorized_entity_metrics.variant AS variant,
          count(winsorized_entity_metrics.entity_id) AS num_users,
          sum(winsorized_entity_metrics.value) AS total_sum,
-         sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares,
+         max(winsorized_entity_metrics.clamped_by_zero_upper_bound) AS upper_bound_is_zero
   FROM winsorized_entity_metrics
   GROUP BY winsorized_entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',

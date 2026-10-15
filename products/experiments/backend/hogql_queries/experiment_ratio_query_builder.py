@@ -221,7 +221,9 @@ class RatioQueryBuilder:
                     entity_metrics.entity_id AS entity_id,
                     entity_metrics.variant AS variant,
                     least(greatest(percentiles.numerator_lower_bound, entity_metrics.numerator_value), percentiles.numerator_upper_bound) AS numerator_value,
-                    least(greatest(percentiles.denominator_lower_bound, entity_metrics.denominator_value), percentiles.denominator_upper_bound) AS denominator_value
+                    least(greatest(percentiles.denominator_lower_bound, entity_metrics.denominator_value), percentiles.denominator_upper_bound) AS denominator_value,
+                    (percentiles.numerator_upper_bound = 0 AND entity_metrics.numerator_value > 0)
+                        OR (percentiles.denominator_upper_bound = 0 AND entity_metrics.denominator_value > 0) AS clamped_by_zero_upper_bound
                     -- breakdown columns added programmatically below
                 FROM entity_metrics
                 CROSS JOIN percentiles
@@ -235,7 +237,8 @@ class RatioQueryBuilder:
                 sum(power(winsorized_entity_metrics.numerator_value, 2)) AS total_sum_of_squares,
                 sum(winsorized_entity_metrics.denominator_value) AS denominator_sum,
                 sum(power(winsorized_entity_metrics.denominator_value, 2)) AS denominator_sum_squares,
-                sum(winsorized_entity_metrics.numerator_value * winsorized_entity_metrics.denominator_value) AS numerator_denominator_sum_product
+                sum(winsorized_entity_metrics.numerator_value * winsorized_entity_metrics.denominator_value) AS numerator_denominator_sum_product,
+                max(winsorized_entity_metrics.clamped_by_zero_upper_bound) AS upper_bound_is_zero
                 -- breakdown columns added programmatically below
             FROM winsorized_entity_metrics
             GROUP BY winsorized_entity_metrics.variant

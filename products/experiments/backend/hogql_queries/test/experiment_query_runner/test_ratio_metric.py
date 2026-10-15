@@ -1423,6 +1423,69 @@ class TestExperimentRatioMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum, 20)
 
     @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
+    def test_outlier_handling_warns_when_denominator_upper_bound_is_zero(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        metric = ExperimentRatioMetric(
+            numerator=EventsNode(event="pageview", math=ExperimentMetricMathType.TOTAL),
+            denominator=EventsNode(event="checkout", math=ExperimentMetricMathType.TOTAL),
+            denominator_outlier_handling=ExperimentMetricOutlierHandling(upper_bound_percentile=0.95),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+        journeys: dict[str, list[dict]] = {}
+        for variant in ["control", "test"]:
+            for i in range(30):
+                events: list[dict] = [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {
+                            "$feature_flag_response": variant,
+                            ff_property: variant,
+                            "$feature_flag": feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "pageview",
+                        "timestamp": "2024-01-02T12:01:00",
+                        "properties": {ff_property: variant},
+                    },
+                ]
+                if i == 0:
+                    events.append(
+                        {
+                            "event": "checkout",
+                            "timestamp": "2024-01-02T12:02:00",
+                            "properties": {ff_property: variant},
+                        }
+                    )
+                journeys[f"{variant}_{i}"] = events
+
+        journeys_for(journeys, self.team)
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        self.assertEqual(result.baseline.sum, 30)
+        self.assertEqual(result.baseline.denominator_sum, 0)
+        self.assertEqual([warning.type for warning in result.warnings or []], ["winsorization_upper_bound_zero"])
+
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_outlier_handling_with_breakdown(self):
         """Winsorization computes per-breakdown thresholds for ratio metrics, not global ones."""

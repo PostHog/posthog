@@ -610,6 +610,13 @@ export interface DataWarehouseSyncWarning {
     data_is_current?: boolean
 }
 
+export interface ExperimentWinsorizationWarning {
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type: 'winsorization_upper_bound_zero'
+    /** Human-readable warning shown to the user */
+    message: string
+}
+
 export interface AccessControlFilterWarning {
     /** Tells warning kinds apart in the shared `warnings` list */
     type: 'access_control'
@@ -6198,8 +6205,8 @@ export interface ExperimentQueryResponse {
     /** Whether exposures were served from the precomputation system */
     is_precomputed?: boolean
 
-    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-    warnings?: DataWarehouseSyncWarning[]
+    /** Data warehouse sync warnings and experiment winsorization warnings. */
+    warnings?: (DataWarehouseSyncWarning | ExperimentWinsorizationWarning)[]
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -6307,8 +6314,8 @@ export interface NewExperimentQueryResponse {
     breakdown_results?: ExperimentBreakdownResult[]
     /** Whether exposures were served from the precomputation system */
     is_precomputed?: boolean
-    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-    warnings?: DataWarehouseSyncWarning[]
+    /** Data warehouse sync warnings and experiment winsorization warnings. */
+    warnings?: (DataWarehouseSyncWarning | ExperimentWinsorizationWarning)[]
 }
 
 export interface ExperimentExposureTimeSeries {

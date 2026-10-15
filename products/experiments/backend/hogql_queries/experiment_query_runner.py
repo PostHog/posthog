@@ -18,6 +18,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentStatsBase,
+    ExperimentWinsorizationWarning,
     IntervalType,
     MultipleVariantHandling,
     PrecomputationMode,
@@ -60,12 +61,14 @@ from products.experiments.backend.hogql_queries.precompute_policy import (
 )
 from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
 from products.experiments.backend.hogql_queries.utils import (
+    ZERO_UPPER_BOUND_WARNING_MESSAGE,
     aggregate_variants_across_breakdowns,
     get_bayesian_experiment_result,
     get_experiment_query_debug,
     get_experiment_stats_method,
     get_frequentist_experiment_result,
     get_variant_results,
+    has_zero_upper_bound,
     split_baseline_and_test_variants,
 )
 from products.experiments.backend.metric_resolution import metric_reads_data_warehouse
@@ -462,7 +465,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
-        variant_results = self._prepare_variant_results()
+        sorted_results, columns = self._evaluate_experiment_query()
+        variant_results = self._add_missing_variants(get_variant_results(sorted_results, columns))
 
         if self._has_breakdown(variant_results):
             breakdown_results, variants = self._process_breakdown_results(variant_results)
@@ -479,12 +483,10 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         result.hogql = self.hogql
         result.is_precomputed = self._is_precomputed
 
-        return result
+        if has_zero_upper_bound(sorted_results, columns):
+            result.warnings = [ExperimentWinsorizationWarning(message=ZERO_UPPER_BOUND_WARNING_MESSAGE)]
 
-    def _prepare_variant_results(self) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
-        sorted_results, columns = self._evaluate_experiment_query()
-        variant_results = get_variant_results(sorted_results, columns)
-        return self._add_missing_variants(variant_results)
+        return result
 
     def _has_breakdown(self, variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]) -> bool:
         return any(bv is not None for bv, _ in variant_results)

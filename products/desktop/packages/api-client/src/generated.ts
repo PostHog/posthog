@@ -4119,6 +4119,13 @@ export namespace Schemas {
         key: string;
         success_count: number;
     };
+    export type ExperimentWinsorizationWarning = {
+        /**
+         * Human-readable warning shown to the user
+         */
+        message: string;
+        type?: string | undefined;
+    };
     export type ExperimentQueryResponse = Partial<{
         baseline: ExperimentStatsBaseValidated | null;
         breakdown_results: Array<ExperimentBreakdownResult> | null;
@@ -4149,7 +4156,9 @@ export namespace Schemas {
             | Array<ExperimentVariantTrendsBaseStats>
             | Array<ExperimentVariantFunnelsBaseStats>
             | null;
-        warnings: Array<DataWarehouseSyncWarning> | null;
+        warnings: Array<
+            DataWarehouseSyncWarning | ExperimentWinsorizationWarning
+        > | null;
     }>;
     export type ExperimentQuery = {
         experiment_id?: (number | null) | undefined;

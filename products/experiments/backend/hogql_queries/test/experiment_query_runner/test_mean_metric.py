@@ -826,6 +826,77 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
+            ("zeros_included", False, 0, True),
+            ("zeros_ignored", True, 100, False),
+        ]
+    )
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
+    def test_outlier_handling_warns_when_upper_bound_is_zero(
+        self, name, ignore_zeros, expected_sum_per_variant, expect_warning
+    ):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            upper_bound_percentile=0.95,
+            ignore_zeros=ignore_zeros,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        for variant in ["control", "test"]:
+            for i in range(30):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_{variant}_0",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: variant, "amount": 100},
+            )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(result.baseline.sum, expected_sum_per_variant)
+        self.assertEqual(result.variant_results[0].sum, expected_sum_per_variant)
+
+        warning_types = [warning.type for warning in result.warnings or []]
+        self.assertEqual(warning_types, ["winsorization_upper_bound_zero"] if expect_warning else [])
+
+    @parameterized.expand(
+        [
             ("direct", False),
             ("precomputed", True),
         ]

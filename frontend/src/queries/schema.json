@@ -9591,9 +9591,16 @@
                     ]
                 },
                 "warnings": {
-                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "description": "Data warehouse sync warnings and experiment winsorization warnings.",
                     "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/ExperimentWinsorizationWarning"
+                            }
+                        ]
                     },
                     "type": "array"
                 }
@@ -13820,9 +13827,16 @@
                     ]
                 },
                 "warnings": {
-                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "description": "Data warehouse sync warnings and experiment winsorization warnings.",
                     "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/ExperimentWinsorizationWarning"
+                            }
+                        ]
                     },
                     "type": "array"
                 }
@@ -27107,9 +27121,16 @@
                     ]
                 },
                 "warnings": {
-                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "description": "Data warehouse sync warnings and experiment winsorization warnings.",
                     "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/ExperimentWinsorizationWarning"
+                            }
+                        ]
                     },
                     "type": "array"
                 }
@@ -27793,6 +27814,22 @@
                 }
             },
             "required": ["key", "count", "exposure", "absolute_exposure"],
+            "type": "object"
+        },
+        "ExperimentWinsorizationWarning": {
+            "additionalProperties": false,
+            "properties": {
+                "message": {
+                    "description": "Human-readable warning shown to the user",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "winsorization_upper_bound_zero",
+                    "description": "Tells warning kinds apart in the shared `warnings` list",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "message"],
             "type": "object"
         },
         "ExternalQueryError": {
@@ -40459,9 +40496,16 @@
                     ]
                 },
                 "warnings": {
-                    "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                    "description": "Data warehouse sync warnings and experiment winsorization warnings.",
                     "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/ExperimentWinsorizationWarning"
+                            }
+                        ]
                     },
                     "type": "array"
                 }
@@ -44089,9 +44133,16 @@
                             ]
                         },
                         "warnings": {
-                            "description": "Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics.",
+                            "description": "Data warehouse sync warnings and experiment winsorization warnings.",
                             "items": {
-                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/ExperimentWinsorizationWarning"
+                                    }
+                                ]
                             },
                             "type": "array"
                         }
