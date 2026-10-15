@@ -3,6 +3,7 @@ import { buildPushTimeline, buildRunTimeline } from './ciTimeline'
 import { WorkflowRun } from './lifecycle'
 
 const NOW_MS = Date.parse('2026-06-10T00:00:00Z')
+const REPO = { owner: 'PostHog', name: 'posthog' }
 
 function job(id: number, name: string, startedAt: string, completedAt: string, conclusion = 'success'): WorkflowJobApi {
     return {
@@ -39,6 +40,7 @@ describe('ciTimeline', () => {
         'nests matrix shards under a group that fails on a %s shard',
         (conclusion) => {
             const timeline = buildRunTimeline(
+                REPO,
                 '2026-06-09T00:00:00Z',
                 [
                     job(1, 'Jest (1/2)', '2026-06-09T00:01:00Z', '2026-06-09T00:03:00Z'),
@@ -55,7 +57,10 @@ describe('ciTimeline', () => {
                 startMs: Date.parse('2026-06-09T00:01:00Z'),
                 endMs: Date.parse('2026-06-09T00:05:00Z'),
             })
-            expect(timeline.nodes[0].children.map((child) => child.name)).toEqual(['Jest (1/2)', 'Jest (2/2)'])
+            expect(timeline.nodes[0].children.map((child) => [child.name, child.url])).toEqual([
+                ['Jest (1/2)', 'https://github.com/PostHog/posthog/actions/runs/42/job/1'],
+                ['Jest (2/2)', 'https://github.com/PostHog/posthog/actions/runs/42/job/2'],
+            ])
         }
     )
 
@@ -64,6 +69,7 @@ describe('ciTimeline', () => {
         ['silent for over a day', '2026-06-01T00:00:00Z', null, 'neutral'],
     ])('ends an unfinished run that is %s at the right time', (_, startedAt, expectedEndMs, expectedStatus) => {
         const timeline = buildPushTimeline(
+            REPO,
             [
                 { id: 'lint', run: run('Lint', '2026-06-09T23:50:00Z', '2026-06-09T23:55:00Z'), jobs: [] },
                 { id: 'stuck', run: run('Stuck', startedAt, null), jobs: [] },

@@ -288,7 +288,14 @@ export function WorkflowRunDetailScene(): JSX.Element {
                                         No job data yet. The job-level source isn't synced for this team.
                                     </div>
                                 ) : (
-                                    <CITimeline timeline={buildRunTimeline(run.run_started_at, jobs, Date.now())} />
+                                    <CITimeline
+                                        timeline={buildRunTimeline(
+                                            { owner: repoOwner, name: repoName },
+                                            run.run_started_at,
+                                            jobs,
+                                            Date.now()
+                                        )}
+                                    />
                                 )}
                             </Section>
 

@@ -3,6 +3,7 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { isExternalLink } from 'lib/utils/url'
 
 import { TimelineRow, TimelineStatus } from '../lib/ciTimeline'
 import { TimeAxis } from '../lib/pullRequestTimeline'
@@ -91,14 +92,20 @@ export function CITimelineRow({
                     )}
                 />
                 {node.url ? (
-                    <Link to={node.url} subtle className={nameClass} data-attr="engineering-analytics-ci-timeline-open">
+                    <Link
+                        to={node.url}
+                        target={isExternalLink(node.url) ? '_blank' : undefined}
+                        targetBlankIcon={false}
+                        subtle
+                        className={nameClass}
+                        data-attr="engineering-analytics-ci-timeline-open"
+                    >
                         {node.name}
                     </Link>
                 ) : (
                     <span className={nameClass}>{node.name}</span>
                 )}
-                <span className="ml-2 min-w-0 flex-1 truncate text-xs text-tertiary">{node.detail}</span>
-                <span className="ml-2 shrink-0 text-xs tabular-nums text-secondary">{duration}</span>
+                <span className="ml-auto shrink-0 pl-2 text-xs tabular-nums text-secondary">{duration}</span>
             </div>
             <div className="relative">
                 <div className={CI_TIMELINE_SCALE}>
@@ -116,7 +123,7 @@ export function CITimelineRow({
                     ) : (
                         <>
                             <Tooltip
-                                title={`${node.name}: ${node.status === 'running' ? 'running for' : 'ran'} ${duration}, starting ${humanFriendlyDuration((node.startMs - axis.fromMs) / 1000)} in`}
+                                title={`${node.name}: ${node.status === 'running' ? 'running for' : 'ran'} ${duration}, starting ${humanFriendlyDuration((node.startMs - axis.fromMs) / 1000)} in${node.runner ? ` on ${node.runner}` : ''}`}
                             >
                                 <span
                                     className={cn(

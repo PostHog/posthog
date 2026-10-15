@@ -1,5 +1,6 @@
 import type { WorkflowJobApi } from '../generated/api.schemas'
 import { statusOf } from './ciExplorerGraph'
+import { githubJobUrl } from './github'
 import { groupJobs } from './jobGroups'
 import { WorkflowRun } from './lifecycle'
 
@@ -9,8 +10,9 @@ export interface TimelineNode {
     id: string
     kind: 'workflow' | 'group' | 'job' | 'step'
     name: string
-    /** Runner label for a job, shard count for a matrix group. */
-    detail: string | null
+    /** A job's runner label. null on every other kind. */
+    runner: string | null
+    /** The workflow's run page, or the GitHub log page of a job or step. */
     url?: string
     /** null when it never started, as for a skipped job. */
     startMs: number | null
@@ -44,6 +46,11 @@ function toMs(at: string | null): number | null {
 const STOPPED_REPORTING_MS = 24 * 60 * 60 * 1000
 
 type Timing = Pick<TimelineNode, 'startMs' | 'endMs' | 'status'>
+
+export interface TimelineRepo {
+    owner: string
+    name: string
+}
 
 /** An unfinished item ends at `nowMs`. One that stopped reporting gets no end and no outcome. */
 function timing(startedAt: string | null, finishedAt: string | null, conclusion: string | null, nowMs: number): Timing {
@@ -91,20 +98,25 @@ function jobId(job: WorkflowJobApi): string {
     return `job-${job.ci_engine ?? ''}-${job.id}`
 }
 
-function jobNode(job: WorkflowJobApi, nowMs: number): TimelineNode {
+function jobNode(job: WorkflowJobApi, repo: TimelineRepo, nowMs: number): TimelineNode {
     const id = jobId(job)
+    // Depot CI jobs have no page on GitHub.
+    const logUrl = (stepNumber?: number): string | undefined =>
+        job.ci_engine === 'depot_ci' ? undefined : githubJobUrl(repo.owner, repo.name, job.run_id, job.id, stepNumber)
     return {
         id,
         kind: 'job',
         name: job.name,
-        detail: job.runner_label || null,
+        runner: job.runner_label || null,
+        url: logUrl(),
         ...timing(job.started_at, job.completed_at, job.conclusion, nowMs),
         children: job.steps.map(
             (step): TimelineNode => ({
                 id: `${id}-step-${step.number}`,
                 kind: 'step',
                 name: step.name,
-                detail: null,
+                runner: null,
+                url: logUrl(step.number),
                 ...timing(step.started_at, step.completed_at, step.conclusion, nowMs),
                 children: [],
             })
@@ -113,18 +125,18 @@ function jobNode(job: WorkflowJobApi, nowMs: number): TimelineNode {
 }
 
 /** A run's jobs with matrix shards nested under their group, in start order. */
-function jobNodes(jobs: WorkflowJobApi[], nowMs: number): TimelineNode[] {
+function jobNodes(jobs: WorkflowJobApi[], repo: TimelineRepo, nowMs: number): TimelineNode[] {
     return groupJobs(jobs)
         .map((group): TimelineNode => {
             if (group.jobs.length === 1) {
-                return jobNode(group.jobs[0], nowMs)
+                return jobNode(group.jobs[0], repo, nowMs)
             }
-            const shards = group.jobs.map((job) => jobNode(job, nowMs)).sort(byStart)
+            const shards = group.jobs.map((job) => jobNode(job, repo, nowMs)).sort(byStart)
             return {
                 id: `${jobId(group.jobs[0])}-group`,
                 kind: 'group',
                 name: group.base,
-                detail: `${shards.length} shards`,
+                runner: null,
                 startMs: minOf(shards.map((s) => s.startMs)),
                 endMs: maxOf(shards.map((s) => s.endMs)),
                 status: combinedStatus(shards.map((s) => s.status)),
@@ -140,23 +152,29 @@ function withBounds(nodes: TimelineNode[], anchorMs: number | null, nowMs: numbe
     return { startMs, endMs: Math.max(endMs, startMs + 1000), nodes }
 }
 
-export function buildRunTimeline(runStartedAt: string | null, jobs: WorkflowJobApi[], nowMs: number): TimelineData {
-    return withBounds(jobNodes(jobs, nowMs), toMs(runStartedAt), nowMs)
+export function buildRunTimeline(
+    repo: TimelineRepo,
+    runStartedAt: string | null,
+    jobs: WorkflowJobApi[],
+    nowMs: number
+): TimelineData {
+    return withBounds(jobNodes(jobs, repo, nowMs), toMs(runStartedAt), nowMs)
 }
 
 export function buildPushTimeline(
+    repo: TimelineRepo,
     runs: { id: string; run: WorkflowRun; jobs: WorkflowJobApi[]; url?: string }[],
     nowMs: number
 ): TimelineData {
     const nodes = runs
         .map(({ id, run, jobs, url }): TimelineNode => {
-            const children = jobNodes(jobs, nowMs)
+            const children = jobNodes(jobs, repo, nowMs)
             const own = timing(run.startedAt, run.finishedAt, run.conclusion, nowMs)
             return {
                 id: `workflow-${id}`,
                 kind: 'workflow',
                 name: run.workflow,
-                detail: null,
+                runner: null,
                 url,
                 startMs: own.startMs ?? minOf(children.map((c) => c.startMs)),
                 endMs: own.endMs ?? maxOf(children.map((c) => c.endMs)),

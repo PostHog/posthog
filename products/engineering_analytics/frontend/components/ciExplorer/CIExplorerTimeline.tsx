@@ -11,12 +11,21 @@ import { ciExplorerLogic } from '../../scenes/ciExplorerLogic'
 import { CITimeline } from '../CITimeline'
 
 export function CIExplorerTimeline(): JSX.Element {
-    const { activePush, workflowRuns, jobsByRun, jobsByRunLoading, failedJobRuns, workflowRunUrl } =
-        useValues(ciExplorerLogic)
+    const {
+        repoOwner,
+        repoName,
+        activePush,
+        workflowRuns,
+        jobsByRun,
+        jobsByRunLoading,
+        failedJobRuns,
+        workflowRunUrl,
+    } = useValues(ciExplorerLogic)
     const { retryFailedJobs } = useActions(ciExplorerLogic)
     const timeline = useMemo(
         () =>
             buildPushTimeline(
+                { owner: repoOwner, name: repoName },
                 workflowRuns.map((run) => ({
                     id: workflowId(run),
                     run,
@@ -25,7 +34,7 @@ export function CIExplorerTimeline(): JSX.Element {
                 })),
                 Date.now()
             ),
-        [workflowRuns, jobsByRun, workflowRunUrl]
+        [repoOwner, repoName, workflowRuns, jobsByRun, workflowRunUrl]
     )
 
     if (!activePush) {
