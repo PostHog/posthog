@@ -18,7 +18,6 @@ import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { cleanSeriesNodes } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
 import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
-import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import type { QuerySourceUpdate } from 'scenes/insights/insightVizDataLogic'
@@ -72,6 +71,8 @@ import {
     TrendResult,
 } from '~/types'
 import type { BreakdownKeyType, FunnelStep, IntervalType, LabelGroupType } from '~/types'
+
+import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'products/product_analytics/frontend/insights/shared/aggregationTargetUtils'
 
 import {
     TIME_INTERVAL_BOUNDS,

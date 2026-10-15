@@ -34,9 +34,11 @@ import type {
     MCPEventSubscribeApi,
     MCPEventSubscriptionApi,
     MCPEventUnsubscribeApi,
+    McpEventSubscriptionsListParams,
     PaginatedHogFunctionMinimalListApi,
     PaginatedHogFunctionRevisionBasicListApi,
     PaginatedHogFunctionTemplateListApi,
+    PaginatedMCPEventSubscriptionListApi,
     PaginatedPluginLogEntryListApi,
     PatchedHogFunctionApi,
     PatchedHogFunctionRearrangeApi,
@@ -548,15 +550,28 @@ export const hogFunctionsRearrangePartialUpdate = async (
     })
 }
 
-export const getMcpEventSubscriptionsListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/mcp_event_subscriptions/`
+export const getMcpEventSubscriptionsListUrl = (projectId: string, params?: McpEventSubscriptionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/mcp_event_subscriptions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/mcp_event_subscriptions/`
 }
 
 export const mcpEventSubscriptionsList = async (
     projectId: string,
+    params?: McpEventSubscriptionsListParams,
     options?: RequestInit
-): Promise<MCPEventSubscriptionApi[]> => {
-    return apiMutator<MCPEventSubscriptionApi[]>(getMcpEventSubscriptionsListUrl(projectId), {
+): Promise<PaginatedMCPEventSubscriptionListApi> => {
+    return apiMutator<PaginatedMCPEventSubscriptionListApi>(getMcpEventSubscriptionsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

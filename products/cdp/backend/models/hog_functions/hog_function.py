@@ -96,7 +96,7 @@ TYPES_THAT_CAN_RERUN = (
 DRAFT_ONLY_UPDATE_FIELDS = frozenset({"draft", "draft_updated_at", "draft_encrypted_inputs"})
 
 
-DERIVED_FILTER_KEYS = {"bytecode", "bytecode_error", "bytecode_contract"}
+DERIVED_FILTER_KEYS = {"bytecode", "bytecode_error", "bytecode_contract", "mcp_property_dependencies"}
 
 
 def _is_draft_only_save(update_fields: Optional[Iterable[str]]) -> bool:

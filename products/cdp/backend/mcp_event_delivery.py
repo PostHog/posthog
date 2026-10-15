@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 
-from products.cdp.backend.facade.contracts import MCPCallbackError
+from products.cdp.backend.facade.mcp_event_types import MCPCallbackError
 
 MCP_EVENT_NAME: Final = "posthog.event_captured"
 MCP_EVENT_MAX_BYTES: Final = 256 * 1024

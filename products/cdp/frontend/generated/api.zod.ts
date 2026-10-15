@@ -1745,6 +1745,7 @@ export const mcpEventSubscriptionsAuthorizeDeliveryCreateBodyUrlMax = 4096
 export const mcpEventSubscriptionsAuthorizeDeliveryCreateBodyBodyMax = 262144
 
 export const McpEventSubscriptionsAuthorizeDeliveryCreateBody = /* @__PURE__ */ zod.object({
+    filter_bytecode: zod.array(zod.unknown()).describe('Compiled filter that matched the queued event.'),
     generation: zod.uuid().describe('Subscription lifecycle generation carried by the queued destination.'),
     function_id: zod.uuid().describe('Managed destination that queued the event.'),
     url: zod

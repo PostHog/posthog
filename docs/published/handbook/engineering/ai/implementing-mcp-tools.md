@@ -635,6 +635,8 @@ Django verifies the HTTPS callback challenge before activation and encrypts the 
 
 Delivery uses the source event UUID for both `eventId` and `webhook-id`, sends one event per callback request, and rejects bodies larger than 256 KiB. Retries use bounded exponential backoff; each attempt rejects revoked, unsubscribed, expired, and stale-generation work. Requests already in flight can complete. A periodic sweep disables expired destinations. Signing-key rotation briefly signs with both keys. Replay is unavailable: subscription results and event envelopes return `cursor: null`.
 
+Delivery authorization uses a separate rate-limit budget from client API requests. Queued deliveries carry the compiled filter that matched; authorization checks its recorded property dependencies against the subscriber’s current permissions. A changed compiled filter requires subscription renewal. Nested restricted properties and feature-flag aliases are removed before signing. Deleting a subscriber disables the managed destination.
+
 The backend implementation lives under `products/cdp/backend/`. The wire contract follows the [OpenAI MCP Events integration](https://developers.openai.com/plugins/build/mcp-events).
 
 Preview queries must set product and feature query tags for ClickHouse accounting. Test-mode defaults can hide missing tags, so verify previews against a running backend.

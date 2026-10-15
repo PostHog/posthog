@@ -39,6 +39,7 @@ export function QuillSceneTitleSection({
     noPadding = false,
     actions,
     forceBackTo,
+    scope,
     className,
     onGenerateMetadata,
     isGeneratingMetadata,
@@ -66,10 +67,11 @@ export function QuillSceneTitleSection({
     const backPath = !titleInPhoneHeader && backTo && 'path' in backTo ? backTo.path : undefined
     const resourceIcon = name !== null && !titleInPhoneHeader ? sceneResourceIcon(resourceType) : undefined
     const nameSuffixes = (
-        <>
+        // Lemon tags read --success and --warning, which quill redefines as pale fills
+        <span data-not-quill className="contents">
             {releaseStageProduct && <ReleaseStageTag product={releaseStageProduct} />}
             {nameSuffix}
-        </>
+        </span>
     )
     const [menuBarSlot, setMenuBarSlot] = useState<HTMLDivElement | null>(null)
     useRegisterSceneMenuBarSlot(menuBarSlot)
@@ -92,7 +94,13 @@ export function QuillSceneTitleSection({
                 back={
                     <QuillSceneTrail
                         lead={sidebarBreadcrumbShown && <TodaySidebarBreadcrumb />}
-                        parent={backTo && backPath ? { name: backTo.name, path: backPath } : undefined}
+                        parent={
+                            backTo && backPath
+                                ? { name: backTo.name, path: backPath }
+                                : scope && !titleInPhoneHeader
+                                  ? { name: scope }
+                                  : undefined
+                        }
                         icon={resourceIcon}
                         current={staticName ? { name, description: description || undefined } : undefined}
                     />

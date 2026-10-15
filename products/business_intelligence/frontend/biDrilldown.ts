@@ -20,6 +20,7 @@ import {
     getBIResultDimensions,
 } from './biEditorTypes'
 import { isBIConditionGroup, normalizeBIConditionGroup } from './biFilterGroups'
+import { getBIMemberLabel } from './biMemberAliases'
 
 export interface BIDrillSelection {
     filters: BIFilter[]
@@ -151,7 +152,7 @@ export function getBIDrillSelection(config: BIConfig, record: Record<string, unk
             }
         }
         filters.push(filter)
-        labels.push({ name: field.name, value: String(displayValue ?? '(empty)') })
+        labels.push({ name: field.name, value: getBIMemberLabel(config, field, displayValue) })
     }
     return { filters, previous, labels }
 }
@@ -198,12 +199,22 @@ export function getBIDrillQueries(
     if (!saved) {
         return null
     }
-    const selectionFilters = saved.rowFilterGroup
-        ? selection.filters.map((filter, index) => ({
-              ...filter,
-              field: { ...filter.field, id: `drill:${saved.filters.length + index}:${filter.field.id}` },
-          }))
-        : selection.filters
+    const usedIds = new Set(saved.filters.map((filter) => filter.field.id))
+    const selectionFilters = selection.filters.map((filter) => {
+        let id = `drill:${filter.field.id}`
+        while (usedIds.has(id)) {
+            id += ':'
+        }
+        usedIds.add(id)
+        return {
+            ...filter,
+            field: {
+                ...filter.field,
+                id,
+                localFieldId: filter.field.localFieldId ?? (filter.field.localDefinition ? filter.field.id : undefined),
+            },
+        }
+    })
     const existingGroup = saved.rowFilterGroup
         ? normalizeBIConditionGroup(
               saved.rowFilterGroup,
