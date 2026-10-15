@@ -2947,6 +2947,7 @@ export interface OrganizationInviteType {
         id: number
         level: AccessControlLevel.Member | AccessControlLevel.Admin
     }>
+    guest_grants?: Array<{ resource: 'dashboard' | 'insight' | 'notebook'; id: string | null }>
 }
 
 export enum PluginInstallationType {

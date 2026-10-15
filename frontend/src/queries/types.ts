@@ -6,10 +6,11 @@ import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import {
     CurrencyCode,
     DataTableNode,
-    VisualizationNode,
     InsightActorsQuery,
+    QueryReference,
     QuerySchema,
     RefreshType,
+    VisualizationNode,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps, TrendResult } from '~/types'
 
@@ -84,6 +85,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     baseCurrency?: CurrencyCode
     /** Limit context sent to the /query endpoint */
     limitContext?: 'posthog_ai'
+    /** The saved item the query renders, sent to the /query endpoint. A guest's query must name one. */
+    queryReference?: QueryReference
     /** Custom action buttons rendered in the DataTable toolbar (second row, right side) */
     customActions?: JSX.Element | JSX.Element[]
     /** Callback for drag-to-zoom on time series charts. Enables x-axis drag selection when set. */

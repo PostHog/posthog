@@ -34,6 +34,7 @@ from posthog.llm.wizard_gateway_token import (
 )
 from posthog.models import Team, User
 from posthog.models.project import Project
+from posthog.permissions import GuestPermission
 from posthog.rate_limit import (
     SetupWizardCloudRunBurstRateThrottle,
     SetupWizardCloudRunSustainedRateThrottle,
@@ -143,7 +144,7 @@ class SetupWizardCloudRunResponseSerializer(serializers.Serializer):
 
 
 class SetupWizardViewSet(viewsets.ViewSet):
-    permission_classes = ()
+    permission_classes = (GuestPermission,)
 
     def throttled(self, request: Request, wait: float) -> NoReturn:
         # A rejection from DRF's own throttle check returns before the action body, so
@@ -359,7 +360,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         detail=False,
         url_path="cloud_run",
         authentication_classes=[SessionAuthentication],
-        permission_classes=[IsAuthenticated],
+        permission_classes=[IsAuthenticated, GuestPermission],
         throttle_classes=[
             SetupWizardCloudRunBurstRateThrottle,
             SetupWizardCloudRunSustainedRateThrottle,

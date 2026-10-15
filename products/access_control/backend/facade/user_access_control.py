@@ -516,6 +516,11 @@ class UserAccessControl:
             return None
         return get_cached_organization_membership(self._organization_id, self._user)
 
+    @property
+    def organization_membership(self) -> Optional[OrganizationMembership]:
+        """The user's membership in the organization of this access check, loaded once."""
+        return self._organization_membership
+
     @cached_property
     def _organization(self) -> Optional[Organization]:
         if self._organization_membership:

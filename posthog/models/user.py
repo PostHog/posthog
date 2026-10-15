@@ -515,7 +515,17 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     @cached_property
     def team(self) -> Optional[Team]:
         if self.current_team is None and self.organization is not None:
-            self.current_team = self.teams.filter(organization=self.current_organization).first()
+            teams = self.teams.filter(organization=self.current_organization)
+            if OrganizationMembership.objects.filter(
+                user=self, organization=self.current_organization, level=OrganizationMembership.Level.GUEST
+            ).exists():
+                # A guest may open only the projects that a member rule names them on.
+                teams = teams.filter(
+                    access_controls__resource="project",
+                    access_controls__access_level__in=("member", "admin"),
+                    access_controls__organization_member__user=self,
+                )
+            self.current_team = teams.first()
             if self.current_team:
                 self.save(update_fields=["current_team"])
         return self.current_team

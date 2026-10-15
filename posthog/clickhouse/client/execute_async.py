@@ -437,6 +437,7 @@ def enqueue_process_query_task(
     query_status = QueryStatus(
         id=query_id,
         team_id=team.id,
+        user_id=user_id,
         start_time=datetime.datetime.now(datetime.UTC),
         insight_id=insight_id,
         dashboard_id=dashboard_id,

@@ -12,7 +12,6 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { organizationMembershipLevelIntegers } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { isEmail } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -21,6 +20,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AvailableFeature } from '~/types'
 
+import { GuestGrantsSelector } from './GuestGrantsSelector'
+import { inviteLevelOptions } from './inviteLevels'
 import { inviteLogic } from './inviteLogic'
 
 /** Shuffled placeholder names */
@@ -203,16 +204,10 @@ export function InviteRow({
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
-    const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
-
-    const allowedLevels = myMembershipLevel
-        ? organizationMembershipLevelIntegers.filter((listLevel) => listLevel <= myMembershipLevel)
-        : [OrganizationMembershipLevel.Member]
-
-    const allowedLevelsOptions = allowedLevels.map((level) => ({
-        value: level,
-        label: OrganizationMembershipLevel[level],
-    }))
+    const allowedLevelsOptions = inviteLevelOptions(
+        currentOrganization?.membership_level,
+        hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)
+    )
 
     return (
         <div className="space-y-4 bg-surface-secondary py-4 px-4 rounded-md">
@@ -268,7 +263,7 @@ export function InviteRow({
                             fullWidth
                             data-attr="invite-row-org-member-level"
                             options={allowedLevelsOptions}
-                            value={invitesToSend[index].level || allowedLevels[0]}
+                            value={invitesToSend[index].level ?? allowedLevelsOptions[0]?.value}
                             onChange={(v) => {
                                 updateInviteAtIndex({ level: v }, index)
                             }}
@@ -298,7 +293,11 @@ export function InviteRow({
                 )}
             </div>
 
-            {hasAccessControl && !hideProjectAccessSelector && <ProjectAccessSelector inviteIndex={index} />}
+            {invitesToSend[index].level === OrganizationMembershipLevel.Guest ? (
+                <GuestGrantsSelector inviteIndex={index} />
+            ) : (
+                hasAccessControl && !hideProjectAccessSelector && <ProjectAccessSelector inviteIndex={index} />
+            )}
         </div>
     )
 }
@@ -319,16 +318,11 @@ export function InviteTeamMatesComponent({
 
     const { currentOrganization } = useValues(organizationLogic)
 
-    const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
-
-    const allowedLevels = myMembershipLevel
-        ? organizationMembershipLevelIntegers.filter((listLevel) => listLevel <= myMembershipLevel)
-        : [OrganizationMembershipLevel.Member]
-
-    const allowedLevelsOptions = allowedLevels.map((level) => ({
-        value: level,
-        label: OrganizationMembershipLevel[level],
-    }))
+    const { hasAvailableFeature } = useValues(userLogic)
+    const allowedLevelsOptions = inviteLevelOptions(
+        currentOrganization?.membership_level,
+        hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)
+    )
 
     return (
         <>

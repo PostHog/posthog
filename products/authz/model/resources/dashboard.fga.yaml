@@ -226,3 +226,37 @@ tests:
           - user: user:member
             object: dashboard:dashboard
             assertions: { can_share: true }
+
+    - name: A member rule lets a guest view a dashboard, and only view it
+      tuples:
+          - { user: 'organization_member:guest#user', relation: member_manager, object: 'access_policy:object' }
+      check:
+          - user: user:guest
+            object: dashboard:dashboard
+            assertions:
+                { can_view: true, can_edit: false, can_delete: false, can_share: false, can_manage_access: false }
+
+    - name: Guests get nothing from defaults or roles on a dashboard
+      tuples:
+          - { user: 'user:*', relation: default_editor, object: 'access_policy:object' }
+          - { user: 'organization_member:guest#user', relation: assignee, object: 'role:reader' }
+          - { user: 'role:reader#member', relation: role_viewer, object: 'access_policy:object' }
+      check:
+          - user: user:guest
+            object: dashboard:dashboard
+            assertions: { can_view: false }
+
+    - name: A resource rule covers dashboards without a guest rule, and a guest none on a dashboard wins
+      tuples:
+          - { user: 'organization_member:guest#user', relation: member_viewer, object: 'access_policy:resource' }
+          - { user: 'project:project', relation: project, object: 'dashboard:guest_board' }
+          - { user: 'resource:dashboards', relation: resource, object: 'dashboard:guest_board' }
+          - { user: 'access_policy:guest_board', relation: policy, object: 'dashboard:guest_board' }
+          - { user: 'organization_member:guest#user', relation: member_none, object: 'access_policy:guest_board' }
+      check:
+          - user: user:guest
+            object: dashboard:dashboard
+            assertions: { can_view: true, can_edit: false }
+          - user: user:guest
+            object: dashboard:guest_board
+            assertions: { can_view: false }

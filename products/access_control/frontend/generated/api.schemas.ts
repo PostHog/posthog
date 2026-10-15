@@ -1087,6 +1087,7 @@ export interface AccessControlMemberUserApi {
 }
 
 /**
+ * * `0` - guest
  * * `1` - member
  * * `8` - administrator
  * * `15` - owner
@@ -1095,6 +1096,7 @@ export type OrganizationMembershipLevelEnumApi =
     (typeof OrganizationMembershipLevelEnumApi)[keyof typeof OrganizationMembershipLevelEnumApi]
 
 export const OrganizationMembershipLevelEnumApi = {
+    Number0: 0,
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -1285,8 +1287,9 @@ export interface AccessControlMemberAccessApi {
     organization_membership_id: string
     /** The member's identity. */
     user: AccessControlMemberUserApi
-    /** The member's organization level: 1 member, 8 admin, 15 owner. Admins and owners have full access to everything.
+    /** The member's organization level: 0 guest, 1 member, 8 admin, 15 owner. Admins and owners have full access to everything. Guests can only view what member rules grant them.
      *
+     * * `0` - guest
      * * `1` - member
      * * `8` - administrator
      * * `15` - owner */

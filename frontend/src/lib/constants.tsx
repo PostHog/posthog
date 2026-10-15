@@ -79,6 +79,8 @@ export const PERCENT_STACK_VIEW_DISPLAY_TYPE = [
 ]
 
 export enum OrganizationMembershipLevel {
+    /** Sees only what member rules grant them. Guests are never members. */
+    Guest = 0,
     Member = 1,
     Admin = 8,
     Owner = 15,

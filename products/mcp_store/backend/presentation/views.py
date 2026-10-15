@@ -37,7 +37,7 @@ from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.scoping.manager import resolve_effective_team_id
-from posthog.permissions import DenyMCPBuiltInAgentOAuth
+from posthog.permissions import DenyMCPBuiltInAgentOAuth, GuestPermission
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
     MCPOAuthRedirectBurstThrottle,
@@ -2306,8 +2306,8 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
     redirects to the originating client (PostHog web or PostHog Desktop).
     """
 
-    # Use SessionAuthentication; leave permission_classes empty for uniform 400s, not 401s
-    permission_classes: list = []
+    # Use SessionAuthentication; keep only GuestPermission, which passes anonymous requests, for uniform 400s
+    permission_classes: list = [GuestPermission]
     authentication_classes = [SessionAuthentication]
     throttle_classes = [MCPOAuthRedirectBurstThrottle, MCPOAuthRedirectSustainedThrottle]
 

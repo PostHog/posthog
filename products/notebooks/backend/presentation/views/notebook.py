@@ -53,6 +53,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.authz.backend.facade import api as authz_api
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.analytics import (
@@ -190,6 +191,7 @@ from products.notebooks.backend.sql_v2_state import (
     validate_cell_count,
 )
 from products.notebooks.backend.sql_v2_variables import build_notebook_variables
+from products.notebooks.backend.util import embeds_changed
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
@@ -721,6 +723,7 @@ IDENTITY_ONLY_DETAIL_ACTIONS = frozenset({"collab_presence", "collab_stream", "a
 )
 class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "notebook"
+    guest_allowed_actions = frozenset({"list", "retrieve"})
     queryset = Notebook.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id"]
@@ -2549,6 +2552,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 last_modified_by=request.user,
             )
             notebook.refresh_from_db()
+            # The queryset update fires no post_save, so queue the sync that keeps notebook embed access current.
+            if embeds_changed(notebook_before.content, content):
+                authz_api.schedule_organization_sync(self.team.organization_id)
 
             # Snapshot diffs into the activity logs for history
             changes = changes_between("Notebook", previous=notebook_before, current=notebook)

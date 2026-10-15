@@ -42217,6 +42217,29 @@
             },
             "type": "object"
         },
+        "QueryReference": {
+            "additionalProperties": false,
+            "description": "The saved item that a query renders. A guest's query must name one, and the server runs the item's own query.",
+            "properties": {
+                "insight_id": {
+                    "description": "The saved insight this query renders. For a guest, the server runs the insight's saved query instead of `query`.",
+                    "type": "integer"
+                },
+                "node_id": {
+                    "description": "The ID of the notebook query node this query renders. For a guest, the server runs the node's saved query.",
+                    "type": "string"
+                },
+                "notebook_short_id": {
+                    "description": "The short ID of the notebook that holds the query node. Send it with `node_id`.",
+                    "type": "string"
+                },
+                "session_recording_id": {
+                    "description": "The session recording whose events this query loads. For a guest, the server builds the events query.",
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "QueryRequest": {
             "additionalProperties": false,
             "properties": {
@@ -42231,6 +42254,10 @@
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter"
                 },
+                "insight_id": {
+                    "description": "The saved insight this query renders. For a guest, the server runs the insight's saved query instead of `query`.",
+                    "type": "integer"
+                },
                 "limit_context": {
                     "description": "Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value.",
                     "enum": ["posthog_ai", null],
@@ -42238,6 +42265,14 @@
                 },
                 "name": {
                     "description": "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name.",
+                    "type": "string"
+                },
+                "node_id": {
+                    "description": "The ID of the notebook query node this query renders. For a guest, the server runs the node's saved query.",
+                    "type": "string"
+                },
+                "notebook_short_id": {
+                    "description": "The short ID of the notebook that holds the query node. Send it with `node_id`.",
                     "type": "string"
                 },
                 "query": {
@@ -42248,6 +42283,10 @@
                     "$ref": "#/definitions/RefreshType",
                     "default": "blocking",
                     "description": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field."
+                },
+                "session_recording_id": {
+                    "description": "The session recording whose events this query loads. For a guest, the server builds the events query.",
+                    "type": "string"
                 },
                 "variables_override": {
                     "additionalProperties": {
@@ -51390,6 +51429,10 @@
                 },
                 "team_id": {
                     "$ref": "#/definitions/integer"
+                },
+                "user_id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The user who started the query. Guests can read and cancel only their own queries."
                 }
             },
             "required": ["id", "query_async", "team_id", "error", "complete", "error_message", "error_code"],

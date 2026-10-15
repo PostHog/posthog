@@ -2211,6 +2211,8 @@ export interface QueryStatusApi {
     start_time?: string | null
     task_id?: string | null
     team_id: number
+    /** The user who started the query. Guests can read and cancel only their own queries. */
+    user_id?: number | null
 }
 
 export interface ResolvedDateRangeResponseApi {

@@ -29,6 +29,7 @@ from posthog.auth import (
 )
 from posthog.authz import filter_dashboard_queryset, filter_resource_queryset
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
+from posthog.guest_access import guest_referenced_ids, guest_state_for_view
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
@@ -38,6 +39,7 @@ from posthog.permissions import (
     AccessControlPermission,
     ActiveOrganizationPermission,
     APIScopePermission,
+    GuestPermission,
     MCPAccessPermission,
     OrganizationMemberPermissions,
     TeamMemberAccessPermission,
@@ -266,6 +268,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             # permission chain cannot remove them.
             return [
                 *dangerously_defined,
+                GuestPermission(),
                 VerifiedDomainEnforcementPermission(),
                 MCPAccessPermission(),
                 ActiveOrganizationPermission(),
@@ -296,6 +299,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         # After the membership permission, so non-members get the generic denial and the
         # organization row it resolved is reused. The MCP cap follows for the same reason:
         # its message must not disclose another organization's security settings.
+        # After the membership permission, which loads the memberships GuestPermission reads.
+        permission_classes.append(GuestPermission)
         permission_classes.append(VerifiedDomainEnforcementPermission)
         permission_classes.append(MCPAccessPermission)
         permission_classes.append(ActiveOrganizationPermission)
@@ -369,6 +374,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             queryset = self._filter_queryset_by_parents_lookups(queryset)
 
             queryset = self._filter_queryset_by_access_level(queryset)
+            queryset = self._filter_queryset_for_guest(queryset)
 
             return queryset
         finally:
@@ -378,6 +384,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if self.paginator is not None and isinstance(queryset, QuerySet):
             queryset = stable_queryset_ordering(queryset)
         return super().paginate_queryset(queryset)
+
+    def _filter_queryset_for_guest(self, queryset: QuerySet) -> QuerySet:
+        # A guest reads only the cohorts and actions that the insights they can view use. This filters retrieves
+        # too, so an unused cohort or action is a 404.
+        if self.scope_object not in ("cohort", "action") or not guest_state_for_view(self.request, self).enforced:
+            return queryset
+        references = guest_referenced_ids(self.request, cast(User, self.request.user), self.team_id)
+        return queryset.filter(id__in=references.cohort_ids if self.scope_object == "cohort" else references.action_ids)
 
     def _filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
         if self.action != "list":
@@ -396,6 +410,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             return filter_dashboard_queryset(self.request.user, queryset)
         if self.scope_object == "insight":
             return filter_resource_queryset(self.request.user, queryset, ResourceType.INSIGHT)
+        if self.scope_object == "notebook" and guest_state_for_view(self.request, self).enforced:
+            return filter_resource_queryset(self.request.user, queryset, ResourceType.NOTEBOOK)
 
         # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
         include_all_if_admin = self.request.GET.get("admin_include_all") == "true"

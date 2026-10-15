@@ -37,6 +37,7 @@ from posthog.event_usage import (
     report_organization_deletion_initiated,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.guest_access import is_enforced_guest
 from posthog.helpers.email_utils import validate_display_name
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, verified_domain_email_q
 from posthog.models import Organization, User
@@ -521,7 +522,10 @@ class OrganizationSerializer(
 
     @extend_schema_field(serializers.IntegerField())
     @tracer.start_as_current_span("organization_serializer.member_count")
-    def get_member_count(self, organization: Organization) -> int:
+    def get_member_count(self, organization: Organization) -> int | None:
+        request = self.context.get("request")
+        if request is not None and is_enforced_guest(request):
+            return None
         return _cached_per_org("member_count", str(organization.id), lambda: _fetch_member_count(organization))
 
     def validate_read_only_mcp_access(self, value: bool) -> bool:
@@ -592,6 +596,7 @@ class OrganizationDataFreshnessSerializer(serializers.Serializer):
 @extend_schema(extensions={"x-product": "platform_features"})
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
+    guest_allowed_actions = frozenset({"retrieve"})
     serializer_class = OrganizationSerializer
     permission_classes = [OrganizationPermissionsWithDelete, TimeSensitiveActionPermission]
     queryset = Organization.objects.none()

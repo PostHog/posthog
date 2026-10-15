@@ -2963,6 +2963,35 @@ class QueryLogTags(BaseModel):
     )
 
 
+class QueryReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    insight_id: int | None = Field(
+        default=None,
+        description=(
+            "The saved insight this query renders. For a guest, the server runs the"
+            " insight's saved query instead of `query`."
+        ),
+    )
+    node_id: str | None = Field(
+        default=None,
+        description=(
+            "The ID of the notebook query node this query renders. For a guest, the server runs the node's saved query."
+        ),
+    )
+    notebook_short_id: str | None = Field(
+        default=None,
+        description=("The short ID of the notebook that holds the query node. Send it with `node_id`."),
+    )
+    session_recording_id: str | None = Field(
+        default=None,
+        description=(
+            "The session recording whose events this query loads. For a guest, the server builds the events query."
+        ),
+    )
+
+
 class QueryResponseAlternative7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7503,6 +7532,10 @@ class QueryStatus(BaseModel):
     start_time: AwareDatetime | None = Field(default=None, description="When was query execution task enqueued.")
     task_id: str | None = None
     team_id: int
+    user_id: int | None = Field(
+        default=None,
+        description=("The user who started the query. Guests can read and cancel only their own queries."),
+    )
 
 
 class QueryStatusResponse(BaseModel):
@@ -34006,6 +34039,13 @@ class QueryRequest(BaseModel):
         description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
     )
     filters_override: DashboardFilter | None = None
+    insight_id: int | None = Field(
+        default=None,
+        description=(
+            "The saved insight this query renders. For a guest, the server runs the"
+            " insight's saved query instead of `query`."
+        ),
+    )
     limit_context: LimitContext | None = Field(
         default=None,
         description=("Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value."),
@@ -34015,6 +34055,16 @@ class QueryRequest(BaseModel):
         description=(
             "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name."
         ),
+    )
+    node_id: str | None = Field(
+        default=None,
+        description=(
+            "The ID of the notebook query node this query renders. For a guest, the server runs the node's saved query."
+        ),
+    )
+    notebook_short_id: str | None = Field(
+        default=None,
+        description=("The short ID of the notebook that holds the query node. Send it with `node_id`."),
     )
     query: (
         EventsNode
@@ -34148,6 +34198,12 @@ class QueryRequest(BaseModel):
             " are already cached\n- `'force_cache'` - return cached data or a cache"
             " miss; always completes immediately as it never calculates Background"
             " calculation can be tracked using the `query_status` response field."
+        ),
+    )
+    session_recording_id: str | None = Field(
+        default=None,
+        description=(
+            "The session recording whose events this query loads. For a guest, the server builds the events query."
         ),
     )
     variables_override: dict[str, dict[str, Any]] | None = None

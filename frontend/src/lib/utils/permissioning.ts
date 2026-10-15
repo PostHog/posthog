@@ -11,7 +11,7 @@ export function getReasonForAccessLevelChangeProhibition(
     if (memberToBeUpdated.user.uuid === currentUser.uuid) {
         return "You can't change your own access level."
     }
-    if (!currentMembershipLevel) {
+    if (currentMembershipLevel == null) {
         return 'Your membership level is unknown.'
     }
     const effectiveLevelToBeUpdated = memberToBeUpdated.level
@@ -43,6 +43,7 @@ export function getReasonForAccessLevelChangeProhibition(
 }
 
 export const membershipLevelToName = new Map<EitherMembershipLevel, string>([
+    [OrganizationMembershipLevel.Guest, 'guest'],
     [OrganizationMembershipLevel.Member, 'member'],
     [OrganizationMembershipLevel.Admin, 'admin'],
     [OrganizationMembershipLevel.Owner, 'owner'],
@@ -57,8 +58,9 @@ export function organizationAllowsPersonalApiKeysForMembers(org: OrganizationBas
     return [true, undefined].includes(org.members_can_use_personal_api_keys)
 }
 
+// Guest is left out: no one changes a level to or from guest, and only the invite modal offers it.
 export const organizationMembershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
-    (value) => typeof value === 'number'
+    (value) => typeof value === 'number' && value !== OrganizationMembershipLevel.Guest
 ) as OrganizationMembershipLevel[]
 
 export const teamMembershipLevelIntegers = Object.values(TeamMembershipLevel).filter(

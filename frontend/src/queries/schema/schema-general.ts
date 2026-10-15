@@ -2802,7 +2802,21 @@ export interface QueryRequest {
      * Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value.
      */
     limit_context?: 'posthog_ai' | null
+    /**
+     * The saved insight this query renders. For a guest, the server runs the insight's saved query instead of `query`.
+     * @asType integer
+     */
+    insight_id?: number
+    /** The short ID of the notebook that holds the query node. Send it with `node_id`. */
+    notebook_short_id?: string
+    /** The ID of the notebook query node this query renders. For a guest, the server runs the node's saved query. */
+    node_id?: string
+    /** The session recording whose events this query loads. For a guest, the server builds the events query. */
+    session_recording_id?: string
 }
+
+/** The saved item that a query renders. A guest's query must name one, and the server runs the item's own query. */
+export type QueryReference = Pick<QueryRequest, 'insight_id' | 'notebook_short_id' | 'node_id' | 'session_recording_id'>
 
 export interface QueryUpgradeRequest {
     query: QuerySchema
@@ -2908,6 +2922,8 @@ export type QueryStatus = {
      */
     query_async: true
     team_id: integer
+    /** The user who started the query. Guests can read and cancel only their own queries. */
+    user_id?: integer
     insight_id?: integer
     dashboard_id?: integer
     /**

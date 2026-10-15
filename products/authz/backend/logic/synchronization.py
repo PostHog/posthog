@@ -1,5 +1,8 @@
+import re
 from itertools import batched
 from uuid import UUID
+
+from django.db.models import Q
 
 from openfga_sdk import ReadRequestTupleKey
 from openfga_sdk.client.models import ClientTuple, ClientWriteRequest
@@ -9,13 +12,25 @@ from posthog import redis
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.models import Organization, OrganizationMembership, SharingConfiguration, Team
+from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.access_control.backend.facade.authorization import authorization_roles, authorization_rules
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES
 from products.dashboards.backend.facade.authorization import authorization_dashboards
+from products.notebooks.backend.facade.authorization import authorization_notebooks
 
 from ..client import pooled_openfga_client
 from . import sync_state
+
+# Notebook content is user input, and an OpenFGA object id cannot hold whitespace, "#" or ":".
+RECORDING_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]{1,200}")
+
+
+def _uuid_or_none(value: str | None) -> UUID | None:
+    try:
+        return UUID(value) if value is not None else None
+    except ValueError:
+        return None
 
 
 @frozen
@@ -91,6 +106,10 @@ class OrganizationProjection:
             self.add(user, "user", member_key)
             self.add(self.organization_key, "organization", member_key)
             self.add(self.organization_key, "organization", user)
+            if membership.level == OrganizationMembership.Level.GUEST:
+                # A guest is never an organization member, so no member or default rule reaches them.
+                self.add(f"{member_key}#user", "guest", self.organization_key)
+                continue
             level = (
                 "owner"
                 if membership.level >= OrganizationMembership.Level.OWNER
@@ -159,8 +178,68 @@ class OrganizationProjection:
                     self.add(
                         f"{self.key('organization_member', str(creator_membership.id))}#user", "creator", object_key
                     )
+                # A dashboard lets its guests view the insights it shows.
+                for dashboard_id in insight.dashboard_ids:
+                    self.add(self.key("dashboard", f"{team.id}/{dashboard_id}"), "dashboard", object_key)
 
-            for rule in authorization_rules(team.id, self.organization_id):
+            insight_ids_by_short_id = {insight.short_id: str(insight.id) for insight in insights if not insight.deleted}
+            notebooks = authorization_notebooks(team.id)
+            notebook_ids = {str(notebook.id) for notebook in notebooks}
+            embedded_session_ids: set[str] = set()
+            for notebook in notebooks:
+                object_key = self.key("notebook", f"{team.id}/{notebook.id}")
+                policy_key = self.key("access_policy", f"{team.id}/notebook/{notebook.id}")
+                self.add(project_key, "project", object_key)
+                self.add(resource_keys["notebook"], "resource", object_key)
+                self.add(policy_key, "policy", object_key)
+                self.add(self.organization_key, "organization", policy_key)
+                creator_membership = (
+                    membership_by_user.get(notebook.created_by_id) if notebook.created_by_id is not None else None
+                )
+                if creator_membership is not None:
+                    self.add(
+                        f"{self.key('organization_member', str(creator_membership.id))}#user", "creator", object_key
+                    )
+                # A notebook lets its guests view the insights and recordings it embeds.
+                for short_id in notebook.insight_short_ids:
+                    embedded_insight_id = insight_ids_by_short_id.get(short_id)
+                    if embedded_insight_id is not None:
+                        self.add(object_key, "notebook", self.key("insight", f"{team.id}/{embedded_insight_id}"))
+                for session_id in notebook.recording_ids:
+                    if RECORDING_ID_PATTERN.fullmatch(session_id):
+                        embedded_session_ids.add(session_id)
+                        self.add(object_key, "notebook", self.key("session_recording", f"{team.id}/{session_id}"))
+
+            rules = authorization_rules(team.id, self.organization_id)
+            # Rules name a recording by its row id, and OpenFGA names it by its session id.
+            ruled_recording_ids = {
+                recording_id
+                for rule in rules
+                if rule.resource == "session_recording" and (recording_id := _uuid_or_none(rule.resource_id))
+            }
+            session_ids_by_recording_id = {
+                str(recording_id): session_id
+                for recording_id, session_id in SessionRecording.objects.filter(
+                    Q(session_id__in=embedded_session_ids) | Q(id__in=ruled_recording_ids), team_id=team.id
+                ).values_list("id", "session_id")
+                if RECORDING_ID_PATTERN.fullmatch(session_id)
+            }
+            # Only recordings that a notebook embeds or a rule names are objects. Guests reach no other recording.
+            for session_id in embedded_session_ids | set(session_ids_by_recording_id.values()):
+                object_key = self.key("session_recording", f"{team.id}/{session_id}")
+                policy_key = self.key("access_policy", f"{team.id}/session_recording/{session_id}")
+                self.add(project_key, "project", object_key)
+                self.add(resource_keys["session_recording"], "resource", object_key)
+                self.add(policy_key, "policy", object_key)
+                self.add(self.organization_key, "organization", policy_key)
+            object_ids_by_resource = {
+                "dashboard": {id: id for id in dashboard_ids},
+                "insight": {id: id for id in insight_ids},
+                "notebook": {id: id for id in notebook_ids},
+                "session_recording": session_ids_by_recording_id,
+            }
+
+            for rule in rules:
                 if rule.resource == "project":
                     if rule.resource_id != str(team.id):
                         continue
@@ -168,13 +247,15 @@ class OrganizationProjection:
                     levels = {"none", "member", "admin"}
                 else:
                     resource_type = rule.resource
+                    object_id = "default"
                     if rule.resource_id is not None:
-                        resource_ids = {"dashboard": dashboard_ids, "insight": insight_ids}.get(resource_type, set())
-                        if rule.resource_id not in resource_ids:
+                        object_ids = object_ids_by_resource.get(resource_type, {})
+                        if rule.resource_id not in object_ids:
                             continue
+                        object_id = object_ids[rule.resource_id]
                     elif resource_type not in resource_keys:
                         continue
-                    policy_key = self.key("access_policy", f"{team.id}/{resource_type}/{rule.resource_id or 'default'}")
+                    policy_key = self.key("access_policy", f"{team.id}/{resource_type}/{object_id}")
                     levels = {"none", "viewer", "editor", "manager"}
                 if rule.access_level not in levels:
                     raise ValueError("Cannot mirror an unsupported access level")

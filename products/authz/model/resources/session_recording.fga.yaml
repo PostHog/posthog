@@ -25,3 +25,29 @@ tests:
             object: session_recording:recording
             assertions:
                 { can_view: false, can_edit: false, can_delete: false, can_share: false, can_manage_access: false }
+
+    - name: Guests view the recordings in notebooks they can view, unless a guest rule on the recording decides
+      tuples:
+          - { user: 'project:project', relation: project, object: 'notebook:guest_notebook' }
+          - { user: 'resource:insights', relation: resource, object: 'notebook:guest_notebook' }
+          - { user: 'access_policy:guest_notebook', relation: policy, object: 'notebook:guest_notebook' }
+          - { user: 'organization_member:guest#user', relation: member_viewer, object: 'access_policy:guest_notebook' }
+          - { user: 'notebook:guest_notebook', relation: notebook, object: 'session_recording:recording' }
+          - { user: 'project:project', relation: project, object: 'session_recording:blocked' }
+          - { user: 'access_policy:guest_board', relation: policy, object: 'session_recording:blocked' }
+          - { user: 'organization_member:guest#user', relation: member_none, object: 'access_policy:guest_board' }
+          - { user: 'notebook:guest_notebook', relation: notebook, object: 'session_recording:blocked' }
+      check:
+          - user: user:guest
+            object: session_recording:recording
+            assertions:
+                { can_view: true, can_edit: false, can_delete: false, can_share: false, can_manage_access: false }
+          - user: user:guest
+            object: session_recording:blocked
+            assertions: { can_view: false }
+
+    - name: Guests do not view a recording without a notebook or a rule
+      check:
+          - user: user:guest
+            object: session_recording:recording
+            assertions: { can_view: false }

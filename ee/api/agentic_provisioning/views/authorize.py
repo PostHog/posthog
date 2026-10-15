@@ -28,6 +28,7 @@ from rest_framework.views import APIView
 from posthog.models.oauth import OAuthApplication
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.permissions import GuestPermission
 
 from ee.api.agentic_provisioning.accounts import get_callback_url, mint_pending_auth_code, resolve_pending_partner
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
@@ -131,7 +132,7 @@ class AuthorizePendingView(APIView):
     an attacker from spoofing the partner identity on the consent page.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, GuestPermission]
 
     def get(self, request: Request) -> Response:
         state = request.query_params.get("state", "")
@@ -155,7 +156,7 @@ class AuthorizePendingView(APIView):
 
 
 class AuthorizeConfirmView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, GuestPermission]
 
     def post(self, request: Request) -> Response:
         state = request.data.get("state", "")

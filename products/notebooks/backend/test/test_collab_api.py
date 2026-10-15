@@ -69,6 +69,36 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         assert data["version"] == version + 1
         assert data["content"] == UPDATED_DOC
 
+    @parameterized.expand(
+        [
+            ("text edit", UPDATED_DOC, False),
+            ("recording embed", {"type": "doc", "content": [{"type": "ph-recording", "attrs": {"id": "s-1"}}]}, True),
+            (
+                "insight embed",
+                {
+                    "type": "doc",
+                    "content": [
+                        {"type": "ph-query", "attrs": {"query": {"kind": "SavedInsightNode", "shortId": "abc"}}}
+                    ],
+                },
+                True,
+            ),
+        ]
+    )
+    def test_collab_save_syncs_authorization_only_when_embeds_change(self, _name, content, syncs):
+        notebook = self._create_notebook(SAMPLE_DOC)
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.authz_api.schedule_organization_sync"
+        ) as schedule_sync:
+            response = self._collab_save(
+                notebook,
+                version=notebook["version"],
+                steps=[{"stepType": "replace", "from": 0, "to": 0}],
+                content=content,
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert schedule_sync.call_args_list == ([((self.organization.id,),)] if syncs else [])
+
     def test_collab_save_persists_to_postgres(self):
         notebook = self._create_notebook(SAMPLE_DOC)
         version = notebook["version"]

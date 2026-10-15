@@ -23,6 +23,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { isSceneDeniedToGuest } from 'lib/utils/guestAccess'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { retryImport } from 'lib/utils/retryImport'
@@ -579,6 +580,11 @@ export const sceneLogic = kea<sceneLogicType>([
                     getProjectIdentifierInPath(location.pathname) === appContext.project_access_denied
                 ) {
                     return Scene.ErrorProjectAccessDenied
+                }
+
+                // A guest can open only the scenes for the items shared with them.
+                if (sceneId && isSceneDeniedToGuest(sceneId, sceneConfigurations[sceneId]?.projectBased)) {
+                    return Scene.ErrorAccessDenied
                 }
 
                 // Get the access control resource type for the current scene

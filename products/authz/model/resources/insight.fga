@@ -1,2 +1,10 @@
 type insight extends shareable_object
   relations
+    # A dashboard that shows the insight lets the dashboard's guests view it.
+    define dashboard: [dashboard]
+    # A notebook that embeds the insight lets the notebook's guests view it.
+    define notebook: [notebook]
+    # Guests view the insights on the dashboards and notebooks they can view, unless a member rule on the insight decides.
+    define guest_embed_viewer: (guest from project) and ((guest_viewer from dashboard or guest_viewer from notebook) but not has_member_rule)
+    # Members keep the base rule. Only guests view an insight through its dashboards and notebooks.
+    override can_view: viewer or shared_viewer or guest_viewer or guest_embed_viewer

@@ -61,6 +61,7 @@ import {
     MarketingAnalyticsTableQueryResponse,
     NodeKind,
     PersonsNode,
+    QueryReference,
     QueryScanAnalysis,
     QueryScanResponse,
     QueryStatus,
@@ -144,6 +145,8 @@ export interface DataNodeLogicProps {
     maxPaginationRows?: number
     /** Limit context sent to the /query endpoint */
     limitContext?: 'posthog_ai'
+    /** The saved item this query renders. A guest's query must name one, and the server runs the item's query. */
+    reference?: QueryReference
 }
 
 export const AUTOLOAD_INTERVAL = 30000
@@ -1115,7 +1118,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             props.filtersOverride,
                                             props.variablesOverride,
                                             pollOnly,
-                                            props.limitContext
+                                            props.limitContext,
+                                            false,
+                                            props.reference
                                         )) ?? null
                                     const duration = performance.now() - now
                                     return { data, duration }
@@ -1161,7 +1166,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 undefined,
                                 undefined,
                                 false,
-                                props.limitContext
+                                props.limitContext,
+                                false,
+                                props.reference
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (values.response === null) {
@@ -1211,7 +1218,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 undefined,
                                 undefined,
                                 false,
-                                props.limitContext
+                                props.limitContext,
+                                false,
+                                props.reference
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         const queryResponse = values.response as
@@ -1249,7 +1258,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 undefined,
                                 undefined,
                                 false,
-                                props.limitContext
+                                props.limitContext,
+                                false,
+                                props.reference
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (Array.isArray(values.response)) {

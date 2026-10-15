@@ -90,6 +90,7 @@ from posthog.event_usage import (
     report_user_verified_email,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.guest_access import guest_team_ids
 from posthog.helpers.email_utils import (
     EmailLookupHandler,
     EmailNormalizer,
@@ -125,7 +126,12 @@ from posthog.models.user import (
     preserve_starred_products_setup,
 )
 from posthog.models.webauthn_credential import WebauthnCredential
-from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
+from posthog.permissions import (
+    APIScopePermission,
+    GuestPermission,
+    TimeSensitiveActionPermission,
+    UserNoOrgMembershipDeletePermission,
+)
 from posthog.rate_limit import (
     OnboardingSkipThrottle,
     ToolbarOAuthRefreshThrottle,
@@ -658,7 +664,9 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_set_current_team(self, value: str) -> Team:
         try:
             team = Team.objects.get(pk=value)
-            if self.context["request"].user.teams.filter(pk=team.pk).exists():
+            user = self.context["request"].user
+            guest_teams = guest_team_ids(user, team.organization_id)
+            if user.teams.filter(pk=team.pk).exists() and (guest_teams is None or team.pk in guest_teams):
                 return team
         except Team.DoesNotExist:
             pass
@@ -742,7 +750,11 @@ class UserSerializer(serializers.ModelSerializer):
                 )
 
             validated_data["current_organization"] = current_organization
-            validated_data["current_team"] = current_team if current_team else current_organization.teams.first()
+            if not current_team:
+                guest_teams = guest_team_ids(instance, current_organization.id)
+                teams = current_organization.teams.all()
+                current_team = (teams if guest_teams is None else teams.filter(pk__in=guest_teams)).first()
+            validated_data["current_team"] = current_team
         elif current_team:
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
@@ -1025,6 +1037,7 @@ class UserViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "user"
+    guest_allowed_actions = "all"
     # None = derive scopes from scope_object per HTTP method; individual actions can override via @action(required_scopes=...)
     required_scopes: list[str] | None = None
     # Custom @action GETs that should map to user:read for OAuth / personal API keys
@@ -1039,6 +1052,7 @@ class UserViewSet(
     ]
     permission_classes = [
         IsAuthenticated,
+        GuestPermission,
         APIScopePermission,
         UserNoOrgMembershipDeletePermission,
         TimeSensitiveActionPermission,
@@ -2176,7 +2190,7 @@ def redirect_to_website(request):
             app_url=app_url,
             team_id=team.id,
         )
-        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
+        return HttpResponse("Can only redirect to a permitted domain.", status=403)
 
     token = ""
 

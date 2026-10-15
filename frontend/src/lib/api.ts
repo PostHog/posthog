@@ -61,6 +61,7 @@ import {
     NodeKind,
     QueryLogTags,
     QueryScanResponse,
+    QueryReference,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -6511,6 +6512,8 @@ const api = {
             variablesOverride?: Record<string, HogQLVariable> | null
             limitContext?: 'posthog_ai'
             queryKind?: string
+            /** The saved item this query renders. A guest's query must name one. */
+            reference?: QueryReference
         }
     ): Promise<
         T extends { [response: string]: any }
@@ -6540,6 +6543,7 @@ const api = {
                 filters_override: queryOptions?.filtersOverride,
                 variables_override: queryOptions?.variablesOverride,
                 limit_context: queryOptions?.limitContext,
+                ...queryOptions?.reference,
             },
         })
     },
@@ -6555,6 +6559,8 @@ const api = {
             variablesOverride?: Record<string, HogQLVariable> | null
             queryParams?: Omit<HogQLQuery, 'kind' | 'query' | 'tags'>
             queryKind?: string
+            /** The saved item this query renders. A guest's query must name one. */
+            reference?: QueryReference
         }
     ): Promise<HogQLQueryResponse<T>> {
         const hogQLQuery: HogQLQuery = setLatestVersionsOnQuery({
@@ -6577,6 +6583,7 @@ const api = {
                 refresh: queryOptions?.refresh,
                 filters_override: queryOptions?.filtersOverride,
                 variables_override: queryOptions?.variablesOverride,
+                ...queryOptions?.reference,
             },
         })
     },

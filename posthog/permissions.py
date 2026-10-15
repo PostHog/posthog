@@ -35,6 +35,14 @@ from posthog.authz import (
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
+from posthog.guest_access import (
+    GUEST_MODE_FEATURE,
+    GUEST_V2_OBJECT_TYPES,
+    GuestState,
+    build_guest_state,
+    guest_state_for_view,
+    remember_guest_state,
+)
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
@@ -1048,6 +1056,30 @@ class MCPAccessPermission(ScopeBasePermission):
         return True
 
 
+class GuestPermission(BasePermission):
+    """Deny guests every action a view does not opt in through `guest_allowed_actions`, and every action when the org
+    lacks guest access.
+
+    Put it after the membership permissions, which load the memberships it reads.
+    """
+
+    message = "Guests can only view the dashboards, insights and notebooks shared with them."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        state = guest_state_for_view(request, view)
+        if not state.is_guest:
+            return True
+        if state.organization is None or not state.organization.is_feature_available(GUEST_MODE_FEATURE):
+            self.message = "Your organization's plan doesn't include guest access."
+            return False
+        if not state.enforced:
+            return True
+        # A view opts guests in action by action. Views that share a scope object, such as every view scoped to
+        # "project", stay closed unless they opt in too.
+        allowed: frozenset[str] | str = getattr(view, "guest_allowed_actions", frozenset())
+        return allowed == "all" or getattr(view, "action", None) in allowed
+
+
 class AccessControlPermission(ScopeBasePermission):
     """
     Unified permissions access - controls access to any object based on the user's access controls
@@ -1106,7 +1138,10 @@ class AccessControlPermission(ScopeBasePermission):
             return True
 
         resource = object.resource if isinstance(object, ObjectAccessRef) else model_to_resource(object)
-        if resource in ("dashboard", "insight"):
+        # The guest model checks guest notebooks and recordings on OpenFGA. Members keep the legacy path for them.
+        if resource in ("dashboard", "insight") or (
+            resource in GUEST_V2_OBJECT_TYPES and guest_state_for_view(request, view).enforced
+        ):
             if isinstance(object, ObjectAccessRef) and object.team_id != view.team.pk:
                 return False
             if view.action == "access_controls" and request.method not in SAFE_METHODS:
@@ -1140,6 +1175,13 @@ class AccessControlPermission(ScopeBasePermission):
             return False
 
         return True
+
+    @staticmethod
+    def _enforced_guest(request: Request, uac: UserAccessControl) -> bool:
+        cached = getattr(request, "_guest_state", None)
+        if isinstance(cached, GuestState):
+            return cached.enforced
+        return remember_guest_state(request, build_guest_state(uac.organization_membership)).enforced
 
     def has_permission(self, request, view) -> bool:
         if isinstance(request.user, SharedLinkUser):
@@ -1217,10 +1259,24 @@ class AccessControlPermission(ScopeBasePermission):
         pk = view.kwargs.get("pk")
         uac.preload_access_levels(team=team, resource=cast(APIScopeObject, scope_object), resource_id=pk)
 
+        # The guest model checks guest notebooks and recordings on OpenFGA. The member check below loads the
+        # same membership first, so reading it here adds no query and keeps the query order.
+        if scope_object in GUEST_V2_OBJECT_TYPES and self._enforced_guest(request, uac):
+            if not check_object_access(request.user, team, Action.VIEW):
+                return False
+            if pk is not None or not required_level:
+                return True
+            # A guest reaches a recording only through a notebook that embeds it, so guests list notebooks only.
+            if scope_object != "notebook":
+                return False
+            return check_resource_category_access(
+                request.user, team, ResourceType.NOTEBOOK, Action.VIEW, require_category=False
+            )
+
         is_member = uac.check_access_level_for_object(team, required_level="member")
 
         if not is_member:
-            self.message = f"You don't have access to the project."
+            self.message = "You don't have access to the project."
             return False
 
         # If the API doesn't have a scope object or a required level for accessing then we can simply allow access

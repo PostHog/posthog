@@ -18,7 +18,7 @@ from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.group_type_mapping import get_group_types_for_project
-from posthog.permissions import ActiveOrganizationPermission, VerifiedDomainEnforcementPermission
+from posthog.permissions import ActiveOrganizationPermission, GuestPermission, VerifiedDomainEnforcementPermission
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.property_access_control import (
@@ -89,7 +89,12 @@ class LivestreamAuthorizationSerializer(serializers.Serializer):
 @extend_schema(exclude=True)
 class LivestreamAuthorizationView(APIView):
     authentication_classes = [LivestreamAuthentication]
-    permission_classes = [IsAuthenticated, LivestreamOrganizationPermission, LivestreamVerifiedDomainPermission]
+    permission_classes = [
+        IsAuthenticated,
+        GuestPermission,
+        LivestreamOrganizationPermission,
+        LivestreamVerifiedDomainPermission,
+    ]
 
     def get(self, request: Request) -> Response:
         user = cast(User, request.user)

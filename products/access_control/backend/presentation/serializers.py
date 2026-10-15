@@ -179,7 +179,7 @@ class AccessControlMemberAccessSerializer(serializers.Serializer):
     user = AccessControlMemberUserSerializer(help_text="The member's identity.")
     organization_level = serializers.ChoiceField(
         choices=OrganizationMembership.Level.choices,
-        help_text="The member's organization level: 1 member, 8 admin, 15 owner. Admins and owners have full access to everything.",
+        help_text="The member's organization level: 0 guest, 1 member, 8 admin, 15 owner. Admins and owners have full access to everything. Guests can only view what member rules grant them.",
     )
     role_ids = serializers.ListField(
         child=serializers.UUIDField(),

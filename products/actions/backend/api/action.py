@@ -637,6 +637,7 @@ class ActionViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "action"
+    guest_allowed_actions = frozenset({"list", "retrieve"})
     renderer_classes = cast(
         tuple[type[BaseRenderer], ...],
         (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),

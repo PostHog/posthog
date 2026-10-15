@@ -14,7 +14,11 @@ type object
     define viewer: (member from project) and (creator or org_admin from project or viewer from policy or ((viewer from resource) but not has_rule))
     define editor: (member from project) and (creator or org_admin from project or editor from policy or ((editor from resource) but not has_rule))
     define manager: (member from project) and (creator or org_admin from project or manager from policy or ((manager from resource) but not has_rule))
-    define can_view: viewer
+    # Guests never hold a level. A member rule on the object, or on its resource when the object has none, lets them view.
+    define has_member_rule: has_member_rule from policy
+    define policy_guest_viewer: guest_viewer from policy
+    define guest_viewer: (guest from project) and (policy_guest_viewer or ((guest_viewer from resource) but not has_member_rule))
+    define can_view: viewer or guest_viewer
     define can_edit: editor
     define can_delete: can_edit
     define can_manage_access: manager or can_manage_access from project
@@ -24,5 +28,5 @@ type shareable_object extends object
   relations
     # Share credentials grant reads independently of organization membership and never grant an access level.
     define shared_viewer: [share_link]
-    override can_view: viewer or shared_viewer
+    override can_view: viewer or shared_viewer or guest_viewer
     define can_share: can_edit

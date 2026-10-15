@@ -470,6 +470,23 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
         mock_sync_delay.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("member to guest", OrganizationMembership.Level.MEMBER, OrganizationMembership.Level.GUEST),
+            ("guest to member", OrganizationMembership.Level.GUEST, OrganizationMembership.Level.MEMBER),
+        ]
+    )
+    def test_owner_cannot_change_a_level_to_or_from_guest(self, _name, current_level, new_level):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        user = User.objects.create_user("test@x.com", None, "X")
+        OrganizationMembership.objects.create(user=user, organization=self.organization, level=current_level)
+        response = self.client.patch(f"/api/organizations/@current/members/{user.uuid}/", {"level": new_level})
+        self.assertEqual(response.status_code, 403, response.json())
+        self.assertEqual(
+            OrganizationMembership.objects.get(user=user, organization=self.organization).level, current_level
+        )
+
     def test_cannot_change_own_organization_member_level(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

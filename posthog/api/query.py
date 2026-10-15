@@ -1,6 +1,6 @@
 import re
 from time import perf_counter
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 
 from django.core.cache import cache
 from django.http import JsonResponse
@@ -43,6 +43,7 @@ from posthog.api.monitoring import (
     monitor,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.services.guest_query import guest_may_read_query, remember_joined_query, resolve_guest_query
 from posthog.api.services.query import process_query_model
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
@@ -60,6 +61,7 @@ from posthog.errors import (
 )
 from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.guest_access import is_enforced_guest, reject_guest_value_overrides
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_failure_handling import captured_elsewhere
@@ -235,6 +237,7 @@ def required_scopes_for_query_payload(query: object) -> list[str] | None:
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
+    guest_allowed_actions = frozenset({"create", "create_with_kind", "retrieve", "destroy"})
     serializer_class = _FallbackSerializer
     # Special case for query - these are all essentially read actions
     scope_object_read_actions = ["retrieve", "create", "list", "destroy"]
@@ -297,6 +300,17 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         with tracer.start_as_current_span("posthog.query.upgrade"):
             upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
+        if is_enforced_guest(request):
+            # A guest runs the saved query of the item they were granted, never the query they sent.
+            guest_query = resolve_guest_query(data, self.team, cast(User, request.user))
+            reject_guest_value_overrides(
+                request,
+                data.filters_override.model_dump(exclude_none=True) if data.filters_override else None,
+                guest_query.saved_filters,
+            )
+            data = data.model_copy(
+                update={"query": QueryRequest.model_validate(upgrade({"query": guest_query.query})).query}
+            )
 
         query = None
         try:
@@ -351,6 +365,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 )
                 if isinstance(result, BaseModel):
                     result = result.model_dump(by_alias=True)
+                if is_enforced_guest(request) and isinstance(result.get("query_status"), dict):
+                    remember_joined_query(self.team.pk, result["query_status"], cast(User, request.user).pk)
 
             total_time_ms = round((perf_counter() - start_time) * 1000, 2)
             try:
@@ -461,6 +477,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             show_progress or request.query_params.get("showProgress", False) == "true"
         )  # TODO: Remove this once we have a consistent naming convention
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
+        # A query status holds the full results, so a guest may read only the queries they started or joined.
+        if is_enforced_guest(request) and not guest_may_read_query(
+            self.team.pk, query_status, cast(User, request.user).pk
+        ):
+            raise QueryNotFoundError()
         managed_connection_id = next(
             (
                 label.removeprefix(managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
@@ -513,6 +534,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @monitor(feature=MonitoringFeature.QUERY, endpoint="query", method="DELETE")
     def destroy(self, request, pk=None, *args, **kwargs):
         dequeue_only = request.query_params.get("dequeue_only", False) == "true"
+        if (
+            is_enforced_guest(request)
+            and get_query_status(team_id=self.team.pk, query_id=pk).user_id != request.user.pk
+        ):
+            raise QueryNotFoundError()
         message = cancel_query(self.team.pk, pk, dequeue_only=dequeue_only)
 
         return Response(status=200, data={"message": message})

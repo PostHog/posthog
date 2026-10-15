@@ -596,6 +596,7 @@ class PropertyDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "property_definition"
+    guest_allowed_actions = frozenset({"list", "retrieve"})
     serializer_class = PropertyDefinitionSerializer
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]

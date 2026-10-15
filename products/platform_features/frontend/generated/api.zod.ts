@@ -289,16 +289,16 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
 
 export const MembersUpdateBody = /* @__PURE__ */ zod.object({
     level: zod
-        .union([zod.literal(1), zod.literal(8), zod.literal(15)])
+        .union([zod.literal(0), zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
-        .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
+        .describe('\* `0` - guest\n\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
 })
 
 export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
     level: zod
-        .union([zod.literal(1), zod.literal(8), zod.literal(15)])
+        .union([zod.literal(0), zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
-        .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
+        .describe('\* `0` - guest\n\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
 })
 
 /**

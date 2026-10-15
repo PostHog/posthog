@@ -65,6 +65,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
 
     const queryResult = await context.api.insights({ projectId }).query({
         query: insightResult.data.query,
+        insightId: insightResult.data.id,
     })
 
     if (!queryResult.success) {

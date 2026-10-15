@@ -72,6 +72,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.filters import PhraseSearchFilter
 from posthog.geoip import get_geoip_properties
+from posthog.guest_access import hide_project_fields_from_guest
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
@@ -986,7 +987,7 @@ class ProjectBackwardCompatSerializer(
         # Mirror TeamSerializer: fall back to the global default data theme when the color feature isn't available
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             representation["default_data_theme"] = _default_data_color_theme_id()
-        return representation
+        return hide_project_fields_from_guest(self.context.get("request"), representation)
 
     def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
         if isinstance(obj, ObjectAccessRef):
@@ -1512,6 +1513,7 @@ class ProjectViewSet(
     """
 
     scope_object: APIScopeObjectOrNotSupported = "project"
+    guest_allowed_actions = frozenset({"retrieve"})
     serializer_class = ProjectBackwardCompatSerializer
     queryset = (
         Project.objects.all()

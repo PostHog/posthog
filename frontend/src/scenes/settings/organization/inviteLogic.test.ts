@@ -1,10 +1,13 @@
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { inviteLogic } from './inviteLogic'
 
@@ -34,6 +37,27 @@ describe('inviteLogic', () => {
             existingMemberInviteRows: [isExistingMember],
             canSubmit: !isExistingMember,
         })
+    })
+
+    it('sends a guest invite with the current project and its grants', async () => {
+        const create = jest.spyOn(api, 'create').mockResolvedValue([])
+        logic.actions.updateInviteAtIndex(
+            {
+                target_email: 'guest@example.com',
+                level: OrganizationMembershipLevel.Guest,
+                isValid: true,
+                guest_grants: [{ resource: 'dashboard', id: '12' }],
+            },
+            0
+        )
+        await expectLogic(logic, () => logic.actions.inviteTeamMembers()).toFinishAllListeners()
+        expect(create).toHaveBeenCalledWith(expect.stringContaining('/invites/bulk/'), [
+            expect.objectContaining({
+                level: OrganizationMembershipLevel.Guest,
+                private_project_access: [{ id: MOCK_TEAM_ID, level: AccessControlLevel.Member }],
+                guest_grants: [{ resource: 'dashboard', id: '12' }],
+            }),
+        ])
     })
 
     it('shows a message validation error under the field until the message changes', async () => {

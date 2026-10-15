@@ -407,6 +407,7 @@ class EventDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "event_definition"
+    guest_allowed_actions = frozenset({"list", "retrieve"})
     # "bulk_update_tags"/"bulk_update_verified" must be opted in here so personal API keys with
     # event_definition:write can use them.
     scope_object_write_actions = [

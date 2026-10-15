@@ -13,6 +13,7 @@ from products.access_control.backend.facade.user_access_control import (
     RESOURCE_INHERITANCE_MAP,
 )
 from products.dashboards.backend.facade.authorization import active_authorization_dashboard_ids
+from products.notebooks.backend.facade.authorization import active_authorization_notebook_ids
 
 from ..client import Consistency, pooled_openfga_client
 from ..facade.contracts import CheckRequest, Context, Resource, ResourceIds, Subject
@@ -197,7 +198,11 @@ def list_resources(
     consistency: Consistency = "HIGHER_CONSISTENCY",
 ) -> ResourceIds:
     validate_context(context)
-    if resource.id is not None or resource.type not in (ResourceType.DASHBOARD, ResourceType.INSIGHT):
+    if resource.id is not None or resource.type not in (
+        ResourceType.DASHBOARD,
+        ResourceType.INSIGHT,
+        ResourceType.NOTEBOOK,
+    ):
         raise ValueError("List resources requires a supported resource type")
     if resource.project_id is None:
         raise ValueError("List resources requires a project")
@@ -225,6 +230,8 @@ def list_resources(
                     if limit is not None and len(ids) > limit:
                         if resource.type == ResourceType.DASHBOARD:
                             active_ids = active_authorization_dashboard_ids(resource.project_id, ids)
+                        elif resource.type == ResourceType.NOTEBOOK:
+                            active_ids = active_authorization_notebook_ids(resource.project_id, ids)
                         else:
                             from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- keep product analytics models off the authorization import path
                                 active_authorization_insight_ids,
@@ -238,6 +245,8 @@ def list_resources(
             stream.close()
         if resource.type == ResourceType.DASHBOARD:
             active_ids = active_authorization_dashboard_ids(resource.project_id, ids)
+        elif resource.type == ResourceType.NOTEBOOK:
+            active_ids = active_authorization_notebook_ids(resource.project_id, ids)
         else:
             from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- keep product analytics models off the authorization import path
                 active_authorization_insight_ids,

@@ -86,6 +86,10 @@ export function InsightViz({
         filtersOverride,
         variablesOverride,
         limitContext: context?.limitContext,
+        // A saved insight names itself, so a guest's query runs the insight's saved query.
+        reference: insightProps.cachedInsight?.id
+            ? { insight_id: insightProps.cachedInsight.id }
+            : context?.queryReference,
     }
 
     const showIfFull = !!query.full

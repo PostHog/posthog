@@ -23,6 +23,7 @@ import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { getEventsWithPrimaryProperty } from 'lib/utils/events'
+import { isGuestUser } from 'lib/utils/guestAccess'
 import { TimeTree } from 'lib/utils/time-tree'
 
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
@@ -216,9 +217,13 @@ AND properties.$lib != 'web'`
                         hogql`\nORDER BY timestamp ASC\nLIMIT 1000000`) as HogQLQueryString
 
                     const tags = { scene: 'ReplaySingle', productKey: 'session_replay' }
+                    // A guest runs only the session's own events query, which the server builds from the recording ID.
+                    const isGuest = isGuestUser()
                     const [sessionEvents, relatedEvents]: any[] = await Promise.all([
                         // make one query for all events that are part of the session
-                        api.queryHogQL(sessionEventsQuery, tags),
+                        api.queryHogQL(sessionEventsQuery, tags, {
+                            reference: isGuest ? { session_recording_id: props.sessionRecordingId } : undefined,
+                        }),
                         // make a second for all events from that person,
                         // not marked as part of the session
                         // but in the same time range
@@ -226,7 +231,7 @@ AND properties.$lib != 'web'`
                         // but with no session id
                         // since posthog-js must always add session id we can also
                         // take advantage of lib being materialized and further filter
-                        api.queryHogQL(relatedEventsQuery, tags),
+                        isGuest ? Promise.resolve({ results: [] }) : api.queryHogQL(relatedEventsQuery, tags),
                     ])
 
                     breakpoint()
@@ -294,6 +299,10 @@ AND properties.$lib != 'web'`
                     const earliestTimestamp = timestamps.reduce((a, b) => Math.min(a, b))
                     const latestTimestamp = timestamps.reduce((a, b) => Math.max(a, b))
 
+                    if (isGuestUser()) {
+                        // A guest cannot run free queries, so the event list keeps the properties it already has.
+                        return cachedSessionEventsData
+                    }
                     try {
                         const query = hogql`
                             SELECT properties, uuid

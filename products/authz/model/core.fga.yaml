@@ -408,3 +408,60 @@ tests:
           - user: user:creator
             object: access_policy:resource
             assertions: { viewer: true, editor: true, manager: true }
+
+    - name: Guests see the organization and their project, and nothing through defaults
+      check:
+          - user: user:guest
+            object: organization:org
+            assertions:
+                {
+                    can_view: true,
+                    can_edit: false,
+                    can_list_members: false,
+                    can_invite_member: false,
+                    can_create_project: false,
+                }
+          - user: user:guest
+            object: project:project
+            assertions: { can_view: true, member: false, admin: false, can_edit: false, can_manage_access: false }
+          - user: user:guest
+            objects: [project:implicit, project:private]
+            assertions: { can_view: false, member: false }
+          - user: user:guest
+            objects: [resource:dashboards, resource:insights]
+            assertions: { can_view: false, can_list: false, can_create: false, can_manage_access: false }
+          - user: user:guest
+            object: organization_member:member
+            assertions: { can_view: false }
+          - user: user:guest
+            object: organization_member:guest
+            assertions: { can_view: true }
+
+    - name: A member rule on a resource lets a guest view and list it, and nothing more
+      tuples:
+          - { user: 'organization_member:guest#user', relation: member_editor, object: 'access_policy:resource' }
+      check:
+          - user: user:guest
+            objects: [resource:dashboards, resource:insights]
+            assertions: { can_view: true, can_list: true, can_create: false, can_manage_access: false }
+
+    - name: Role and default rules never reach a guest
+      tuples:
+          - { user: 'user:*', relation: default_editor, object: 'access_policy:resource' }
+          - { user: 'organization_member:guest#user', relation: assignee, object: 'role:reader' }
+          - { user: 'role:reader#member', relation: role_viewer, object: 'access_policy:resource' }
+      check:
+          - user: user:guest
+            object: resource:dashboards
+            assertions: { can_view: false, can_list: false }
+
+    - name: A guest cannot use a resource grant in a project that has no rule for them
+      tuples:
+          - { user: 'project:implicit', relation: project, object: 'resource:other_dashboards' }
+          - { user: 'access_policy:other', relation: policy, object: 'resource:other_dashboards' }
+          - { user: 'organization:org', relation: organization, object: 'access_policy:other' }
+          - { user: 'organization_member:guest#user', relation: member_viewer, object: 'access_policy:other' }
+      check:
+          - user: user:guest
+            object: resource:other_dashboards
+            assertions: { can_view: false, can_list: false }

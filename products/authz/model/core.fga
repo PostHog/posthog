@@ -23,7 +23,9 @@ type organization
     define members_can_invite: [user:*]
     define members_can_create_projects: [user:*]
     define members_can_see_members: [user:*]
-    define can_view: member
+    # A guest is an outside member who reaches only what a member rule grants them. Guests are never members.
+    define guest: [organization_member#user]
+    define can_view: member or guest
     define can_edit: admin
     define can_delete: owner
     define can_manage_access: admin
@@ -100,7 +102,9 @@ type project
     define can_manage_access: org_admin or (member and (creator or (policy_admin and access_control_enabled)))
     # A share may read project-scoped rendering metadata without gaining project membership.
     define shared_viewer: [share_link]
-    define can_view: member or shared_viewer
+    # A member rule on the project admits a guest. The rule level grants a guest nothing more.
+    define guest: (guest from organization) and (member_member or member_admin or member_owner)
+    define can_view: member or shared_viewer or guest
     define can_edit: admin
     define can_delete: admin
 # A rule's presence blocks inheritance even if it grants none or a lower level.
@@ -129,6 +133,8 @@ type access_policy
     define manager: (member_manager or (role_manager but not has_member_rule) or (default_manager but not has_member_or_role_rule)) and has_rule
     define editor: manager or ((member_editor or (role_editor but not has_member_rule) or (default_editor but not has_member_or_role_rule)) and has_rule)
     define viewer: editor or ((member_viewer or (role_viewer but not has_member_rule) or (default_viewer but not has_member_or_role_rule)) and has_rule)
+    # Guests take member rules only: role rules need organization membership, and default rules name user:*.
+    define guest_viewer: member_viewer or member_editor or member_manager
 type resource
   relations
     define project: [project]
@@ -137,7 +143,8 @@ type resource
     define viewer: (member from project) and (org_admin from project or viewer from policy or ((member from project) but not has_rule))
     define editor: (member from project) and (org_admin from project or editor from policy or ((member from project) but not has_rule))
     define manager: (member from project) and (org_admin from project or manager from policy)
-    define can_view: viewer
-    define can_list: viewer
+    define guest_viewer: (guest from project) and guest_viewer from policy
+    define can_view: viewer or guest_viewer
+    define can_list: viewer or guest_viewer
     define can_create: editor
     define can_manage_access: manager or can_manage_access from project

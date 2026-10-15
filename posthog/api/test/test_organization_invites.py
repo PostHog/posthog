@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.utils.timezone import now
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import exceptions, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import User
@@ -26,6 +26,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.dashboards.backend.facade import testing as dashboard_testing
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
@@ -221,6 +222,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "emailing_attempt_made": True,
                 "message": None,
                 "private_project_access": [],
+                "guest_grants": [],
             },
         )
 
@@ -2089,3 +2091,104 @@ class TestOrganizationInviteRateLimits(APIBaseTest):
             {"target_email": "scoped_other@posthog.com"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+
+class TestGuestInvites(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": "Advanced permissions"},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"},
+        ]
+        self.organization.save()
+        self.dashboard_id = dashboard_testing.create_dashboard(team_id=self.team.id, created_by_id=self.user.id)
+
+    def _payload(self, **overrides: object) -> dict:
+        return {
+            "target_email": "guest@example.com",
+            "level": OrganizationMembership.Level.GUEST,
+            "private_project_access": [{"id": self.team.id, "level": "member"}],
+            "guest_grants": [
+                {"resource": "dashboard", "id": str(self.dashboard_id)},
+                {"resource": "notebook", "id": None},
+            ],
+            **overrides,
+        }
+
+    def test_admin_invites_a_guest_with_one_project_and_grants(self) -> None:
+        response = self.client.post("/api/organizations/@current/invites/", self._payload(), format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        guest = User.objects.create_user(email="guest@example.com", password=None, first_name="Guest")
+        OrganizationInvite.objects.get(target_email="guest@example.com").use(guest)
+        membership = OrganizationMembership.objects.get(user=guest, organization=self.organization)
+        assert membership.level == OrganizationMembership.Level.GUEST
+        rows = AccessControl.objects.filter(organization_member=membership)
+        assert {(row.resource, row.resource_id, row.access_level) for row in rows} == {
+            ("project", str(self.team.id), "member"),
+            ("dashboard", str(self.dashboard_id), "viewer"),
+            ("notebook", None, "viewer"),
+        }
+        guest.refresh_from_db()
+        assert guest.current_team_id == self.team.id
+
+    @parameterized.expand(
+        [
+            ("no project", {"private_project_access": []}),
+            ("two projects", {"private_project_access": "TWO"}),
+            ("admin project access", {"private_project_access": "ADMIN"}),
+            ("no grants", {"guest_grants": []}),
+            ("unsupported type", {"guest_grants": [{"resource": "feature_flag", "id": None}]}),
+            ("object in another project", {"guest_grants": "OTHER_PROJECT"}),
+        ]
+    )
+    def test_guest_invite_validation(self, _name: str, overrides: dict) -> None:
+        other = Team.objects.create(organization=self.organization, name="Second")
+        if overrides.get("private_project_access") == "TWO":
+            overrides["private_project_access"] = [
+                {"id": self.team.id, "level": "member"},
+                {"id": other.id, "level": "member"},
+            ]
+        if overrides.get("private_project_access") == "ADMIN":
+            overrides["private_project_access"] = [{"id": self.team.id, "level": "admin"}]
+        if overrides.get("guest_grants") == "OTHER_PROJECT":
+            other_dashboard = dashboard_testing.create_dashboard(team_id=other.id, created_by_id=self.user.id)
+            overrides["guest_grants"] = [{"resource": "dashboard", "id": str(other_dashboard)}]
+        response = self.client.post("/api/organizations/@current/invites/", self._payload(**overrides), format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_guest_invite_needs_the_entitlement(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+        response = self.client.post("/api/organizations/@current/invites/", self._payload(), format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_only_admins_invite_guests(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.post("/api/organizations/@current/invites/", self._payload(), format="json")
+        assert response.status_code in (status.HTTP_400_BAD_REQUEST, status.HTTP_403_FORBIDDEN), response.json()
+
+    def test_member_invite_cannot_carry_guest_grants(self) -> None:
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            self._payload(level=OrganizationMembership.Level.MEMBER),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_guest_invite_fails_when_its_project_is_gone(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="Temporary")
+        invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="guest@example.com",
+            level=OrganizationMembership.Level.GUEST,
+            private_project_access=[{"id": other.id, "level": "member"}],
+            guest_grants=[{"resource": "notebook", "id": None}],
+        )
+        other.delete()
+        guest = User.objects.create_user(email="guest@example.com", password=None, first_name="Guest")
+        with self.assertRaises(exceptions.ValidationError):
+            invite.use(guest)
+        assert not OrganizationMembership.objects.filter(user=guest).exists()

@@ -14,7 +14,10 @@ from typing import overload
 from uuid import UUID
 
 from ..logic import authorization, openfga_status, request_context, rollout, synchronization
-from . import contracts
+from . import (
+    contracts,
+    synchronization as sync_scheduling,
+)
 from .enums import Action, Level, SubjectType
 
 
@@ -26,6 +29,19 @@ def authorization_session() -> AbstractContextManager[None]:
 def synchronize_organization(organization_id: UUID) -> None:
     """Reconcile the organization's dashboard authorization graph with committed database state."""
     synchronization.synchronize_organization(organization_id)
+
+
+def guest_mode_active(organization_id: UUID) -> bool:
+    """Return whether guest rules apply in the organization. Guests act as members when they do not."""
+    return rollout.organization_variant(organization_id) == "v2"
+
+
+def schedule_organization_sync(organization_id: UUID) -> None:
+    """Queue a sync of the organization's authorization graph after the current transaction commits.
+
+    Call it after a write that skips model signals, such as a queryset update.
+    """
+    sync_scheduling.schedule_organization_sync(organization_id)
 
 
 def get_openfga_status() -> contracts.OpenFgaStatus:

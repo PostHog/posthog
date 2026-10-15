@@ -1,11 +1,16 @@
 from uuid import uuid4
 
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from structlog.testing import capture_logs
+
+from posthog.models import OrganizationMembership, User
 
 from products.authz.backend.facade import api
 from products.authz.backend.facade.contracts import CheckRequest, Resource, ResourceIds, Subject
@@ -22,6 +27,9 @@ class TestAuthorizationRollout(SimpleTestCase):
         )
         organization.start()
         self.addCleanup(organization.stop)
+        guests = patch("products.authz.backend.logic.rollout.guest_memberships", return_value=set())
+        guests.start()
+        self.addCleanup(guests.stop)
 
     @parameterized.expand(
         [
@@ -164,3 +172,70 @@ class TestAuthorizationRollout(SimpleTestCase):
             assert logs[0]["matches"] is False
             assert logs[0]["v1_complete"] is True
             assert logs[0]["v2_complete"] is False
+
+
+class TestGuestRollout(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.guest = User.objects.create_and_join(self.organization, "guest@example.com", "test-password")
+        OrganizationMembership.objects.filter(user=self.guest).update(level=OrganizationMembership.Level.GUEST)
+
+    def _request(self, resource_type: ResourceType, user: User) -> CheckRequest:
+        return CheckRequest(
+            resource=Resource(
+                type=resource_type,
+                id=str(self.team.id) if resource_type == ResourceType.PROJECT else str(uuid4()),
+                project_id=self.team.id,
+            ),
+            action=Action.VIEW,
+            subject=Subject(user_id=user.id),
+        )
+
+    @parameterized.expand(
+        [
+            ("guest notebook on v2", "guest", "v2", ResourceType.NOTEBOOK, "v2"),
+            ("guest recording on v2", "guest", "v2", ResourceType.SESSION_RECORDING, "v2"),
+            ("guest project on v2", "guest", "v2", ResourceType.PROJECT, "v2"),
+            ("guest type without guest rules on v2", "guest", "v2", ResourceType.FEATURE_FLAG, "denied"),
+            ("guest when the org is not on v2", "guest", None, ResourceType.DASHBOARD, "v1"),
+            ("member notebook on v2", "member", "v2", ResourceType.NOTEBOOK, "v1"),
+        ]
+    )
+    def test_guest_checks_route_to_v2_without_a_shadow(
+        self, _name: str, who: str, variant: str | None, resource_type: ResourceType, expected: str
+    ) -> None:
+        user = self.guest if who == "guest" else self.user
+        with (
+            patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value=variant),
+            patch("products.authz.backend.logic.rollout.authorization.check", return_value=[True]) as v2,
+            patch("products.authz.backend.logic.rollout.legacy_authorization.check", return_value=[True]) as v1,
+        ):
+            decisions = api.check([self._request(resource_type, user)])
+        assert decisions == [expected != "denied"]
+        assert v2.called == (expected == "v2")
+        assert v1.called == (expected == "v1")
+
+    def test_a_request_looks_up_guest_memberships_once(self) -> None:
+        with (
+            patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value="v2"),
+            patch("products.authz.backend.logic.rollout.authorization.check", return_value=[True]),
+            patch("products.authz.backend.logic.rollout.legacy_authorization.check", return_value=[True]),
+            api.authorization_session(),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            for user in (self.user, self.user, self.guest, self.guest):
+                api.check([self._request(ResourceType.DASHBOARD, user)])
+        assert len([query for query in queries if "posthog_organizationmembership" in query["sql"]]) == 2
+
+    def test_guest_lists_use_v2_without_a_shadow(self) -> None:
+        resource = Resource(type=ResourceType.NOTEBOOK, project_id=self.team.id)
+        listed = ResourceIds(ids=frozenset({"a"}), complete=True)
+        with (
+            patch("products.authz.backend.logic.rollout.get_feature_flag_or_none", return_value="v2"),
+            patch("products.authz.backend.logic.rollout.authorization.list_resources", return_value=listed) as v2,
+            patch("products.authz.backend.logic.rollout.legacy_authorization.list_resources") as v1,
+        ):
+            result = api.list_resources(resource=resource, action=Action.VIEW, subject=Subject(user_id=self.guest.id))
+        assert result == listed
+        v2.assert_called_once()
+        v1.assert_not_called()

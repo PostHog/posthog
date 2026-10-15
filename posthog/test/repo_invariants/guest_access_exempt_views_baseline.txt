@@ -1,0 +1,157 @@
+# Views outside TeamAndOrgViewSetMixin that a guest's session cannot use to reach organization or project data.
+# Each line names a view and the reason. Every other view outside the mixin must have GuestPermission.
+
+# Token, JWT, bearer or webhook authentication, so no browser session reaches them.
+ee.api.agentic_provisioning.views.deep_links.DeepLinksView  # provisioning bearer token
+ee.api.agentic_provisioning.views.github_grants.GitHubGrantRepositoriesView  # GitHub grants token
+ee.api.agentic_provisioning.views.github_grants.GitHubGrantsCreateView  # GitHub grants token
+ee.api.agentic_provisioning.views.resources.GitHubIntegrationView  # provisioning bearer token
+ee.api.agentic_provisioning.views.resources.ResourceDetailView  # provisioning bearer token
+ee.api.agentic_provisioning.views.resources.ResourceRemoveView  # provisioning bearer token
+ee.api.agentic_provisioning.views.resources.ResourcesCreateView  # provisioning bearer token
+ee.api.agentic_provisioning.views.resources.RotateCredentialsView  # provisioning bearer token
+ee.api.agentic_provisioning.views.resources.WizardRunsView  # provisioning bearer token
+ee.api.scim.views.SCIMGroupDetailView  # SCIM bearer token
+ee.api.scim.views.SCIMGroupsView  # SCIM bearer token
+ee.api.scim.views.SCIMResourceTypesView  # SCIM bearer token
+ee.api.scim.views.SCIMSchemasView  # SCIM bearer token
+ee.api.scim.views.SCIMServiceProviderConfigView  # SCIM bearer token
+ee.api.scim.views.SCIMUserDetailView  # SCIM bearer token
+ee.api.scim.views.SCIMUsersView  # SCIM bearer token
+ee.api.vercel.vercel_installation.VercelInstallationViewSet  # Vercel token
+ee.api.vercel.vercel_product.VercelProductViewSet  # Vercel token
+ee.api.vercel.vercel_proxy.VercelProxyViewSet  # billing service token
+ee.api.vercel.vercel_resource.VercelResourceViewSet  # Vercel token
+ee.partners.stripe.api.provisioning.views.DeepLinksView  # Stripe bearer token
+ee.partners.stripe.api.provisioning.views.ResourceDetailView  # Stripe bearer token
+ee.partners.stripe.api.provisioning.views.ResourceRemoveView  # Stripe bearer token
+ee.partners.stripe.api.provisioning.views.ResourcesCreateView  # Stripe bearer token
+ee.partners.stripe.api.provisioning.views.RotateCredentialsView  # Stripe bearer token
+ee.partners.stripe.api.provisioning.views.UpdateServiceView  # Stripe bearer token
+posthog.api.query_performance_proxy.QueryPerformanceProxyViewSet  # OAuth only, INTERNAL scope
+posthog.api.sharing.SharingViewerPageViewSet  # share link tokens
+products.ai_observability.backend.api.personal_spend.PersonalSpendInternalViewSet  # cross-region token
+products.conversations.backend.api.external.ExternalTicketView  # project secret API key
+products.conversations.backend.api.internal.InternalTicketView  # ticket JWT
+products.conversations.backend.api.restore.WidgetRestoreRedeemView  # widget token
+products.conversations.backend.api.restore.WidgetRestoreRequestView  # widget token
+products.conversations.backend.api.widget.WidgetMarkReadView  # widget token
+products.conversations.backend.api.widget.WidgetMessageView  # widget token
+products.conversations.backend.api.widget.WidgetMessagesView  # widget token
+products.conversations.backend.api.widget.WidgetTicketsView  # widget token
+products.customer_analytics.backend.presentation.views.external.ExternalAccountListView  # project secret API key
+products.customer_analytics.backend.presentation.views.external.ExternalAccountView  # project secret API key
+products.customer_analytics.backend.presentation.views.internal.InternalAccountCustomPropertiesView  # account JWT
+products.customer_analytics.backend.presentation.views.internal.InternalAccountView  # account JWT
+products.customer_analytics.backend.presentation.views.workflow_customer_tasks.WorkflowCustomerTaskViewSet  # workflow JWT
+products.mcp_store.backend.presentation.agent_views.MCPGatewayAgentViewSet  # gateway agent token
+products.messaging.backend.presentation.views.customerio_webhook.CustomerIOWebhookView  # webhook signature
+products.security.backend.presentation.hub_api.CountAccountsView  # security hub token
+products.security.backend.presentation.hub_api.OrgMemberCountView  # security hub token
+products.security.backend.presentation.hub_api.PosthogMembershipView  # security hub token
+products.security.backend.presentation.hub_api.ResolveView  # security hub token
+products.security.backend.presentation.hub_api.SyncNowView  # security hub token
+products.signals.backend.views.InternalSignalViewSet  # internal API secret
+products.tasks.backend.presentation.views.task_usage_api.InternalTaskUsageViewSet  # cross-region token
+products.workflows.backend.presentation.views.workflow_scout_runs.WorkflowScoutRunViewSet  # workflow JWT
+products.workflows.backend.presentation.views.workflow_tasks.WorkflowTaskViewSet  # workflow JWT
+
+# No authentication, or public data with no organization or project data in it.
+drf_spectacular.views.SpectacularAPIView  # API schema
+drf_spectacular.views.SpectacularRedocView  # API docs
+drf_spectacular.views.SpectacularSwaggerSplitView  # API docs
+ee.api.agentic_provisioning.views.account_requests.AccountRequestsView  # no authentication
+ee.api.agentic_provisioning.views.client_registration.ClientRegistrationView  # no authentication
+ee.api.agentic_provisioning.views.limits.LimitsView  # no authentication
+ee.api.agentic_provisioning.views.oauth_token.OAuthTokenView  # no authentication
+ee.api.integration.PublicIntegrationViewSet  # no authentication
+ee.api.vercel.vercel_connect.VercelConnectCallbackViewSet  # public OAuth callback
+ee.api.vercel.vercel_sso.VercelSSOViewSet  # public SSO entry
+ee.partners.stripe.api.provisioning.views.AccountRequestsView  # no authentication
+ee.partners.stripe.api.provisioning.views.HealthView  # no authentication
+ee.partners.stripe.api.provisioning.views.OAuthTokenView  # no authentication
+ee.partners.stripe.api.provisioning.views.ServicesView  # no authentication
+posthog.api.authentication.CodeBasedVerificationViewSet  # login flow
+posthog.api.authentication.DevLoginViewSet  # login flow
+posthog.api.authentication.LoginPrecheckViewSet  # login flow
+posthog.api.authentication.LoginViewSet  # login flow
+posthog.api.authentication.PasswordResetCompleteViewSet  # login flow
+posthog.api.authentication.PasswordResetViewSet  # login flow
+posthog.api.authentication.TwoFactorPasskeyViewSet  # login flow
+posthog.api.authentication.TwoFactorViewSet  # login flow
+posthog.api.github.SecretAlert  # GitHub secret scanning webhook
+posthog.api.leaked_key.PublicLeakedKeyReport  # public leaked key report
+posthog.api.oauth.dcr.DynamicClientRegistrationView  # OAuth client registration
+posthog.api.oauth.views.OAuthAuthorizationServerMetadataView  # OAuth metadata
+posthog.api.oauth.views.OAuthClientManifestView  # OAuth metadata
+posthog.api.oauth.views.OAuthConnectDiscoveryInfoView  # OAuth metadata
+posthog.api.oauth.views.OAuthProtectedResourceMetadataView  # OAuth metadata
+posthog.api.playwright_setup.WrappedAPIView  # test setup, disabled outside tests
+posthog.api.rest_router.WrappedAPIView  # 404 handler
+posthog.api.signup.InviteSignupViewset  # signup flow
+posthog.api.signup.SignupEmailPrecheckViewset  # signup flow
+posthog.api.signup.SignupResendInviteViewset  # signup flow
+posthog.api.signup.SignupViewset  # signup flow
+posthog.api.signup.SocialSignupViewset  # signup flow
+posthog.api.two_factor_reset.TwoFactorResetViewSet  # login flow
+posthog.api.user.ToolbarOAuthRefreshView  # toolbar token refresh
+posthog.api.webauthn.WebAuthnLoginViewSet  # login flow
+posthog.api.webauthn.WebAuthnSignupRegistrationViewSet  # signup flow
+products.cdp.backend.api.hog_function_template.PublicHogFunctionTemplateViewSet  # global template catalog
+products.customer_analytics.backend.presentation.views.external.ExternalAccountCustomPropertiesView  # no authentication
+products.growth.backend.presentation.views.rescore.GrowthEnrichmentViewSet  # INTERNAL scope, no session
+products.streamlit_apps.backend.presentation.bridge_views.StreamlitBridgeView  # app token in the request
+products.tasks.backend.presentation.views.sandbox_pricing_api.SandboxComputePricingViewSet  # public price list
+products.warehouse_sources.backend.presentation.views.public_source_configs.PublicSourceConfigViewSet  # global source catalog
+products.workflows.backend.presentation.views.hog_flow_template.PublicHogFlowTemplateViewSet  # global template catalog
+rest_framework.routers.APIRootView  # URL index
+
+# Staff or admins only. Guests are never staff, organization admins or conversations admins.
+ee.api.authentication.WrappedAPIView  # SAML metadata, organization admins only
+posthog.api.async_migration.AsyncMigrationsViewset  # staff only
+posthog.api.dead_letter_queue.DeadLetterQueueViewSet  # staff only
+posthog.api.debug_ch_queries.DebugCHQueries  # staff only
+posthog.api.instance_settings.InstanceSettingsViewset  # staff only
+posthog.api.instance_status.InstanceStatusViewSet  # instance admins only
+posthog.api.internal_feedback.InternalFeedbackViewSet  # PostHog staff only
+products.authz.backend.presentation.views.AuthzViewSet  # staff only
+products.cohorts.backend.api.staff_tools.CohortsStaffToolsViewSet  # staff only
+products.conversations.backend.api.email_settings.EmailSetDefaultView  # conversations admins only
+products.conversations.backend.api.email_settings.EmailSetTrustedRelayView  # conversations admins only
+products.conversations.backend.api.email_settings.EmailVerifyDomainView  # conversations admins only
+products.conversations.backend.api.github_setup.GithubConnectView  # conversations admins only
+products.conversations.backend.api.github_setup.GithubCreateIssueView  # conversations admins only
+products.conversations.backend.api.github_setup.GithubDisconnectView  # conversations admins only
+products.conversations.backend.api.github_setup.GithubReposView  # conversations admins only
+products.conversations.backend.api.github_setup.GithubSelectReposView  # conversations admins only
+products.conversations.backend.api.github_setup.GithubStatusView  # conversations admins only
+products.conversations.backend.api.slack_oauth.SupportSlackAuthorizeView  # conversations admins only
+products.conversations.backend.api.slack_oauth.SupportSlackDisconnectView  # conversations admins only
+products.conversations.backend.api.teams_channels.TeamsChannelsView  # conversations admins only
+products.conversations.backend.api.teams_channels.TeamsInstallAppView  # conversations admins only
+products.conversations.backend.api.teams_channels.TeamsSelectChannelView  # conversations admins only
+products.conversations.backend.api.teams_channels.TeamsTeamsView  # conversations admins only
+products.conversations.backend.api.teams_oauth.TeamsAuthorizeView  # conversations admins only
+products.conversations.backend.api.teams_oauth.TeamsDisconnectView  # conversations admins only
+products.feature_flags.backend.api.staff_cache.FeatureFlagsStaffCacheViewSet  # staff only
+products.feature_flags.backend.api.staff_team_config.FeatureFlagsStaffTeamConfigViewSet  # staff only
+products.feature_flags.backend.api.staff_teams.FeatureFlagsStaffTeamSearchViewSet  # staff only
+products.growth.backend.api.ai_enrichment.AIEnrichmentViewSet  # staff only
+products.growth.backend.presentation.views.scoring.ScoringViewSet  # staff only
+products.managed_migrations.backend.api.support_batch_imports.BatchImportSupportViewSet  # staff only
+
+posthog.api.cli_auth.CLIAuthViewSet  # get_permissions adds GuestPermission to the authorize action
+
+# The request user's own account. A guest needs these to sign in, consent to the MCP and keep settings.
+posthog.api.oauth.connected_apps.ConnectedAppsViewSet  # the user's own OAuth apps
+posthog.api.oauth.views.OAuthAuthorizationView  # OAuth consent, which guests need for the MCP
+posthog.api.user.ToolbarEntitlementsView  # the user's own entitlements
+posthog.api.user_facet_settings.UserFacetSettingsViewSet  # the user's own settings
+posthog.api.user_home_settings.UserHomeSettingsViewSet  # the user's own settings
+posthog.api.user_integration.UserIntegrationViewSet  # the user's own integrations
+posthog.api.user_push_token.UserPushTokenViewSet  # the user's own push tokens
+posthog.api.webauthn.WebAuthnCredentialViewSet  # the user's own passkeys
+posthog.api.webauthn.WebAuthnRegistrationViewSet  # the user's own passkeys
+products.ai_observability.backend.api.personal_spend.PersonalSpendViewSet  # the user's own LLM spend
+products.reminders.backend.api.reminder.ReminderViewSet  # the user's own reminders
+products.signals.backend.views.SignalUserAutonomyConfigView  # the user's own setting

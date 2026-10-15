@@ -22,6 +22,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.permissions import GuestPermission
 
 from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used
 from ee.vercel.client import APIError, VercelAPIClient
@@ -280,7 +281,7 @@ class VercelConnectLinkSerializer(serializers.Serializer):
 class VercelConnectLinkViewSet(viewsets.GenericViewSet):
     """API endpoint to complete the Vercel connectable account linking."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, GuestPermission]
 
     @decorators.action(detail=False, methods=["post"], url_path="complete")
     def complete(self, request: Request) -> Response:

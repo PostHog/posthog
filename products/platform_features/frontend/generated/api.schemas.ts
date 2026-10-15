@@ -13,6 +13,7 @@ export interface InternalFeedbackResponseApi {
 }
 
 /**
+ * * `0` - guest
  * * `1` - member
  * * `8` - administrator
  * * `15` - owner
@@ -21,6 +22,7 @@ export type OrganizationMembershipLevelEnumApi =
     (typeof OrganizationMembershipLevelEnumApi)[keyof typeof OrganizationMembershipLevelEnumApi]
 
 export const OrganizationMembershipLevelEnumApi = {
+    Number0: 0,
     Number1: 1,
     Number8: 8,
     Number15: 15,

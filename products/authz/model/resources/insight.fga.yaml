@@ -189,3 +189,47 @@ tests:
           - user: user:member
             object: insight:insight
             assertions: { can_share: true }
+
+    - name: Guests view the insights on dashboards and notebooks they can view
+      tuples:
+          - { user: 'project:project', relation: project, object: 'dashboard:guest_board' }
+          - { user: 'resource:dashboards', relation: resource, object: 'dashboard:guest_board' }
+          - { user: 'access_policy:guest_board', relation: policy, object: 'dashboard:guest_board' }
+          - { user: 'organization_member:guest#user', relation: member_viewer, object: 'access_policy:guest_board' }
+          - { user: 'dashboard:guest_board', relation: dashboard, object: 'insight:insight' }
+          - { user: 'project:project', relation: project, object: 'notebook:guest_notebook' }
+          - { user: 'resource:insights', relation: resource, object: 'notebook:guest_notebook' }
+          - { user: 'access_policy:guest_notebook', relation: policy, object: 'notebook:guest_notebook' }
+          - { user: 'organization_member:guest#user', relation: member_viewer, object: 'access_policy:guest_notebook' }
+          - { user: 'project:project', relation: project, object: 'insight:embedded' }
+          - { user: 'resource:insights', relation: resource, object: 'insight:embedded' }
+          - { user: 'notebook:guest_notebook', relation: notebook, object: 'insight:embedded' }
+      check:
+          - user: user:guest
+            objects: [insight:insight, insight:embedded]
+            assertions:
+                { can_view: true, can_edit: false, can_delete: false, can_share: false, can_manage_access: false }
+          - user: user:member
+            object: insight:embedded
+            assertions: { can_view: true }
+
+    - name: A guest rule on the insight wins over its dashboard
+      tuples:
+          - { user: 'project:project', relation: project, object: 'dashboard:guest_board' }
+          - { user: 'resource:dashboards', relation: resource, object: 'dashboard:guest_board' }
+          - { user: 'access_policy:guest_board', relation: policy, object: 'dashboard:guest_board' }
+          - { user: 'organization_member:guest#user', relation: member_viewer, object: 'access_policy:guest_board' }
+          - { user: 'dashboard:guest_board', relation: dashboard, object: 'insight:insight' }
+          - { user: 'organization_member:guest#user', relation: member_none, object: 'access_policy:object' }
+      check:
+          - user: user:guest
+            object: insight:insight
+            assertions: { can_view: false }
+
+    - name: Guests do not view an insight on a dashboard they cannot view
+      tuples:
+          - { user: 'dashboard:dashboard', relation: dashboard, object: 'insight:insight' }
+      check:
+          - user: user:guest
+            object: insight:insight
+            assertions: { can_view: false }

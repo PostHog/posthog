@@ -736,6 +736,8 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
 
+        # A guest reaches only the objects that member rules grant them. See products/authz/model/core.fga.
+        GUEST = 0, "guest"
         MEMBER = 1, "member"
         ADMIN = 8, "administrator"
         OWNER = 15, "owner"
@@ -790,6 +792,8 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
         membership_being_updated: "OrganizationMembership",
         new_level: Level | None = None,
     ) -> None:
+        if new_level is not None and OrganizationMembership.Level.GUEST in (new_level, membership_being_updated.level):
+            raise exceptions.PermissionDenied("You can't change a guest's level, or make a member a guest.")
         if new_level is not None:
             if membership_being_updated.id == self.id:
                 raise exceptions.PermissionDenied("You can't change your own access level.")

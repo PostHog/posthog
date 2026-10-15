@@ -29,6 +29,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.streaming import sse_streaming_response
 from posthog.auth import SessionAuthentication
 from posthog.event_usage import groups, report_user_action
+from posthog.permissions import GuestPermission
 from posthog.rate_limit import (
     LLMProxyBurstRateThrottle,
     LLMProxyBYOKBurstRateThrottle,
@@ -163,7 +164,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
     """
 
     authentication_classes = [SessionAuthentication]
-    permission_classes = [IsAuthenticated, PlaygroundAccessPermission]
+    permission_classes = [IsAuthenticated, GuestPermission, PlaygroundAccessPermission]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     def get_throttles(self):
