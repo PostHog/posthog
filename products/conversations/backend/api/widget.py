@@ -55,7 +55,7 @@ from products.conversations.backend.cache import (
     set_cached_tickets,
 )
 from products.conversations.backend.models import SigningSecret, Ticket
-from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE, ChannelDetail
+from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE, Channel, ChannelDetail
 from products.conversations.backend.services.identity import (
     canonicalize_claim_value,
     identity_claim_has_expired,
@@ -392,8 +392,9 @@ class WidgetMessageView(APIView):
                 if ownership_match == "distinct_id" and ticket.distinct_id != distinct_id:
                     ticket.distinct_id = distinct_id
 
-                # Update traits if provided
-                if traits:
+                # Other channels set traits from the attested sender, and the email bridge lets a
+                # viewer post to those tickets, so only a widget ticket takes traits from the request.
+                if traits and ticket.channel_source == Channel.WIDGET:
                     ticket.anonymous_traits.update(traits)
 
                 # Update session data if provided

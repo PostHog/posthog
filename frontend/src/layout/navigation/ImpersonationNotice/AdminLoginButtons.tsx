@@ -10,7 +10,8 @@ export function AdminLoginButtons({
     adminLoginUrls: AdminLoginUrl[]
 }): JSX.Element {
     const disabledReason = adminLoginUrls.length === 0 ? 'This ticket has no associated email' : undefined
-    const loginTarget = ticketContext?.verifiedDistinctId ? 'verified account' : ticketContext?.email
+    const loginTarget =
+        ticketContext?.verifiedDistinctId && ticketContext.isEmailUnverified ? 'verified account' : ticketContext?.email
 
     // Region is ambiguous when we couldn't infer it, so we offer one button per
     // region and label each so staff know which admin page they're opening.

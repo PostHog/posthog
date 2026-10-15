@@ -84,6 +84,7 @@ import type {
     ChatMessage,
     MessageDeliveryStatus,
     Ticket,
+    TicketChannel,
     TicketPriority,
     TicketStatus,
 } from '../../types'
@@ -140,6 +141,11 @@ function regionFromUrl(url?: string): Region | undefined {
     return undefined
 }
 
+// A verified ticket on these channels holds the attested identity in distinct_id, in a form the admin
+// user search matches: the signed distinct ID of a widget request, or the sender's address. A GitHub
+// ticket holds a GitHub login there, which matches no PostHog user.
+const ATTESTED_LOOKUP_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack', 'teams']
+
 export function getImpersonationTicketContext(
     ticket: Pick<
         Ticket,
@@ -152,17 +158,21 @@ export function getImpersonationTicketContext(
         | 'session_context'
     >
 ): ImpersonationTicketContext {
-    const isWidgetTicket = ticket.channel_source === 'widget'
+    // email_from is the customer's address on email tickets, and it's the only
+    // place it lives on tickets whose traits were never populated.
+    const email: string = ticket.anonymous_traits?.email || ticket.email_from || ''
+    const verifiedDistinctId =
+        ticket.identity_verified === true && ATTESTED_LOOKUP_CHANNELS.includes(ticket.channel_source)
+            ? ticket.distinct_id || undefined
+            : undefined
     return {
         ticketId: ticket.id,
-        // email_from is the customer's address on email tickets, and it's the only
-        // place it lives on tickets whose traits were never populated.
-        email: ticket.anonymous_traits?.email || ticket.email_from || '',
+        email,
         region: regionFromUrl(ticket.session_context?.current_url),
-        // A widget request signs the distinct ID only. The email comes from the form, so the
-        // sender can enter the address of another account.
-        isEmailUnverified: isWidgetTicket,
-        verifiedDistinctId: isWidgetTicket && ticket.identity_verified === true ? ticket.distinct_id : undefined,
+        // The widget form supplies the traits email, so the sender can enter the address of another
+        // account. The email counts as verified only when it is the attested identity.
+        isEmailUnverified: !verifiedDistinctId || email.toLowerCase() !== verifiedDistinctId.toLowerCase(),
+        verifiedDistinctId,
     }
 }
 

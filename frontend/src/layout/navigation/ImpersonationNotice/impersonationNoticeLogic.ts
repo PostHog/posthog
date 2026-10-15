@@ -30,9 +30,9 @@ export interface ImpersonationTicketContext {
     ticketId: string
     email: string
     region?: Region
-    /** True when the customer typed the email and no server check covers it. */
+    /** True when no server check attests the email. */
     isEmailUnverified?: boolean
-    /** The distinct ID a widget request signed. The staff lookup uses it in place of the email. */
+    /** The ticket identity a server check attested. The staff lookup uses it in place of the email. */
     verifiedDistinctId?: string
 }
 

@@ -1273,6 +1273,7 @@ class TestWidgetIdentityVerification(BaseTest):
                 **self._email_claim(email),
                 "message": "Follow-up",
                 "ticket_id": str(ticket.id),
+                "traits": {"email": "other@example.com"},
             },
             **self._get_headers(),
         )
@@ -1281,6 +1282,7 @@ class TestWidgetIdentityVerification(BaseTest):
         ticket.refresh_from_db()
         self.assertEqual(ticket.distinct_id, email)
         self.assertEqual(ticket.identity_verified, identity_verified)
+        self.assertEqual(ticket.anonymous_traits, {})
 
     def test_mark_read_email_bridge_allows_verified_ticket(self):
         email = "person@example.com"

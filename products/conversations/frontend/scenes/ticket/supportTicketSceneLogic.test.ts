@@ -478,8 +478,8 @@ describe('getImpersonationTicketContext', () => {
         ...overrides,
     })
 
-    // A widget request signs the distinct ID only, and the email comes from the form. Using the
-    // email for a widget ticket, or the distinct ID of a ticket nothing signed, points the staff
+    // A server check attests the distinct ID of a verified ticket, but a form can supply the traits
+    // email. Using that email, or the distinct ID of a ticket nothing attested, points the staff
     // lookup at an account the sender picked.
     test.each<[string, ContextTicket, ReturnType<typeof getImpersonationTicketContext>]>([
         [
@@ -505,7 +505,37 @@ describe('getImpersonationTicketContext', () => {
                 anonymous_traits: {},
                 email_from: 'customer@example.com',
             }),
-            { ticketId: 'ticket-1', email: 'customer@example.com', isEmailUnverified: false },
+            {
+                ticketId: 'ticket-1',
+                email: 'customer@example.com',
+                isEmailUnverified: false,
+                verifiedDistinctId: 'customer@example.com',
+            },
+        ],
+        [
+            'Slack ticket with a changed email keeps the sender lookup',
+            widgetTicket({
+                channel_source: 'slack',
+                distinct_id: 'customer@example.com',
+                anonymous_traits: { email: 'other@example.com' },
+            }),
+            {
+                ticketId: 'ticket-1',
+                email: 'other@example.com',
+                isEmailUnverified: true,
+                verifiedDistinctId: 'customer@example.com',
+            },
+        ],
+        [
+            'unauthenticated email ticket has no verified sender',
+            widgetTicket({
+                channel_source: 'email',
+                distinct_id: 'customer@example.com',
+                identity_verified: false,
+                anonymous_traits: { email: 'customer@example.com' },
+                email_from: 'customer@example.com',
+            }),
+            { ticketId: 'ticket-1', email: 'customer@example.com', isEmailUnverified: true },
         ],
     ])('%s', (_name, ticket, expected) => {
         expect(getImpersonationTicketContext(ticket)).toEqual(expected)
