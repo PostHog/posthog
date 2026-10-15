@@ -1719,7 +1719,7 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
 class TestBillingAccessCoverage(SimpleTestCase):
     MEMBER_READ_ACTIONS = {"list", "period", "get_invoices", "credits_overview", "coupons_overview"}
     USAGE_SPEND_READ_ACTIONS = {"usage", "usage_team_options", "spend", "usage_export", "spend_export"}
-    CHECKS_ACCESS_IN_METHOD_ACTIONS = {"apply_startup_program"}
+    CHECKS_ACCESS_IN_METHOD_ACTIONS = {"apply_startup_program", "claim_coupon"}
 
     def test_every_billing_action_requires_billing_access_or_is_explicitly_exempt(self) -> None:
         without_access = {
