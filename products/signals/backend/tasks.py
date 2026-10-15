@@ -1,3 +1,4 @@
+from contextlib import suppress
 from datetime import timedelta
 from decimal import Decimal
 
@@ -1040,7 +1041,8 @@ def enqueue_project_profile_build(team_id: int, *, dedupe: bool = True) -> None:
     except Exception as exc:
         capture_exception(exc, {"team_id": team_id})
         if claimed:
-            cache.delete(key)
+            with suppress(Exception):
+                cache.delete(key)
 
 
 @shared_task(
