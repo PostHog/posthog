@@ -153,7 +153,7 @@ def next_cursor(response: Response, link_key: str = "nextPageUrl") -> Optional[s
     return cursors[0]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class LoopReturnsResumeConfig:
     """Checkpoint for a windowed endpoint (which state pass, which window, which page), or the
     next page cursor of a cursor-paginated endpoint, which has no `window_start`.
