@@ -10,9 +10,8 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
-import type { SelfDrivingOnboardingStepId } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
-import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
+import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -64,14 +63,10 @@ import {
     ExperimentIdType,
     ExperimentStatsMethod,
     FunnelCorrelation,
-    MultipleSurveyQuestion,
-    OnboardingStepKey,
     ProductTour,
     PropertyFilterType,
     InsightModel,
     type SDK,
-    Survey,
-    SurveyQuestionType,
 } from '~/types'
 
 import { captureBIWorksheetAction } from 'products/business_intelligence/frontend/biEditorAnalytics'
@@ -441,26 +436,6 @@ export type SDKSetupInstructionsSurface =
     | 'settings_sdk_setup'
     | 'settings_reverse_proxy_setup'
     | 'onboarding_ai_observability'
-
-// GROW-89: both onboarding flows fire the same funnel event names during the transition, told apart
-// by `version` (1 = legacy, 2 = context-first redesign) and `flow_variant`. Stamping properties
-// instead of renaming keeps every existing dashboard and alert on the v1 events working. The
-// redesign's v2 events live in `scenes/onboarding/onboardingEventUsageLogic`.
-// `entry_point` names the surface the flow starts on. It rides along with every funnel event, not
-// only `started`, so a breakdown by entry point stays populated for the whole funnel.
-export type OnboardingEntryPoint = 'product_selection' | 'welcome'
-
-export type OnboardingEventProperties = {
-    entry_point: OnboardingEntryPoint
-    flow_variant: 'context_first' | 'legacy'
-    version: 1 | 2
-}
-
-const LEGACY_ONBOARDING_EVENT_PROPS: OnboardingEventProperties = {
-    version: 1,
-    flow_variant: 'legacy',
-    entry_point: 'product_selection',
-}
 
 function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
     const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
@@ -1448,50 +1423,6 @@ export interface eventUsageLogicActions {
         itemType: string | null | undefined
         section: string
     }
-    reportOnboardingCompleted: (
-        productKey: string,
-        properties?: OnboardingEventProperties
-    ) => {
-        productKey: string
-        properties: OnboardingEventProperties | undefined
-    }
-    reportOnboardingProductToggled: (
-        productKey: string,
-        selected: boolean,
-        recommendationSource: string
-    ) => {
-        productKey: string
-        recommendationSource: string
-        selected: boolean
-    }
-    reportOnboardingStarted: (properties?: OnboardingEventProperties) => {
-        properties: OnboardingEventProperties | undefined
-    }
-    reportOnboardingStepCompleted: (
-        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
-        productKey?: string,
-        properties?: OnboardingEventProperties
-    ) => {
-        productKey: string | undefined
-        properties: OnboardingEventProperties | undefined
-        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId
-    }
-    reportOnboardingStepSkipped: (
-        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
-        productKey?: string,
-        properties?: OnboardingEventProperties
-    ) => {
-        productKey: string | undefined
-        properties: OnboardingEventProperties | undefined
-        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId
-    }
-    reportOnboardingUseCaseSelected: (
-        useCase: string,
-        recommendedProducts: readonly string[]
-    ) => {
-        recommendedProducts: readonly string[]
-        useCase: string
-    }
     reportPersonOpenedFromNewlySeenPersonsList: () => {
         value: true
     }
@@ -1594,56 +1525,6 @@ export interface eventUsageLogicActions {
     }
     reportSessionTableVersionUpdated: (version: string) => {
         version: string
-    }
-    reportSurveyAiPromptSubmitted: (source: string) => {
-        source: string
-    }
-    reportSurveyConsolidatedResultsQuery: (
-        survey: Survey,
-        totalDurationMs: number,
-        queryDurations: {
-            aggregate: number
-            openEnded: number
-        }
-    ) => {
-        queryDurations: {
-            aggregate: number
-            openEnded: number
-        }
-        survey: Survey
-        totalDurationMs: number
-    }
-    reportSurveyCreated: (
-        survey: Survey,
-        isDuplicate?: boolean,
-        creationSource?: 'form_builder' | 'full_editor' | 'llm_analytics' | 'quick_create' | 'template' | 'wizard'
-    ) => {
-        creationSource:
-            | 'form_builder'
-            | 'full_editor'
-            | 'llm_analytics'
-            | 'quick_create'
-            | 'template'
-            | 'wizard'
-            | undefined
-        isDuplicate: boolean | undefined
-        survey: Survey
-    }
-    reportSurveyCycleDetected: (survey: NewSurvey | Survey) => {
-        survey: NewSurvey | Survey
-    }
-    reportSurveyEdited: (survey: Survey) => {
-        survey: Survey
-    }
-    reportSurveyTemplateClicked: (
-        template: SurveyTemplateType,
-        source?: string
-    ) => {
-        source: string | undefined
-        template: SurveyTemplateType
-    }
-    reportSurveyViewed: (survey: Survey) => {
-        survey: Survey
     }
     reportTaxonomicFilterCategorySelected: (
         groupType: TaxonomicFilterGroupType,
@@ -2120,27 +2001,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFlagsCodeExampleLanguage: (language: string) => ({
             language,
         }),
-        reportSurveyViewed: (survey: Survey) => ({
-            survey,
-        }),
-        reportSurveyCreated: (
-            survey: Survey,
-            isDuplicate?: boolean,
-            creationSource?: 'wizard' | 'full_editor' | 'quick_create' | 'template' | 'llm_analytics' | 'form_builder'
-        ) => ({ survey, isDuplicate, creationSource }),
         reportUserFeedbackButtonClicked: (source: SURVEY_CREATED_SOURCE, meta: Record<string, any>) => ({
             source,
             meta,
         }),
-        reportSurveyEdited: (survey: Survey) => ({ survey }),
-        reportSurveyTemplateClicked: (template: SurveyTemplateType, source?: string) => ({ template, source }),
-        reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
-        reportSurveyConsolidatedResultsQuery: (
-            survey: Survey,
-            totalDurationMs: number,
-            queryDurations: { aggregate: number; openEnded: number }
-        ) => ({ survey, totalDurationMs, queryDurations }),
-        reportSurveyAiPromptSubmitted: (source: string) => ({ source }),
         reportProductTourViewed: (tour: ProductTour) => ({ tour }),
         reportProductTourCreated: (tour: ProductTour, creationSource?: 'app' | 'toolbar') => ({
             tour,
@@ -2148,40 +2012,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportProductTourListViewed: true,
         reportProductUnsubscribed: (product: string) => ({ product }),
-        reportOnboardingStarted: (properties?: OnboardingEventProperties) => ({
-            properties,
-        }),
-        reportOnboardingStepCompleted: (
-            stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
-            productKey?: string,
-            properties?: OnboardingEventProperties
-        ) => ({
-            stepKey,
-            productKey,
-            properties,
-        }),
-        reportOnboardingStepSkipped: (
-            stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
-            productKey?: string,
-            properties?: OnboardingEventProperties
-        ) => ({
-            stepKey,
-            productKey,
-            properties,
-        }),
-        reportOnboardingCompleted: (productKey: string, properties?: OnboardingEventProperties) => ({
-            productKey,
-            properties,
-        }),
-        reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
-            useCase,
-            recommendedProducts,
-        }),
-        reportOnboardingProductToggled: (productKey: string, selected: boolean, recommendationSource: string) => ({
-            productKey,
-            selected,
-            recommendationSource,
-        }),
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
@@ -2889,113 +2719,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 language,
             })
         },
-        reportSurveyCreated: ({ survey, isDuplicate, creationSource }) => {
-            const questionsWithShuffledOptions = survey.questions.filter((question) => {
-                return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
-            })
-
-            posthog.capture('survey created', {
-                // The web app is the only place this event is emitted from — there is no backend
-                // equivalent — so stamping the surface here is what puts surveys in a `source`
-                // breakdown at all, rather than showing up as unattributed.
-                source: 'web',
-                name: survey.name,
-                id: survey.id,
-                survey_type: survey.type,
-                questions_length: survey.questions.length,
-                question_types: survey.questions.map((question) => question.type),
-                is_duplicate: isDuplicate ?? false,
-                creation_source: creationSource ?? 'full_editor',
-                linked_insight_id: survey.linked_insight_id,
-                events_count: survey.conditions?.events?.values.length,
-                recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
-                recurring_survey_iteration_interval:
-                    survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
-                shuffle_questions_enabled: !!survey.appearance?.shuffleQuestions,
-                shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
-                has_branching_logic: survey.questions.some(
-                    (question) => question.branching && Object.keys(question.branching).length > 0
-                ),
-                has_partial_responses: survey.enable_partial_responses,
-                skipping_submit_button: survey.questions.some((question) => {
-                    if (
-                        question.type === SurveyQuestionType.SingleChoice ||
-                        question.type === SurveyQuestionType.MultipleChoice
-                    ) {
-                        return question.skipSubmitButton
-                    }
-                    return false
-                }),
-            })
-        },
-        reportSurveyViewed: ({ survey }) => {
-            posthog.capture('survey viewed', {
-                name: survey.name,
-                id: survey.id,
-                created_at: survey.created_at,
-                start_date: survey.start_date,
-                end_date: survey.end_date,
-            })
-        },
-        reportSurveyEdited: ({ survey }) => {
-            const questionsWithShuffledOptions = survey.questions.filter((question) => {
-                return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
-            })
-
-            posthog.capture('survey edited', {
-                name: survey.name,
-                id: survey.id,
-                created_at: survey.created_at,
-                start_date: survey.start_date,
-                events_count: survey.conditions?.events?.values.length,
-                recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
-                recurring_survey_iteration_interval:
-                    survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
-                shuffle_questions_enabled: !!survey.appearance?.shuffleQuestions,
-                shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
-                has_branching_logic: survey.questions.some(
-                    (question) => question.branching && Object.keys(question.branching).length > 0
-                ),
-                has_partial_responses: survey.enable_partial_responses,
-                skipping_submit_button: survey.questions.some((question) => {
-                    if (
-                        question.type === SurveyQuestionType.SingleChoice ||
-                        question.type === SurveyQuestionType.MultipleChoice
-                    ) {
-                        return question.skipSubmitButton
-                    }
-                    return false
-                }),
-            })
-        },
-        reportSurveyTemplateClicked: ({ template, source }) => {
-            posthog.capture('survey template clicked', {
-                template,
-                source,
-            })
-        },
-        reportSurveyAiPromptSubmitted: ({ source }) => {
-            posthog.capture('survey AI prompt submitted', {
-                source,
-            })
-        },
-        reportSurveyCycleDetected: ({ survey }) => {
-            posthog.capture('survey cycle detected', {
-                name: survey.name,
-                id: survey.id,
-                start_date: survey.start_date,
-                end_date: survey.end_date,
-            })
-        },
-        reportSurveyConsolidatedResultsQuery: ({ survey, totalDurationMs, queryDurations }) => {
-            posthog.capture('survey consolidated results query completed', {
-                name: survey.name,
-                id: survey.id,
-                duration: totalDurationMs,
-                aggregate_duration: queryDurations.aggregate,
-                open_ended_duration: queryDurations.openEnded,
-            })
-        },
         reportProductTourViewed: ({ tour }) => {
             posthog.capture(ProductTourEvent.VIEWED, {
                 tour_id: tour.id,
@@ -3031,53 +2754,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('product unsubscribed', {
                 product,
                 $set: { [property_key]: true },
-            })
-        },
-        // onboarding
-        reportOnboardingStarted: ({ properties }) => {
-            posthog.capture('onboarding started', {
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-                ...properties,
-            })
-        },
-        reportOnboardingStepCompleted: ({ stepKey, productKey, properties }) => {
-            posthog.capture('onboarding step completed', {
-                step_key: stepKey,
-                // Optional — only set when the caller knows which product owns the step.
-                // Lets dashboards split step funnels by product without joining elsewhere.
-                ...(productKey ? { product_key: productKey } : {}),
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-                ...properties,
-            })
-        },
-        reportOnboardingStepSkipped: ({ stepKey, productKey, properties }) => {
-            posthog.capture('onboarding step skipped', {
-                step_key: stepKey,
-                ...(productKey ? { product_key: productKey } : {}),
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-                ...properties,
-            })
-        },
-        reportOnboardingCompleted: ({ productKey, properties }) => {
-            posthog.capture('onboarding completed', {
-                product_key: productKey,
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-                ...properties,
-            })
-        },
-        reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts }) => {
-            posthog.capture('onboarding use case selected', {
-                use_case: useCase,
-                recommended_products: recommendedProducts,
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
-            })
-        },
-        reportOnboardingProductToggled: ({ productKey, selected, recommendationSource }) => {
-            posthog.capture('onboarding product toggled', {
-                product_key: productKey,
-                selected,
-                recommendation_source: recommendationSource,
-                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportSDKSelected: ({ sdk }) => {

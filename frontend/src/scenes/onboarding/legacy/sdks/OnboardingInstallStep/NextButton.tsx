@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { reportOnboardingStepCompleted, reportOnboardingStepSkipped } from 'scenes/onboarding/onboardingUsage'
 
 import { OnboardingStepKey } from '~/types'
 
@@ -19,7 +19,6 @@ interface NextButtonProps {
 export const NextButton = ({ installationComplete, size = 'medium', onAdvance }: NextButtonProps): JSX.Element => {
     const { hasNextStep, currentStepProductKey } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
-    const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
 
     const advance = onAdvance ?? (!hasNextStep ? completeOnboarding : goToNextStep)
     const skipInstallation = (): void => {
