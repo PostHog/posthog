@@ -407,23 +407,21 @@ def _fan_out_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     """Child rows for every parent, resumable on the parent walk's page token.
 
-    One child page is held back, so the token for the next parent page is staged before the
-    yield of the last rows it covers.
+    A parent page's children are yielded as one batch, so the cursor never sits mid-page and a
+    resumed full refresh can't append the same children twice. The buffered rows are outside the
+    staged cursor, so a safe point while they are held only re-reads them.
     """
     for parent_page in parent_pages:
-        held: list[dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         for parent in parent_page.items:
-            for rows in child_pages(parent):
-                if held:
-                    yield held
-                else:
-                    resumable_source_manager.safe_point()
-                held = rows
+            for child_rows in child_pages(parent):
+                rows.extend(child_rows)
+                resumable_source_manager.safe_point()
         resumable_source_manager.save_state(
             AwsOrganizationsResumeConfig(next_token=parent_page.next_token, work_key=work_key)
         )
-        if held:
-            yield held
+        if rows:
+            yield rows
         else:
             resumable_source_manager.safe_point()
 
@@ -452,9 +450,21 @@ def _child_pages(
         raise
 
 
-def _resume_token(resumable_source_manager: ResumableSourceManager[AwsOrganizationsResumeConfig]) -> Optional[str]:
+def _single_walk_pages(
+    client: AwsOrganizationsClient,
+    operation: str,
+    items_key: str,
+    resumable_source_manager: ResumableSourceManager[AwsOrganizationsResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[Page]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    return resume.next_token if resume is not None else None
+    # Every saved state names the page after the one it covers, so a missing token means the
+    # previous attempt finished the walk and only stopped before clearing its state.
+    if resume is not None and not resume.next_token:
+        logger.debug(f"Saved state marks the walk complete. operation={operation}")
+        return iter(())
+    start_token = resume.next_token if resume is not None else None
+    return iter_pages(client, operation, {"MaxResults": MAX_RESULTS}, items_key, logger, start_token=start_token)
 
 
 def _account_parent_rows(
@@ -480,14 +490,7 @@ def _account_parent_rows(
                 for row in rows
             ]
 
-    accounts = iter_pages(
-        client,
-        "ListAccounts",
-        {"MaxResults": MAX_RESULTS},
-        "Accounts",
-        logger,
-        start_token=_resume_token(resumable_source_manager),
-    )
+    accounts = _single_walk_pages(client, "ListAccounts", "Accounts", resumable_source_manager, logger)
     yield from _fan_out_rows(accounts, parents_of, resumable_source_manager)
 
 
@@ -544,13 +547,8 @@ def _delegated_service_rows(
             logger,
         )
 
-    administrators = iter_pages(
-        client,
-        "ListDelegatedAdministrators",
-        {"MaxResults": MAX_RESULTS},
-        "DelegatedAdministrators",
-        logger,
-        start_token=_resume_token(resumable_source_manager),
+    administrators = _single_walk_pages(
+        client, "ListDelegatedAdministrators", "DelegatedAdministrators", resumable_source_manager, logger
     )
     yield from _fan_out_rows(administrators, services_of, resumable_source_manager)
 
@@ -761,12 +759,21 @@ def _probe_first_child(
     child_operation: str,
     child_param: str,
 ) -> None:
-    parents = client.request(parent_operation, {**parent_payload, "MaxResults": 1})
-    for parent in parents.get(parent_key) or []:
-        parent_id = parent.get("Id") if isinstance(parent, dict) else None
-        if isinstance(parent_id, str):
-            client.request(child_operation, {child_param: parent_id, "MaxResults": 1})
-        break
+    next_token: Optional[str] = None
+    while True:
+        payload = {**parent_payload, "MaxResults": 1}
+        if next_token:
+            payload["NextToken"] = next_token
+        parents = client.request(parent_operation, payload)
+        for parent in parents.get(parent_key) or []:
+            parent_id = parent.get("Id") if isinstance(parent, dict) else None
+            if isinstance(parent_id, str):
+                client.request(child_operation, {child_param: parent_id, "MaxResults": 1})
+                return
+        # AWS can return an empty page while more parents remain.
+        next_token = parents.get("NextToken") or None
+        if not next_token:
+            return
 
 
 def endpoint_permission_reason(client: AwsOrganizationsClient, endpoint: str) -> Optional[str]:

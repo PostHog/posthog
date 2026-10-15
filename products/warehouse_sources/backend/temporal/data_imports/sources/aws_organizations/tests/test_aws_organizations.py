@@ -354,7 +354,10 @@ class TestFanOut:
         result = driver().run(endpoint, responder)
 
         assert result.raised is None
-        assert [row[parent_column] for row in result.rows] == ["parent-a", "parent-a", "parent-b"]
+        assert [[row[parent_column] for row in item] for item in result.items] == [
+            ["parent-a", "parent-a"],
+            ["parent-b"],
+        ]
         child_payloads = [
             request.json() for request in result.requests if request_operation(request) == child_operation
         ]
@@ -373,6 +376,18 @@ class TestFanOut:
         assert result.raised is None
         assert result.requests[0].json() == {"MaxResults": MAX_RESULTS, "NextToken": "accounts-2"}
         assert result.rows == [{"account_id": "222222222222", "parent_id": "r-exam", "parent_type": "ROOT"}]
+
+    @pytest.mark.parametrize("endpoint", ["account_parents", "delegated_services"])
+    def test_a_walk_saved_as_complete_is_not_read_again(self, endpoint: str) -> None:
+        result = driver().run(
+            endpoint,
+            always(aws_error("ServiceException", "unexpected request")),
+            resume_state=AwsOrganizationsResumeConfig(next_token=None),
+        )
+
+        assert result.raised is None
+        assert result.requests == []
+        assert result.rows == []
 
 
 class TestResume:
@@ -481,6 +496,8 @@ class TestProbeEndpointPermissions:
                 case "ListParents":
                     return aws_error("AccessDeniedException", "not authorized to perform organizations:ListParents")
                 case "ListAccounts":
+                    if request.json().get("NextToken") is None:
+                        return ScriptedResponse(json=page("Accounts", [], next_token="accounts-2"))
                     return ScriptedResponse(json=page("Accounts", [{"Id": "111111111111"}]))
                 case "ListRoots":
                     return ScriptedResponse(json=page("Roots", [{"Id": "r-exam"}]))
@@ -510,6 +527,7 @@ class TestProbeEndpointPermissions:
             "ListRoots",
             "ListOrganizationalUnitsForParent",
             "ListPolicies",
+            "ListAccounts",
             "ListAccounts",
             "ListParents",
         ]
