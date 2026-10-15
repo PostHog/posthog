@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
 from pydantic import BaseModel
 
 import products.signals.backend.temporal.custom_agent  # noqa: F401  (warms the base<->temporal import cycle so standalone collection works)
@@ -186,6 +187,25 @@ class TestCustomAgentLogArtefacts(BaseTest):
         )
         assert len(rows) == 2
         assert json.loads(rows[-1].content)["priority"] == "P0"
+
+    @parameterized.expand([("published", None), ("broker_down", RuntimeError("broker down"))])
+    def test_create_report_starts_the_inbox_report_ready_workflows(
+        self, _name: str, produce_error: Exception | None
+    ) -> None:
+        with patch(
+            "products.signals.backend.workflow_events.produce_internal_event", side_effect=produce_error
+        ) as produce:
+            persisted = create_custom_agent_ready_report(
+                team_id=self.team.id,
+                final_report=self._final_report(),
+                repo_selection=RepoSelectionResult(repository="acme/repo", reason="r"),
+                agent_identifier=("billing", "anomaly_scan"),
+            )
+
+        [ready_event] = [call.args[1] for call in produce.call_args_list]
+        assert ready_event.event == "$inbox_report_ready"
+        assert ready_event.properties["report_id"] == persisted.report_id
+        assert ready_event.properties["source_products"] == ["billing"]
 
     def test_registered_uuid_only_reviewer_is_included_in_telemetry(self):
         reviewer_uuid = uuid.uuid4()
