@@ -55,12 +55,15 @@ from products.messaging.backend.facade.transactional_email import (
     DeliveryUnavailable,
     TransactionalEmailError,
     check_transactional_update,
+    lock_transactional_workflow_id,
     make_transactional,
     send_transactional_email,
     sync_transactional_workflow,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
+from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
+from products.workflows.backend.facade.workflows import get_workflow
 
 logger = structlog.get_logger(__name__)
 
@@ -450,19 +453,42 @@ class MessageTemplatesViewSet(
         template = self.get_object()
         serializer = self.get_serializer(self._with_creators([template])[0], data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        if not template.transactional_hog_flow_id:
+        # Sends use the workflow's copy, so the template and its new workflow version are saved together,
+        # under a row lock that keeps a concurrent make_transactional from slipping in between.
+        with transaction.atomic():
+            hog_flow_id = lock_transactional_workflow_id(self.team_id, template.id)
+            if hog_flow_id:
+                self._require_workflow_editor(hog_flow_id)
+                try:
+                    check_transactional_update(template.id, self.team_id, serializer.validated_data)
+                except TransactionalEmailError as e:
+                    raise TransactionalEmailRejected(e) from None
             updated = update_template(self.team_id, template.id, serializer.validated_data)
-        else:
-            try:
-                check_transactional_update(template.id, self.team_id, serializer.validated_data)
-            except TransactionalEmailError as e:
-                raise TransactionalEmailRejected(e) from None
-            # Sends use the workflow's copy, so the template and its new workflow version are saved together.
-            with transaction.atomic():
-                updated = update_template(self.team_id, template.id, serializer.validated_data)
+            if hog_flow_id:
                 sync_transactional_workflow(self.team_id, template.id, user_id=self._actor_id())
+                # The sync unlinks the template when its workflow was deleted.
+                updated = get_template(self.team_id, template.id)
         self._emit_resource_edited(updated)
         return Response(self._serialize(updated))
+
+    def _require_workflow_editor(self, hog_flow_id: Any) -> None:
+        # The template's own access rules don't cover the workflow it sends through, which can carry its own.
+        # A project secret API key has no user to check, and its scope already limits it to sending.
+        if is_authenticated_via_project_secret_api_key(self.request):
+            return
+        try:
+            get_workflow(
+                team_id=self.team_id,
+                workflow_id=str(hog_flow_id),
+                user_access_control=self.user_access_control,
+                required_level="editor",
+            )
+        except WorkflowAccessDenied:
+            raise exceptions.PermissionDenied(
+                "You need editor access to this template's transactional email workflow."
+            ) from None
+        except WorkflowNotFound:
+            return
 
     def _actor_id(self) -> int | None:
         return self.request.user.id if self.request.user.is_authenticated else None
@@ -526,6 +552,8 @@ class MessageTemplatesViewSet(
             serializer.is_valid(raise_exception=True)
             return serializer.validated_data["content"]
 
+        if template.transactional_hog_flow_id:
+            self._require_workflow_editor(template.transactional_hog_flow_id)
         with transaction.atomic():
             locked = edit_template_content(self.team_id, template.id, apply_operations)
             if locked.transactional_hog_flow_id:
@@ -563,6 +591,8 @@ class MessageTemplatesViewSet(
         self._require_transactional_email_flag()
 
         template = self.get_object()
+        if template.transactional_hog_flow_id:
+            self._require_workflow_editor(template.transactional_hog_flow_id)
         data = request.validated_data
         outcome: dict[str, Any] = {"outcome": "error"}
         try:

@@ -10,6 +10,7 @@ from django.db import transaction
 
 import requests
 import structlog
+from urllib3.exceptions import NewConnectionError
 
 from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import send_transactional_email as run_transactional_workflow
@@ -56,7 +57,8 @@ def check_sendable(team_id: int, *, template_type: str, content: dict, message_c
     if not (email.get("text") or email.get("html")):
         raise TemplateNotSendable("The template has no email body, so it can't be sent.")
     if message_category_id:
-        category = MessageCategory.objects.filter(team_id=team_id, id=message_category_id, deleted=False).first()
+        # A deleted category still classifies the template, and the category field accepts one.
+        category = MessageCategory.objects.filter(team_id=team_id, id=message_category_id).first()
         # Transactional sends skip opt-outs, so a marketing template must never go out this way.
         if category and category.category_type == MessageCategoryType.MARKETING:
             raise MarketingTemplate(
@@ -86,7 +88,7 @@ def make_transactional(
     with transaction.atomic():
         # The row lock keeps two concurrent calls from creating two workflows.
         template = MessageTemplate.objects.select_for_update().get(team_id=team_id, id=template_id, deleted=False)
-        if template.transactional_hog_flow_id:
+        if template.transactional_hog_flow_id and _workflow_exists(team_id, template.transactional_hog_flow_id):
             return template.transactional_hog_flow_id
         check_sendable(
             team_id,
@@ -105,6 +107,25 @@ def make_transactional(
         template.transactional_hog_flow_id = hog_flow_id
         template.save(update_fields=["transactional_hog_flow_id", "updated_at"])
     return hog_flow_id
+
+
+def _workflow_exists(team_id: int, hog_flow_id: UUID) -> bool:
+    try:
+        get_workflow_summary(team_id=team_id, workflow_id=str(hog_flow_id))
+    except WorkflowNotFound:
+        return False
+    return True
+
+
+def lock_transactional_workflow_id(team_id: int, template_id: UUID) -> UUID | None:
+    """Lock the template row for the rest of the transaction and return its workflow id. Holding the lock
+    keeps make_transactional from linking a workflow between this read and the update that follows."""
+    return (
+        MessageTemplate.objects.select_for_update()
+        .filter(team_id=team_id, id=template_id)
+        .values_list("transactional_hog_flow_id", flat=True)
+        .get()
+    )
 
 
 def check_transactional_update(template_id: UUID, team_id: int, fields: dict[str, Any]) -> None:
@@ -126,12 +147,16 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
     template = MessageTemplate.objects.get(team_id=team_id, id=template_id)
     if not template.transactional_hog_flow_id or template.deleted:
         return
-    update_transactional_email_workflow(
-        team_id=team_id,
-        user_id=user_id,
-        hog_flow_id=template.transactional_hog_flow_id,
-        content=_content(template, from_integration_id=None),
-    )
+    try:
+        update_transactional_email_workflow(
+            team_id=team_id,
+            user_id=user_id,
+            hog_flow_id=template.transactional_hog_flow_id,
+            content=_content(template, from_integration_id=None),
+        )
+    except WorkflowNotFound:
+        # Someone deleted the workflow. The template stops being transactional and can be made so again.
+        MessageTemplate.objects.filter(team_id=team_id, id=template_id).update(transactional_hog_flow_id=None)
 
 
 def _idempotency_redis_key(team_id: int, idempotency_key: str) -> str:
@@ -148,10 +173,40 @@ def _idempotency_value(fingerprint: str, message_id: str) -> str:
     return json.dumps({"fingerprint": fingerprint, "message_id": message_id})
 
 
+def _replay(stored: bytes | str | None, fingerprint: str) -> QueuedEmail | None:
+    """The earlier send for this key, None when the key is unused, or an error while it can't be replayed."""
+    if stored is None:
+        return None
+    reservation = json.loads(stored)
+    if reservation["fingerprint"] != fingerprint:
+        raise IdempotencyKeyReused("This idempotency key was already used for a different request.")
+    if reservation["message_id"] == _IN_FLIGHT:
+        raise SendInProgress("A request with this idempotency key is still in progress.")
+    return QueuedEmail(message_id=reservation["message_id"], replayed=True)
+
+
+def _never_sent(error: Exception) -> bool:
+    # Only a failure to open the connection proves nothing was sent. A reset or a timeout on an open
+    # connection can come after cdp-api queued the job.
+    if isinstance(error, RuntimeError | requests.exceptions.ConnectTimeout):
+        return True
+    if isinstance(error, requests.ConnectionError):
+        reason = error.args[0] if error.args else None
+        return isinstance(getattr(reason, "reason", reason), NewConnectionError)
+    return False
+
+
 def _transactional_workflow_id(team_id: int, template_id: UUID) -> UUID:
     template = MessageTemplate.objects.get(team_id=team_id, id=template_id, deleted=False)
     if not template.transactional_hog_flow_id:
         raise TemplateNotTransactional("The template isn't transactional. Make it transactional to send it.")
+    # A category's type can change after the template was made transactional.
+    check_sendable(
+        team_id,
+        template_type=template.type,
+        content=template.content,
+        message_category_id=template.message_category_id,
+    )
     try:
         workflow = get_workflow_summary(team_id=team_id, workflow_id=str(template.transactional_hog_flow_id))
     except WorkflowNotFound as e:
@@ -173,7 +228,6 @@ def send_transactional_email(
     # Defense in depth: the workflow reads the recipient from an event property, which Liquid outputs as typed.
     if "{" in to or "}" in to:
         raise InvalidRecipient("The recipient address can't contain { or }.")
-    hog_flow_id = _transactional_workflow_id(team.id, template_id)
 
     redis = get_client()
     redis_key = _idempotency_redis_key(team.id, idempotency_key) if idempotency_key else None
@@ -181,18 +235,18 @@ def send_transactional_email(
     fingerprint = _request_fingerprint(
         template_id, {"to": to, "distinct_id": distinct_id, "message_data": message_data}
     )
+    # An accepted send replays even if the email has been paused since.
+    if redis_key and (replayed := _replay(redis.get(redis_key), fingerprint)):
+        return replayed
+
+    hog_flow_id = _transactional_workflow_id(team.id, template_id)
     if redis_key and not redis.set(
         redis_key, _idempotency_value(fingerprint, _IN_FLIGHT), nx=True, ex=IN_FLIGHT_TTL_SECONDS
     ):
-        stored = redis.get(redis_key)
-        if stored is None:
-            raise SendInProgress("A request with this idempotency key is still in progress.")
-        reservation = json.loads(stored)
-        if reservation["fingerprint"] != fingerprint:
-            raise IdempotencyKeyReused("This idempotency key was already used for a different request.")
-        if reservation["message_id"] == _IN_FLIGHT:
-            raise SendInProgress("A request with this idempotency key is still in progress.")
-        return QueuedEmail(message_id=reservation["message_id"], replayed=True)
+        # Another request with the key got in between the replay check and this reservation.
+        if replayed := _replay(redis.get(redis_key), fingerprint):
+            return replayed
+        raise SendInProgress("A request with this idempotency key is still in progress.")
 
     payload = {
         "to": to,
@@ -202,16 +256,16 @@ def send_transactional_email(
     }
     try:
         response = run_transactional_workflow(team.id, str(hog_flow_id), payload)
-    except (requests.ConnectionError, RuntimeError) as e:
-        # The request never reached cdp-api, so nothing is queued and a retry can send.
-        if redis_key:
-            redis.delete(redis_key)
-        logger.exception("transactional_email_queue_failed", team_id=team.id, template_id=str(template_id))
-        raise DeliveryUnavailable() from e
     except Exception as e:
-        # cdp-api can queue the email before the response times out. The reservation stays until it expires,
-        # so a quick retry with the same key gets a conflict instead of a second email.
-        logger.exception("transactional_email_queue_outcome_unknown", team_id=team.id, template_id=str(template_id))
+        if _never_sent(e):
+            # The request never reached cdp-api, so nothing is queued and a retry can send.
+            if redis_key:
+                redis.delete(redis_key)
+            logger.exception("transactional_email_queue_failed", team_id=team.id, template_id=str(template_id))
+        else:
+            # cdp-api can queue the email before the response is lost. The reservation stays until it expires,
+            # so a quick retry with the same key gets a conflict instead of a second email.
+            logger.exception("transactional_email_queue_outcome_unknown", team_id=team.id, template_id=str(template_id))
         raise DeliveryUnavailable() from e
 
     if response.status_code != 202:

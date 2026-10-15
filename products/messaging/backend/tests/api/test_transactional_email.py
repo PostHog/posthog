@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -7,13 +8,16 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
+from urllib3.exceptions import MaxRetryError, NewConnectionError, ProtocolError
 
-from posthog.models import ProjectSecretAPIKey
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, ProjectSecretAPIKey, User
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 from posthog.redis import get_client
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.services.transactional_email import (
@@ -138,6 +142,7 @@ class TestTransactionalEmail(APIBaseTest):
         [
             ("not_transactional", "template_not_transactional"),
             ("workflow_archived", "transactional_email_paused"),
+            ("category_turned_marketing", "marketing_template"),
             ("liquid_in_recipient", "invalid_recipient"),
         ]
     )
@@ -150,6 +155,12 @@ class TestTransactionalEmail(APIBaseTest):
                 f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}", {"status": "archived"}
             )
             assert archived.status_code == status.HTTP_200_OK, archived.json()
+        elif case == "category_turned_marketing":
+            category = MessageCategory.objects.create(
+                team=self.team, key="account", name="Account", category_type=MessageCategoryType.TRANSACTIONAL
+            )
+            MessageTemplate.objects.filter(id=self.template.id).update(message_category=category)
+            MessageCategory.objects.filter(id=category.id).update(category_type=MessageCategoryType.MARKETING)
         elif case == "liquid_in_recipient":
             body["to"] = "{{person.properties.email}}@example.com"
 
@@ -193,6 +204,19 @@ class TestTransactionalEmail(APIBaseTest):
             ("timeout", requests.ReadTimeout(), status.HTTP_409_CONFLICT, 1),
             ("gateway_timeout", MagicMock(status_code=504), status.HTTP_409_CONFLICT, 1),
             ("cdp_api_error", MagicMock(status_code=500), status.HTTP_503_SERVICE_UNAVAILABLE, 2),
+            (
+                "connection_refused",
+                requests.ConnectionError(MaxRetryError(None, "/", reason=NewConnectionError(None, "refused"))),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                2,
+            ),
+            # The connection opened, so cdp-api may have queued the email before it dropped.
+            (
+                "connection_reset_after_send",
+                requests.ConnectionError(ProtocolError("Connection aborted.", ConnectionResetError())),
+                status.HTTP_409_CONFLICT,
+                1,
+            ),
         ]
     )
     def test_a_retry_after_a_failed_send_holds_only_while_the_outcome_is_unknown(
@@ -212,6 +236,33 @@ class TestTransactionalEmail(APIBaseTest):
         assert mock_post.call_count == expected_calls
         # An unknown outcome holds the key only briefly, so the email can still go out after it expires.
         assert get_client().ttl(_idempotency_redis_key(self.team.id, key)) <= IN_FLIGHT_TTL_SECONDS
+
+    def test_an_accepted_send_replays_after_the_email_is_paused(self, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+        headers = {"Idempotency-Key": str(uuid4())}
+        first = self.client.post(self.url, self.body, format="json", headers=headers)
+        self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}", {"status": "archived"})
+
+        retry = self.client.post(self.url, self.body, format="json", headers=headers)
+
+        assert first.status_code == status.HTTP_202_ACCEPTED
+        assert retry.status_code == status.HTTP_202_ACCEPTED, retry.json()
+        assert retry.json() == {"message_id": "invocation-1", "replayed": True}
+        assert mock_post.call_count == 1
+
+    def test_a_deleted_workflow_unlinks_the_template_until_it_is_made_transactional_again(
+        self, mock_post, _flag, _capture
+    ):
+        deleted = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}")
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+        template_url = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/"
+
+        renamed = self.client.patch(template_url, {"name": "Reset"}, format="json")
+        remade = self.client.post(f"{template_url}make_transactional/", {}, format="json")
+
+        assert renamed.status_code == status.HTTP_200_OK, renamed.json()
+        assert renamed.json()["transactional_hog_flow_id"] is None
+        assert remade.json()["transactional_hog_flow_id"] not in (None, str(self.hog_flow_id))
 
     def test_reports_quota_limited_teams(self, mock_post, _flag, _capture):
         mock_post.return_value = MagicMock(status_code=429, json=lambda: {"error": "quota_limited"})
@@ -252,6 +303,7 @@ class TestTransactionalEmail(APIBaseTest):
     @parameterized.expand(
         [
             ("marketing_template", "marketing_template"),
+            ("deleted_marketing_category", "marketing_template"),
             ("template_without_subject", "template_not_sendable"),
             ("template_without_body", "template_not_sendable"),
             ("unverified_sender", "sender_unavailable"),
@@ -261,9 +313,13 @@ class TestTransactionalEmail(APIBaseTest):
         self, mock_post, _flag, _capture, case, expected_code
     ):
         template = self._template()
-        if case == "marketing_template":
+        if case in ("marketing_template", "deleted_marketing_category"):
             template.message_category = MessageCategory.objects.create(
-                team=self.team, key="news", name="News", category_type=MessageCategoryType.MARKETING
+                team=self.team,
+                key="news",
+                name="News",
+                category_type=MessageCategoryType.MARKETING,
+                deleted=case == "deleted_marketing_category",
             )
         elif case == "template_without_subject":
             template.content = {"email": {"html": "<p>Hi</p>"}}
@@ -312,3 +368,52 @@ class TestTransactionalEmail(APIBaseTest):
         self.template.refresh_from_db()
         assert self.template.message_category_id is None
         assert self._workflow(self.hog_flow_id)["version"] == 1
+
+
+@pytest.mark.ee
+@patch(
+    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    return_value=True,
+)
+@patch("posthog.plugins.plugin_server_api.internal_requests.post")
+class TestTransactionalEmailWorkflowAccess(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
+        )
+        set_default_email_sender_if_unset(self.team.id, sender.id)
+        self.template = MessageTemplate.objects.create(
+            team=self.team,
+            name="Password reset",
+            content={"email": {"subject": "Reset your password", "html": "<p>Reset</p>"}},
+            type="email",
+        )
+        hog_flow_id = make_transactional(self.team.id, self.template.id, user_id=self.user.id, from_integration_id=None)
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(hog_flow_id),
+            access_level="none",
+            organization_member_id=OrganizationMembership.objects.get(user=member, organization=self.organization).id,
+        )
+        self.client.force_login(member)
+
+    @parameterized.expand(
+        [
+            ("send", "post", "send/", {"to": "user@example.com"}),
+            ("update", "patch", "", {"content": {"email": {"subject": "New", "html": "<p>New</p>"}}}),
+        ]
+    )
+    def test_a_member_denied_the_workflow_cannot_send_or_change_it(self, mock_post, _flag, _name, method, suffix, body):
+        url = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/{suffix}"
+
+        response = getattr(self.client, method)(url, body, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        mock_post.assert_not_called()
