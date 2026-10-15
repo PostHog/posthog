@@ -13,8 +13,8 @@ class Migration(migrations.Migration):
             model_name="agentoperation",
             name="approvals",
             field=models.CharField(
-                choices=[("client", "Client"), ("auto", "Auto")],
-                default="auto",
+                choices=[("client", "Client"), ("none", "None")],
+                default="none",
                 max_length=8,
             ),
         ),

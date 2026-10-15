@@ -22,7 +22,7 @@ export const agentOperationsCreateBodyContextMax = 4096
 export const agentOperationsCreateBodyRepositoryMax = 255
 
 export const agentOperationsCreateBodyRepositoryRegExp = new RegExp('^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$')
-export const agentOperationsCreateBodyApprovalsDefault = `auto`
+export const agentOperationsCreateBodyApprovalsDefault = `none`
 export const agentOperationsCreateBodyRefMax = 255
 
 export const AgentOperationsCreateBody = /* @__PURE__ */ zod.object({
@@ -58,11 +58,11 @@ export const AgentOperationsCreateBody = /* @__PURE__ */ zod.object({
             "Optional GitHub repository in 'organization\/repository' form, for PostHog AI to read. The repository is read-only."
         ),
     approvals: zod
-        .enum(['client', 'auto'])
-        .describe('\* `client` - Client\n\* `auto` - Auto')
+        .enum(['client', 'none'])
+        .describe('\* `client` - Client\n\* `none` - None')
         .default(agentOperationsCreateBodyApprovalsDefault)
         .describe(
-            "'client' when the client can show approval prompts to its user, so PostHog AI asks before each sensitive tool call. 'auto' (default) runs with no prompts; the key's scopes still limit the run.\n\n\* `client` - Client\n\* `auto` - Auto"
+            "'client' when the client can show approval prompts to its user, so PostHog AI asks before each sensitive tool call. 'none' (default) runs with no prompts; the key's scopes still limit the run.\n\n\* `client` - Client\n\* `none` - None"
         ),
     ref: zod
         .string()

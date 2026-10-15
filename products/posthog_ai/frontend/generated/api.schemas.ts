@@ -9,14 +9,14 @@
  */
 /**
  * * `client` - Client
- * * `auto` - Auto
+ * * `none` - None
  */
 export type AgentOperationApprovalsEnumApi =
     (typeof AgentOperationApprovalsEnumApi)[keyof typeof AgentOperationApprovalsEnumApi]
 
 export const AgentOperationApprovalsEnumApi = {
     Client: 'client',
-    Auto: 'auto',
+    None: 'none',
 } as const
 
 export interface AgentOperationStartApi {
@@ -43,10 +43,10 @@ export interface AgentOperationStartApi {
      * @pattern ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$
      */
     repository?: string
-    /** 'client' when the client can show approval prompts to its user, so PostHog AI asks before each sensitive tool call. 'auto' (default) runs with no prompts; the key's scopes still limit the run.
+    /** 'client' when the client can show approval prompts to its user, so PostHog AI asks before each sensitive tool call. 'none' (default) runs with no prompts; the key's scopes still limit the run.
      *
      * * `client` - Client
-     * * `auto` - Auto */
+     * * `none` - None */
     approvals?: AgentOperationApprovalsEnumApi
     /**
      * Optional branch, tag, or commit in the repository. The default branch when not set. The server pins it to one commit.
@@ -250,7 +250,7 @@ export interface AgentOperationApi {
     /** Whether the client answers approval prompts.
      *
      * * `client` - Client
-     * * `auto` - Auto */
+     * * `none` - None */
     approvals: AgentOperationApprovalsEnumApi
     /** The approval that the operation waits for. Reply 'allow', 'allow all' or 'deny'. */
     approval: AgentOperationApprovalApi | null

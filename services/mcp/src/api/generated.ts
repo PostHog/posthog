@@ -11737,14 +11737,14 @@ export namespace Schemas {
 
     /**
      * * `client` - Client
-     * * `auto` - Auto
+     * * `none` - None
      */
     export type AgentOperationApprovalsEnum = typeof AgentOperationApprovalsEnum[keyof typeof AgentOperationApprovalsEnum];
 
 
     export const AgentOperationApprovalsEnum = {
       Client: 'client',
-      Auto: 'auto',
+      None: 'none',
     } as const;
 
     export interface AgentOperationApprovalOption {
@@ -11884,7 +11884,7 @@ export namespace Schemas {
       /** Whether the client answers approval prompts.
        *
        * * `client` - Client
-       * * `auto` - Auto */
+       * * `none` - None */
       approvals: AgentOperationApprovalsEnum;
       /** The approval that the operation waits for. Reply 'allow', 'allow all' or 'deny'. */
       approval: AgentOperationApproval | null;
@@ -11954,10 +11954,10 @@ export namespace Schemas {
          * @pattern ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$
          */
       repository?: string;
-      /** 'client' when the client can show approval prompts to its user, so PostHog AI asks before each sensitive tool call. 'auto' (default) runs with no prompts; the key's scopes still limit the run.
+      /** 'client' when the client can show approval prompts to its user, so PostHog AI asks before each sensitive tool call. 'none' (default) runs with no prompts; the key's scopes still limit the run.
        *
        * * `client` - Client
-       * * `auto` - Auto */
+       * * `none` - None */
       approvals?: AgentOperationApprovalsEnum;
       /**
          * Optional branch, tag, or commit in the repository. The default branch when not set. The server pins it to one commit.

@@ -25,7 +25,7 @@ export interface AgentOperationResult {
     follow_ups: string[]
 }
 
-export type AgentOperationApprovals = 'client' | 'auto'
+export type AgentOperationApprovals = 'client' | 'none'
 
 export interface AgentOperationApprovalOption {
     option_id: string
