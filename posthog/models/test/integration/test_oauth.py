@@ -1855,9 +1855,35 @@ class TestXeroIntegrationModel(BaseTest):
         assert (call.kwargs["auth"].username, call.kwargs["auth"].password) == ("xero-client-id", "xero-client-secret")
         assert "client_secret" not in call.kwargs["data"]
         assert call.kwargs["allow_redirects"] is False
-        assert integration.integration_id == "user-123:event-2"
+        assert integration.integration_id == "user-123"
         assert integration.config["xero_tenants"] == [{"tenantId": "org-b", "tenantName": "Company B"}]
         assert integration.display_name == "Company B (books@example.com)"
+        assert integration.sensitive_config["refresh_token"] == "rt_1"
+
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_reconnect_updates_the_same_integration_and_keeps_its_organisations(self, mock_post, mock_get):
+        existing = Integration.objects.create(
+            team=self.team,
+            kind="xero",
+            integration_id="user-123",
+            config={"xero_tenants": [{"tenantId": "org-a", "tenantName": "Company A"}]},
+            sensitive_config={"access_token": "old", "refresh_token": "old"},
+        )
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = self._token_response()
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = [
+            {"tenantId": "org-a", "tenantName": "Company A", "tenantType": "ORGANISATION", "authEventId": "event-1"},
+            {"tenantId": "org-c", "tenantName": "Company C", "tenantType": "ORGANISATION", "authEventId": "event-1"},
+        ]
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "xero", self.team.id, self.user, {"code": "code", "state": "token=state_token"}
+        )
+
+        assert integration.id == existing.id
+        assert integration.config["xero_tenants"] == [{"tenantId": "org-a", "tenantName": "Company A"}]
         assert integration.sensitive_config["refresh_token"] == "rt_1"
 
     @patch("posthog.models.integration.oauth.requests.get")

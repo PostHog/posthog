@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
     IntegrationAccountListingError,
@@ -76,11 +78,12 @@ class TestXeroOrganisationPicker:
         [
             (ScriptedResponse(json=[]), "still connected"),
             (ScriptedResponse(status=401, json={"Title": "Unauthorized", "Status": 401}), "Reconnect"),
+            (requests.ConnectionError("connection reset"), "Could not reach Xero"),
         ],
     )
-    def test_turns_an_unusable_listing_into_an_actionable_error(self, response: ScriptedResponse, message: str) -> None:
+    def test_turns_an_unusable_listing_into_an_actionable_error(self, response: Any, message: str) -> None:
         with pytest.raises(IntegrationAccountListingError, match=message):
-            self._accounts([response])
+            self._accounts(always(response))
 
 
 class TestXeroValidateCredentials:

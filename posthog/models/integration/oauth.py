@@ -1307,23 +1307,29 @@ class OauthIntegration:
 
         # One Xero grant reaches every organisation the user connected, so it is keyed by the user.
         # A Xero token reaches every organisation the user ever connected to the app, across PostHog
-        # projects. Keep only the organisations this consent granted, so another project's connection
-        # never exposes them, and key the integration by consent so a later one can't overwrite it.
+        # projects. The integration keeps only organisations granted in this project's own consents,
+        # so another project's connection never exposes them. A reconnect adds to that list.
         if kind == "xero" and not integration_id:
             id_claims = common._decode_jwt_payload(config["id_token"]) if config.get("id_token") else None
             token_claims = common._decode_jwt_payload(config["access_token"])
             auth_event_id = (token_claims or {}).get("authentication_event_id")
             if not id_claims or not id_claims.get("xero_userid") or not auth_event_id:
                 raise ValidationError("Xero did not return the expected account details. Connect again.")
-            organisations = _xero_organisations_for_auth_event(config["access_token"], auth_event_id)
-            if not organisations:
+            existing = model.Integration.objects.filter(
+                team_id=team_id, kind=kind, integration_id=id_claims["xero_userid"]
+            ).first()
+            previous_tenants = existing.config.get("xero_tenants") if existing else None
+            tenants = {tenant["tenantId"]: tenant for tenant in previous_tenants or []}
+            for organisation in _xero_organisations_for_auth_event(config["access_token"], auth_event_id):
+                tenants[organisation["tenantId"]] = organisation
+            if not tenants:
                 raise ValidationError("No Xero organisation was selected. Connect again and choose an organisation.")
             email = id_claims.get("email") or id_claims["xero_userid"]
             config["xero_userid"] = id_claims["xero_userid"]
             config["email"] = email
-            config["xero_tenants"] = organisations
-            config["display_name"] = f"{', '.join(org['tenantName'] for org in organisations)} ({email})"
-            integration_id = f"{id_claims['xero_userid']}:{auth_event_id}"
+            config["xero_tenants"] = list(tenants.values())
+            config["display_name"] = f"{', '.join(tenant['tenantName'] for tenant in tenants.values())} ({email})"
+            integration_id = id_claims["xero_userid"]
 
         # LinkedIn id_token is a JWT, extract user ID and email from it
         # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors

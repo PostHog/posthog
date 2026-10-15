@@ -168,6 +168,8 @@ class XeroSource(OAuthMixin, ResumableSource[XeroSourceConfig, XeroResumeConfig]
             raise IntegrationAccountListingError("Could not reach Xero. Try again in a few minutes.")
         except requests.HTTPError:
             raise IntegrationAccountListingError(_RECONNECT_MESSAGE)
+        except requests.RequestException:
+            raise IntegrationAccountListingError("Could not reach Xero. Try again in a few minutes.")
         if not organisations:
             raise IntegrationAccountListingError(
                 "None of the organisations chosen for this Xero connection is still connected. Reconnect and choose an organisation in Xero."
