@@ -64583,8 +64583,6 @@ export namespace Schemas {
     export interface MCPEventEnvelope {
       /** Event occurrence time, including its timezone. */
       timestamp: string;
-      /** Captured event data. */
-      data: MCPEventData;
       /** Null because replay is unavailable. */
       cursor: unknown;
       /**
@@ -64597,6 +64595,8 @@ export namespace Schemas {
        *
        * * `posthog.event_captured` - posthog.event_captured */
       name: MCPEventEnvelopeNameEnum;
+      /** Captured event data. */
+      data: MCPEventData;
     }
 
     export interface MCPEventIdentityArguments {

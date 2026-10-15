@@ -881,6 +881,15 @@ export interface MCPEventDeliveryResponseApi {
 }
 
 /**
+ * * `posthog.event_captured` - posthog.event_captured
+ */
+export type MCPEventEnvelopeNameEnumApi = (typeof MCPEventEnvelopeNameEnumApi)[keyof typeof MCPEventEnvelopeNameEnumApi]
+
+export const MCPEventEnvelopeNameEnumApi = {
+    PosthogeventCaptured: 'posthog.event_captured',
+} as const
+
+/**
  * Event properties the subscriber is allowed to read.
  */
 export type MCPEventDataApiProperties = {
@@ -896,20 +905,9 @@ export interface MCPEventDataApi {
     distinct_id: string
 }
 
-/**
- * * `posthog.event_captured` - posthog.event_captured
- */
-export type MCPEventEnvelopeNameEnumApi = (typeof MCPEventEnvelopeNameEnumApi)[keyof typeof MCPEventEnvelopeNameEnumApi]
-
-export const MCPEventEnvelopeNameEnumApi = {
-    PosthogeventCaptured: 'posthog.event_captured',
-} as const
-
 export interface MCPEventEnvelopeApi {
     /** Event occurrence time, including its timezone. */
     timestamp: string
-    /** Captured event data. */
-    data: MCPEventDataApi
     /** Null because replay is unavailable. */
     cursor: unknown
     /**
@@ -922,6 +920,8 @@ export interface MCPEventEnvelopeApi {
      *
      * * `posthog.event_captured` - posthog.event_captured */
     name: MCPEventEnvelopeNameEnumApi
+    /** Captured event data. */
+    data: MCPEventDataApi
 }
 
 export interface MCPEventPreviewApi {
