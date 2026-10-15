@@ -1,16 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 
-import { IconPlusSmall, IconShare } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { analyticsShareLogic, shareTargetKey } from 'scenes/analytics/analyticsShareLogic'
-import { ShareToSpaceModal } from 'scenes/analytics/ShareToSpaceModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -35,6 +32,7 @@ import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemM
 import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import { insightModalsLogic } from 'products/product_analytics/frontend/insights/insightScene/insightModalsLogic'
 import { InsightSaveButton } from 'products/product_analytics/frontend/insights/insightScene/InsightSaveButton'
+import { InsightShareMenu } from 'products/product_analytics/frontend/insights/insightScene/InsightShareMenu'
 
 import { InsightSceneMenuBar } from './sidePanel/InsightSceneMenuBar'
 import { InsightSidePanelContent } from './sidePanel/InsightSidePanelContent'
@@ -87,17 +85,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const metricsAlertsEnabled = useFeatureFlag('METRICS')
     const spacesEnabled = useFeatureFlag('TODAY_RAIL_NAV')
-    const { openShareToSpace, loadItemSpace } = useActions(analyticsShareLogic)
-    const { itemSpaces } = useValues(analyticsShareLogic)
-    const insightSpace = insight.short_id
-        ? itemSpaces[shareTargetKey({ type: 'insight', ref: insight.short_id })]
-        : undefined
-    const insightName = insight.name || insight.derived_name || 'Untitled insight'
-    useEffect(() => {
-        if (spacesEnabled && isPersistedInsight && insight.short_id && insightSpace === undefined) {
-            loadItemSpace({ type: 'insight', ref: insight.short_id, name: insightName })
-        }
-    }, [spacesEnabled, isPersistedInsight, insight.short_id, insightSpace, insightName, loadItemSpace])
     const biEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
 
@@ -197,35 +184,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         )}
 
                         {insightMode !== ItemMode.Edit && isPersistedInsight && spacesEnabled && (
-                            <LemonMenu
-                                items={[
-                                    {
-                                        label: insightSpace ? `Move from ${insightSpace}` : 'Share into a space',
-                                        icon: <IconShare />,
-                                        onClick: () =>
-                                            openShareToSpace({
-                                                type: 'insight',
-                                                ref: insight.short_id!,
-                                                name: insight.name || insight.derived_name || 'Untitled insight',
-                                            }),
-                                        'data-attr': 'insight-share-into-space',
-                                    },
-                                    {
-                                        label: 'Share publicly or embed',
-                                        onClick: () => push(urls.insightSharing(insight.short_id!)),
-                                        'data-attr': 'insight-share-publicly',
-                                    },
-                                ]}
-                            >
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconShare />}
-                                    data-attr="insight-share-menu"
-                                >
-                                    Share
-                                </LemonButton>
-                            </LemonMenu>
+                            <InsightShareMenu insight={insight} />
                         )}
 
                         {insightMode !== ItemMode.Edit && isPersistedInsight && (
@@ -302,7 +261,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     </>
                 }
             />
-            <ShareToSpaceModal />
         </>
     )
 }
