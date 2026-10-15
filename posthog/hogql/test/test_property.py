@@ -842,6 +842,17 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'"),
         )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "element",
+                    "key": "href",
+                    "value": ["a", "b"],
+                    "operator": "not_in",
+                }
+            ),
+            self._parse_expr("elements_chain_href NOT IN ['a'] AND elements_chain_href NOT IN ['b']"),
+        )
         for text_key in ("text", "$el_text"):
             self.assertEqual(
                 self._property_to_expr(
