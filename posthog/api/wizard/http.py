@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import NoReturn, cast
+from typing import Any, NoReturn, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -27,6 +27,7 @@ from posthog.llm.wizard_gateway_token import (
     mint_wizard_gateway_token,
     wizard_gateway_base_url,
     wizard_gateway_configured,
+    wizard_gateway_policy,
     wizard_limit_override,
     wizard_posture,
     wizard_product_node,
@@ -168,10 +169,11 @@ class SetupWizardViewSet(viewsets.ViewSet):
         no other gateway: every refusal ends the run, with the body's `detail`
         shown to the user and its `code` naming the outcome.
         """
-        # Resolved above the first gate so every refusal names the program.
+        # Resolved above the first gate so every refusal names the program. The
+        # product node waits for the policy, which is read after authentication.
         body = request.data if isinstance(request.data, dict) else {}
         program = body.get("program")
-        product = wizard_product_node(program)
+        product: str | None = None
         # Only a literal true: any other truthy shape keeps the 404 a fallback needs.
         reads_reason = body.get("reads_refusal_reason") is True
 
@@ -299,7 +301,18 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 "not_rolled_out", "Wizard gateway tokens are switched off for this organization.", user=user
             )
 
+        # Read once, after every gate that needs no flag, so an unauthenticated or
+        # refused request costs no flag read. A policy flag that is off or broken
+        # degrades the pin and never refuses the mint.
+        policy = wizard_gateway_policy(
+            distinct_id=distinct_id,
+            email=user.email,
+            organization_id=str(team.organization_id),
+            team_id=team.id,
+        )
+
         # A closed set: refusing keeps every pinned node one that carries a budget.
+        product = wizard_product_node(program, policy)
         if product is None:
             refuse_absent_gateway(
                 "program_unknown", "Unrecognized wizard program. Upgrade with: npx @posthog/wizard@latest", user=user
@@ -324,6 +337,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             minted = mint_wizard_gateway_token(
                 obo=str(team.id),
                 user=distinct_id,
+                policy=policy,
                 product=product,
                 cap_usd=override.cap_usd,
                 program=program,
@@ -338,17 +352,15 @@ class SetupWizardViewSet(viewsets.ViewSet):
             return Response({"error": "Gateway token mint failed."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="minted").inc()
-        return Response(
-            {
-                "token": minted["token"],
-                "expires_at": minted["expires_at"],
-                "cap_usd": minted.get("cap_usd"),
-                "gateway_url": wizard_gateway_base_url(),
-                # The CLI stamps this on each generation as `team_id`.
-                "team_id": team.id,
-            },
-            status=status.HTTP_201_CREATED,
-        )
+        payload: dict[str, Any] = {
+            "token": minted["token"],
+            "expires_at": minted["expires_at"],
+            "cap_usd": minted.get("cap_usd"),
+            "gateway_url": wizard_gateway_base_url(),
+            # The CLI stamps this on each generation as `team_id`.
+            "team_id": team.id,
+        }
+        return Response(payload, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         request=SetupWizardCloudRunSerializer,

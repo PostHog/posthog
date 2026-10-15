@@ -1,6 +1,7 @@
 import { AccessControlLevel, AnyPropertyFilter, UserBasicType } from '~/types'
 
 import type {
+    EvaluationApiEvaluationConfig,
     EvaluationApiOutputConfig,
     EvaluationReportCitationApi,
     EvaluationReportMetricsApi,
@@ -50,9 +51,8 @@ export interface EvaluationTargetConfig {
     max_age_seconds?: number
 }
 
-export interface LLMJudgeEvaluationConfig {
-    prompt: string
-}
+export type LLMJudgeEvaluationConfig = Extract<EvaluationApiEvaluationConfig, { prompt: string }>
+export type JudgeMethod = NonNullable<LLMJudgeEvaluationConfig['judge_method']>
 
 export interface HogEvaluationConfig {
     source: string

@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
@@ -30,9 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs
 
 ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"
 REDACTED = "[REDACTED]"
-# Webhook tools can carry literal credentials in their configured request headers, and executions echo
-# the headers that were sent. Warehouse readers must not be able to read them back.
-SECRET_BEARING_ENDPOINTS = frozenset({"tools", "tool_executions"})
 
 
 @dataclasses.dataclass
@@ -84,6 +81,25 @@ def _redact_tool_secrets(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _redact_phone_number_secrets(row: dict[str, Any]) -> dict[str, Any]:
+    # `provider_config` is the deprecated alias of `outbound_trunk`, so both carry the same SIP headers.
+    for key in ("outbound_trunk", "provider_config"):
+        trunk = row.get(key)
+        if isinstance(trunk, dict) and "headers" in trunk:
+            trunk["headers"] = _redact_header_values(trunk["headers"])
+    return row
+
+
+# Webhook tools can carry literal credentials in their configured request headers, executions echo the
+# headers that were sent, and SIP trunks can send custom auth headers on each call. Warehouse readers
+# must not be able to read them back.
+SECRET_REDACTORS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "tools": _redact_tool_secrets,
+    "tool_executions": _redact_tool_secrets,
+    "phone_numbers": _redact_phone_number_secrets,
+}
+
+
 def _build_params(
     config: ElevenLabsEndpointConfig,
     should_use_incremental_field: bool,
@@ -96,7 +112,7 @@ def _build_params(
     API keeps the time-window filter alongside the cursor), so pagination terminates at `has_more`
     rather than re-walking full history each incremental run.
     """
-    params: dict[str, Any] = {} if config.page_size is None else {"page_size": config.page_size}
+    params: dict[str, Any] = {} if config.page_size is None else {config.page_size_param: config.page_size}
     params.update(config.extra_params)
 
     if (
@@ -199,7 +215,7 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
         config = ELEVENLABS_ENDPOINTS[config.fanout.parent_name]
     probe_path = config.path if config else "/v1/user"
     # Bake the probe's page_size into the URL: validate_via_probe issues a bare GET with no params.
-    url = f"{ELEVENLABS_BASE_URL}{probe_path}{'?page_size=1' if config and config.page_size else ''}"
+    url = f"{ELEVENLABS_BASE_URL}{probe_path}{f'?{config.page_size_param}=1' if config and config.page_size else ''}"
 
     # Don't follow redirects: requests preserves the custom `xi-api-key` header across a cross-origin
     # 3xx, so a redirect off the fixed API host could replay the key to another origin.
@@ -281,11 +297,11 @@ def elevenlabs_source(
                 },
                 child_endpoint_extra={"paginator": _paginator(config), "data_selector": config.items_key},
                 child_params_extra=params,
-                page_size_param="page_size",
+                page_size_param=config.page_size_param,
             ),
         )
-        if endpoint in SECRET_BEARING_ENDPOINTS:
-            resource.add_map(_redact_tool_secrets)
+        if endpoint in SECRET_REDACTORS:
+            resource.add_map(SECRET_REDACTORS[endpoint])
         return SourceResponse(
             name=endpoint,
             items=lambda: resource,
@@ -330,8 +346,8 @@ def elevenlabs_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
-    if endpoint in SECRET_BEARING_ENDPOINTS:
-        resource.add_map(_redact_tool_secrets)
+    if endpoint in SECRET_REDACTORS:
+        resource.add_map(SECRET_REDACTORS[endpoint])
 
     return SourceResponse(
         name=endpoint,

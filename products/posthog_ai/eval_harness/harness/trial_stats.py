@@ -54,13 +54,13 @@ class ScorerTrialStats:
 def trial_stats(results: Sequence[CaseResult], *, trials: int) -> list[ScorerTrialStats]:
     """Aggregate scored trials per scorer for an experiment run with ``trials`` trials per case.
 
-    Errored results (infra failures) and ``None`` scores (skipped scorers) are ignored.
+    Task failures and ``None`` scores are ignored. Successful scores survive other scorer failures.
     """
     case_names = {result.input["name"] for result in results}
     scores_by_scorer: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     skipped_by_scorer: dict[str, set[str]] = defaultdict(set)
     for result in results:
-        if result.error is not None:
+        if result.error is not None and result.error_kind == "task":
             continue
         case_name = result.input["name"]
         for scorer, score in result.scores.items():

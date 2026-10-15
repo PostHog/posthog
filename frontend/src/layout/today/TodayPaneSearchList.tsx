@@ -9,6 +9,7 @@ export interface TodayPaneSearchListProps {
     searchLabel: string
     dataAttr: string
     searchActions?: ReactNode
+    header?: ReactNode
     children: ReactNode
     className?: string
     /** For a pane whose own sections scroll, so the list itself does not. */
@@ -25,6 +26,7 @@ export function TodayPaneSearchList({
     searchLabel,
     dataAttr,
     searchActions,
+    header,
     children,
     className,
     listClassName,
@@ -68,9 +70,11 @@ export function TodayPaneSearchList({
                     </AutocompleteInput>
                     {searchActions}
                 </div>
+                {header && <div className="mt-2 shrink-0">{header}</div>}
                 <AutocompleteList
                     className={cn(
                         'TodayPaneSearchList mt-2 min-h-0 !max-h-none flex-1 overflow-y-auto !p-0 pb-6',
+                        header && 'mt-1',
                         listClassName
                     )}
                 >

@@ -1,3 +1,4 @@
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -12,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -22,6 +24,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.set
 )
 
 KALSHI_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
+
+CANDLESTICK_PERIOD_MINUTES = 1440
+_CANDLESTICK_PERIOD_SECONDS = CANDLESTICK_PERIOD_MINUTES * 60
+# The batch candlestick endpoint takes at most 100 tickers and returns at most 10,000 candlesticks
+# per request, with no pagination, so a batch that could exceed the cap is split before it is sent.
+_MAX_TICKERS_PER_REQUEST = 100
+_MAX_CANDLESTICKS_PER_REQUEST = 10_000
 
 
 @frozen
@@ -44,6 +53,143 @@ def _to_epoch_seconds(value: Any) -> Optional[int]:
         return int(datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp())
     except (ValueError, TypeError):
         return None
+
+
+@frozen
+class _CandlestickMarket:
+    ticker: str
+    start_ts: int
+    end_ts: int
+
+    @property
+    def expected_candlesticks(self) -> int:
+        # One candlestick per period, plus the partial periods at each end of the window.
+        return (self.end_ts - self.start_ts) // _CANDLESTICK_PERIOD_SECONDS + 2
+
+
+def _candlestick_market(market: dict[str, Any], window_start: Optional[int], now: int) -> Optional[_CandlestickMarket]:
+    ticker = market.get("ticker")
+    opened = _to_epoch_seconds(market.get("open_time"))
+    if not ticker or opened is None:
+        return None
+    start = opened if window_start is None else max(opened, window_start)
+    closed = _to_epoch_seconds(market.get("close_time"))
+    end = now if closed is None else min(closed, now)
+    if start >= end:
+        return None
+    return _CandlestickMarket(ticker=str(ticker), start_ts=start, end_ts=end)
+
+
+def _batch_markets(markets: Iterable[_CandlestickMarket]) -> Iterator[list[_CandlestickMarket]]:
+    batch: list[_CandlestickMarket] = []
+    expected = 0
+    for market in markets:
+        cost = market.expected_candlesticks
+        if batch and (len(batch) >= _MAX_TICKERS_PER_REQUEST or expected + cost > _MAX_CANDLESTICKS_PER_REQUEST):
+            yield batch
+            batch, expected = [], 0
+        batch.append(market)
+        expected += cost
+    if batch:
+        yield batch
+
+
+def _fetch_candlesticks(client: RESTClient, batch: list[_CandlestickMarket], now: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for page in client.paginate(
+        path="/markets/candlesticks",
+        params={
+            "market_tickers": ",".join(market.ticker for market in batch),
+            "start_ts": min(market.start_ts for market in batch),
+            "end_ts": now,
+            "period_interval": CANDLESTICK_PERIOD_MINUTES,
+        },
+        paginator=SinglePagePaginator(),
+        data_selector="markets",
+        data_selector_required=True,
+    ):
+        for market in page:
+            for candlestick in market.get("candlesticks") or []:
+                rows.append({"market_ticker": market.get("market_ticker"), **candlestick})
+    return rows
+
+
+def _candlestick_rows(
+    client: RESTClient,
+    resumable_source_manager: ResumableSourceManager[KalshiResumeConfig],
+    window_start: Optional[int],
+    now: int,
+) -> Iterator[list[dict[str, Any]]]:
+    params: dict[str, Any] = {"limit": 1000, "mve_filter": "exclude"}
+    if window_start is not None:
+        # A market that closed before the window has no candlesticks in it.
+        params["min_close_ts"] = window_start
+
+    page_cursor: Optional[str] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            page_cursor = resume.cursor
+
+    next_cursor: list[Optional[str]] = [None]
+
+    def remember_next_cursor(state: Optional[dict[str, Any]], has_next_page: bool) -> None:
+        next_cursor[0] = str(state["cursor"]) if has_next_page and state and state.get("cursor") else None
+
+    for markets in client.paginate(
+        path="/markets",
+        params=params,
+        paginator=JSONResponseCursorPaginator(cursor_path="cursor", cursor_param="cursor"),
+        data_selector="markets",
+        data_selector_required=True,
+        initial_paginator_state={"cursor": page_cursor} if page_cursor else None,
+        page_state_hook=remember_next_cursor,
+    ):
+        # Every row of the earlier market pages is already yielded, so resuming from the cursor that
+        # fetched this page loses nothing.
+        if page_cursor:
+            resumable_source_manager.save_state(KalshiResumeConfig(cursor=page_cursor))
+        resumable_source_manager.safe_point()
+
+        candidates = (_candlestick_market(market, window_start, now) for market in markets)
+        pending = list(_batch_markets(market for market in candidates if market is not None))
+        pending.reverse()
+        while pending:
+            batch = pending.pop()
+            rows = _fetch_candlesticks(client, batch, now)
+            if len(rows) >= _MAX_CANDLESTICKS_PER_REQUEST and len(batch) > 1:
+                # The response may be truncated at the cap; refetch the batch in halves.
+                middle = len(batch) // 2
+                pending.extend([batch[middle:], batch[:middle]])
+                resumable_source_manager.safe_point()
+                continue
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+
+        page_cursor = next_cursor[0]
+
+
+def _candlestick_source(
+    config: KalshiEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[KalshiResumeConfig],
+    last_value: Optional[Any],
+) -> SourceResponse:
+    client = RESTClient(base_url=KALSHI_BASE_URL, headers={"Accept": "application/json"})
+    last_period_end = _to_epoch_seconds(last_value)
+    # Start one period back so the latest, possibly partial, candlestick is fetched again.
+    window_start = None if last_period_end is None else last_period_end - _CANDLESTICK_PERIOD_SECONDS
+    now = int(datetime.now(UTC).timestamp())
+
+    return SourceResponse(
+        name=config.name,
+        items=lambda: _candlestick_rows(client, resumable_source_manager, window_start, now),
+        primary_keys=config.primary_keys,
+        # Rows arrive grouped by market, not by time, so the watermark can only advance once the
+        # walk completes.
+        sort_mode="desc",
+    )
 
 
 def _build_endpoint(config: KalshiEndpointConfig, should_use_incremental_field: bool) -> Endpoint:
@@ -81,6 +227,10 @@ def kalshi_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = KALSHI_ENDPOINTS[endpoint]
+    last_value = db_incremental_field_last_value if should_use_incremental_field else None
+
+    if config.market_fan_out:
+        return _candlestick_source(config, resumable_source_manager, last_value)
 
     # Kalshi's market-data endpoints are public and take no credential, so no `auth` is configured.
     rest_config: RESTAPIConfig = {
@@ -108,8 +258,6 @@ def kalshi_source(
         # primary key) instead of skipping it.
         if state and state.get("cursor"):
             resumable_source_manager.save_state(KalshiResumeConfig(cursor=str(state["cursor"])))
-
-    last_value = db_incremental_field_last_value if should_use_incremental_field else None
 
     resource = rest_api_resource(
         rest_config,

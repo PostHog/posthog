@@ -15,13 +15,15 @@ class ElevenLabsEndpointConfig:
     # Top-level array key in the JSON response body (differs per endpoint: history/conversations/...).
     # A JSONPath such as "$.*" selects the values of a body keyed by id; None takes a bare-array body.
     items_key: Optional[str]
-    primary_keys: list[str]
+    # None for single-row snapshot tables that are replaced wholesale, so there is nothing to merge on.
+    primary_keys: Optional[list[str]]
     # Query param used to request the next page, and the response field that carries the next cursor.
     # ElevenLabs uses three different cursor styles across endpoint families. Both None for
     # unpaginated endpoints that return the whole collection in one body.
     cursor_param: Optional[str] = None
     cursor_response_key: Optional[str] = None
     page_size: Optional[int] = None
+    page_size_param: str = "page_size"
     # None for tables without a stable creation timestamp; those small tables stay unpartitioned.
     partition_key: Optional[str] = None
     # Stable, monotonic incremental column and the server-side filter param that bounds it. Both None
@@ -195,6 +197,33 @@ ELEVENLABS_ENDPOINTS: dict[str, ElevenLabsEndpointConfig] = {
             include_from_parent=[],
             parent_params={"sort_by": "created_at", "sort_direction": "asc"},
         ),
+    ),
+    # Phone numbers that Conversational AI agents take and place calls on. Returned as one bare array.
+    "phone_numbers": ElevenLabsEndpointConfig(
+        name="phone_numbers",
+        path="/v1/convai/phone-numbers",
+        items_key=None,
+        primary_keys=["phone_number_id"],
+    ),
+    # Outbound batch calling jobs. Mutable (status and call counters change while the job runs) with no
+    # updated-since filter, so full refresh only.
+    "batch_calls": ElevenLabsEndpointConfig(
+        name="batch_calls",
+        path="/v1/convai/batch-calling/workspace",
+        items_key="batch_calls",
+        cursor_param="last_doc",
+        cursor_response_key="next_doc",
+        primary_keys=["id"],
+        page_size=100,
+        page_size_param="limit",
+        partition_key="created_at_unix",
+    ),
+    # Plan quota and current-period usage, returned as one object that becomes a single row.
+    "subscription": ElevenLabsEndpointConfig(
+        name="subscription",
+        path="/v1/user/subscription",
+        items_key=None,
+        primary_keys=None,
     ),
 }
 
