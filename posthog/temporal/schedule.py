@@ -908,8 +908,9 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
         spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=2))],
-            jitter=timedelta(minutes=10),
+            # Runs at :20 to keep it away from the API query surge at the top of the hour.
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=20))],
+            jitter=timedelta(minutes=5),
         ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
