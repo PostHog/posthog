@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import time
 import signal
+import asyncio
 import threading
 from collections import Counter, deque
 from collections.abc import Callable, Iterator
@@ -48,7 +49,9 @@ class EvalDashboard:
         self._show_logs = False
         self._follow = True
         self._ready = threading.Event()
-        self._thread_error: Exception | None = None
+        self._run_active = threading.Event()
+        self._stopping = threading.Event()
+        self._thread_error: BaseException | None = None
         self._thread: threading.Thread | None = None
         self._choices = RadioList[str]([("", "Run and setup")])
         self._search = SearchToolbar()
@@ -75,6 +78,7 @@ class EvalDashboard:
             mouse_support=True,
             refresh_interval=0.5,
             before_render=lambda _app: self._refresh(),
+            after_render=lambda _app: self._ready.set(),
             style=Style.from_dict(
                 {
                     "frame.border": "#808080",
@@ -124,9 +128,20 @@ class EvalDashboard:
             self._messages.extend(text.splitlines())
             if text.lstrip().startswith(("Sandboxed eval summary", "ERROR:", "error:")):
                 self.result_text = text
-        if self._thread_error is not None:
-            self.application.output.write(text)
-            self.application.output.flush()
+
+    @property
+    def failure(self) -> BaseException | None:
+        return self._thread_error
+
+    def begin_run(self) -> bool:
+        self._run_active.set()
+        if self.failure is not None:
+            self._run_active.clear()
+            return False
+        return True
+
+    def end_run(self) -> None:
+        self._run_active.clear()
 
     def _bindings(self) -> KeyBindings:
         bindings = KeyBindings()
@@ -236,7 +251,7 @@ class EvalDashboard:
                 f"{phase}: {counts[phase]}" for phase in ("queued", "setup", "agent", "cleanup", "logs", "scoring")
             )
             overview = f"Setup\n{setup}\n\nTrials\n{phases}\n\n{diagnostics}"
-            if self._exit_code is not None:
+            if self._exit_code is not None and self.result_text.lstrip().startswith("Sandboxed eval summary"):
                 overview += "\n\n" + self.result_text
             text = f"{self.transcript}\n\n" + self._tail(self.transcript) if self._show_logs else overview
         else:
@@ -266,21 +281,42 @@ class EvalDashboard:
 
     def _run(self) -> None:
         try:
-            self.application.run(pre_run=self._ready.set, set_exception_handler=False, handle_sigint=False)
-        except Exception as error:
-            self._thread_error = error
+            self.application.run(pre_run=self._configure_loop, set_exception_handler=False, handle_sigint=False)
+            if self._exit_code is None and not self._stopping.is_set():
+                raise RuntimeError("The terminal view closed before the eval run completed")
+        except BaseException as error:
+            if self._thread_error is None:
+                self._thread_error = error
+            if self._run_active.is_set():
+                self.request_cancel()
         finally:
             self._ready.set()
+
+    def _configure_loop(self) -> None:
+        asyncio.get_running_loop().set_exception_handler(self._application_error)
+
+    def _application_error(self, _loop: asyncio.AbstractEventLoop, context: dict[str, object]) -> None:
+        error = context.get("exception")
+        if not isinstance(error, BaseException):
+            error = RuntimeError(str(context.get("message", "The interactive eval view failed")))
+        if self.application.is_running and not self.application.is_done:
+            self._thread_error = error
+            self.application.exit(exception=error)
 
     @contextmanager
     def display(self) -> Iterator[None]:
         self._thread = threading.Thread(target=self._run, name="eval-dashboard", daemon=True)
         self._thread.start()
         try:
-            if not self._ready.wait(timeout=5) or self._thread_error:
-                raise RuntimeError("Could not start the eval dashboard") from self._thread_error
+            if not self._ready.wait(timeout=5):
+                raise RuntimeError("The interactive eval view did not draw its first screen within 5 seconds")
+            if self._thread_error is not None:
+                raise RuntimeError(
+                    f"Could not start the interactive eval view: {type(self._thread_error).__name__}: {self._thread_error}"
+                ) from self._thread_error
             yield
         finally:
+            self._stopping.set()
             if self.application.is_running and (loop := self.application.loop) is not None:
                 loop.call_soon_threadsafe(self.application.exit)
             self._thread.join(timeout=5)

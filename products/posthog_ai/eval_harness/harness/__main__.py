@@ -91,6 +91,34 @@ def use_dashboard(options: HarnessOptions) -> bool:
     return terminal and os.getenv("TERM") != "dumb" and not os.getenv("CI")
 
 
+def _run_captured(options: HarnessOptions, transcript: RunTranscript, dashboard: EvalDashboard | None) -> int:
+    _configure_logging(transcript, verbose=options.verbose)
+    exit_code = 1
+    try:
+        try:
+            if dashboard is None or dashboard.begin_run():
+                if dashboard:
+                    logger.info("Interactive eval view ready")
+                exit_code = _run(options, transcript=transcript, dashboard=dashboard)
+        except KeyboardInterrupt:
+            if dashboard is None or dashboard.failure is None:
+                logger.warning("Interrupted")
+                exit_code = 130
+        except Exception:
+            logger.exception("Sandboxed eval harness failed")
+        finally:
+            if dashboard:
+                dashboard.end_run()
+        if dashboard:
+            dashboard.finish(exit_code)
+    finally:
+        if dashboard and (ui_error := dashboard.failure) is not None:
+            logger.error("Interactive eval view failed", exc_info=(type(ui_error), ui_error, ui_error.__traceback__))
+            exit_code = 1
+        logging.shutdown()
+    return exit_code
+
+
 def main(argv: list[str] | None = None) -> int:
     options = parse_args(argv)
     if options.list_only:
@@ -115,22 +143,18 @@ def main(argv: list[str] | None = None) -> int:
 
                 try:
                     dashboard = stack.enter_context(open_dashboard(transcript.path))
-                except (OSError, RuntimeError) as error:
-                    write_console(f"Interactive view unavailable: {error}. Continuing with plain text output.\n")
+                except (OSError, RuntimeError):
+                    with transcript.capture(verbose=options.verbose):
+                        _configure_logging(transcript, verbose=options.verbose)
+                        logger.exception("Interactive eval view could not start")
+                        if options.interactive is not True:
+                            write_console("Continuing with plain text output. Use --no-tui to select text output.\n")
+                        logging.shutdown()
+                    if options.interactive is True:
+                        return 1
             with transcript.capture(verbose=options.verbose, console_output=dashboard.write if dashboard else None):
-                _configure_logging(transcript, verbose=options.verbose)
-                try:
-                    exit_code = _run(options, transcript=transcript, dashboard=dashboard)
-                except KeyboardInterrupt:
-                    logger.warning("Interrupted")
-                    exit_code = 130
-                except Exception:
-                    logger.exception("Sandboxed eval harness failed")
-                    exit_code = 1
-                finally:
-                    logging.shutdown()
+                exit_code = _run_captured(options, transcript, dashboard)
             if dashboard:
-                dashboard.finish(exit_code)
                 write_console(dashboard.result_text)
     finally:
         transcript.finish()

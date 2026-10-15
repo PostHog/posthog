@@ -4,6 +4,7 @@ import os
 import sys
 import asyncio
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
@@ -145,3 +146,52 @@ def test_dashboard_opens_through_hogli_with_redirected_streams(tmp_path: Path, m
     text = transcript.read_text()
     assert "\x1b" not in text
     assert text.splitlines()[-1] == str(transcript)
+
+
+@pytest.mark.parametrize("phase", ["startup", "runtime"])
+def test_forced_dashboard_reports_render_failure_and_stops_the_run(tmp_path: Path, phase: str) -> None:
+    program = dedent("""
+        import sys
+        import threading
+        from pathlib import Path
+        from products.posthog_ai.eval_harness.harness import __main__ as harness
+        from products.posthog_ai.eval_harness.harness.dashboard import EvalDashboard
+
+        root, phase = Path(sys.argv[1]), sys.argv[2]
+        create = harness.RunTranscript.create
+        harness.RunTranscript.create = lambda: create(root)
+
+        def fail():
+            raise RuntimeError("Example terminal render failure")
+
+        def run(*args, dashboard, **kwargs):
+            (root / "started").touch()
+            dashboard._refresh = fail
+            dashboard.application.invalidate()
+            try:
+                threading.Event().wait(timeout=10)
+            finally:
+                (root / "cleaned-up").touch()
+            return 0
+
+        if phase == "startup":
+            EvalDashboard._refresh = lambda self: fail()
+        harness._run = run
+        raise SystemExit(harness.main(["--tui"]))
+    """)
+    environment = dict(os.environ, TERM="xterm-256color")
+    with pexpect.spawn(
+        sys.executable, ["-c", program, str(tmp_path), phase], env=environment, encoding="utf-8", timeout=20
+    ) as child:
+        child.expect(pexpect.EOF)
+        output = child.before
+    assert child.exitstatus == 1
+    assert output.count("Example terminal render failure") == 1
+    assert (tmp_path / "started").exists() is (phase == "runtime")
+    assert (tmp_path / "cleaned-up").exists() is (phase == "runtime")
+    transcript = next(path for path in tmp_path.glob("*.log") if not path.is_symlink())
+    saved = transcript.read_text()
+    assert "Traceback" in saved
+    assert "RuntimeError: Example terminal render failure" in saved
+    assert "\x1b" not in saved
+    assert output.splitlines()[-1] == saved.splitlines()[-1] == str(transcript)

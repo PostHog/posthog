@@ -93,6 +93,8 @@ The dashboard uses a separate thread and a duplicate terminal descriptor, outsid
 The transcript routes console messages to the view while still saving their original text.
 Cancel controls send one SIGINT through the existing cleanup path and keep the view open during teardown.
 The completed view stays open until `q`, then the final summary and transcript path print to the restored terminal.
+Dashboard readiness requires a completed render. Forced UI startup failures stop before eval setup; automatic mode reports the failure before selecting text output.
+UI loop exceptions propagate through the worker, interrupt an active run once for cleanup, and are logged with their original traceback.
 
 Every invocation that attempts an eval writes the combined stdout/stderr stream to `logs/harness/<timestamp>_<id>.log`.
 An explanatory line identifies the full run transcript, followed by the log's unlabeled absolute path as the final line in both the transcript and terminal.

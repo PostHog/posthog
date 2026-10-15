@@ -139,6 +139,8 @@ The final results stay visible until you close the view. The terminal then print
 Use `--no-tui` for the existing text output. `--verbose` adds detailed messages to the view or text output.
 `--tui` overrides automatic detection, including `TERM=dumb` and CI. It uses `/dev/tty` when a launcher redirects standard input or output.
 Redirecting stderr alone does not disable the view. A session without an attached terminal still requires `--no-tui`.
+With `--tui`, setup starts only after the first screen is drawn. A startup failure stops the command and reports its cause.
+If the view fails during a run, the runner stops through its cleanup path and saves the UI traceback in the transcript.
 The view does not change scores, retries, timeouts, or sandbox cleanup. Its screen controls are not written to the transcript.
 
 ### Comparing skill delivery
