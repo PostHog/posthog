@@ -11060,6 +11060,7 @@ dependencies = [
  "aws-sdk-kms",
  "aws-sdk-s3",
  "axum 0.7.9",
+ "base64 0.22.1",
  "brotlic",
  "bytes",
  "chrono",

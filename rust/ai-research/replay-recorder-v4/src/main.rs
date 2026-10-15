@@ -143,6 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             keys: KeyStore::new(table, kms),
             store: Arc::new(S3Store::new(aws_sdk_s3::Client::new(&aws))),
             rrweb_bucket: config.rrweb_bucket.clone(),
+            images_bucket: config.images_bucket.clone(),
         })
     } else {
         tracing::info!("writes are off: the recorder stores nothing");
