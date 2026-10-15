@@ -865,7 +865,9 @@ function CyclotronJobInputRenderer({
                 />
             )
         case 'dictionary': {
-            const secretSchema = findSecretRowsCompanion(schema, configuration)
+            // A caller with only `onChange` (the schema default editor) cannot write the companion input.
+            const secretSchema =
+                onInputsChange || onInputChange ? findSecretRowsCompanion(schema, configuration) : undefined
             if (secretSchema) {
                 return (
                     <DictionaryFieldWithSecretRows
