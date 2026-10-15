@@ -10,6 +10,10 @@ import {
 } from './onboardingUsage'
 
 describe('onboardingUsage', () => {
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
     const cases: [string, OnboardingEventProperties | undefined, string, string, 1 | 2][] = [
         ['legacy', undefined, 'product_selection', 'legacy', 1],
         ['self-driving', SELF_DRIVING_ONBOARDING_EVENT_PROPS, 'welcome', 'context_first', 2],
@@ -37,6 +41,5 @@ describe('onboardingUsage', () => {
             product_key: 'product_analytics',
             ...sharedProperties,
         })
-        capture.mockRestore()
     })
 })
