@@ -384,7 +384,6 @@ impl ValidatedEvent {
     }
 }
 
-/// Option keys that dropped this event; recomputed since only drops need it.
 fn failed_option_keys(event: &Event, details: Option<&'static str>) -> OptionKeys {
     match details {
         Some(DETAIL_INVALID_OPTIONS) => event
