@@ -101,6 +101,7 @@ jobs:
             - name: Restore pre-migrated test database
               env:
                   GH_TOKEN: ${{ github.token }}
+                  TARGET_DB: test_posthog_ai_eval
                   TEST: '1'
                   SELF_CAPTURE: '0'
               run: |
