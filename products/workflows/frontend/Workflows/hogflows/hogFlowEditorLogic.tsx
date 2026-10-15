@@ -2523,9 +2523,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     })),
     listeners(({ values, actions, cache }) => {
         let animationTimeout: ReturnType<typeof setTimeout> | null = null
-        const captureWithEditorLayout = (event: 'workflow edited' | 'workflow saved'): void => {
+        // pinned: analytics event names and editor_layout values, renaming breaks insights
+        const captureWithEditorLayout = (event: 'workflow edited' | 'workflow saved', workflowId: string): void => {
             posthog.capture(event, {
-                workflow_id: values.workflow.id,
+                workflow_id: workflowId,
                 editor_layout: values.editorLayout === 'simple' ? 'list' : 'graph',
             })
         }
@@ -2538,9 +2539,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     return
                 }
                 cache.editCapturedAt = now
-                captureWithEditorLayout('workflow edited')
+                captureWithEditorLayout('workflow edited', values.workflow.id)
             },
-            saveWorkflowSuccess: () => captureWithEditorLayout('workflow saved'),
+            saveWorkflowSuccess: ({ originalWorkflow }) =>
+                captureWithEditorLayout('workflow saved', originalWorkflow.id),
             onEdgesChange: ({ edges }) => {
                 actions.setEdges(applyEdgeChanges(edges, values.edges))
             },

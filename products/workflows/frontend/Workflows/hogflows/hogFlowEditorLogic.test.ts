@@ -779,10 +779,20 @@ describe('hogFlowEditorLogic', () => {
             expect(capturedProperties('workflow saved')).toEqual([reported])
         })
 
+        it('reports the saved workflow id while the first save still writes its schedule', () => {
+            workflowLogic().actions.setScheduleStartsAt('2026-02-01T09:00:00Z')
+            logic.actions.saveWorkflowSuccess({ ...logic.values.workflow, id: 'saved-workflow' })
+
+            expect(capturedProperties('workflow saved')).toEqual([
+                expect.objectContaining({ workflow_id: 'saved-workflow' }),
+            ])
+        })
+
         it('reports at most one edit per ten seconds', () => {
             renameWorkflow('First')
+            jest.setSystemTime(new Date('2026-01-01T00:00:09.999Z'))
             renameWorkflow('Second')
-            jest.setSystemTime(new Date('2026-01-01T00:00:11Z'))
+            jest.setSystemTime(new Date('2026-01-01T00:00:10Z'))
             renameWorkflow('Third')
 
             expect(capturedProperties('workflow edited')).toHaveLength(2)
