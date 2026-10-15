@@ -8,7 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createEmptyInsight } from 'scenes/insights/insightLogic'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId } from '~/types'
 
@@ -26,6 +26,10 @@ describe('ManageAlertsModal', () => {
         const capture = jest.spyOn(posthog, 'capture')
         const onCreateAlert = jest.fn()
         const insightShortId = 'alert-qa' as InsightShortId
+        const query: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [] },
+        }
 
         render(
             <Provider>
@@ -41,10 +45,7 @@ describe('ManageAlertsModal', () => {
                             ...createEmptyInsight(insightShortId),
                             id: 42,
                             alerts: [],
-                            query: {
-                                kind: NodeKind.InsightVizNode,
-                                source: { kind: NodeKind.TrendsQuery, series: [] },
-                            },
+                            query,
                         },
                     }}
                 />
@@ -53,8 +54,8 @@ describe('ManageAlertsModal', () => {
 
         expect(featureFlagLogic.values.receivedFeatureFlags).toBe(false)
         expect(screen.getByText('There are no alerts for this insight')).toBeInTheDocument()
-        const createButton = screen.getByRole('button', { name: 'New alert' })
-        expect(createButton).toBeEnabled()
+        const createButton = screen.getByText('New alert')
+        expect(createButton.closest('button')).toBeEnabled()
         fireEvent.click(createButton)
         expect(onCreateAlert).toHaveBeenCalledTimes(1)
         expect(capture).not.toHaveBeenCalledWith(
