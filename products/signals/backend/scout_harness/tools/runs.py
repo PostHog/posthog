@@ -431,21 +431,23 @@ def runs_version(*, team_id: int, run_ids: list[Any]) -> str:
     the task run's status, completion stamp, or `updated_at`. A report deletion does not touch the
     run row, so the deleted ids go into the version too.
     """
-    rows = sorted(
-        (str(run_id), *rest)
-        for run_id, *rest in SignalScoutRun.objects.filter(team_id=team_id, id__in=run_ids).values_list(
-            "id",
-            "updated_at",
-            "task_run__status",
-            "task_run__updated_at",
-            "task_run__completed_at",
-            "emitted_report_ids",
-            "edited_report_ids",
-        )
-    )
-    touched = {report_id for *_, emitted, edited in rows for report_id in _touched_report_ids(emitted, edited)}
+    versions: list[tuple[str, ...]] = []
+    touched: set[str] = set()
+    for run_id, updated_at, status, task_updated_at, completed_at, emitted, edited in SignalScoutRun.objects.filter(
+        team_id=team_id, id__in=run_ids
+    ).values_list(
+        "id",
+        "updated_at",
+        "task_run__status",
+        "task_run__updated_at",
+        "task_run__completed_at",
+        "emitted_report_ids",
+        "edited_report_ids",
+    ):
+        versions.append(tuple(str(part) for part in (run_id, updated_at, status, task_updated_at, completed_at)))
+        touched.update(_touched_report_ids(emitted, edited))
     deleted = sorted(_deleted_report_ids(touched, team_id=team_id))
-    seed = json.dumps([RUNS_VERSION_SCHEMA, [row[:5] for row in rows], deleted], default=str)
+    seed = json.dumps([RUNS_VERSION_SCHEMA, sorted(versions), deleted])
     return hashlib.sha256(seed.encode()).hexdigest()
 
 

@@ -1198,6 +1198,32 @@ describe('scoutFleetLogic', () => {
             expect(logic.values.scoutRunCosts.get('run-0')).toBe(4.03)
         })
 
+        it('asks again for a batch whose costs never reached the store because a sibling failed', async () => {
+            const runIds = Array.from({ length: 401 }, (_, index) => `run-${index}`)
+            mockSignalsScoutRunsRecentPerScout.mockResolvedValue(runIds.map((run_id) => makeRun({ run_id })))
+            mockSignalsScoutRunsTokenCosts.mockImplementation(async (_projectId, body) => {
+                if (body.run_ids.includes('run-200')) {
+                    throw new ApiError('nope', 500)
+                }
+                if (body.run_ids.includes('run-400')) {
+                    await new Promise((resolve) => setTimeout(resolve, 5))
+                }
+                return { costs: body.run_ids.map((run_id) => ({ run_id, token_cost_usd: 1 })), available: true }
+            })
+            await mountAsStaff(true)
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+            await new Promise((resolve) => setTimeout(resolve, 20))
+            mockSignalsScoutRunsTokenCosts.mockClear().mockResolvedValue({ costs: [], available: true })
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRunsSuccess', 'loadScoutRunCostsSuccess'])
+
+            const askedAgain = mockSignalsScoutRunsTokenCosts.mock.calls.flatMap(([, body]) => body.run_ids)
+            expect(askedAgain).toContain('run-400')
+            expect(askedAgain).not.toContain('run-0')
+        })
+
         // Recovering in the loader skips the gate `initKea` applies to loader failures, so the
         // loader reapplies it. A backend fault must still leave a client-side exception behind, and
         // a gateway blip must not, since filing those buries the crashes worth seeing.

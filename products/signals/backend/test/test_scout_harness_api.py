@@ -776,6 +776,11 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         assert second.status_code == status.HTTP_304_NOT_MODIFIED
         runs_by_id.assert_not_called()
 
+    def test_a_failed_if_match_is_a_failed_precondition_not_a_cache_hit(self) -> None:
+        _make_run(self.team)
+        response = self.client.get(self._url(), HTTP_IF_MATCH='"stale"')
+        assert response.status_code == status.HTTP_412_PRECONDITION_FAILED
+
     @parameterized.expand(["emit_tally", "task_run_settles", "report_deleted", "new_run"])
     def test_a_change_the_summary_shows_moves_the_etag(self, change: str) -> None:
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)

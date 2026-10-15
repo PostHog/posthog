@@ -759,6 +759,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             304: OpenApiResponse(
                 description="The runs match the `ETag` sent in `If-None-Match`, so the body is left out.",
             ),
+            412: OpenApiResponse(description="The runs do not match the `ETag` sent in `If-Match`."),
         },
         summary="List each scout's most recent runs",
         description=(
@@ -806,8 +807,10 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # The inbox polls this every minute. A browser revalidates a `no-cache` body with
         # If-None-Match by itself, so an unchanged fleet costs the narrow version read, not hydration.
         etag = f'"{runs_version(team_id=_canonical_team_id(self), run_ids=run_ids)}"'
-        if get_conditional_response(request._request, etag=etag) is not None:
-            response = Response(status=status.HTTP_304_NOT_MODIFIED)
+        conditional = get_conditional_response(request._request, etag=etag)
+        if conditional is not None:
+            # 304 for a matching If-None-Match, 412 for a failed If-Match.
+            response = Response(status=conditional.status_code)
         else:
             rows = runs_by_id(team_id=_canonical_team_id(self), run_ids=run_ids)
             response = Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)

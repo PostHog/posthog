@@ -157,9 +157,10 @@ const RUN_COST_BATCH_LIMIT = 200
 // How many batches are in flight together. Enough to hide the round trips of a materialized fleet,
 // few enough that one poll cannot queue every other roster request behind its own burst.
 const RUN_COST_BATCH_CONCURRENCY = 4
-// The cost endpoint keeps a settled run's total open for this long after it settles, while its last
-// generations cross ingestion. A run that settled before that answers with its final total.
-const RUN_COST_FINAL_AFTER_MS = 5 * 60_000
+// The cost endpoint keeps a settled run's total open for 5 minutes after it settles, while its last
+// generations cross ingestion, and it caches a total read in that grace for 60 seconds more. A run
+// that settled before this answers with its final total. The rest covers clock skew.
+const RUN_COST_FINAL_AFTER_MS = 10 * 60_000
 
 // Roster filter state also lives in the URL so a filtered view survives a refresh and is shareable.
 // The search param is written on this debounce, so typing does not rewrite the URL per keystroke.
@@ -968,12 +969,16 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         for (const [runId, cost] of priced) {
                             costs.set(runId, cost)
                         }
+                        return priced
+                    }
+                    // Only after the batch's costs reach the store, so a failed sibling cannot leave a
+                    // run final with no cost on screen.
+                    const markFinal = (batch: string[]): void => {
                         for (const runId of batch) {
                             if (finalOnAnswer.has(runId)) {
                                 finalRunIds.add(runId)
                             }
                         }
-                        return priced
                     }
                     try {
                         // The first batch also answers whether this deployment prices runs at all,
@@ -984,12 +989,14 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         const first = batches.length > 0 ? await priceBatch(batches[0]) : null
                         if (first) {
                             actions.mergeScoutRunCosts(first)
+                            markFinal(batches[0])
                             for (let start = 1; start < batches.length; start += RUN_COST_BATCH_CONCURRENCY) {
                                 const wave = batches.slice(start, start + RUN_COST_BATCH_CONCURRENCY)
                                 const priced = await Promise.all(wave.map(priceBatch))
                                 actions.mergeScoutRunCosts(
                                     new Map(priced.flatMap((batch) => (batch ? [...batch] : [])))
                                 )
+                                wave.forEach((batch, index) => priced[index] && markFinal(batch))
                                 if (priced.includes(null)) {
                                     break
                                 }
