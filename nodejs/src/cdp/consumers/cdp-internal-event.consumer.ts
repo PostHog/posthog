@@ -95,7 +95,7 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
 
         const ownSlackMessages = await this.findOwnSlackMessages(invocationGlobals)
 
-        const [hogInvocations, hogflowInvocations] = await Promise.all([
+        const [hogInvocations, { invocations: hogflowInvocations, releaseMasking }] = await Promise.all([
             this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
                 hogTypes: this.hogTypes,
                 filterFn: (fn) => getInternalEventFilterEventIds(fn.filters) !== null,
@@ -124,8 +124,16 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
                 instrumentFn({ key: 'cdp.background_task.queue_invocations', sendException: false }, () =>
                     this.hogQueue.queueInvocations(hogInvocations)
                 ),
-                instrumentFn({ key: 'cdp.background_task.queue_hogflow_invocations', sendException: false }, () =>
-                    this.hogflowQueue.queueInvocations(hogflowInvocations)
+                instrumentFn(
+                    { key: 'cdp.background_task.queue_hogflow_invocations', sendException: false },
+                    async () => {
+                        try {
+                            await this.hogflowQueue.queueInvocations(hogflowInvocations)
+                        } catch (err) {
+                            await releaseMasking()
+                            throw err
+                        }
+                    }
                 ),
                 instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
                     try {

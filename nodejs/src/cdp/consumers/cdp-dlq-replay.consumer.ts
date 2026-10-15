@@ -263,7 +263,7 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
             return kinds === null || kinds === undefined ? kinds === null : kinds.has(kind)
         }
 
-        const [hogInvocations, hogflowInvocations] = await Promise.all([
+        const [hogInvocations, { invocations: hogflowInvocations }] = await Promise.all([
             this.hogFunctionPipeline.buildInvocations(globalsList, {
                 hogTypes: this.hogTypes,
                 filterFn: (fn) => (fn.filters?.source ?? 'events') === 'events',

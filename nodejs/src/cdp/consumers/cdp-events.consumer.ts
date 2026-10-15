@@ -91,7 +91,7 @@ export class CdpEventsConsumer<
         // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
         await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
 
-        const [hogInvocations, hogflowInvocations] = await Promise.all([
+        const [hogInvocations, { invocations: hogflowInvocations }] = await Promise.all([
             this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
                 hogTypes: this.hogTypes,
                 filterFn: (fn) => (fn.filters?.source ?? 'events') === 'events',
