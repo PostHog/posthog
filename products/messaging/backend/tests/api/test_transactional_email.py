@@ -168,18 +168,37 @@ class TestTransactionalEmail(APIBaseTest):
         template.refresh_from_db()
         assert template.transactional_hog_flow_id is None
 
-    def test_saving_a_transactional_template_writes_a_new_workflow_version(self, mock_post, _flag, _capture):
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
-            {"content": {"email": {"subject": "A new subject", "html": "<p>New</p>"}}},
-            format="json",
-        )
+    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    def test_saving_a_transactional_template_writes_a_new_workflow_version(self, reload, mock_post, _flag, _capture):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
+                {"content": {"email": {"subject": "A new subject", "html": "<p>New</p>"}}},
+                format="json",
+            )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
+        # Workers reload once the new version is committed, not only from inside the transaction.
+        reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(self.hog_flow_id)])
         workflow = self._workflow(self.hog_flow_id)
         assert workflow["version"] == 2
         email = workflow["actions"][1]["config"]["inputs"]["email"]["value"]
         assert (email["subject"], email["html"]) == ("A new subject", "<p>New</p>")
+
+    def test_a_template_whose_workflow_was_deleted_can_move_into_a_marketing_category(self, mock_post, _flag, _capture):
+        category = MessageCategory.objects.create(
+            team=self.team, key="news", name="News", category_type=MessageCategoryType.MARKETING
+        )
+        self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
+            {"message_category": str(category.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["transactional_hog_flow_id"] is None
 
     def test_deleting_a_transactional_template_succeeds(self, mock_post, _flag, _capture):
         response = self.client.patch(
