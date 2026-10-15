@@ -362,6 +362,12 @@ class TestDestinationEligibility(APIBaseTest):
             ("text_edited_with_no_revision", {"text": "Look at this"}, False, (DestinationHoldBack.MESSAGE,)),
             ("an_emptied_text", {"text": ""}, False, ()),
             (
+                "stock_text_rendered_as_liquid",
+                {"text": {"value": "Alert triggered: {event.properties.insight_name}", "templating": "liquid"}},
+                False,
+                (DestinationHoldBack.MESSAGE,),
+            ),
+            (
                 "an_agent_chosen_emoji",
                 {"icon_emoji": ":rotating_light:"},
                 True,
@@ -379,7 +385,11 @@ class TestDestinationEligibility(APIBaseTest):
             data=INSIGHT_SLACK_DATA,
         ).payload
         function = self._function(
-            "template-slack", {**stock["inputs"], **{key: {"value": value} for key, value in changes.items()}}
+            "template-slack",
+            {
+                **stock["inputs"],
+                **{key: value if isinstance(value, dict) else {"value": value} for key, value in changes.items()},
+            },
         )
         HogFunction.objects.filter(pk=function.pk).update(filters=stock["filters"])
         if revised:

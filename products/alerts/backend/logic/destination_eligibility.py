@@ -292,7 +292,7 @@ def _stock_hold_backs(template_id: str, inputs: dict[str, Any]) -> list[Destinat
             continue
         value = input_value(inputs, key)
         # The templates skip an empty input, so it sends what a missing one sends.
-        if value in (None, "") or value in stock.get(key, ()):
+        if value in (None, "") or (value in stock.get(key, ()) and _templating(inputs, key) == "hog"):
             continue
         if template_id == WebhookDestination.template_id and key == "headers":
             found.extend(_header_hold_backs(value))
