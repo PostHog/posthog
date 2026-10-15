@@ -1566,3 +1566,73 @@ export const BINumericBins: Story = {
         await userEvent.click(await body.findByText('Create numeric bins', { exact: true }))
     },
 }
+export const BICatalogSource: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/projects/:team_id/data_catalog/relationship_proposals/': {
+                        count: 1,
+                        next: null,
+                        results: [
+                            {
+                                id: 'proposal-example',
+                                source_table_name: 'events',
+                                source_table_key: 'account_id',
+                                joining_table_name: 'accounts',
+                                joining_table_key: 'id',
+                                field_name: 'account',
+                                status: 'proposed',
+                                reasoning: 'Connect each event to its account.',
+                            },
+                        ],
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: {
+                                id: 'events',
+                                name: 'events',
+                                type: 'posthog',
+                                fields: BI_EVENTS_FIELDS,
+                                certification: {
+                                    status: 'certified',
+                                    notes: 'Use this source for product activity worksheets.',
+                                },
+                            },
+                        },
+                        joins: [],
+                    },
+                },
+            },
+        },
+    },
+}
+
+export const BICatalogSnapshot: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligenceNew()}?metric=weekly_revenue`,
+        testOptions: { waitForSelector: '[data-attr="bi-catalog-snapshot"]' },
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/weekly_revenue/': {
+                        name: 'weekly_revenue',
+                        display_name: 'Weekly revenue',
+                        definition: {
+                            kind: NodeKind.HogQLQuery,
+                            query: "SELECT sum(revenue) FROM events WHERE timestamp >= toDateTime('2026-06-01') AND timestamp < toDateTime('2026-06-08')",
+                        },
+                    },
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                },
+            },
+        },
+    },
+}

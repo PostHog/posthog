@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconEllipsis, IconPlus, IconShare } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonMenu, LemonModal, Spinner } from '@posthog/lemon-ui'
@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -17,6 +18,7 @@ import { Query } from '~/queries/Query/Query'
 import { isDataVisualizationNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { buildBIAgentContext } from './biAgentContext'
 import { BIChartAxis } from './BIChartAxisControls'
 import { BIChartAxisModal } from './BIChartAxisModal'
 import { BIEditor } from './BIEditor'
@@ -58,6 +60,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         canRedo,
         copyDisabledReason,
         worksheet,
+        insight,
         displayedQueryIsCurrent,
         generatedQuery,
     } = useValues(logic)
@@ -78,6 +81,18 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
     } = useActions(logic)
 
     const hierarchyParent = getBIHierarchyParent(worksheet)
+
+    const contextItems = useMemo(
+        () => buildBIAgentContext(worksheet, insight?.short_id),
+        [worksheet, insight?.short_id]
+    )
+    useSceneAgentPanel({
+        sceneKey: 'business-intelligence',
+        contextItems,
+        active: !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
+        autoOpen: false,
+        headlines: ['Build a worksheet from a catalog metric', 'What would you like to explore?'],
+    })
 
     useKeyboardHotkeys({
         z: {
