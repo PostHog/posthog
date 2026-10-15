@@ -1,8 +1,9 @@
-import dataclasses
 from typing import Any, Optional, cast
 from urllib.parse import quote, urlparse
 
 from requests import Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -70,7 +71,7 @@ class VantageTrustedJSONPaginator(JSONResponsePaginator):
             )
 
 
-@dataclasses.dataclass
+@frozen
 class VantageResumeConfig:
     # Full URL of the next page to fetch, taken verbatim from the response `links.next`. Vantage
     # encodes `page`/`limit` into it, so following it is enough to resume where we left off.

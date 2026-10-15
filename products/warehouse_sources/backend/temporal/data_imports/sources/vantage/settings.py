@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -14,7 +16,7 @@ PAGE_SIZE = 1000
 COSTS_PAGE_SIZE = 5000
 
 
-@dataclass
+@frozen
 class VantageEndpointConfig:
     name: str
     # API path relative to the v2 base URL (e.g. "/cost_reports").
