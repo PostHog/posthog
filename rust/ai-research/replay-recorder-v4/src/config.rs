@@ -27,6 +27,18 @@ pub struct Config {
     #[envconfig(default = "300")]
     pub team_refresh_secs: u64,
 
+    /// A flush every this many milliseconds. The lane is not latency-sensitive, so long flushes keep objects few.
+    #[envconfig(default = "60000")]
+    pub flush_interval_ms: u64,
+
+    /// A flush once the buffered messages reach this many bytes.
+    #[envconfig(default = "67108864")]
+    pub flush_max_bytes: usize,
+
+    /// A session's inspector is dropped after this long without a message, so memory follows live sessions.
+    #[envconfig(default = "3600")]
+    pub session_idle_secs: u64,
+
     #[envconfig(default = "9104")]
     pub metrics_port: u16,
 }
