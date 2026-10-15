@@ -4,8 +4,6 @@ from products.warehouse_sources.backend.types import IncrementalField
 
 SCHEMATIC_BASE_URL = "https://api.schematichq.com"
 
-# Every list endpoint pages with `limit`/`offset`; 100 is the documented default and the largest
-# page the API serves.
 PAGE_SIZE = 100
 
 
@@ -14,8 +12,7 @@ class SchematicEndpointConfig:
     name: str
     path: str
     primary_keys: tuple[str, ...] = ("id",)
-    # Stable datetime used for datetime partitioning. Objects with no creation timestamp
-    # (billing customers, coupons, meters) leave this None and go unpartitioned.
+    # Billing customers, coupons and meters have no creation timestamp, so they stay unpartitioned.
     partition_key: str | None = "created_at"
 
 

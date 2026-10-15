@@ -34,8 +34,6 @@ def _rows(prefix: str, count: int) -> list[dict[str, Any]]:
 class TestSchematicPagination:
     @pytest.mark.parametrize("endpoint", sorted(SCHEMATIC_ENDPOINTS))
     def test_walks_offset_pages_until_a_short_page(self, endpoint: str) -> None:
-        # A full page advances the offset and stages it; the short second page ends the walk, so no
-        # third request goes out and no state covers it.
         result = _driver().run(endpoint, [_page(_rows("a", PAGE_SIZE)), _page(_rows("b", 3))])
 
         assert result.raised is None

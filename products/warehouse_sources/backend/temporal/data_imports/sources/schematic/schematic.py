@@ -21,7 +21,6 @@ API_KEY_HEADER = "X-Schematic-Api-Key"
 
 @dataclass(frozen=True)
 class SchematicResumeConfig:
-    # The `offset` of the next page to fetch.
     offset: int
 
 
@@ -53,8 +52,7 @@ def schematic_source(
                 "table_format": "delta",
                 "endpoint": {
                     "path": config.path,
-                    # Every list response is `{"data": [...], "params": {...}}` with no total, so the
-                    # walk ends on the first page shorter than the limit.
+                    # The response carries no total, so the walk ends on the first short page.
                     "data_selector": "data",
                     "data_selector_required": True,
                     "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": None},
