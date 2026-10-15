@@ -3342,28 +3342,45 @@ describe('sqlEditorLogic', () => {
             {
                 name: 'materializes the created view when materializeAfterSave is true',
                 materialize: true,
-                materializeStatus: 200,
-                successToasts: ['Materialized view successfully created and materialized'],
-                errorToasts: [],
+                materializeResponse: [200, {}],
+                toasts: [
+                    {
+                        type: 'success',
+                        message: 'Materialized view successfully created and materialized',
+                        button: 'Go to view',
+                    },
+                ],
             },
             {
                 name: 'does not materialize when materializeAfterSave is false',
                 materialize: false,
-                materializeStatus: 200,
-                successToasts: ['Materialized view successfully created'],
-                errorToasts: [],
+                materializeResponse: [200, {}],
+                toasts: [{ type: 'success', message: 'Materialized view successfully created', button: 'Go to view' }],
             },
             {
-                name: 'still reports the created view when the materialization fails',
+                name: 'warns that the created view is not materialized when the materialization fails',
                 materialize: true,
-                materializeStatus: 400,
-                successToasts: ['Materialized view successfully created'],
-                errorToasts: ['Failed to materialize view'],
+                materializeResponse: [400, { detail: 'Pick 1 week instead.' }],
+                toasts: [
+                    {
+                        type: 'warning',
+                        message: 'Materialized view was created but not materialized. Pick 1 week instead.',
+                        button: 'Go to view',
+                    },
+                ],
             },
-        ])('$name', async ({ materialize, materializeStatus, successToasts, errorToasts }) => {
-            const toastSuccessSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'x')
-            const toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'x')
-            materializeEndpointMock.mockImplementation(() => [materializeStatus, {}])
+        ])('$name', async ({ materialize, materializeResponse, toasts }) => {
+            const shownToasts: { type: string; message: unknown; button: string | undefined }[] = []
+            const recordToast =
+                (type: string) =>
+                (message: unknown, options?: { button?: { label: string } }): string => {
+                    shownToasts.push({ type, message, button: options?.button?.label })
+                    return 'x'
+                }
+            jest.spyOn(lemonToast, 'success').mockImplementation(recordToast('success'))
+            jest.spyOn(lemonToast, 'warning').mockImplementation(recordToast('warning'))
+            jest.spyOn(lemonToast, 'error').mockImplementation(recordToast('error'))
+            materializeEndpointMock.mockImplementation(() => materializeResponse)
 
             const viewsLogic = dataWarehouseViewsLogic()
             viewsLogic.mount()
@@ -3401,10 +3418,7 @@ describe('sqlEditorLogic', () => {
             } else {
                 expect(materializeEndpointMock).toHaveBeenCalledTimes(0)
             }
-            expect(
-                toastSuccessSpy.mock.calls.map(([message, options]) => ({ message, button: options?.button?.label }))
-            ).toEqual(successToasts.map((message) => ({ message, button: 'Go to view' })))
-            expect(toastErrorSpy.mock.calls.map(([message]) => message)).toEqual(errorToasts)
+            expect(shownToasts).toEqual(toasts)
 
             editorDataNodeLogic.unmount()
             viewsLogic.unmount()

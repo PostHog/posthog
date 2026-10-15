@@ -67,16 +67,20 @@ async function openViewPage(viewId: string): Promise<void> {
     router.actions.push(nodeId ? urls.nodeDetail(nodeId) : urls.sqlEditor({ view_id: viewId }))
 }
 
+function goToViewButton(viewId: string): { label: string; action: () => Promise<void> } {
+    return {
+        label: 'Go to view',
+        action: () => openViewPage(viewId),
+    }
+}
+
 function showViewCreatedToast(
     viewId: string,
     viewName: string | null | undefined,
     materialized: boolean = false
 ): void {
     lemonToast.success(`${viewName ?? 'View'} successfully created${materialized ? ' and materialized' : ''}`, {
-        button: {
-            label: 'Go to view',
-            action: () => openViewPage(viewId),
-        },
+        button: goToViewButton(viewId),
     })
 }
 
@@ -463,13 +467,17 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 materializeDataWarehouseSavedQuery: async ({ viewId, syncFrequency, incremental, createdViewName }) => {
                     const requestedFrequency = syncFrequency ?? DEFAULT_MATERIALIZE_SYNC_FREQUENCY
                     const followsCreation = createdViewName !== undefined
-                    const reportFailure = (message: string): null => {
-                        // The view exists even though the materialization failed, so the deferred
-                        // creation toast must still show.
+                    const reportFailure = (detail: string | null | undefined, fallback: string): null => {
                         if (followsCreation) {
-                            showViewCreatedToast(viewId, createdViewName)
+                            // The view exists, so a single warning names it and says it is not materialized.
+                            // A server reason such as a cadence refusal does not say "materialize" on its own.
+                            lemonToast.warning(
+                                `${createdViewName} was created but not materialized. ${detail || 'Open the view to try again.'}`,
+                                { button: goToViewButton(viewId) }
+                            )
+                        } else {
+                            lemonToast.error(detail || fallback)
                         }
-                        lemonToast.error(message)
                         return null
                     }
                     if (incremental !== undefined) {
@@ -481,7 +489,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                             await api.dataWarehouseSavedQueries.update(viewId, { incremental })
                         } catch (error: any) {
                             // The server names the construct blocking incremental — surface it over a generic failure.
-                            return reportFailure(error?.detail || 'Failed to save incremental settings')
+                            return reportFailure(error?.detail, 'Failed to save incremental settings')
                         }
                     }
                     try {
@@ -505,7 +513,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     } catch (error: any) {
                         // The server rejects a cadence the query's lineage can't support and says which one
                         // to pick instead, so the reason has to reach the user rather than a generic failure.
-                        return reportFailure(error?.detail || 'Failed to materialize view')
+                        return reportFailure(error?.detail, 'Failed to materialize view')
                     }
                     return null
                 },
