@@ -4,9 +4,16 @@ from types import SimpleNamespace
 from typing import Any
 
 import structlog
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
-from rest_framework import serializers, status, viewsets
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
@@ -14,6 +21,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
@@ -38,6 +46,7 @@ from products.messaging.backend.facade.templates import (
     team_category_id,
     update_template,
 )
+from products.messaging.backend.facade.transactional_email import TransactionalEmailError, make_transactional
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
 
@@ -175,6 +184,12 @@ class MessageTemplateSerializer(serializers.Serializer):
     deleted = serializers.BooleanField(
         required=False, help_text="Soft-delete flag. Set true to remove the template from the library."
     )
+    transactional_hog_flow_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="The workflow that sends this template over the transactional email API. Null until the "
+        "template is made transactional.",
+    )
 
     def validate(self, data: Any) -> Any:
         template_type = data.get("type")
@@ -231,6 +246,28 @@ TEMPLATE_ID_PARAMETER = OpenApiParameter(
 )
 
 
+TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
+
+
+class MakeTransactionalSerializer(serializers.Serializer):
+    from_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="ID of the verified email sender integration the email is sent from. Defaults to the project's "
+        "default sender.",
+    )
+
+
+class TransactionalEmailRejected(exceptions.APIException):
+    STATUS_BY_CODE: dict[str, int] = {}
+    # The caller has to change the request. Without this the error handler reports a server error.
+    default_type = "invalid_request"
+
+    def __init__(self, error: TransactionalEmailError) -> None:
+        self.status_code = self.STATUS_BY_CODE.get(error.code, status.HTTP_400_BAD_REQUEST)
+        super().__init__(detail=str(error), code=error.code)
+
+
 @extend_schema_view(
     retrieve=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
     update=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
@@ -244,9 +281,17 @@ class MessageTemplatesViewSet(
 ):
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
-    # `design` is a custom write action; list it so programmatic callers (MCP/personal API key) get
-    # hog_flow:write checked instead of being rejected as an action with no declared scope.
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "design"]
+    # `design` and `make_transactional` are custom write actions; list them so programmatic callers (MCP/personal
+    # API key) get hog_flow:write checked instead of being rejected as an action with no declared scope.
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "design",
+        "make_transactional",
+    ]
 
     serializer_class = MessageTemplateSerializer
 
@@ -320,6 +365,9 @@ class MessageTemplatesViewSet(
         self._emit_resource_edited(updated)
         return Response(self._serialize(updated))
 
+    def _actor_id(self) -> int | None:
+        return self.request.user.id if self.request.user.is_authenticated else None
+
     def _emit_resource_edited(self, instance: MessageTemplateRow) -> None:
         # Realtime "edited elsewhere" signal so an open editor can refresh instead of overwriting a write
         # from another channel (UI/MCP/API). Fires for every channel; the frontend drops its own echo by
@@ -383,3 +431,62 @@ class MessageTemplatesViewSet(
 
         self._emit_resource_edited(locked)
         return Response(self._serialize(locked))
+
+    def _require_transactional_email_flag(self) -> None:
+        if not posthoganalytics.feature_enabled(
+            TRANSACTIONAL_EMAIL_API_FLAG,
+            str(self.team.uuid),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+            send_feature_flag_events=False,
+        ):
+            raise NotFound()
+
+    @validated_request(
+        MakeTransactionalSerializer,
+        responses={
+            200: OpenApiResponse(response=MessageTemplateSerializer, description="The transactional template"),
+            400: OpenApiResponse(description="The template can't be sent, or there is no verified sender"),
+            404: OpenApiResponse(description="Template not found"),
+        },
+        summary="Make a template transactional",
+        description=(
+            "Make this template sendable over the transactional email API. This creates the workflow that sends it, "
+            "with its own metrics, run history and versions. Calling it again on a transactional template changes "
+            "nothing."
+        ),
+        parameters=[TEMPLATE_ID_PARAMETER],
+    )
+    @action(detail=True, methods=["POST"], pagination_class=None)
+    def make_transactional(self, request: Any, *args: Any, **kwargs: Any) -> Response:
+        self._require_transactional_email_flag()
+        template = self.get_object()
+        was_transactional = template.transactional_hog_flow_id is not None
+        # Access to one workflow lets a member through the viewset's checks, but this can create a new one, also
+        # when the linked workflow was deleted.
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+            raise exceptions.PermissionDenied("You need editor access to workflows to make a template transactional.")
+        try:
+            make_transactional(
+                self.team_id,
+                template.id,
+                user_id=self._actor_id(),
+                from_integration_id=request.validated_data.get("from_integration_id"),
+            )
+        except TransactionalEmailError as e:
+            raise TransactionalEmailRejected(e) from None
+        updated = self.get_object()
+        if not was_transactional:
+            self._emit_resource_edited(updated)
+            try:
+                report_user_action(
+                    self.request.user,
+                    "message template made transactional",
+                    {"template_id": str(template.id), "team_id": str(self.team_id)},
+                    team=self.team,
+                    organization=self.organization,
+                    request=self.request,
+                )
+            except Exception as e:
+                logger.warning("Failed to capture message template usage event", error=str(e))
+        return Response(self._serialize(updated))

@@ -580,3 +580,16 @@ export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.obj
             "Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — otherwise the template is unchanged. Reference blocks by id so you never resend the whole design."
         ),
 })
+
+/**
+ * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. Calling it again on a transactional template changes nothing.
+ * @summary Make a template transactional
+ */
+export const MessagingTemplatesMakeTransactionalCreateBody = /* @__PURE__ */ zod.object({
+    from_integration_id: zod
+        .number()
+        .nullish()
+        .describe(
+            "ID of the verified email sender integration the email is sent from. Defaults to the project's default sender."
+        ),
+})

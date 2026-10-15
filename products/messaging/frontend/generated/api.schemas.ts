@@ -395,6 +395,11 @@ export interface MessageTemplateApi {
     message_category?: string | null
     /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
+    /**
+     * The workflow that sends this template over the transactional email API. Null until the template is made transactional.
+     * @nullable
+     */
+    readonly transactional_hog_flow_id: string | null
 }
 
 export interface PaginatedMessageTemplateListApi {
@@ -432,6 +437,11 @@ export interface PatchedMessageTemplateApi {
     message_category?: string | null
     /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
+    /**
+     * The workflow that sends this template over the transactional email API. Null until the template is made transactional.
+     * @nullable
+     */
+    readonly transactional_hog_flow_id?: string | null
 }
 
 /**
@@ -490,6 +500,14 @@ export interface DesignOperationApi {
 export interface PatchedDesignPatchApi {
     /** Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — otherwise the template is unchanged. Reference blocks by id so you never resend the whole design. */
     operations?: DesignOperationApi[]
+}
+
+export interface MakeTransactionalApi {
+    /**
+     * ID of the verified email sender integration the email is sent from. Defaults to the project's default sender.
+     * @nullable
+     */
+    from_integration_id?: number | null
 }
 
 export type MessagingCategoriesListParams = {
