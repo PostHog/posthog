@@ -286,17 +286,16 @@ def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
             ) = 'success'
             AND countIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) = 0
     """
-    # The PR match parses JSON columns, so the raw columns narrow its input first.
-    successful_relays = f"id >= {first_run} AND {SUCCESSFUL_RUN_CONDITION} AND id IN ({relays})"
-    # Depot reads its PR from the run's refs/pull ref, which is the association. The runs builder's
-    # pr_number names the landed PR for a merge-queue gate run, so it never matches a Depot gate run.
+    # Depot's PR is the run's association (see ASSOCIATION_PR_NUMBER). The raw columns come first, so
+    # the JSON parse runs only on successful relays.
     return f"""
-        SELECT r.id
-        FROM ({_github_runs(runs_table, successful_relays)}) AS r
-        WHERE (r.head_sha, {workflow_runs.ASSOCIATION_PR_NUMBER}) IN (
-            SELECT head_sha, pr_number FROM {handoffs}
-            WHERE took_handoff AND pr_number > 0 AND workflow_status = 'finished'
-        )
+        SELECT id
+        FROM {runs_table}
+        WHERE id >= {first_run} AND {SUCCESSFUL_RUN_CONDITION} AND id IN ({relays})
+            AND (head_sha, {workflow_runs.ASSOCIATION_PR_NUMBER}) IN (
+                SELECT head_sha, pr_number FROM {handoffs}
+                WHERE took_handoff AND pr_number > 0 AND workflow_status = 'finished'
+            )
     """
 
 
