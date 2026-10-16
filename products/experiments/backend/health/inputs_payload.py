@@ -123,6 +123,7 @@ def health_inputs_payload(inputs: HealthInputs) -> dict[str, Any]:
         "is_paused": ctx.is_paused,
         "archived": ctx.archived,
         "baseline_variant_key": ctx.baseline_variant_key,
+        "excluded_variant_keys": sorted(ctx.excluded_variant_keys),
         "primary_metric_count": ctx.primary_metric_count,
         "secondary_metric_count": ctx.secondary_metric_count,
         "flag": _health_inputs_flag(ctx.flag) if ctx.flag else None,

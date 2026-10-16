@@ -3285,6 +3285,12 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
     baseline_variant_key = serializers.CharField(
         allow_null=True, help_text="The baseline set in the experiment's settings. Null when unset."
     )
+    excluded_variant_keys = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The variants the analysis leaves out of the results. The forced-variant check ignores pins to them."
+        ),
+    )
     primary_metric_count = serializers.IntegerField(
         help_text="Single-use primary metrics plus shared metrics linked as primary."
     )
@@ -3305,7 +3311,8 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
         choices=ExperimentHealthInputsTrafficStatus.choices,
         help_text=(
             "Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the "
-            "experiment is launched and some but not all release conditions pin a variant with a share of the split."
+            "experiment is launched and some but not all release conditions pin a variant that has a share of the "
+            "split and is not excluded from the analysis."
         ),
     )
     condition_set_traffic = ExperimentHealthInputsConditionSetTrafficSerializer(

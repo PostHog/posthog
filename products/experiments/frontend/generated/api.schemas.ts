@@ -3403,6 +3403,8 @@ export interface ExperimentHealthInputsApi {
      * @nullable
      */
     baseline_variant_key: string | null
+    /** The variants the analysis leaves out of the results. The forced-variant check ignores pins to them. */
+    excluded_variant_keys: string[]
     /** Single-use primary metrics plus shared metrics linked as primary. */
     primary_metric_count: number
     /** Single-use secondary metrics plus shared metrics linked as secondary. */
@@ -3411,7 +3413,7 @@ export interface ExperimentHealthInputsApi {
     flag: ExperimentHealthInputsFlagApi | null
     /** The changes of the flag's split since launch. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
     split_history: ExperimentHealthInputsSplitHistoryApi | null
-    /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant with a share of the split.
+    /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis.
      *
      * * `read` - Read
      * * `not_needed` - Not Needed
