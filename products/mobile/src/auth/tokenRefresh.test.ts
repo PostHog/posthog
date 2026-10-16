@@ -8,7 +8,14 @@ jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 )
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }))
-jest.mock('expo-auth-session', () => ({ AuthRequest: jest.fn(), makeRedirectUri: () => 'posthog://callback' }))
+jest.mock('expo-auth-session', () => ({
+    AuthRequest: jest.fn().mockImplementation(() => ({
+        redirectUri: 'posthog://callback',
+        codeVerifier: 'fake-verifier',
+        promptAsync: async () => ({ type: 'success', params: { code: 'fake-code' } }),
+    })),
+    makeRedirectUri: () => 'posthog://callback',
+}))
 jest.mock('expo-secure-store', () => {
     const items = new Map<string, string>()
     return {
@@ -23,6 +30,7 @@ jest.mock('expo-secure-store', () => {
 })
 
 const HOST = 'https://us.posthog.com'
+const OLD_HOST = 'https://old-instance.example.com'
 
 function json(status: number, body: unknown): Response {
     return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -114,5 +122,76 @@ describe('token refresh through the API client', () => {
 
         expect(useAuthStore.getState()).toMatchObject({ status, signedOutReason: reason })
         expect(getSessionTokens()?.accessToken).toBe(accessToken)
+    })
+
+    test.each([
+        { name: 'API response', held: `${OLD_HOST}/api/users/@me/`, answer: (): Response => json(401, {}) },
+        {
+            name: 'token refresh',
+            held: `${OLD_HOST}/oauth/token`,
+            answer: (): Response =>
+                json(200, { access_token: 'rotated-access', refresh_token: 'rotated-refresh', expires_in: 3600 }),
+        },
+    ])('an old host $name held across signing in elsewhere never gets the new session', async ({ held, answer }) => {
+        const sent: { url: string; credentials: string }[] = []
+        let release: (response: Response) => void = () => undefined
+        let reached: () => void = () => undefined
+        const heldReached = new Promise<void>((resolve) => {
+            reached = resolve
+        })
+        let holding = true
+        fetchMock.mockImplementation(async (url, init) => {
+            sent.push({ url, credentials: `${authorization(init)} ${String(init?.body)}` })
+            if (url === held && holding) {
+                holding = false
+                reached()
+                return new Promise<Response>((resolve) => {
+                    release = resolve
+                })
+            }
+            if (url === `${OLD_HOST}/api/users/@me/`) {
+                return json(401, {})
+            }
+            if (url === `${OLD_HOST}/oauth/revoke`) {
+                return json(200, {})
+            }
+            if (url === `${HOST}/oauth/token`) {
+                return json(200, { access_token: 'next-access', refresh_token: 'next-refresh', expires_in: 3600 })
+            }
+            if (url === `${HOST}/api/users/@me/` && authorization(init) === 'Bearer next-access') {
+                return json(200, {
+                    id: 7,
+                    uuid: 'next-user',
+                    distinct_id: 'next-user',
+                    email: 'next-user@example.com',
+                    first_name: '',
+                    last_name: '',
+                    team: null,
+                    organization: null,
+                    organizations: [],
+                })
+            }
+            throw new Error(`Unexpected request to ${url}`)
+        })
+        useAuthStore.setState({ host: OLD_HOST, clientId: 'old-client', method: 'oauth' })
+
+        const reload = useAuthStore.getState().reloadAccount()
+        await heldReached
+        await useAuthStore.getState().signOut()
+        await useAuthStore.getState().signIn(HOST, 'next-client')
+        release(answer())
+        await reload
+
+        expect(
+            sent.filter(({ url, credentials }) => url.startsWith(OLD_HOST) && credentials.includes('next-'))
+        ).toEqual([])
+        expect(await apiJson('/api/users/@me/')).toMatchObject({ uuid: 'next-user' })
+        expect(useAuthStore.getState()).toMatchObject({
+            status: 'signed_in',
+            host: HOST,
+            user: { uuid: 'next-user' },
+            accountError: null,
+        })
+        expect(getSessionTokens()).toMatchObject({ accessToken: 'next-access', refreshToken: 'next-refresh' })
     })
 })

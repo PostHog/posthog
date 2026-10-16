@@ -37,7 +37,7 @@ describe('usePrefetchReports', () => {
     test('asks once for a Today page the project does not have, not again when the window moves', async () => {
         const paths: string[] = []
         setAuthProvider({
-            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2 }),
+            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2, session: 1 }),
             refreshAccessToken: async () => null,
         })
         globalThis.fetch = jest.fn(async (url: string) => {

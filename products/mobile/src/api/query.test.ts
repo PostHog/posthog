@@ -12,7 +12,7 @@ describe('query api', () => {
         calls.length = 0
         replies = []
         setAuthProvider({
-            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2 }),
+            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2, session: 1 }),
             refreshAccessToken: async () => null,
         })
         globalThis.fetch = jest.fn(async (url: string, init: RequestInit) => {

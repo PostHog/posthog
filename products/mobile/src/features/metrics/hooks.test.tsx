@@ -42,7 +42,7 @@ describe('metric hooks', () => {
         // No garbage collection timer, so Jest can exit once the tests finish.
         client = new QueryClient({ defaultOptions: { queries: { gcTime: Number.POSITIVE_INFINITY } } })
         setAuthProvider({
-            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2 }),
+            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2, session: 1 }),
             refreshAccessToken: async () => null,
         })
         globalThis.fetch = jest.fn(async (_url: string, init: RequestInit) => {

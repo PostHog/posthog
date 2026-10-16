@@ -44,7 +44,7 @@ describe('inbox hooks', () => {
         posted.length = 0
         jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: () => undefined })
         setAuthProvider({
-            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2 }),
+            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2, session: 1 }),
             refreshAccessToken: async () => null,
         })
         // Read posts never answer, so the first one is still in flight when the next report opens.

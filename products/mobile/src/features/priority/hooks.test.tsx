@@ -38,7 +38,7 @@ describe('useSetPriorityAction', () => {
 
     test('posts a priority judgment and resolves once the report carries the new priority', async () => {
         setAuthProvider({
-            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2 }),
+            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2, session: 1 }),
             refreshAccessToken: async () => null,
         })
         let serverPriority = 'P3'

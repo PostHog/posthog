@@ -4,7 +4,7 @@ import { getInsightSummary } from './insights'
 describe('insight summary', () => {
     beforeEach(() =>
         setAuthProvider({
-            getAuth: () => ({ host: 'https://example.com', accessToken: 'token', projectId: 7 }),
+            getAuth: () => ({ host: 'https://example.com', accessToken: 'token', projectId: 7, session: 1 }),
             refreshAccessToken: async () => null,
         })
     )

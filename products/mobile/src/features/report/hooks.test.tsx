@@ -38,7 +38,7 @@ describe('useReport', () => {
         jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: () => undefined })
         useHandoffStore.setState({ reports: {} })
         setAuthProvider({
-            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2 }),
+            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2, session: 1 }),
             refreshAccessToken: async () => null,
         })
         // Refetches never answer, so the screen stays on the cached report while they are in flight.

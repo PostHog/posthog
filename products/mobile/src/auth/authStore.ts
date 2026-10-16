@@ -19,7 +19,15 @@ import {
 import { authorize, OAuthError, refreshTokens, revokeToken } from './oauth'
 import { type RegionId, regionForHost, validateHost } from './regions'
 import { AccountLoadError, accountLoadKind, SignInInputError } from './signInErrors'
-import { clearTokens, getSessionTokens, loadTokens, type SessionTokens, saveTokens, setSessionTokens } from './tokens'
+import {
+    clearTokens,
+    getSessionTokens,
+    loadTokens,
+    type SessionTokens,
+    saveTokens,
+    sessionGeneration,
+    setSessionTokens,
+} from './tokens'
 
 export type { AuthOrganization, AuthProject, AuthUser } from './account'
 
@@ -116,9 +124,15 @@ function accountLoadMessage(error: unknown, method: AuthMethod): string {
     return toError(error).message
 }
 
+/** In-flight work that callers of one session share. A caller from another session starts its own. */
+interface SessionTask<T> {
+    session: number
+    promise: Promise<T>
+}
+
 let restoring: Promise<void> | null = null
-let reloading: Promise<void> | null = null
-let refreshing: Promise<string | null> | null = null
+let reloading: SessionTask<void> | null = null
+let refreshing: SessionTask<string | null> | null = null
 
 export const useAuthStore = create<AuthState>()(
     persist(
@@ -137,11 +151,20 @@ export const useAuthStore = create<AuthState>()(
 
             const completeSignIn = async (tokens: SessionTokens, method: AuthMethod): Promise<void> => {
                 setSessionTokens(tokens)
+                const session = sessionGeneration()
                 let account: Account
                 try {
                     account = await loadAccount()
+                    // A sign out or another sign in replaced these tokens during the load. Saving them now would
+                    // put them under the host of that later session.
+                    if (sessionGeneration() !== session) {
+                        throw new NotSignedInError()
+                    }
                 } catch (error) {
-                    setSessionTokens(null)
+                    // Clear only this attempt's tokens, so a failed attempt does not end a later session.
+                    if (sessionGeneration() === session) {
+                        setSessionTokens(null)
+                    }
                     throw new AccountLoadError(accountLoadKind(error), accountLoadMessage(error, method))
                 }
                 await saveTokens(tokens)
@@ -279,13 +302,21 @@ export const useAuthStore = create<AuthState>()(
                 },
 
                 reloadAccount: () => {
-                    reloading ??= (async () => {
+                    const session = sessionGeneration()
+                    if (reloading?.session === session) {
+                        return reloading.promise
+                    }
+                    const promise = (async (): Promise<void> => {
                         if (get().status === 'signed_out') {
                             return
                         }
                         set({ accountLoading: true })
                         try {
                             const account = await loadAccount()
+                            // The account belongs to the earlier session. The new session loads its own.
+                            if (sessionGeneration() !== session) {
+                                return
+                            }
                             const before = get().projectId
                             applyAccount(account, before)
                             if (before !== null && get().projectId !== before) {
@@ -293,6 +324,10 @@ export const useAuthStore = create<AuthState>()(
                             }
                             set({ accountLoading: false })
                         } catch (error) {
+                            // The failure belongs to the earlier session, so it must not show on the new one.
+                            if (sessionGeneration() !== session) {
+                                return
+                            }
                             if (error instanceof NotSignedInError) {
                                 set({ accountLoading: false })
                                 return
@@ -304,9 +339,12 @@ export const useAuthStore = create<AuthState>()(
                             track('mobile_account_reload_failed', { reason: accountLoadKind(error) })
                         }
                     })().finally(() => {
-                        reloading = null
+                        if (reloading?.promise === promise) {
+                            reloading = null
+                        }
                     })
-                    return reloading
+                    reloading = { session, promise }
+                    return promise
                 },
 
                 signOut: async () => {
@@ -359,6 +397,8 @@ function waitForHydration(): Promise<void> {
 async function endSession(reason: 'user' | 'expired'): Promise<void> {
     // Before the reset, so the event belongs to the user who signed out.
     track('mobile_signed_out', { reason, method: useAuthStore.getState().method })
+    reloading = null
+    refreshing = null
     await clearTokens()
     queryClient.clear()
     resetAnalytics()
@@ -367,6 +407,7 @@ async function endSession(reason: 'user' | 'expired'): Promise<void> {
 }
 
 async function refreshOnce(): Promise<string | null> {
+    const session = sessionGeneration()
     const { status, host, clientId } = useAuthStore.getState()
     const tokens = getSessionTokens()
     // A 401 during sign in means the new credentials are bad. Sign in reports that itself.
@@ -387,27 +428,43 @@ async function refreshOnce(): Promise<string | null> {
             requestedScopes: tokens.requestedScopes,
         })
     } catch (error) {
+        // A rejection from the earlier host says nothing about the current session, so it must not end it.
+        if (sessionGeneration() !== session) {
+            return null
+        }
         if (error instanceof OAuthError && error.kind === 'session_expired') {
             await endSession('expired')
             return null
         }
         throw error
     }
-    if (getSessionTokens() !== tokens) {
-        // The user signed out or in again while the refresh was in flight.
-        return getSessionTokens()?.accessToken ?? null
+    if (sessionGeneration() !== session) {
+        // The user signed out or in again while the refresh was in flight. The caller sends the result to the
+        // earlier host, so it gets no token. The rotated refresh token is valid at that host but stored nowhere,
+        // so revoke it there.
+        if (next.refreshToken) {
+            void revokeToken({ host, clientId, token: next.refreshToken })
+        }
+        return null
     }
     await saveTokens(next)
     return next.accessToken
 }
 
 // Concurrent callers share one request, because each refresh rotates the token and a second request with the old
-// one would race it.
+// one would race it. A caller from a later session never joins, because the earlier refresh returns no token.
 export function refreshAccessToken(): Promise<string | null> {
-    refreshing ??= refreshOnce().finally(() => {
-        refreshing = null
+    const session = sessionGeneration()
+    if (refreshing?.session === session) {
+        return refreshing.promise
+    }
+    const promise = refreshOnce().finally(() => {
+        if (refreshing?.promise === promise) {
+            refreshing = null
+        }
     })
-    return refreshing
+    refreshing = { session, promise }
+    return promise
 }
 
 export function installAuthProvider(): void {
@@ -418,6 +475,7 @@ export function installAuthProvider(): void {
                 host: state.host ?? '',
                 accessToken: getSessionTokens()?.accessToken ?? null,
                 projectId: state.projectId,
+                session: sessionGeneration(),
             }
         },
         refreshAccessToken,

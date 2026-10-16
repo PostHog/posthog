@@ -9,6 +9,8 @@ export interface ApiAuth {
     host: string
     accessToken: string | null
     projectId: number | null
+    /** Changes when the user signs in or out, but not when a refresh rotates the token. */
+    session: number
 }
 
 export interface AuthProvider {
@@ -138,6 +140,10 @@ function noteServerDate(response: Response): void {
     recordServerDate(response.headers?.get?.('Date'))
 }
 
+function isSameSession(a: ApiAuth, b: ApiAuth): boolean {
+    return a.session === b.session && a.host === b.host
+}
+
 async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: string): Promise<Response> {
     const auth = requireAuth()
     const url = apiUrl(path, init.query)
@@ -149,11 +155,21 @@ async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: strin
     let response = await fetcher(url, buildInit(init, sent, accept))
     noteServerDate(response)
     if (response.status === 401 && provider) {
+        // The retry goes to `url`, which belongs to the session that sent the request. If the user signed out or
+        // into another account while the request was in flight, the current token belongs to a different session,
+        // and possibly to a different host. Sending it to `url` would give it to the earlier host.
+        const current = provider.getAuth()
+        if (!isSameSession(auth, current)) {
+            throw new NotSignedInError()
+        }
         // A refresh elsewhere may already have rotated the token this request used. Refreshing
         // again would revoke that newer token and 401 every other in-flight request.
-        const current = provider.getAuth().accessToken
-        const token = current && current !== sent ? current : await provider.refreshAccessToken()
-        if (!token) {
+        const token =
+            current.accessToken && current.accessToken !== sent
+                ? current.accessToken
+                : await provider.refreshAccessToken()
+        // The session can also change while the refresh is in flight.
+        if (!token || !isSameSession(auth, provider.getAuth())) {
             throw new NotSignedInError()
         }
         response = await fetcher(url, buildInit(init, token, accept))

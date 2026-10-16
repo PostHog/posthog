@@ -23,14 +23,28 @@ export interface SessionTokens {
 const STORAGE_KEY = 'posthog_mobile_session'
 
 let current: SessionTokens | null = null
+let generation = 0
 
 export function getSessionTokens(): SessionTokens | null {
     return current
 }
 
-/** Changes the in-memory tokens only. Call `saveTokens` to keep them across launches. */
+/**
+ * Identifies the session that `getSessionTokens` belongs to. It changes on sign in, sign out and restore, but not when
+ * a refresh rotates the tokens. Async work captures it before it awaits and compares after, so that a response from
+ * an earlier session never reads, stores or sends the tokens of a later one.
+ */
+export function sessionGeneration(): number {
+    return generation
+}
+
+/**
+ * Changes the in-memory tokens only and starts a new session generation. Call `saveTokens` to keep them across
+ * launches.
+ */
 export function setSessionTokens(tokens: SessionTokens | null): void {
     current = tokens
+    generation += 1
 }
 
 // expo-secure-store has no web implementation. The web build is a dev and preview target, so it keeps tokens in
@@ -111,9 +125,14 @@ export async function loadTokens(): Promise<SessionTokens | null> {
         parsed = null
     }
     current = toSessionTokens(parsed)
+    generation += 1
     return current
 }
 
+/**
+ * Keeps the generation, because a refresh saves its rotated tokens into the same session. A new session calls
+ * `setSessionTokens` first.
+ */
 export async function saveTokens(tokens: SessionTokens): Promise<void> {
     current = tokens
     await writeItem(STORAGE_KEY, JSON.stringify(tokens))
@@ -121,6 +140,7 @@ export async function saveTokens(tokens: SessionTokens): Promise<void> {
 
 export async function clearTokens(): Promise<void> {
     current = null
+    generation += 1
     try {
         await deleteItem(STORAGE_KEY)
     } catch {
