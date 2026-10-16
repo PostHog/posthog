@@ -95,6 +95,7 @@ export interface nodeDetailSceneLogicValues {
     postHogSubjectError: boolean
     postHogSubjectLoading: boolean
     savedQuery: DataWarehouseSavedQuery | null
+    savedQueryDeleted: boolean
     savedQueryError: boolean
     savedQueryLoading: boolean
     savedQuerySettled: boolean
@@ -135,6 +136,9 @@ export interface nodeDetailSceneLogicActions {
         value: true
     }
     closeLineageModal: () => {
+        value: true
+    }
+    markSavedQueryDeleted: () => {
         value: true
     }
     lineageNodeDragStopped: (
@@ -326,6 +330,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         closeLineageModal: true,
         lineageNodeDragStopped: (nodeId: string, position: XYPosition) => ({ nodeId, position }),
         resetLineageNodePositions: true,
+        markSavedQueryDeleted: true,
     }),
     reducers({
         // What the address bar asks for. Tab links navigate, so nothing else may write this.
@@ -348,6 +353,14 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             {
                 loadSavedQuerySuccess: () => true,
                 loadSavedQueryFailure: () => true,
+            },
+        ],
+        // Another tab or teammate deleted the model while this page was open.
+        savedQueryDeleted: [
+            false,
+            {
+                loadSavedQuery: () => false,
+                markSavedQueryDeleted: () => true,
             },
         ],
         savedQueryError: [
@@ -413,16 +426,24 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             },
         ],
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ actions, props, values }) => ({
         node: {
             __default: null as DataModelingNode | null,
             loadNode: async () => {
                 const lookup = router.values.searchParams.lookup
-                return (await dataModelingNodesRetrieve(
-                    String(values.currentProjectId),
-                    props.id,
-                    isNodeLookup(lookup) ? { lookup } : undefined
-                )) as DataModelingNode
+                try {
+                    return (await dataModelingNodesRetrieve(
+                        String(values.currentProjectId),
+                        props.id,
+                        isNodeLookup(lookup) ? { lookup } : undefined
+                    )) as DataModelingNode
+                } catch (error: any) {
+                    // The scene renders its not-found state for a null node, so a 404 needs no toast.
+                    if (error?.status === 404) {
+                        return null
+                    }
+                    throw error
+                }
             },
             updateNodeDescription: async ({ description }) => {
                 const updated = await api.dataModelingNodes.update(props.id, { description })
@@ -436,7 +457,15 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (!node?.saved_query_id) {
                     return null
                 }
-                return await api.dataWarehouseSavedQueries.get(node.saved_query_id)
+                try {
+                    return await api.dataWarehouseSavedQueries.get(node.saved_query_id)
+                } catch (error: any) {
+                    if (error?.status === 404) {
+                        actions.markSavedQueryDeleted()
+                        return null
+                    }
+                    throw error
+                }
             },
         },
         lineageGraph: {
