@@ -6,7 +6,6 @@ import { LemonBanner, LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
-import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import type { ReplayScannerApi } from '../../generated/api.schemas'
@@ -16,6 +15,7 @@ import { formatCreditsMaybeUsd } from '../../utils/credits'
 import { stoppedByFreeCredits } from '../scannerCopy'
 import { watchPicksLogic } from '../watchPicksLogic'
 import { watchPicksStaleLogic } from '../watchPicksStaleLogic'
+import { WatchPicksStateFrame } from './WatchPicksStateFrame'
 
 const RAISE_FACTOR = 1.5
 const HedgehogAsleep = pngHoggie(asleepPng)
@@ -36,21 +36,20 @@ export function WatchPicksBlockedState({
     const editDisabledReason = getReplayVisionEditDisabledReason()
 
     if (reason === 'all-disabled') {
-        const large = size === 'large'
         return (
-            <div
-                className={cn(
-                    'flex flex-col items-center gap-2 text-center text-secondary',
-                    large ? 'rounded border bg-bg-light p-8 text-sm' : 'p-4 text-xs'
-                )}
-                data-attr="vision-watch-picks-block-disabled"
+            <WatchPicksStateFrame
+                size={size}
+                image={HedgehogAsleep}
+                title="None of your scanners are running"
+                body="Turn one on and picks appear after the next matching recording."
+                dataAttr="vision-watch-picks-block-disabled"
+                footer={
+                    <Link to={urls.replayVision()} className="mt-1" data-attr="vision-watch-picks-block-open">
+                        Open Replay vision
+                    </Link>
+                }
             >
-                <HedgehogAsleep className={large ? 'h-48 w-48' : 'h-24 w-24'} />
-                <span className={cn('font-semibold text-default', large ? 'text-lg' : 'text-sm')}>
-                    None of your scanners are running
-                </span>
-                <span className="max-w-lg">Turn one on and picks appear after the next matching recording.</span>
-                <div className="mt-1 flex w-full max-w-xs flex-col divide-y rounded border bg-bg-light text-left">
+                <div className="flex flex-col divide-y rounded border bg-bg-light text-left">
                     {scanners.map((scanner: ReplayScannerApi) => (
                         <div key={scanner.id} className="flex items-center justify-between gap-2 px-3 py-2">
                             <div className="min-w-0">
@@ -69,10 +68,7 @@ export function WatchPicksBlockedState({
                         </div>
                     ))}
                 </div>
-                <Link to={urls.replayVision()} className="mt-1" data-attr="vision-watch-picks-block-open">
-                    Open Replay vision
-                </Link>
-            </div>
+            </WatchPicksStateFrame>
         )
     }
 
