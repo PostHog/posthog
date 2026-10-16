@@ -1,5 +1,5 @@
 import { IconLogomark } from '@posthog/icons'
-import { Badge, Text } from '@posthog/quill'
+import { Avatar, AvatarFallback, Badge, Text } from '@posthog/quill'
 
 import { WaysToUsePreviewCallout } from './WaysToUsePreviewCallout'
 import { WaysToUsePreviewWindow } from './WaysToUsePreviewWindow'
@@ -10,9 +10,11 @@ export function SlackIllustration(): JSX.Element {
             <WaysToUsePreviewWindow>
                 <div className="flex flex-col gap-2.5 p-3">
                     <div className="flex gap-2">
-                        <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-fill-selected text-xs font-semibold">
-                            S
-                        </span>
+                        <Avatar size="sm" className="shrink-0">
+                            <AvatarFallback className="bg-fill-selected text-xs font-semibold text-foreground">
+                                S
+                            </AvatarFallback>
+                        </Avatar>
                         <div className="flex min-w-0 flex-col">
                             <Text size="xs" weight="semibold">
                                 Sam

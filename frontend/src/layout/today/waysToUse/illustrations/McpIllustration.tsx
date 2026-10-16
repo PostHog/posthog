@@ -13,10 +13,11 @@ export function McpIllustration(): JSX.Element {
                     <span className="size-1.5 rounded-full bg-border" />
                     <span className="size-1.5 rounded-full bg-border" />
                 </div>
-                <div className="flex flex-col p-3">
+                <div className="flex flex-col gap-2 p-3">
                     <div className="self-end rounded-lg bg-fill-selected px-2 py-1">
                         <Text size="xs">Which flags are stale?</Text>
                     </div>
+                    <Text size="xs">3 flags are fully rolled out.</Text>
                 </div>
             </WaysToUsePreviewWindow>
             <WaysToUsePreviewCallout>

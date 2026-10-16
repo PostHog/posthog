@@ -1,4 +1,4 @@
-import { IconSparkles } from '@posthog/icons'
+import { IconArrowRight, IconSparkles } from '@posthog/icons'
 import { Dot, Text } from '@posthog/quill'
 
 import { WaysToUsePreviewCallout } from './WaysToUsePreviewCallout'
@@ -23,9 +23,12 @@ export function WebAppIllustration(): JSX.Element {
                 </div>
             </WaysToUsePreviewWindow>
             <WaysToUsePreviewCallout>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-2">
                     <IconSparkles className="size-3.5 shrink-0 text-muted-foreground" />
                     <Text size="xs">Why did errors double?</Text>
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                        <IconArrowRight className="size-3 -rotate-90" />
+                    </span>
                 </div>
             </WaysToUsePreviewCallout>
         </>
