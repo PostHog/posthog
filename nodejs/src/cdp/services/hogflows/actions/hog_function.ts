@@ -223,12 +223,14 @@ export class HogFunctionHandler implements ActionHandler {
                     billingMetricType: this.hogFlowActionBillingType,
                 })
 
-                // actionStepCount holds across a retry of this step but changes on a loop revisit.
-                this.usageReporter?.reportBillableInvocation({
-                    teamId: invocation.teamId,
-                    usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
-                    recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
-                })
+                if (!hogExecutorOptions?.isTest) {
+                    // actionStepCount holds across a retry of this step but changes on a loop revisit.
+                    this.usageReporter?.reportBillableInvocation({
+                        teamId: invocation.teamId,
+                        usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
+                        recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
+                    })
+                }
             }
 
             // Re-pin the attribution version to the one that actually sent. Live edits reach runs
