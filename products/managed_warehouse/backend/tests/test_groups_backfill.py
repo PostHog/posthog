@@ -153,9 +153,9 @@ def lake(tmp_path: Path) -> Iterator[psycopg.Connection[tuple[object, ...]]]:
     connection.close()
 
 
-@pytest.mark.parametrize("invalid_file", [False, True])
+@pytest.mark.parametrize(("invalid_file", "ignored_marker"), [(False, False), (True, False), (False, True)])
 def test_groups_snapshot_replacement_is_replayable_and_rolls_back_failed_registration(
-    lake: psycopg.Connection[tuple[object, ...]], tmp_path: Path, invalid_file: bool
+    lake: psycopg.Connection[tuple[object, ...]], tmp_path: Path, invalid_file: bool, ignored_marker: bool
 ) -> None:
     table = f"{DUCKLAKE_ALIAS}.posthog.groups_production"
     target = DucklingTarget(team_id=7, organization_id="org", bucket="unused", bucket_region="us-east-1")
@@ -165,10 +165,26 @@ def test_groups_snapshot_replacement_is_replayable_and_rolls_back_failed_registr
         (str(tmp_path / "a.parquet"),),
     )
     ticket = reserve_groups_snapshot(lake, "groups_production")
-    if invalid_file:
-        (tmp_path / "b.parquet").write_bytes(b"invalid parquet")
-        with pytest.raises(duckdb.Error):
-            replace_groups_snapshot(lake, target, "groups_production", str(tmp_path / "*.parquet"), ticket)
+    if invalid_file or ignored_marker:
+        if invalid_file:
+            (tmp_path / "b.parquet").write_bytes(b"invalid parquet")
+        adapter = cast(_LakeConnection, cast(object, lake))
+        execute = adapter.execute
+
+        def execute_registration(
+            query: str | sql.Composable, params: tuple[object, ...] | None = None
+        ) -> _LakeConnection:
+            if (
+                ignored_marker
+                and isinstance(query, sql.Composable)
+                and query.as_string().startswith("COMMENT ON TABLE")
+            ):
+                return adapter
+            return execute(query, params)
+
+        with patch.object(adapter, "execute", side_effect=execute_registration):
+            with pytest.raises(duckdb.Error if invalid_file else ValueError):
+                replace_groups_snapshot(lake, target, "groups_production", str(tmp_path / "*.parquet"), ticket)
         assert lake.execute(f"SELECT team_id, group_key FROM {table} ORDER BY team_id").fetchall() == [
             (7, "old"),
             (8, "other"),
@@ -358,6 +374,25 @@ def test_preview_clears_inherited_snapshot_tag(config: dict[str, bool]) -> None:
         run = instance.get_run_by_id(result.run_id)
         assert run is not None
         assert run.tags[GROUPS_SNAPSHOT_TAG] == "false"
+
+
+@pytest.mark.parametrize("initialized", [False, True])
+def test_reservation_rejects_metadata_writes_that_are_silently_ignored(
+    lake: psycopg.Connection[tuple[object, ...]], initialized: bool
+) -> None:
+    if initialized:
+        reserve_groups_snapshot(lake, "groups_production")
+    adapter = cast(_LakeConnection, cast(object, lake))
+    execute = adapter.execute
+
+    def ignore_comments(query: str | sql.Composable, params: tuple[object, ...] | None = None) -> _LakeConnection:
+        if isinstance(query, sql.Composable) and query.as_string().startswith("COMMENT ON TABLE"):
+            return adapter
+        return execute(query, params)
+
+    with patch.object(adapter, "execute", side_effect=ignore_comments):
+        with pytest.raises(ValueError, match="metadata write was not applied"):
+            reserve_groups_snapshot(lake, "groups_production")
 
 
 def test_older_snapshot_cannot_overwrite_a_newer_snapshot(

@@ -55,6 +55,9 @@ Deduplication follows the table engine: the highest `_timestamp` wins, with equa
 The export does not apply an explicit sort.
 Before exporting, the job reserves a generation in the table comment. Registration commits that generation with the rows, so an older export cannot overwrite a newer snapshot, including an empty one.
 A table reset starts a new generation epoch. The `posthog_groups_backfill:` table comment is reserved for snapshot state; do not edit it manually.
+The job reads each generation-marker write back inside the transaction and fails if the value was not applied.
+A reservation failure stops the job before export; a publication failure rolls back the snapshot replacement.
+If this check fails, verify that the deployed Duckgres version persists `COMMENT ON TABLE` before retrying.
 Output metadata reports `superseded: true` when a newer snapshot or table reset prevents registration.
 `delete_tables` is refused for the legacy shared `groups` table.
 The job shares the events/persons backfill concurrency limit and supports `dry_run` and `skip_ducklake_registration`.
