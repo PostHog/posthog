@@ -9,25 +9,20 @@
  */
 import * as zod from 'zod'
 
-export const billingActivateCreateBodyPlanMax = 100
-
 export const BillingActivateCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingActivateCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    organization_id: zod.uuid().describe('Organization selected when this payment flow started.'),
+    products: zod.string().optional().describe('Product and plan keys to activate.'),
+    intent_product: zod.string().optional().describe('Product that prompted the subscription upgrade.'),
+    custom_limits_usd: zod.string().optional().describe('JSON-encoded custom product limits to apply on activation.'),
 })
-
-export const billingActivateAuthorizeCreateBodyPlanMax = 100
 
 export const BillingActivateAuthorizeCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingActivateAuthorizeCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    organization_id: zod.uuid().describe('Organization selected when this payment flow started.'),
 })
 
-export const billingActivateAuthorizeStatusCreateBodyPlanMax = 100
-
 export const BillingActivateAuthorizeStatusCreateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingActivateAuthorizeStatusCreateBodyPlanMax),
-    billing_limit: zod.number(),
+    organization_id: zod.uuid().describe('Organization selected when this payment flow started.'),
+    payment_intent_id: zod.string().nullish().describe('Stripe payment intent created for this organization.'),
 })
 
 export const billingCouponsClaimCreateBodyPlanMax = 100

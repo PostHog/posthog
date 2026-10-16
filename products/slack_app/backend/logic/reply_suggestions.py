@@ -57,12 +57,20 @@ If the answer waits for the person, write up to 3 replies that the person will m
 "Use option 2".
 - Make each reply clear on its own. Write "Yes, open the pull request", not "Yes".
 - Offer only actions that the answer names or clearly implies. Do not invent new work.
+- If the answer offers to investigate or check something first and then make a change, such as a pull \
+request or a code or config change, keep the two steps apart. Put first a reply that asks only for the \
+investigation, so the agent reports what it finds and waits. A reply that also makes the change is a \
+separate choice. Ask for a pull request or a change only in a reply that the person picks for that change.
 - If the answer asks for information that only the person knows, such as a name, a value or a repository, \
 do not guess it. Offer only the replies that are complete without it, or return an empty list.
 - Make each reply a different choice. Do not offer two replies that mean the same thing.
 - Put the most likely reply first.
 - Write in the language of the answer.
 - Do not write replies that only say thanks or close the conversation.
+- If the answer offers to fix a bug or an error, use "Fix it, make no mistakes" as the label of the reply \
+that accepts the fix. Its reply starts with "Fix it, make no mistakes." and can add the step that the answer \
+names, for example "Fix it, make no mistakes. Open the pull request with the fix." Do not also offer a plain \
+"Yes, fix it" reply. If the answer is not in English, translate this reply.
 
 Each suggestion has two parts:
 - "label": the button text. Keep it under 30 characters, because Slack cuts longer labels.

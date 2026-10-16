@@ -1,37 +1,26 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useRef } from 'react'
 
-import { LemonBanner, LemonButton, LemonTabs, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { JSONViewer } from 'lib/components/JSONViewer'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer/LemonDrawer'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 
-import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
-
-import { buildAiEventSpans, isAiEventSpan } from '../../aiEventSpans'
+import { buildAiEventSpans } from '../../aiEventSpans'
 import type { ErrorScope } from '../../errorCorrelation'
 import { useKeepMountedWhileOpen } from '../../hooks/useKeepMountedWhileOpen'
-import { getQueryText } from '../../spanSummary'
 import type { TraceIdentity } from '../../traceIdentity'
 import { absoluteTraceUrl } from '../../traceLinks'
 import { buildServiceColorMap, formatDuration, TraceWaterfallView } from '../../TraceWaterfallView'
 import type { Span, SpanInspectorTab } from '../../types'
-import { ExpandedSpanContent } from '../VirtualizedSpanList/ExpandedSpanContent'
+import { SpanInspector } from '../SpanInspector/SpanInspector'
 import { MissingParentSpanNotice } from './MissingParentSpanNotice'
-import { SpanLogsTab } from './SpanLogsTab'
-import { SpanMetricsTab } from './SpanMetricsTab'
-import { SpanSummaryHeader } from './SpanSummaryHeader'
 import { TraceAiEventsCapNotice } from './TraceAiEventsCapNotice'
 import { traceAiEventsLogic } from './traceAiEventsLogic'
-import { TraceErrorsTab } from './TraceErrorsTab'
 import { TraceIdentityChips } from './TraceIdentityChips'
 import { TraceLoadErrorNotice } from './TraceLoadErrorNotice'
 import { TraceUnavailableNotice } from './TraceUnavailableNotice'
@@ -130,13 +119,6 @@ export function TraceDrawer({
         persistent: true,
     }
     const { desiredSize: inspectorWidth } = useValues(resizerLogic(inspectorResizerProps))
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    // Metrics correlate to a trace via exemplars, so the tab only exists where the metrics
-    // product does: its own flag, plus the metrics feature and view access.
-    const showMetricsTab =
-        !!featureFlags[FEATURE_FLAGS.TRACING_METRICS_TAB] && !!featureFlags[FEATURE_FLAGS.METRICS] && canViewMetrics()
-
     // Resolve the inspected span outside render churn: a resize drag re-renders this component on
     // every mousemove, and these scans are O(spans) — memoize so they only run when data/selection change.
     const rootSpan = useMemo(() => spans.find((span) => span.is_root_span) ?? spans[0] ?? null, [spans])
@@ -163,19 +145,6 @@ export function TraceDrawer({
     if (!shouldRender) {
         return null
     }
-
-    // Only DB spans carry a query; the Query tab appears only when one is present.
-    const queryText = inspectedSpan ? getQueryText(inspectedSpan) : null
-    // The Query, Errors and Metrics tabs are conditional, so if the active tab disappears (a span
-    // without a query, or one of the gates turning off), fall back to Attributes. Otherwise
-    // activeKey would point at a tab LemonTabs has dropped and the inspector body would render
-    // blank. Preference is preserved: a DB span re-shows Query.
-    const activeInspectorTab: SpanInspectorTab =
-        (inspectorTab === 'query' && !queryText) ||
-        (inspectorTab === 'metrics' && !showMetricsTab) ||
-        (inspectorTab === 'errors' && !showErrorsTab)
-            ? 'attributes'
-            : inspectorTab
 
     return (
         <LemonDrawer
@@ -210,7 +179,7 @@ export function TraceDrawer({
             {traceId && !loading && anyLoadFailed && spans.length === 0 ? (
                 <TraceLoadErrorNotice onRetry={canRetry ? retryFailedLoads : undefined} />
             ) : traceId && !loading && !aiEventsResponseLoading && spans.length === 0 ? (
-                <TraceUnavailableNotice traceId={traceId} filtersActive={filtersActive} />
+                <TraceUnavailableNotice traceId={traceId} filtersActive={filtersActive} surface="drawer" />
             ) : (
                 <div className="relative min-h-32 flex gap-4 items-start">
                     {(loading || (aiEventsResponseLoading && spans.length === 0)) && <SpinnerOverlay />}
@@ -255,97 +224,17 @@ export function TraceDrawer({
                         {missingParentSpanId ? (
                             <MissingParentSpanNotice traceId={traceId ?? ''} parentSpanId={missingParentSpanId} />
                         ) : inspectedSpan ? (
-                            <>
-                                <SpanSummaryHeader span={inspectedSpan} serviceColorMap={serviceColorMap} />
-                                <LemonTabs
-                                    activeKey={activeInspectorTab}
-                                    onChange={onSelectInspectorTab}
-                                    data-attr="tracing-inspector-tabs"
-                                    tabs={[
-                                        {
-                                            key: 'attributes',
-                                            label: 'Attributes',
-                                            // The summary header carries the headline facts, so the tab
-                                            // shows only the user attributes (no duplicate details table).
-                                            content: <ExpandedSpanContent span={inspectedSpan} showDetails={false} />,
-                                        },
-                                        // Conditional (LemonTabs ignores falsy entries): only DB spans have a query.
-                                        queryText
-                                            ? {
-                                                  key: 'query',
-                                                  label: 'Query',
-                                                  content: (
-                                                      <CodeSnippet
-                                                          language={Language.SQL}
-                                                          wrap
-                                                          maxLinesWithoutExpansion={40}
-                                                      >
-                                                          {queryText}
-                                                      </CodeSnippet>
-                                                  ),
-                                              }
-                                            : null,
-                                        {
-                                            key: 'logs',
-                                            label: 'Logs',
-                                            // Keyed by trace, not span: a new trace remounts to reset the scope toggle
-                                            // back to whole-trace, while selecting another span within the same trace
-                                            // re-queries in place (the embedded viewer and memoized pinned filter handle
-                                            // it) so we don't churn its logics or lose scroll.
-                                            content: <SpanLogsTab key={inspectedSpan.trace_id} span={inspectedSpan} />,
-                                        },
-                                        // Conditional on its own flag. The tab is session-scoped, so it
-                                        // stays available on a trace that resolved no session and
-                                        // explains there what is missing.
-                                        showErrorsTab
-                                            ? {
-                                                  key: 'errors',
-                                                  label: 'Errors',
-                                                  content: (
-                                                      <TraceErrorsTab
-                                                          key={inspectedSpan.span_id}
-                                                          traceId={inspectedSpan.trace_id}
-                                                          // A synthetic AI row has no OTel span id, so it scopes to the trace.
-                                                          spanId={
-                                                              isAiEventSpan(inspectedSpan)
-                                                                  ? null
-                                                                  : inspectedSpan.span_id
-                                                          }
-                                                          timestamp={
-                                                              rootSpan?.timestamp ?? inspectedSpan.timestamp ?? ts
-                                                          }
-                                                          sessionId={sessionId}
-                                                          initialScope={errorsScope}
-                                                          resolving={loading}
-                                                      />
-                                                  ),
-                                              }
-                                            : null,
-                                        // Conditional: needs the metrics product (flag + access) and its own flag.
-                                        showMetricsTab
-                                            ? {
-                                                  key: 'metrics',
-                                                  label: 'Metrics',
-                                                  // Keyed by trace like the Logs tab: a new trace remounts to reset
-                                                  // the scope toggle; selecting another span re-renders in place.
-                                                  content: (
-                                                      <SpanMetricsTab
-                                                          key={inspectedSpan.trace_id}
-                                                          span={inspectedSpan}
-                                                      />
-                                                  ),
-                                              }
-                                            : null,
-                                        {
-                                            key: 'raw',
-                                            label: 'Raw',
-                                            // Interactive tree, matching the logs viewer's raw view (LogDetailsModal)
-                                            // for cross-pane consistency. The span as the frontend holds it.
-                                            content: <JSONViewer src={inspectedSpan} collapsed={2} sortKeys />,
-                                        },
-                                    ]}
-                                />
-                            </>
+                            <SpanInspector
+                                span={inspectedSpan}
+                                serviceColorMap={serviceColorMap}
+                                traceTimestamp={rootSpan?.timestamp ?? inspectedSpan.timestamp ?? ts}
+                                sessionId={sessionId}
+                                showErrorsTab={showErrorsTab}
+                                errorsScope={errorsScope}
+                                resolving={loading}
+                                tab={inspectorTab}
+                                onSelectTab={onSelectInspectorTab}
+                            />
                         ) : (
                             <div className="text-muted p-4">No spans in this trace</div>
                         )}

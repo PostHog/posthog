@@ -1,4 +1,12 @@
-import { IconApps, IconChat, IconGridMasonry, IconHome, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
+import {
+    IconApps,
+    IconChat,
+    IconGear,
+    IconGridMasonry,
+    IconHome,
+    IconSidebarClose,
+    IconSidebarOpen,
+} from '@posthog/icons'
 
 import { isMac } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
@@ -28,9 +36,11 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     },
     views: { label: 'Views', title: 'Views', icon: <IconGridMasonry />, action: TodayNewViewButton },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
+    settings: { label: 'Settings', title: 'Settings', icon: <IconGear />, home: () => urls.settings('project') },
 }
 
 export const TODAY_RAIL_PANES: TodayRailPane[] = ['home', 'spaces', 'views', 'products']
+export const TODAY_RAIL_FOOTER_PANES: TodayRailPane[] = ['settings']
 
 export function todaySidebarShortcutLabel(): string {
     return isMac() ? '⌘B' : 'Ctrl+B'

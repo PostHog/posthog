@@ -46,6 +46,26 @@ export const calculateFreeTier = (product: BillingProductV2Type | BillingProduct
 export const canHaveBillingLimit = (product: BillingProductV2Type | BillingProductV2AddonType): boolean =>
     !('no_billing_limit' in product && product.no_billing_limit === true)
 
+// Whether the product card shows its billing limit block.
+export const isBillingLimitShown = (product: BillingProductV2Type, billing: BillingType | null): boolean =>
+    billing?.billing_period?.interval === 'month' &&
+    !!product.subscribed &&
+    !product.inclusion_only &&
+    canHaveBillingLimit(product)
+
+export const isCompanionProduct = (product: BillingProductV2Type): boolean => !!product.companion_of
+
+// After the parent leaves a priced plan, billing keeps the companion on its plan with `subscribed: false`,
+// and it still bills.
+export const isCompanionHeld = (product: BillingProductV2Type): boolean =>
+    !!product.subscribed || !!product.plans?.some((plan) => plan.current_plan)
+
+export const getHeldCompanions = (
+    products: BillingProductV2Type[] | null | undefined,
+    parentType: string
+): BillingProductV2Type[] =>
+    products?.filter((product) => product.companion_of === parentType && isCompanionHeld(product)) ?? []
+
 export const createGaugeItems = (
     product: BillingProductV2Type | BillingProductV2AddonType,
     options: {
@@ -704,7 +724,7 @@ export function buildUsageLimitReachedMessage(
     products: Array<{ type?: string | null; name: string; subscribed: boolean | null }>,
     hasBillingAccess: boolean = true,
     minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin,
-    billingManagedByPartnerNotice: string | null = null
+    selfServeBillingNotice: string | null = null
 ): {
     title: string
     message: string
@@ -723,10 +743,10 @@ export function buildUsageLimitReachedMessage(
     const consequenceText = consequences.join(' and ')
     const title = products.length === 1 ? 'Usage limit reached' : 'Usage limits reached'
 
-    if (billingManagedByPartnerNotice && !allSubscribed) {
+    if (selfServeBillingNotice && !allSubscribed) {
         return {
             title,
-            message: `You have reached the usage limit for ${productListText}. ${capitalizeFirstLetter(consequenceText)}. ${billingManagedByPartnerNotice}`,
+            message: `You have reached the usage limit for ${productListText}. ${capitalizeFirstLetter(consequenceText)}. ${selfServeBillingNotice}`,
         }
     }
 

@@ -24,8 +24,10 @@ from policy import (  # noqa: E402
     PolicyError,
     ScopeBudget,
     _sanitize_folder_prose,
-    default_policy_path,
+    bundled_defaults_dir,
+    load_effective_policy,
     load_policy,
+    merge_policy,
     resolve,
 )
 
@@ -146,6 +148,17 @@ OLD_DENY_PATTERN_DEFS = {
             "^tools/hogli-commands/hogli_commands/product/",
         ]
     },
+    "agent_steering": {
+        "paths": [
+            "^agents\\.md$",
+            "^claude\\.md$",
+            "^\\.github/pull_request_template\\.md$",
+            "^\\.agents/skills/writing-pr-descriptions/",
+            "^\\.claude/settings\\.json$",
+            "^\\.claude/hooks/",
+            "^\\.mcp\\.json$",
+        ]
+    },
     "workflows_delivery": {
         "paths": [
             "^products/cdp/backend/(api|models)/",
@@ -226,7 +239,7 @@ def test_tier_thresholds_unchanged(lines: int, files: int, breadth: str, expecte
 
 
 def _valid_policy_dict() -> dict:
-    return yaml.safe_load(default_policy_path().read_text())
+    return yaml.safe_load((bundled_defaults_dir() / "policy.yml").read_text())
 
 
 def _unknown_top_level_key(d: dict) -> None:
@@ -390,6 +403,59 @@ def test_malformed_policy_hard_fails(tmp_path: Path, mutate) -> None:
     bad.write_text(yaml.safe_dump(data))
     with pytest.raises(PolicyError):
         load_policy(bad, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+
+
+@pytest.mark.parametrize(
+    "overlay, expected",
+    [
+        pytest.param({"a": {"b": [3]}}, {"a": {"b": [3], "c": 1}}, id="declared-list-replaces"),
+        pytest.param({"a": {"extend_b": [2, 3]}}, {"a": {"b": [1, 2, 3], "c": 1}}, id="extend-appends-new-items"),
+        pytest.param({"a": {"c": 2}, "d": {"e": 1}}, {"a": {"b": [1], "c": 2}, "d": {"e": 1}}, id="mappings-merge"),
+        pytest.param({"a": {"b": [3], "extend_b": [4]}}, PolicyError, id="replace-and-extend"),
+        pytest.param({"a": {"extend_c": [4]}}, PolicyError, id="extend-a-non-list"),
+        pytest.param({"a": {"extend_missing": [4]}}, PolicyError, id="extend-a-missing-list"),
+    ],
+)
+def test_merge_policy(overlay: dict, expected: dict | type[Exception]) -> None:
+    default = {"a": {"b": [1], "c": 1}}
+    if isinstance(expected, dict):
+        assert merge_policy(default, overlay) == expected
+        return
+    with pytest.raises(expected):
+        merge_policy(default, overlay)
+
+
+@pytest.mark.parametrize(
+    "overlay, error",
+    [
+        pytest.param(None, None, id="no-repo-file-reviews-under-the-default"),
+        pytest.param({"size_gate": {"max_lines": 500}}, None, id="partial-section"),
+        pytest.param(
+            {"deny": {"stamphog_policy": {"match": {"paths": ["\\.stamphog/"]}}}},
+            "drops the shipped self-governance patterns",
+            id="self-governance-floor",
+        ),
+        pytest.param(
+            {"deny": {"auth": {"exempt_path_prefixes": ["apps/"]}}},
+            "declare deny_exceptions.auth",
+            id="retired-exemption-key",
+        ),
+    ],
+)
+def test_load_effective_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, overlay: dict | None, error: str | None
+) -> None:
+    repo_file = tmp_path / "policy.yml"
+    if overlay is not None:
+        repo_file.write_text(yaml.safe_dump(overlay))
+    monkeypatch.setattr(policy, "repo_policy_path", lambda: repo_file)
+    if error is not None:
+        with pytest.raises(PolicyError, match=error):
+            load_effective_policy(lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+        return
+    loaded = load_effective_policy(lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+    assert set(loaded.deny) == set(_valid_policy_dict()["deny"])
+    assert loaded.size_gate.max_lines == (overlay or {}).get("size_gate", {}).get("max_lines", 800)
 
 
 def test_server_owned_digest_section_is_allowed_and_ignored(tmp_path: Path) -> None:
@@ -879,3 +945,17 @@ def test_review_body_without_familiarity_has_no_familiarity_bullet() -> None:
     body = _body_pipeline(None)._render_review_body()
     assert body is not None
     assert "familiarity" not in body.lower()
+
+
+def test_explicit_repo_root_wins_over_a_nearer_stamphog_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The hosted checkout is the PR head, and the engine sits at tools/pr-approval-agent. A PR that adds
+    # tools/.stamphog/ would become the root of the upward walk and supply its own policy.
+    (tmp_path / ".stamphog").mkdir()
+    (tmp_path / "tools" / ".stamphog").mkdir(parents=True)
+    monkeypatch.setenv("STAMPHOG_REPO_ROOT", str(tmp_path))
+    policy.repo_root.cache_clear()
+    try:
+        assert policy.repo_root() == tmp_path.resolve()
+    finally:
+        monkeypatch.delenv("STAMPHOG_REPO_ROOT")
+        policy.repo_root.cache_clear()

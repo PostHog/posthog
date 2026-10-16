@@ -1,4 +1,5 @@
-import { LemonDropdown } from '@posthog/lemon-ui'
+import { IconX } from '@posthog/icons'
+import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 
@@ -32,6 +33,16 @@ export function BIExpressionPopover({
             placement="bottom-start"
             overlay={
                 <div className="w-120 max-w-[max(60vw,20rem)]">
+                    <div className="flex items-center justify-between border-b px-2 py-1">
+                        <span className="font-semibold">Edit expression</span>
+                        <LemonButton
+                            icon={<IconX />}
+                            size="xsmall"
+                            type="tertiary"
+                            aria-label="Close expression editor"
+                            onClick={onClose}
+                        />
+                    </div>
                     <HogQLEditor
                         value={value}
                         placeholder={placeholder}
