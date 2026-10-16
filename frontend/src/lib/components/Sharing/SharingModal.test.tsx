@@ -1,9 +1,12 @@
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic } from 'kea-test-utils'
 
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
@@ -82,11 +85,20 @@ describe('SharingModal (dashboard)', () => {
     // consumer) can't commit a deferred render after a later file resets the kea store.
     afterEach(() => cleanup())
 
-    function DashboardSharingModalWrapper({ extraProps }: { extraProps?: Partial<SharingModalProps> }): JSX.Element {
-        // Render the dashboard sharing modal with `WHITE_LABELLING` so the UI shows
-        // the branding option in the form.
-        useAvailableFeatures([AvailableFeature.WHITE_LABELLING])
-        initKeaTests()
+    function DashboardSharingModalWrapper({
+        extraProps,
+        licensed = true,
+    }: {
+        extraProps?: Partial<SharingModalProps>
+        licensed?: boolean
+    }): JSX.Element {
+        useAvailableFeatures(licensed ? [AvailableFeature.WHITE_LABELLING] : [])
+        initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
+            ...MOCK_DEFAULT_ORGANIZATION,
+            available_product_features: licensed
+                ? [{ key: AvailableFeature.WHITE_LABELLING, name: 'White labelling' }]
+                : [],
+        })
         themeLogic.mount()
         useMocks({
             get: mockDashboardSharingConfiguration({}),
@@ -103,13 +115,23 @@ describe('SharingModal (dashboard)', () => {
         return <SharingModal {...props} />
     }
 
-    it('renders sharing options when sharing is enabled', async () => {
-        render(<DashboardSharingModalWrapper />)
+    it.each([true, false])('renders sharing options with white labelling available: %s', async (licensed) => {
+        const user = userEvent.setup()
+        render(<DashboardSharingModalWrapper licensed={licensed} />)
 
         expect(screen.getByText('Access control')).toBeInTheDocument()
         expect(await screen.findByText('Shared dashboard appearance')).toBeInTheDocument()
 
-        expect(screen.getByText(/Show branding/i)).toBeInTheDocument()
+        expect(screen.getByRole('radio', { name: 'PostHog branding' })).toBeChecked()
+        expect(screen.getByRole('radio', { name: 'Your organization logo' })).toBeDisabled()
+        if (licensed) {
+            await waitFor(() => expect(screen.getByRole('radio', { name: 'No branding' })).toBeEnabled())
+            expect(screen.queryByRole('button', { name: 'Upgrade to Boost' })).toBeNull()
+        } else {
+            expect(screen.getByRole('radio', { name: 'No branding' })).toBeDisabled()
+            await user.click(screen.getByRole('button', { name: 'Upgrade to Boost' }))
+            expect(upgradeModalLogic.values.upgradeModalFeatureKey).toBe(AvailableFeature.WHITE_LABELLING)
+        }
         expect(screen.getByText('Public sharing')).toBeInTheDocument()
         expect(screen.getByText('Choose how the shared dashboard appears to viewers.')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="sharing-theme-system"]')).toBeInTheDocument()

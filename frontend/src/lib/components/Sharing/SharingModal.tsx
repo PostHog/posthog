@@ -126,7 +126,6 @@ export function SharingModalContent({
         iframeProperties,
         shareLink,
         sharingAllowed,
-        sharingSettings,
     } = useValues(sharingLogic(logicProps))
     const { setIsEnabled, setPasswordRequired, togglePreview, setSharingSettingsValue } = useActions(
         sharingLogic(logicProps)
@@ -341,7 +340,7 @@ export function SharingModalContent({
                                 formKey="sharingSettings"
                                 className="mt-4 deprecated-space-y-2"
                             >
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                <div className="grid grid-cols-2 gap-2">
                                     {insight && (
                                         <LemonField name="noHeader">
                                             {({ value, onChange }) => (
@@ -355,38 +354,43 @@ export function SharingModalContent({
                                             )}
                                         </LemonField>
                                     )}
-                                    <LemonField name="whitelabel">
-                                        {({ value }) => (
-                                            <LemonSwitch
-                                                fullWidth
-                                                bordered
-                                                label={
-                                                    <div className="flex items-center">
-                                                        <span>Show branding</span>
-                                                        {!whitelabelAvailable && (
-                                                            <Tooltip title="This is a premium feature, click to learn more.">
-                                                                <IconLock className="ml-1.5 text-secondary text-lg" />
-                                                            </Tooltip>
-                                                        )}
-                                                    </div>
-                                                }
-                                                onChange={(showBranding: boolean) => {
-                                                    const newWhitelabelValue = !showBranding
-                                                    if (newWhitelabelValue) {
-                                                        guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
-                                                            setSharingSettingsValue('whitelabel', newWhitelabelValue)
-                                                        )
-                                                    } else {
-                                                        setSharingSettingsValue('whitelabel', newWhitelabelValue)
-                                                    }
-                                                }}
-                                                checked={!value}
-                                            />
-                                        )}
-                                    </LemonField>
-
-                                    {dashboardId && whitelabelAvailable && sharingSettings.whitelabel && (
+                                    {dashboardId ? (
                                         <SharingBrandingSettings logicProps={logicProps} />
+                                    ) : (
+                                        <LemonField name="whitelabel">
+                                            {({ value }) => (
+                                                <LemonSwitch
+                                                    fullWidth
+                                                    bordered
+                                                    label={
+                                                        <div className="flex items-center">
+                                                            <span>Show branding</span>
+                                                            {!whitelabelAvailable && (
+                                                                <Tooltip title="This is a premium feature, click to learn more.">
+                                                                    <IconLock className="ml-1.5 text-secondary text-lg" />
+                                                                </Tooltip>
+                                                            )}
+                                                        </div>
+                                                    }
+                                                    onChange={(showBranding: boolean) => {
+                                                        const newWhitelabelValue = !showBranding
+                                                        if (newWhitelabelValue) {
+                                                            guardAvailableFeature(
+                                                                AvailableFeature.WHITE_LABELLING,
+                                                                () =>
+                                                                    setSharingSettingsValue(
+                                                                        'whitelabel',
+                                                                        newWhitelabelValue
+                                                                    )
+                                                            )
+                                                        } else {
+                                                            setSharingSettingsValue('whitelabel', newWhitelabelValue)
+                                                        }
+                                                    }}
+                                                    checked={!value}
+                                                />
+                                            )}
+                                        </LemonField>
                                     )}
 
                                     {isInsightVizNode(insight?.query) &&
