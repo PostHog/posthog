@@ -1,5 +1,5 @@
-//! One attempt to store a flush's blocks. It writes nothing that a retry cannot write again: object names are
-//! unique.
+//! One attempt to store a flush's blocks. It writes nothing that a retry cannot write again: object names are unique,
+//! and the block index rows name their attempt.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -23,7 +23,7 @@ use crate::store::BlobStore;
 use crate::urls::{fetch_jobs, records};
 use crate::write::{
     blocking, new_images, object_key, seal_block, write_block_index, write_blocks, write_images,
-    WriteError,
+    FlushAttempt, WriteError,
 };
 
 /// How long a fetch job may wait for room in the producer queue.
@@ -62,6 +62,7 @@ pub async fn write_flush(
 ) -> Result<(), FlushError> {
     let now = Utc::now();
     let day = key_day(now);
+    let attempt = FlushAttempt::new(now);
     let sessions: Vec<SessionId> = blocks
         .iter()
         .map(|b| SessionId {
@@ -86,10 +87,10 @@ pub async fn write_flush(
             };
             let key = keys.sessions.get(&id)?.clone();
             let team_key = *keys.team_days.get(&block.session.team_id)?;
-            let (block, day) = (block.clone(), day.clone());
+            let (block, object_key, day) = (block.clone(), object_key.clone(), day.clone());
             let stored = writer.stored_images.clone();
             Some(blocking(move || {
-                seal_block(&block, &key, &team_key, &day, &|reference| {
+                seal_block(&block, &key, &team_key, &day, &object_key, &|reference| {
                     stored.contains_key(reference)
                 })
                 .map(|sealed| (index, sealed))
@@ -152,6 +153,7 @@ pub async fn write_flush(
     write_block_index(
         &entries,
         &keys,
+        &attempt,
         &writer.rrweb_bucket,
         writer.store.as_ref(),
         now,
