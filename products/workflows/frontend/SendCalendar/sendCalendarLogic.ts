@@ -365,7 +365,7 @@ export const sendCalendarLogic = kea<sendCalendarLogicType>([
             if (!previous) {
                 return
             }
-            const fields = movedScheduleFields(previous, days)
+            const fields = movedScheduleFields(previous, days, dayjs())
             actions.setScheduleSaving(previous.id, true)
             // Show the move at once, and put the schedule back if the server rejects it.
             actions.scheduleChanged(send.flowId, { ...previous, ...fields, next_run_at: null })
