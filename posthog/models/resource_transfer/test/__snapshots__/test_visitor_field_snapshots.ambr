@@ -736,6 +736,7 @@
     'get_status_display',
     'get_type_display',
     'holdout_id',
+    'hours_since_launch',
     'id',
     'is_draft',
     'is_exposure_frozen',

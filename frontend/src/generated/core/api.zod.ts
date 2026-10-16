@@ -515,6 +515,8 @@ export const NotificationLocksBulkUpdateCreateBody = /* @__PURE__ */ zod.object(
                 user_id: zod.number().describe('Member this rule applies to.'),
                 setting: zod
                     .enum([
+                        'approval_requested',
+                        'approval_resolved',
                         'data_catalog_weekly_digest',
                         'discussions_mentioned',
                         'error_tracking_issue_assigned',
@@ -528,10 +530,10 @@ export const NotificationLocksBulkUpdateCreateBody = /* @__PURE__ */ zod.object(
                         'web_analytics_weekly_digest_project_enabled',
                     ])
                     .describe(
-                        '\* `data_catalog_weekly_digest` - data_catalog_weekly_digest\n\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
+                        '\* `approval_requested` - approval_requested\n\* `approval_resolved` - approval_resolved\n\* `data_catalog_weekly_digest` - data_catalog_weekly_digest\n\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
                     )
                     .describe(
-                        'Notification setting to lock or unlock.\n\n\* `data_catalog_weekly_digest` - data_catalog_weekly_digest\n\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
+                        'Notification setting to lock or unlock.\n\n\* `approval_requested` - approval_requested\n\* `approval_resolved` - approval_resolved\n\* `data_catalog_weekly_digest` - data_catalog_weekly_digest\n\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
                     ),
                 scope_id: zod
                     .string()
@@ -1396,7 +1398,7 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -1487,7 +1489,7 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -1575,7 +1577,7 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -1851,7 +1853,7 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -1942,7 +1944,7 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -2033,7 +2035,7 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -2121,7 +2123,7 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -2209,7 +2211,7 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -2297,7 +2299,7 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 
@@ -2385,7 +2387,7 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization.'
         ),
 })
 

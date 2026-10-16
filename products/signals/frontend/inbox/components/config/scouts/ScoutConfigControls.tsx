@@ -210,7 +210,9 @@ export function ScoutConfigForm({
                 <div className="flex items-center justify-between gap-4">
                     <div className="flex flex-col min-w-0">
                         <span className="text-xs text-default">Run time</span>
-                        <span className="text-[11.5px] text-muted">Uses the project timezone ({projectTimezone})</span>
+                        <span className="text-[11.5px] text-muted">
+                            Uses the project timezone ({projectTimezone}). Starts within 20 minutes of this time.
+                        </span>
                     </div>
                     <LemonInput
                         key={config.run_cron_schedule ?? 'unset'}

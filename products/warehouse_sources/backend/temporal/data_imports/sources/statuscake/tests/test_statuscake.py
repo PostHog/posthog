@@ -6,27 +6,28 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.statuscake import (
+    StatuscakeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuscake.settings import STATUSCAKE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.statuscake.source import StatuscakeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuscake.statuscake import (
     StatusCakeResumeConfig,
     StatusCakeRetryableError,
     _fetch_page,
     _to_unix_timestamp,
-    get_rows,
-    statuscake_source,
     validate_credentials,
 )
 
-_TRANSPORT = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.statuscake.statuscake.make_tracked_session"
-)
 
-
-def _make_manager(resume_state: StatusCakeResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(StatuscakeSource(), StatuscakeSourceConfig(api_key="token"))
 
 
 def _response(body: Any, status_code: int = 200) -> mock.MagicMock:
@@ -37,11 +38,8 @@ def _response(body: Any, status_code: int = 200) -> mock.MagicMock:
     return resp
 
 
-def _session_returning(*bodies: Any) -> mock.MagicMock:
-    """Build a session whose successive .get() calls return the given JSON bodies."""
-    session = mock.MagicMock()
-    session.get.side_effect = [_response(b) for b in bodies]
-    return session
+def _ok(body: Any) -> ScriptedResponse:
+    return ScriptedResponse(json=body)
 
 
 def _list_body(rows: list[dict[str, Any]], page: int, page_count: int) -> dict[str, Any]:
@@ -96,183 +94,155 @@ class TestValidateCredentials:
         "status_code, expected_ok",
         [(200, True), (401, False), (403, False), (500, False)],
     )
-    @mock.patch(_TRANSPORT)
-    def test_status_mapping(self, mock_session, status_code, expected_ok):
+    def test_status_mapping(self, status_code, expected_ok):
         body = _list_body([], 1, 1) if status_code == 200 else {"message": "nope"}
-        mock_session.return_value.get.return_value = _response(body, status_code=status_code)
-        ok, error = validate_credentials("token")
+        with scripted_network(always(ScriptedResponse(status=status_code, json=body))):
+            ok, error = validate_credentials("token")
         assert ok is expected_ok
         if not ok:
             assert error
 
-    @mock.patch(_TRANSPORT)
-    def test_request_exception_is_failure(self, mock_session):
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        ok, error = validate_credentials("token")
+    def test_request_exception_is_failure(self):
+        with scripted_network(always(ConnectionError("boom"))):
+            ok, error = validate_credentials("token")
         assert ok is False
         assert "boom" in (error or "")
 
 
 class TestGetRowsTopLevel:
-    @mock.patch(_TRANSPORT)
-    def test_paginates_until_page_count_exhausted(self, mock_session):
-        mock_session.return_value = _session_returning(
-            _list_body([{"id": "1"}, {"id": "2"}], page=1, page_count=2),
-            _list_body([{"id": "3"}], page=2, page_count=2),
+    def test_paginates_until_page_count_exhausted(self):
+        result = _driver().run(
+            "uptime_tests",
+            [
+                _ok(_list_body([{"id": "1"}, {"id": "2"}], page=1, page_count=2)),
+                _ok(_list_body([{"id": "3"}], page=2, page_count=2)),
+            ],
         )
-        manager = _make_manager()
 
-        batches = list(get_rows("token", "uptime_tests", mock.MagicMock(), manager))
+        assert [row["id"] for row in result.rows] == ["1", "2", "3"]
+        assert [s.page for s in result.saved_states] == [1, 2]
 
-        assert [row["id"] for batch in batches for row in batch] == ["1", "2", "3"]
-        saved = [c.args[0] for c in manager.save_state.call_args_list]
-        assert [s.page for s in saved] == [1, 2]
-
-    @mock.patch(_TRANSPORT)
-    def test_contact_group_ping_url_is_scrubbed(self, mock_session):
+    def test_contact_group_ping_url_is_scrubbed(self):
         # The /contact-groups `ping_url` is a callback invoked on alert and can embed a webhook
         # secret. It must never reach the warehouse, where any project user could read it back.
-        mock_session.return_value = _session_returning(
-            {"data": [{"id": "c1", "name": "ops", "ping_url": "https://hooks.example.com/?token=secret"}]}
+        result = _driver().run(
+            "contact_groups",
+            [_ok({"data": [{"id": "c1", "name": "ops", "ping_url": "https://hooks.example.com/?token=secret"}]})],
         )
-        manager = _make_manager()
 
-        batches = list(get_rows("token", "contact_groups", mock.MagicMock(), manager))
-        rows = [row for batch in batches for row in batch]
+        assert result.rows == [{"id": "c1", "name": "ops"}]
 
-        assert rows == [{"id": "c1", "name": "ops"}]
-
-    @mock.patch(_TRANSPORT)
-    def test_resumes_from_saved_page(self, mock_session):
-        mock_session.return_value = _session_returning(
-            _list_body([{"id": "9"}], page=3, page_count=3),
+    def test_resumes_from_saved_page(self):
+        result = _driver().run(
+            "uptime_tests",
+            [_ok(_list_body([{"id": "9"}], page=3, page_count=3))],
+            resume_state=StatusCakeResumeConfig(page=3),
         )
-        manager = _make_manager(StatusCakeResumeConfig(page=3))
 
-        list(get_rows("token", "uptime_tests", mock.MagicMock(), manager))
-
-        first_url = mock_session.return_value.get.call_args_list[0].args[0]
-        assert "page=3" in first_url
+        assert result.requests[0].param("page") == "3"
 
 
 class TestGetRowsFanOut:
-    @mock.patch(_TRANSPORT)
-    def test_fans_out_over_tests_and_injects_test_id(self, mock_session):
-        mock_session.return_value = _session_returning(
-            _list_body([{"id": "t1"}, {"id": "t2"}], page=1, page_count=1),
-            _history_body([{"created_at": "2026-01-02T00:00:00Z", "status_code": 200, "location": "UK"}]),
-            _history_body([{"created_at": "2026-01-03T00:00:00Z", "status_code": 200, "location": "US"}]),
+    def test_fans_out_over_tests_and_injects_test_id(self):
+        result = _driver().run(
+            "uptime_history",
+            [
+                _ok(_list_body([{"id": "t1"}, {"id": "t2"}], page=1, page_count=1)),
+                _ok(_history_body([{"created_at": "2026-01-02T00:00:00Z", "status_code": 200, "location": "UK"}])),
+                _ok(_history_body([{"created_at": "2026-01-03T00:00:00Z", "status_code": 200, "location": "US"}])),
+            ],
         )
-        manager = _make_manager()
 
-        batches = list(get_rows("token", "uptime_history", mock.MagicMock(), manager))
-        rows = [row for batch in batches for row in batch]
-
-        assert [row["test_id"] for row in rows] == ["t1", "t2"]
+        assert [row["test_id"] for row in result.rows] == ["t1", "t2"]
         # The bookmark advances to the next test between fan-out iterations.
-        saved = [c.args[0] for c in manager.save_state.call_args_list]
-        assert [(s.test_id, s.next_url) for s in saved] == [("t2", None)]
+        assert [(s.test_id, s.next_url) for s in result.saved_states] == [("t2", None)]
 
-    @mock.patch(_TRANSPORT)
-    def test_follows_next_links_and_saves_resume_url(self, mock_session):
+    def test_follows_next_links_and_saves_resume_url(self):
         next_url = "https://api.statuscake.com/v1/uptime/t1/history?before=123&limit=100"
-        mock_session.return_value = _session_returning(
-            _list_body([{"id": "t1"}], page=1, page_count=1),
-            _history_body([{"created_at": "2026-01-02T00:00:00Z", "location": "UK"}], next_url=next_url),
-            _history_body([{"created_at": "2026-01-01T00:00:00Z", "location": "UK"}]),
+        result = _driver().run(
+            "uptime_history",
+            [
+                _ok(_list_body([{"id": "t1"}], page=1, page_count=1)),
+                _ok(_history_body([{"created_at": "2026-01-02T00:00:00Z", "location": "UK"}], next_url=next_url)),
+                _ok(_history_body([{"created_at": "2026-01-01T00:00:00Z", "location": "UK"}])),
+            ],
         )
-        manager = _make_manager()
 
-        list(get_rows("token", "uptime_history", mock.MagicMock(), manager))
+        assert result.urls[2] == next_url
+        assert (result.saved_states[0].test_id, result.saved_states[0].next_url) == ("t1", next_url)
 
-        assert mock_session.return_value.get.call_args_list[2].args[0] == next_url
-        saved = [c.args[0] for c in manager.save_state.call_args_list]
-        assert (saved[0].test_id, saved[0].next_url) == ("t1", next_url)
-
-    @mock.patch(_TRANSPORT)
-    def test_off_origin_next_link_is_never_fetched_or_persisted(self, mock_session):
+    def test_off_origin_next_link_is_never_fetched_or_persisted(self):
         # The session's default headers carry the account token: a tampered response pointing
         # links.next off-origin must not receive a request (or be saved as resume state).
         hostile = "https://evil.example.com/v1/uptime/t1/history?before=123"
-        mock_session.return_value = _session_returning(
-            _list_body([{"id": "t1"}], page=1, page_count=1),
-            _history_body([{"created_at": "2026-01-02T00:00:00Z", "location": "UK"}], next_url=hostile),
+        result = _driver().run(
+            "uptime_history",
+            [
+                _ok(_list_body([{"id": "t1"}], page=1, page_count=1)),
+                _ok(_history_body([{"created_at": "2026-01-02T00:00:00Z", "location": "UK"}], next_url=hostile)),
+            ],
         )
-        manager = _make_manager()
 
-        list(get_rows("token", "uptime_history", mock.MagicMock(), manager))
+        assert hostile not in result.urls
+        assert all("evil.example.com" not in url for url in result.urls)
+        assert all(state.next_url != hostile for state in result.saved_states)
 
-        fetched = [c.args[0] for c in mock_session.return_value.get.call_args_list]
-        assert hostile not in fetched
-        assert all(c.args[0].next_url != hostile for c in manager.save_state.call_args_list)
-
-    @mock.patch(_TRANSPORT)
-    def test_off_origin_resume_url_restarts_test_from_first_page(self, mock_session):
+    def test_off_origin_resume_url_restarts_test_from_first_page(self):
         hostile = "https://evil.example.com/v1/uptime/t1/history?before=456"
-        mock_session.return_value = _session_returning(
-            _list_body([{"id": "t1"}], page=1, page_count=1),
-            _history_body([{"created_at": "2026-01-01T00:00:00Z", "location": "UK"}]),
+        result = _driver().run(
+            "uptime_history",
+            [
+                _ok(_list_body([{"id": "t1"}], page=1, page_count=1)),
+                _ok(_history_body([{"created_at": "2026-01-01T00:00:00Z", "location": "UK"}])),
+            ],
+            resume_state=StatusCakeResumeConfig(test_id="t1", next_url=hostile),
         )
-        manager = _make_manager(StatusCakeResumeConfig(test_id="t1", next_url=hostile))
 
-        list(get_rows("token", "uptime_history", mock.MagicMock(), manager))
-
-        history_urls = [c.args[0] for c in mock_session.return_value.get.call_args_list if "/history" in c.args[0]]
+        history_urls = [url for url in result.urls if "/history" in url]
         assert history_urls == ["https://api.statuscake.com/v1/uptime/t1/history?limit=100"]
 
-    @mock.patch(_TRANSPORT)
-    def test_deleted_test_404_is_skipped(self, mock_session):
-        not_found = _response({"message": "not found"}, status_code=404)
-        not_found.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=not_found)
-        session = mock.MagicMock()
-        session.get.side_effect = [
-            _response(_list_body([{"id": "t1"}, {"id": "t2"}], page=1, page_count=1)),
-            not_found,
-            _response(_history_body([{"created_at": "2026-01-01T00:00:00Z", "location": "UK"}])),
-        ]
-        mock_session.return_value = session
-        manager = _make_manager()
+    def test_deleted_test_404_is_skipped(self):
+        result = _driver().run(
+            "uptime_history",
+            [
+                _ok(_list_body([{"id": "t1"}, {"id": "t2"}], page=1, page_count=1)),
+                ScriptedResponse(status=404, json={"message": "not found"}),
+                _ok(_history_body([{"created_at": "2026-01-01T00:00:00Z", "location": "UK"}])),
+            ],
+        )
 
-        batches = list(get_rows("token", "uptime_history", mock.MagicMock(), manager))
-        rows = [row for batch in batches for row in batch]
-
-        assert [row["test_id"] for row in rows] == ["t2"]
+        assert [row["test_id"] for row in result.rows] == ["t2"]
 
 
 class TestIncremental:
-    @mock.patch(_TRANSPORT)
-    def test_pagination_stops_once_page_predates_watermark(self, mock_session):
+    def test_pagination_stops_once_page_predates_watermark(self):
         # Guards the incremental-cost regression: if the API ignores `after` (or drops it from the
         # links.next cursor), we must stop client-side instead of re-walking the full history.
-        mock_session.return_value = _session_returning(
-            _list_body([{"id": "t1"}], page=1, page_count=1),
-            _history_body(
-                [{"created_at": "2025-12-31T00:00:00Z", "location": "UK"}],
-                next_url="https://api.statuscake.com/v1/uptime/t1/history?before=1",
-            ),
-        )
-        manager = _make_manager()
-
-        list(
-            get_rows(
-                "token",
-                "uptime_history",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            )
+        result = _driver().run(
+            "uptime_history",
+            [
+                _ok(_list_body([{"id": "t1"}], page=1, page_count=1)),
+                _ok(
+                    _history_body(
+                        [{"created_at": "2025-12-31T00:00:00Z", "location": "UK"}],
+                        next_url="https://api.statuscake.com/v1/uptime/t1/history?before=1",
+                    )
+                ),
+            ],
+            incremental_field="created_at",
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
         # The next link is never followed: 1 parent-list call + 1 history call.
-        assert mock_session.return_value.get.call_count == 2
+        assert len(result.requests) == 2
 
 
 class TestStatuscakeSourceResponse:
     @pytest.mark.parametrize("endpoint", list(STATUSCAKE_ENDPOINTS.keys()))
     def test_source_response_shape(self, endpoint):
         config = STATUSCAKE_ENDPOINTS[endpoint]
-        response = statuscake_source("token", endpoint, mock.MagicMock(), _make_manager())
+        response = _driver().run(endpoint, []).response
+        assert response is not None
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_key

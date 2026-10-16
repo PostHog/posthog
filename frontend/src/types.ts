@@ -47,6 +47,7 @@ import type {
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
+    AnalyticsQueryResponseBase,
     CoreEvent,
     CurrencyCode,
     CustomerAnalyticsConfig,
@@ -81,7 +82,6 @@ import type {
     RevenueAnalyticsConfig,
     SharingConfigurationSettings,
     TileFilters,
-    UserProductListItem,
     UserUIConfiguration,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -101,10 +101,7 @@ import type {
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
-import type {
-    ExperimentFeatureFlagInputApi,
-    ExperimentHealthApi,
-} from 'products/experiments/frontend/generated/api.schemas'
+import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -489,12 +486,15 @@ export interface NotificationSettings {
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
     ai_evaluation_disabled?: boolean
+    workflow_suggestions?: boolean
     materialized_view_sync_failed?: boolean
     materialized_view_sync_failed_daily?: boolean
     materialized_view_sync_failed_immediate?: boolean
     web_analytics_weekly_digest: boolean
     web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
     data_catalog_weekly_digest?: boolean
+    approval_requested?: boolean
+    approval_resolved?: boolean
     organization_member_join_email_disabled?: Record<string, boolean>
     realtime_notifications_disabled?: Record<string, Record<string, boolean>>
     pipeline_notifications_disabled?: Record<string, boolean>
@@ -945,6 +945,9 @@ export interface WorkflowsConfig {
     workflow_task_rate_limit_per_day?: number | null
     workflow_task_team_rate_limit_per_day?: number | null
     default_email_integration_id?: number | null
+    // Null on either disables the marketing frequency cap.
+    marketing_frequency_cap_max_messages?: number | null
+    marketing_frequency_cap_window_days?: number | null
 }
 
 export interface FeatureFlagPolicyConfig {
@@ -1755,8 +1758,6 @@ export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
     funnel_to_step: number
 }
 
-export type EntityFilterTypes = EntityFilter | ActionFilter | null
-
 export interface PersonType {
     id?: string
     uuid?: string
@@ -2416,6 +2417,8 @@ export interface BillingProductV2Type {
     legacy_product?: boolean | null
     // Billing refuses a customer billing limit for this product and returns no limit for it.
     no_billing_limit?: boolean
+    // Set on a companion product: the type of the product whose card it is billed under.
+    companion_of?: string | null
 }
 
 export interface BillingProductV2AddonType {
@@ -2688,8 +2691,12 @@ export interface InsightModel<R extends Node<Record<string, any>> = Node<Record<
     created_at: string
     created_by: UserBasicType | null
     is_sample: boolean
-    /** @deprecated Use `dashboard_tiles` instead */
-    dashboards: number[] | null
+    /**
+     * @deprecated Write-only. Session responses omit it, so read membership with
+     * `liveDashboardIds(insight.dashboard_tiles)`. Send it to place a new insight on dashboards, or to
+     * replace a saved insight's whole membership.
+     */
+    dashboards?: number[]
     dashboard_tiles: DashboardTileBasicType[] | null
     updated_at: string
     tags?: string[]
@@ -2707,6 +2714,7 @@ export interface InsightModel<R extends Node<Record<string, any>> = Node<Record<
     query: R | null
     query_status?: QueryStatus
     query_scan?: QueryScanSummary
+    warnings?: AnalyticsQueryResponseBase['warnings'] | null
     is_cached?: boolean
     filter_override_context?: InsightFilterOverrideContextApi | null
     resolved_date_range?: ResolvedDateRangeResponse | null
@@ -3670,7 +3678,6 @@ export interface FunnelConversionWindow {
     funnelWindowInterval?: number
 }
 
-// https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
 export enum FunnelConversionWindowTimeUnit {
     Second = 'second',
     Minute = 'minute',
@@ -3775,6 +3782,8 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     dashboardId?: DashboardType['id']
     /** cached insight */
     cachedInsight?: Partial<InsightModel> | null
+    /** Reuse recent completed responses when this embedded insight remounts. */
+    retainResponseOnUnmount?: boolean
     /** enable this to avoid API requests */
     doNotLoad?: boolean
     loadPriority?: number
@@ -4244,6 +4253,9 @@ export interface Survey extends WithAccessControl {
             thankYouMessageHeader?: string
             thankYouMessageDescription?: string
             thankYouMessageCloseButtonText?: string
+            introScreenHeader?: string
+            introScreenDescription?: string
+            introScreenButtonText?: string
             submitButtonText?: string
             backButtonText?: string
         }
@@ -4310,6 +4322,12 @@ export interface SurveyAppearance {
     borderColor?: string
     placeholder?: string
     whiteLabel?: boolean
+    // Not a question: dismissing the intro records no response and never counts toward completion metrics.
+    displayIntroScreen?: boolean
+    introScreenHeader?: string
+    introScreenDescription?: string
+    introScreenDescriptionContentType?: SurveyQuestionDescriptionContentType
+    introScreenButtonText?: string
     displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
@@ -5204,8 +5222,6 @@ export interface Experiment {
     is_legacy?: boolean
     /** Server-computed: the event exposures are counted on when no custom exposure event is configured — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolve display and filters through `experimentLogic`'s `resolvedExposureEvent` rather than reading this directly, so locally-constructed experiments still get a value. */
     resolved_exposure_event?: string
-    /** Server-computed health check findings. Null for people without the health findings flag, absent on locally-constructed experiments. */
-    health?: ExperimentHealthApi | null
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null
@@ -5359,7 +5375,6 @@ export interface AppContext {
     frontend_apps?: Record<number, FrontendAppConfig>
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
-    custom_products: UserProductListItem[]
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
@@ -6118,6 +6133,7 @@ export interface AccessControlDefaultsResponse {
     available_project_levels: AccessControlLevel[]
     available_resource_levels: AccessControlLevel[]
     can_edit: boolean
+    is_managed_by_terraform: boolean
     project_access_level: AccessControlLevel
     resource_access_levels: Record<string, EffectiveAccessControlEntry>
     /** Resources supporting object-level rules, derived server-side from viewset registration,
@@ -6240,6 +6256,8 @@ export enum ActivityScope {
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
+    KNOWLEDGE_SOURCE = 'KnowledgeSource',
+    KNOWLEDGE_LIBRARY = 'KnowledgeLibrary',
     INSTANCE_SETTING = 'InstanceSetting',
     SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
     SIGNAL_TEAM_CONFIG = 'SignalTeamConfig',
@@ -6317,10 +6335,6 @@ export interface DataModelingNode {
     name: string
     type: DataModelingNodeType
     description?: string
-    /** UUID of the DAG this node belongs to */
-    dag: string
-    /** Human-readable DAG name */
-    dag_name?: string
     saved_query_id?: string
     /** UUID of the data catalog metric a metric node stands for */
     metric_id?: string | null
@@ -6346,10 +6360,6 @@ export interface DataModelingEdge {
     id: string
     source_id: string
     target_id: string
-    /** UUID of the DAG this edge belongs to */
-    dag: string
-    /** Human-readable DAG name */
-    dag_name?: string
     properties: Record<string, unknown>
     created_at: string
     updated_at: string
@@ -7629,6 +7639,7 @@ export type CyclotronJobInvocationGlobals = {
         url: string
     }
     source?: {
+        id?: string
         name: string
         url: string
     }
@@ -7952,9 +7963,9 @@ export interface ProductManifest {
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
     /**
-     * Boot-time setup-status probe for this product's empty state. Aggregated across
+     * Setup-status probe for this product's empty state. Aggregated across
      * manifests into `productSetupProbes` and answered by one property-definition
-     * request at app boot (see `productSetupPreloadLogic`).
+     * request after login (see `productSetupPreloadLogic`).
      */
     setupProbe?: ProductSetupProbe
 }
@@ -8143,7 +8154,6 @@ export enum OnboardingStepKey {
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
     PATH_CLEANING = 'path_cleaning',
-    AI_REPORTS = 'ai_reports',
 }
 
 // Managed viewset

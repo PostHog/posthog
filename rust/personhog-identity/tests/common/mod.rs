@@ -200,6 +200,13 @@ impl TestContext {
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
         sqlx::query(&format!(
             "DELETE FROM {} WHERE team_id = $1",
+            self.tables.person_publish_outbox
+        ))
+        .bind(self.team_id as i32)
+        .execute(&self.pool)
+        .await?;
+        sqlx::query(&format!(
+            "DELETE FROM {} WHERE team_id = $1",
             self.tables.lifecycle_op
         ))
         .bind(self.team_id as i32)
@@ -227,6 +234,17 @@ impl TestContext {
 /// leader: an accidental call surfaces as a clean unimplemented error
 /// instead of a hang or a panic mid-transaction.
 pub struct UnusedLeader;
+
+#[async_trait::async_trait]
+impl personhog_identity::leader::PersonStateReader for UnusedLeader {
+    async fn is_identified(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+    ) -> Result<Option<bool>, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+}
 
 #[async_trait::async_trait]
 impl personhog_identity::leader::PropertyWriter for UnusedLeader {

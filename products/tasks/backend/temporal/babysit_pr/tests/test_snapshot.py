@@ -132,3 +132,22 @@ class TestAttentionSetCapping(SimpleTestCase):
         assert [c.id for c in capped.comments] == ["M2", "M3", "M4"]
         assert capped.failing_checks == [CHECK]
         assert capped.conflict is True
+
+
+class TestPRSnapshotFromRaw(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("command_only", "@posthog stamp", None),
+            ("indented_command", "   @posthog stamp", None),
+            ("dispatcher_reply", "<!-- posthog-github-command:42 -->\n@octocat Stamphog is reviewing.", None),
+            ("feedback_with_a_command", "Please rename `x`.\n@posthog review --deep", "Please rename `x`."),
+            ("another_account", "@posthog-bot please rebase", "@posthog-bot please rebase"),
+        ]
+    )
+    def test_dispatcher_commands_and_replies_never_reach_the_loop(self, _name, body, expected_excerpt):
+        # The dispatcher already runs these, so a loop that also acts on `@posthog stamp` runs it twice.
+        snapshot = PRSnapshot.from_raw({"comments": [{"id": "M1", "author": "octocat", "body": body}]}, "pr-url")
+
+        assert [comment.body_excerpt for comment in snapshot.comments] == (
+            [] if expected_excerpt is None else [expected_excerpt]
+        )

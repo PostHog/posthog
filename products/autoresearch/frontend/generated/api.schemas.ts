@@ -143,6 +143,13 @@ export interface AutoresearchLiveTrainingRunApi {
     readonly best_holdout_score: number | null
     /** The agent's rationale for its newest experiment. */
     readonly latest_agent_description: string
+    /**
+     * Plain-language sentence on the newest experiment, for people. Null if the agent wrote none.
+     * @nullable
+     */
+    readonly latest_summary: string | null
+    /** Best-so-far holdout AUC per experiment of this run, oldest first. Experiments before the first holdout score are left out. */
+    readonly trend: readonly AutoresearchTrainingTrendPointApi[]
 }
 
 /**
@@ -234,6 +241,8 @@ export interface AutoresearchPipelineApi {
      * @maxLength 255
      */
     output_person_property?: string
+    /** Whether live scoring writes the champion's score to output_person_property on each scored person. Feature flags, cohorts, workflows and insights that target people by score need it on. */
+    readonly write_person_property: boolean
     /** Pipeline lifecycle status: draft, bootstrapping, running, converged, paused, or archived.
      *
      * * `draft` - Draft
@@ -401,6 +410,8 @@ export interface AutoresearchPipelineCreateApi {
      * @maxLength 255
      */
     output_person_property?: string
+    /** Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored. */
+    write_person_property?: boolean
 }
 
 /**
@@ -558,6 +569,7 @@ export interface PaginatedAutoresearchModelListApi {
 /**
  * * `inference` - Inference
  * * `validation` - Validation
+ * * `property_cleanup` - Property cleanup
  */
 export type AutoresearchRunRunTypeEnumApi =
     (typeof AutoresearchRunRunTypeEnumApi)[keyof typeof AutoresearchRunRunTypeEnumApi]
@@ -565,6 +577,7 @@ export type AutoresearchRunRunTypeEnumApi =
 export const AutoresearchRunRunTypeEnumApi = {
     Inference: 'inference',
     Validation: 'validation',
+    PropertyCleanup: 'property_cleanup',
 } as const
 
 /**
@@ -601,7 +614,8 @@ export interface AutoresearchRunApi {
     /** Type of run: 'inference' (daily scoring) or 'validation' (outcome evaluation).
      *
      * * `inference` - Inference
-     * * `validation` - Validation */
+     * * `validation` - Validation
+     * * `property_cleanup` - Property cleanup */
     run_type: AutoresearchRunRunTypeEnumApi
     /** Run status: pending, running, completed, or failed.
      *
@@ -891,6 +905,16 @@ export interface IterationTrailApi {
     train_score?: number | null
     /** The agent's one-line rationale for what it tried and why. */
     agent_description?: string
+    /**
+     * Plain-language sentence on what this experiment tried and what happened, for people. Null if not written.
+     * @nullable
+     */
+    readonly summary: string | null
+    /**
+     * Short title for this experiment, for people. Null if not written.
+     * @nullable
+     */
+    readonly headline: string | null
     /** Model class and hyperparameters tried in this iteration. */
     model_spec: IterationTrailApiModelSpec
 }
@@ -937,6 +961,21 @@ export interface AutoresearchTrainingRunApi {
     readonly best_holdout_score: number | null
     /** Distilled cross-run learning summary written on completion. Null until the run completes. */
     readonly summary: TrainingRunSummaryApi | null
+    /**
+     * One or two plain sentences on what this run learned, for people. Null if not written.
+     * @nullable
+     */
+    readonly reader_summary: string | null
+    /**
+     * Short title for this run, for people. Null if not written.
+     * @nullable
+     */
+    readonly headline: string | null
+    /**
+     * Short plain-language next steps for people, at most 5. Null if not written.
+     * @nullable
+     */
+    readonly next_steps: readonly string[] | null
     /** Per-iteration breakdown — every recipe the agent tried this run, kept or discarded, with its model spec, holdout/train AUC, and one-line rationale. Ordered by iteration_number. */
     readonly iterations: readonly IterationTrailApi[]
     /** Error message if the run failed. */
@@ -1066,6 +1105,24 @@ export interface CompleteTrainingRunApi {
      * @maxLength 2000
      */
     distillation?: string
+    /**
+     * One or two plain sentences for people on what this run learned. Max 600 characters.
+     * @maxLength 600
+     * @nullable
+     */
+    reader_summary?: string | null
+    /**
+     * A short title for people, at most 60 characters, on what this run learned. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.
+     * @nullable
+     */
+    headline?: string | null
+    /**
+     * Short next steps for people, at most 5 items of a few words each (max 80 characters per item).
+     * @maxItems 5
+     * @nullable
+     * @items.maxLength 80
+     */
+    next_steps?: string[] | null
     /** Short id of the report notebook you built for this run. Stored in the run summary only if the notebook exists in this project; an unknown id is dropped and does not fail the completion. */
     report_notebook_short_id?: string
 }
@@ -1158,6 +1215,17 @@ export interface RecordIterationApi {
      */
     agent_description?: string
     /**
+     * One plain sentence for people on what this experiment tried and what happened. Max 300 characters.
+     * @maxLength 300
+     * @nullable
+     */
+    summary?: string | null
+    /**
+     * A short title for people, at most 60 characters, on what this experiment tried. Use plain words, with no column names, SQL or model jargon. Longer text is cut, not rejected.
+     * @nullable
+     */
+    headline?: string | null
+    /**
      * Agent's self-assessed confidence (0-1) that this iteration helps.
      * @minimum 0
      * @maximum 1
@@ -1226,6 +1294,16 @@ export interface AutoresearchIterationApi {
     holdout_score?: number | null
     status: AutoresearchIterationStatusEnumApi
     agent_description?: string
+    /**
+     * Plain-language sentence on what this experiment tried and what happened, for people.
+     * @nullable
+     */
+    summary?: string | null
+    /**
+     * Short title for this experiment, for people.
+     * @nullable
+     */
+    headline?: string | null
     /**
      * Agent's self-assessed confidence 0–1
      * @nullable
@@ -1337,6 +1415,16 @@ export interface IterationTrailWithRecipeApi {
     train_score?: number | null
     /** The agent's one-line rationale for what it tried and why. */
     agent_description?: string
+    /**
+     * Plain-language sentence on what this experiment tried and what happened, for people. Null if not written.
+     * @nullable
+     */
+    readonly summary: string | null
+    /**
+     * Short title for this experiment, for people. Null if not written.
+     * @nullable
+     */
+    readonly headline: string | null
     /** Model class and hyperparameters tried in this iteration. */
     model_spec: IterationTrailWithRecipeApiModelSpec
     /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
@@ -1470,6 +1558,8 @@ export interface PatchedAutoresearchPipelineCreateApi {
      * @maxLength 255
      */
     output_person_property?: string
+    /** Write the champion's score to output_person_property on each scored person at every live scoring run. Default: false. Needed to target people by score in feature flags, cohorts, workflows and insights. Prediction events, validation and segments work without it. Turning it off, or archiving or deleting the pipeline while it is on, removes the property from the people it scored. */
+    write_person_property?: boolean
 }
 
 export interface ConfusionCountsApi {
@@ -1603,20 +1693,39 @@ export interface OnlinePerformanceRowApi {
     validated_at: string | null
 }
 
+/**
+ * * `realized` - Realized
+ * * `training` - Training
+ * * `fixed` - Fixed
+ */
+export type BaseRateSourceEnumApi = (typeof BaseRateSourceEnumApi)[keyof typeof BaseRateSourceEnumApi]
+
+export const BaseRateSourceEnumApi = {
+    Realized: 'realized',
+    Training: 'training',
+    Fixed: 'fixed',
+} as const
+
 export interface PredictionSegmentThresholdsApi {
-    /** Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null. */
+    /** Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate_source is fixed. */
     likely_threshold: number
-    /** Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null. */
+    /** Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate_source is fixed. */
     possible_threshold: number
     /** How many times the base rate a score must reach to be in the Likely segment. */
     likely_lift: number
     /**
-     * Fraction of the champion's scored users who did the target event, pooled over the newest checked dates. Null, and the fixed cut points apply, until those dates hold enough positives.
+     * The base rate the cut points use. When base_rate_source is realized, the fraction of the champion's scored users who did the target event, pooled over the newest checked dates. When base_rate_source is training, the fraction of the champion's training population that did it. Null when base_rate_source is fixed.
      * @nullable
      */
     base_rate: number | null
     /** Number of checked prediction dates the base rate pools. */
     base_rate_dates: number
+    /** Where the cut points come from. realized: the checked dates hold enough positives. training: no realized base rate yet, so the champion's training population sets it. fixed: neither is available, so fixed cut points apply.
+     *
+     * * `realized` - Realized
+     * * `training` - Training
+     * * `fixed` - Fixed */
+    base_rate_source: BaseRateSourceEnumApi
     /**
      * The current champion's mean predicted probability over the checked dates it scored as champion. Null until those dates hold enough positives.
      * @nullable

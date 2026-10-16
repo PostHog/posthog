@@ -30,9 +30,11 @@ Every other verdict is posted once per run as a comment review on the same surfa
 A run that produced no verdict posts a short failure notice the same way, unless a newer run already holds the same head.
 The engine reports `APPROVED` and `REFUSED`, and the API exposes them lowercase as `approved` and `refused`.
 
-The trigger label only exists in label-triggered mode, and only a substantive non-approval removes it.
+The trigger label only exists in label-triggered mode, and of the verdicts only a substantive non-approval removes it.
 So the label can be re-applied once the feedback is addressed.
 A verdict that says nothing about the PR keeps the label, and the next push retries.
+A label can request at most one review per PR every 10 minutes.
+A label added inside that window starts nothing, so stamphog removes it again and says in its status comment when a relabel will work.
 `WAIT` means a reviewer bot still had a review in flight, or the `Migration risk` check had not reported yet.
 `ERROR` means the run failed before it could judge the PR, because the LLM backend was unreachable or the reviewer hit a non-retryable analysis failure such as its turn limit.
 A transient failure must not silently drop labels across every queued PR.
@@ -49,8 +51,8 @@ Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from o
 
 1. Install the Stamphog GitHub App on your GitHub organization.
 2. Open Stamphog in the PostHog app and connect GitHub. The callback records the repositories you can reach with your own GitHub account. It adds none of them yet.
-3. Add each repository you want reviewed from the **Add a repository** search (`POST repo_configs/add_repository`). Adding a repository turns its reviews on. The search lists the repositories you can add, from `GET repo_configs/available_repositories`.
-4. Expand the repository's row and pick a **review mode**: "All PRs" reviews every pull request, "Label-triggered" reviews only PRs carrying the trigger label. Set the trigger label name next to the mode.
+3. Add each repository you want reviewed from the **Add a repository** search (`POST repo_configs/add_repository`). Adding a repository turns its reviews on in label-triggered mode. The search lists the repositories you can add, from `GET repo_configs/available_repositories`.
+4. Expand the repository's row to change the **review mode**: "Label-triggered" (the default) reviews only PRs carrying the trigger label, "All PRs" reviews every pull request. Set the trigger label name next to the mode.
 5. Turn on **Include in the digest** if you want the daily Slack digest of merged PRs. The project needs a connected Slack integration first, or the digest run stops silently before posting.
 
 The repositories you can add are the ones a project member reached with their own GitHub account, not every repository the installation can reach.
@@ -61,6 +63,10 @@ A repository added to the installation later shows up after a member connects ag
 Adding a repository, turning reviews back on, and the digest toggle need the `editor` level on the `stamphog` resource.
 Turning reviews off, removing a repository, and changing the review mode or trigger label need `manager`.
 So an editor can turn reviews back on for a repository a manager paused.
+New repositories start in label-triggered mode, so an editor can turn reviews on without a manager, and widening them to every PR stays a manager decision.
+
+When a repository is turned on in label-triggered mode, or its trigger label changes, Stamphog creates the label in the GitHub repository, because GitHub only offers existing labels on a PR.
+This is best-effort: if the app may not write labels there, or the label already exists, nothing changes and nothing is reported.
 
 ## Customize the review for your repository
 
@@ -99,6 +105,36 @@ The merged document is validated by the engine's strict loader inside the sandbo
 
 A `policy.yml` that is present but unusable, such as malformed YAML or a non-mapping root, fails the run closed.
 The repository declared something, so reviewing under pure defaults would be wrong.
+
+### Deny exceptions
+
+A repository can declare narrow exceptions without copying the hosted `deny` section:
+
+```yaml
+deny_exceptions:
+  billing:
+    - keyword: billing
+      path_prefixes: [apps/, argocd/, shared/, state/, charts/]
+      extensions: [.yaml, .yml]
+  infra_cicd:
+    - path_prefixes: [.github/]
+```
+
+The example permits agent review of billing-service deployment YAML and GitHub automation paths.
+The billing exception skips only the `billing` pattern; `payment`, `stripe`, `invoice`, and `pricing` still match.
+New billing patterns and other categories stay inherited because this file does not replace `deny`.
+
+Every rule needs literal directory prefixes relative to the repository root, with a trailing slash.
+The optional `extensions` list restricts the rule to those file suffixes.
+The optional `keyword` must name an existing literal path-capable pattern in that category; omitting it exempts the category within the selected paths.
+All selectors in a rule must match, and multiple rules provide alternative exceptions.
+Path prefixes and extensions match without regard to case.
+
+An exception that lifts a denial sends the PR to `T1-agent`, including YAML-only and test-only changes.
+The reviewer still evaluates actual effects, independent assurance, and unresolved concerns; exceptions do not grant approval.
+Title scrutiny, other categories, prerequisites, and size gates remain active.
+Unknown categories or fields, malformed selectors, and any `stamphog_policy` exception fail the run closed.
+Exception files use the same default-branch trust boundary as the rest of `policy.yml`, so editing them requires human review.
 
 ### The `digest:` key
 

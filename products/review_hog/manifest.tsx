@@ -13,7 +13,6 @@ export const manifest: ProductManifest = {
             projectBased: true,
             description: 'Automated code reviews of your pull requests, and your review agent settings.',
             iconType: 'code_review',
-            docsHref: 'https://posthog.com/docs/posthog-desktop/code-review',
         },
     },
     routes: {

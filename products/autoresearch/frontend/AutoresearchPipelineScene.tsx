@@ -22,7 +22,7 @@ import { PipelineSummary } from './pipeline/PipelineSummary'
 import { PredictionsTab } from './pipeline/PredictionsTab'
 import { ScoreNowButton } from './pipeline/ScoreNowButton'
 import { SetupTab } from './pipeline/SetupTab'
-import { pipelineQuestion } from './pipelineQuestion'
+import { pipelineQuestion, pipelineSubtitle } from './pipelineQuestion'
 
 export const scene: SceneExport = {
     component: AutoresearchPipelineScene,
@@ -52,7 +52,7 @@ export function AutoresearchPipelineScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name={heading}
-                description={pipeline?.name ?? null}
+                description={pipeline ? pipelineSubtitle(pipeline) : null}
                 resourceType={{ type: 'experiment' }}
                 actions={
                     <>

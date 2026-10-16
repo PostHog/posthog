@@ -7,16 +7,25 @@ from unittest import mock
 import requests
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rubygems import (
+    RubygemsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.rubygems.rubygems import (
     MAX_GEMS,
     RUBYGEMS_BASE_URL,
     RubyGemsRetryableError,
     _fetch,
-    get_rows,
     parse_gems,
     rubygems_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.rubygems.source import RubygemsSource
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.rubygems.rubygems"
 
@@ -111,25 +120,21 @@ class TestValidateCredentials:
         ],
     )
     def test_status_mapping(self, status, expected_valid):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(status)
-
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
             is_valid, _ = validate_credentials("rails")
 
         assert is_valid is expected_valid
 
     def test_empty_gems_is_invalid_without_request(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+        with scripted_network([]) as network:
             is_valid, message = validate_credentials("")
 
         assert is_valid is False
         assert message is not None
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
     def test_network_error_is_invalid(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
-
+        with scripted_network(always(ConnectionError("boom"))):
             is_valid, message = validate_credentials("rails")
 
         assert is_valid is False
@@ -138,31 +143,32 @@ class TestValidateCredentials:
 
 class TestGetRows:
     def test_yields_a_batch_per_gem_and_skips_404(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, _gem_document(name="rails")),
-                _response(404),
-                _response(200, _gem_document(name="rspec")),
-            ]
+        driver = SourceDriver(RubygemsSource(), RubygemsSourceConfig(gems="rails\nnope\nrspec"))
 
-            batches = list(get_rows("gems", ["rails", "nope", "rspec"], structlog.get_logger()))
+        result = driver.run(
+            "gems",
+            [
+                ScriptedResponse(json=_gem_document(name="rails")),
+                ScriptedResponse(status=404, json={}),
+                ScriptedResponse(json=_gem_document(name="rspec")),
+            ],
+        )
 
         # The 404 gem is skipped, so only two batches come back.
-        assert len(batches) == 2
-        assert batches[0][0]["name"] == "rails"
-        assert batches[1][0]["name"] == "rspec"
+        assert len(result.items) == 2
+        assert result.items[0][0]["name"] == "rails"
+        assert result.items[1][0]["name"] == "rspec"
 
     def test_chunks_large_version_history(self, monkeypatch):
         # A gem with a large version history must not be yielded as one oversized list; it's split
         # into bounded chunks so downstream Arrow conversion stays capped.
         monkeypatch.setattr(f"{MODULE}.MAX_ROWS_PER_BATCH", 1)
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200, _versions_document(name="rails"))
+        driver = SourceDriver(RubygemsSource(), RubygemsSourceConfig(gems="rails"))
 
-            batches = list(get_rows("versions", ["rails"], structlog.get_logger()))
+        result = driver.run("versions", [ScriptedResponse(json=_versions_document(name="rails"))])
 
         # The document has 2 valid version rows; at 1 row per chunk that's [1, 1].
-        assert [len(b) for b in batches] == [1, 1]
+        assert [len(b) for b in result.items] == [1, 1]
 
 
 class TestRubyGemsSource:

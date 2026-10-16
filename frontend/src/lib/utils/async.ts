@@ -212,6 +212,22 @@ export function yieldToMain(): Promise<void> {
     })
 }
 
+const IDLE_FALLBACK_DELAY_MS = 1000
+
+/**
+ * Runs `callback` once the browser is idle, or after `timeoutMs` at the latest.
+ * Where `requestIdleCallback` is missing, `timeoutMs` is ignored and `callback` runs after a short fixed delay.
+ * Returns a cancel function.
+ */
+export function runWhenIdle(callback: () => void, timeoutMs: number = 5000): () => void {
+    if (typeof window.requestIdleCallback === 'function') {
+        const id = window.requestIdleCallback(callback, { timeout: timeoutMs })
+        return () => window.cancelIdleCallback(id)
+    }
+    const id = window.setTimeout(callback, IDLE_FALLBACK_DELAY_MS)
+    return () => clearTimeout(id)
+}
+
 export function createSliceYielder(budgetMs: number = 10): (beforeYield?: () => void) => Promise<boolean> {
     let sliceStart = performance.now()
     return async (beforeYield?: () => void): Promise<boolean> => {

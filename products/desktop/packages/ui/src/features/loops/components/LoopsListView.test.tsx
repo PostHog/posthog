@@ -1,4 +1,4 @@
-import type { LoopSchemas } from "@posthog/api-client/loops";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { Theme } from "@radix-ui/themes";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -13,7 +13,7 @@ vi.mock("./LoopTemplatesSection", () => ({
   LoopTemplatesSection: () => null,
 }));
 vi.mock("../hooks/useLoopMutations", () => ({
-  useUpdateLoop: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetLoopEnabled: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -47,24 +47,12 @@ function loop(
     id,
     name,
     description: "",
-    visibility: "team",
     enabled: true,
-    disabled_reason: null,
     created_by_id: 1,
     triggers: [],
-    consecutive_failures: 0,
     last_run_at: null,
     last_run_status: null,
-    context_target: space
-      ? {
-          ...space,
-          outputs: {
-            post_to_feed: true,
-            update_context: false,
-            canvas_id: null,
-          },
-        }
-      : null,
+    context_target: space,
     ...rest,
   } as LoopSchemas.Loop;
 }
@@ -139,12 +127,9 @@ describe("LoopsListViewPresentation", () => {
     expect(
       screen.getByText("3 active · 1 global · 2 in 2 spaces"),
     ).toBeVisible();
-    expect(
-      screen.getByText("3 active · 1 global · 2 in 2 spaces"),
-    ).toBeVisible();
   });
 
-  it("narrows the table by scope, visibility, search and paused state", async () => {
+  it("narrows the table by scope, search and paused state", async () => {
     render(
       <Theme>
         <LoopsListViewPresentation
@@ -153,10 +138,7 @@ describe("LoopsListViewPresentation", () => {
             loop("b", "Growth digest", {
               space: { channel_id: GROWTH.id, name: "growth" },
             }),
-            loop("c", "My reminder", {
-              visibility: "personal",
-              enabled: false,
-            }),
+            loop("c", "My reminder", { enabled: false }),
           ]}
           spaces={[GROWTH]}
           onStartBlank={vi.fn()}
@@ -168,17 +150,11 @@ describe("LoopsListViewPresentation", () => {
     expect(tableRows()).toHaveLength(2);
     expect(screen.queryByText("Growth digest")).not.toBeInTheDocument();
 
-    await pick("Filter by visibility", /^Personal loops/);
-    expect(tableRows()).toHaveLength(1);
-    expect(screen.getByText("My reminder")).toBeVisible();
-
     await userEvent.click(screen.getByRole("button", { name: "Hide paused" }));
-    expect(
-      screen.getByText("No loops match the current filters."),
-    ).toBeVisible();
+    expect(tableRows()).toHaveLength(1);
+    expect(screen.queryByText("My reminder")).not.toBeInTheDocument();
 
     await pick("Filter by scope", /^All loops/);
-    await pick("Filter by visibility", /^Team and personal/);
     await userEvent.click(screen.getByRole("button", { name: /Hide paused/ }));
     await userEvent.type(screen.getByPlaceholderText("Search loops"), "growth");
     expect(tableRows()).toHaveLength(1);

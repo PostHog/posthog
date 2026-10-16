@@ -1,1 +1,1 @@
-1396_events_retention_config
+1399_alter_user_ui_configuration_help_text

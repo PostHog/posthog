@@ -33,31 +33,27 @@ const textVariants = cva('', {
     },
 })
 
-function Text({
-    className,
-    size = 'base',
-    variant = 'default',
-    weight = 'normal',
-    render,
-    ...props
-}: useRender.ComponentProps<'p'> & VariantProps<typeof textVariants>): React.ReactElement {
-    return useRender({
-        defaultTagName: 'p',
-        props: mergeProps<'p'>(
-            {
-                'data-quill': '',
-                className: cn(textVariants({ size, variant, weight }), className),
-            } as Omit<React.ComponentProps<'p'>, 'ref'>,
-            props
-        ),
-        render,
-        state: {
-            slot: 'text',
-            size,
-            variant,
-            weight,
-        },
-    })
-}
+const Text = React.forwardRef<HTMLParagraphElement, useRender.ComponentProps<'p'> & VariantProps<typeof textVariants>>(
+    function Text({ className, size = 'base', variant = 'default', weight = 'normal', render, ...props }, ref) {
+        return useRender({
+            ref,
+            defaultTagName: 'p',
+            props: mergeProps<'p'>(
+                {
+                    'data-quill': '',
+                    className: cn(textVariants({ size, variant, weight }), className),
+                } as Omit<React.ComponentProps<'p'>, 'ref'>,
+                props
+            ),
+            render,
+            state: {
+                slot: 'text',
+                size,
+                variant,
+                weight,
+            },
+        })
+    }
+)
 
 export { Text, textVariants }

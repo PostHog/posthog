@@ -525,11 +525,24 @@ def build_agent_description(
         `pipeline_id = "{pipeline.pk}"`, `id = "{training_run_id}"`, the iteration_number,
         recipe_snapshot (`{{"feature_sql": "..."}}`), model_spec (`{{"model_class": "...", "model_params": {{...}}}}`),
         holdout_score (the AUC you computed), status (`"kept"` if it beats your best AUC so far, else
-        `"discarded"`), and a one-line agent_description. Do NOT batch these up to record at the end —
+        `"discarded"`), a one-line agent_description, a one-sentence `summary`, and a short `headline`. Do NOT batch these up to record at the end —
         the user watches the iteration trail stream in live as you work, so each must land as it happens.
         Judge `status` against your best-so-far at the time you record; if a later iteration wins, that
         is simply reflected by the climbing scores, not by rewriting earlier ones. These also drive
         champion selection at completion.
+
+        **Two audiences.** `agent_description` is your working memory, and the next run reads it, so it
+        can be as dense as is useful. `summary` is for a person who knows the product but not machine
+        learning. Write it in plain words about user behavior, and leave out column names, SQL, model
+        classes and AUC numbers. Say what the experiment tried and whether it helped.
+        - Good: "Counting how often people opened a dashboard in their first week predicted downloads
+          better than total activity."
+        - Weak: "LogReg on dash_open_7d + log1p(evt_cnt), holdout AUC 0.81 vs 0.78, kept."
+
+        `headline` is the row title for the experiment. Keep it to 60 characters or fewer, in the same
+        plain words as `summary`, and say what the experiment tried or learned.
+        - Good: "Moved training cutoffs to midnight to match scoring"
+        - Good: "Coding-task activity became the strongest signal"
 
         ### Step 4 — Iterate
 
@@ -683,6 +696,12 @@ def build_agent_description(
            - `recommended_next`: concretely what a future run should try next given what you found.{notebook_field}
            The backend derives the rest of the summary (the kept ladder and dead-ends) from your
            recorded iterations, so keep these two fields to judgment only — do not restate the ladder.
+           These two fields are your notes and can stay as dense as is useful. Also pass three fields
+           for people, in the same plain words as each iteration's `summary`:
+           - `headline`: the run title, 60 characters or fewer, on what this run learned, in the same
+             style as each iteration's `headline`.
+           - `reader_summary`: one or two sentences on what this run learned about user behavior.
+           - `next_steps`: a short list (at most 5) of what to try next, a few words each.
            Also pass `model_explanation`, which the model card charts. Use exactly this shape:
            `{{"method": "<how you computed importance, one short line>", "top_features": [{{"name": "<feature column>", "importance": <number >= 0>, "direction": "positive" | "negative"}}]}}`.
            List at most {MAX_TOP_FEATURES} features of the winning iteration, strongest first. `direction` is

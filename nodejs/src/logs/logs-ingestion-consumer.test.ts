@@ -52,6 +52,7 @@ import { compileMetricRules } from './metrics-rules/compile-metric-rules'
 import type { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import type { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
+import type { PatternMessageKeysCache } from './pattern-message-keys-cache'
 import { DEFAULT_TRACES_RETENTION_DAYS } from './retention/tracing-config-cache'
 import { compileRuleSet } from './sampling/compile-rules'
 import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
@@ -116,6 +117,8 @@ const createKafkaMessage = async (
             { name: 'instrumentation_scope', type: ['null', 'string'] },
             { name: 'event_name', type: ['null', 'string'] },
             { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+            { name: 'pattern', type: ['null', 'string'], default: null },
+            { name: 'pattern_version', type: ['null', 'int'], default: null },
         ],
     })
 
@@ -215,7 +218,11 @@ describe('LogsIngestionConsumer', () => {
         depsPartial: Partial<
             Pick<
                 LogsIngestionConsumerDeps,
-                'samplingRulesCache' | 'metricRulesCache' | 'metricsEmitter' | 'logsTransformer'
+                | 'samplingRulesCache'
+                | 'metricRulesCache'
+                | 'metricsEmitter'
+                | 'logsTransformer'
+                | 'patternMessageKeysCache'
             >
         > = {}
     ) => {
@@ -2675,6 +2682,28 @@ describe('LogsIngestionConsumer', () => {
             } else {
                 expect(bodyKindIncSpy).not.toHaveBeenCalled()
             }
+        })
+
+        it("derives the pattern from the team's message keys, not the defaults", async () => {
+            const patternMessageKeysCache = {
+                getMessageKeys: jest.fn().mockResolvedValue(['log']),
+            } as unknown as PatternMessageKeysCache
+            maskingConsumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_PATTERN_MASKING_ENABLED_TEAMS: '*' },
+                { patternMessageKeysCache }
+            )
+            const messages = await createKafkaMessages(
+                [createLogMessage({ message: 'default key wins', log: 'team key wins' })],
+                {
+                    token: team.api_token,
+                }
+            )
+            await waitForBackgroundTasks(maskingConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            const [, , records] = await decodeLogRecords(logsMessages[0].value as Buffer)
+            expect(records.map((r) => r.pattern)).toEqual(['team key wins'])
         })
     })
 })

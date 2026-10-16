@@ -73,7 +73,7 @@ import {
     getRuntimeAdapterForModel,
     resolveEffortForModel,
 } from '../../utils/composerModels'
-import { DEFAULT_COMPOSER_MODE, type PermissionMode } from '../../utils/composerModes'
+import { DEFAULT_COMPOSER_MODE, getModesForRuntimeAdapter, type PermissionMode } from '../../utils/composerModes'
 import { wrapWithPosthogContext } from '../../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../../utils/warmRunSubmission'
 
@@ -321,6 +321,13 @@ export interface taskTrackerSceneLogicActions {
     applyDefaultPermissionMode: () => {
         value: true
     }
+    applyPrefill: (
+        prompt: string,
+        mode?: PermissionMode
+    ) => {
+        mode: PermissionMode | undefined
+        prompt: string
+    }
     applySuggestion: (item: SuggestionItem) => {
         item: SuggestionItem
     }
@@ -507,6 +514,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         maybeAutoSelectIntegration: true,
         setActiveSuggestionGroup: (group: SuggestionGroup | null) => ({ group }),
         applySuggestion: (item: SuggestionItem) => ({ item }),
+        applyPrefill: (prompt: string, mode?: PermissionMode) => ({ prompt, mode }),
         setHeadlineSeed: (seed: number) => ({ seed }),
         setPersistedRepositoryConfig: (config: PersistedRepositoryConfig) => ({ config }),
         openExistingTask: (task: Task) => ({ task }),
@@ -771,6 +779,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
         // Fill the composer with the suggestion; submit straight away unless it needs the user to finish
         // typing (the component focuses the textarea in that case).
+        applyPrefill: ({ prompt, mode }) => {
+            if (mode && getModesForRuntimeAdapter(values.composerAdapter).includes(mode)) {
+                actions.pickPermissionMode(mode)
+            }
+            actions.applySuggestion({ content: prompt, requiresUserInput: true })
+        },
         applySuggestion: ({ item }) => {
             actions.setNewTaskData({ description: item.content, seedContextItems: undefined })
             if (!item.requiresUserInput) {

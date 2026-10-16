@@ -80,6 +80,7 @@ import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
+import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsFrequencyCapSettings'
 import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
@@ -142,7 +143,7 @@ import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConf
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import { ProjectTimezoneName } from './environment/ProjectTimezoneName'
 import { ReplayIntegrations } from './environment/ReplayIntegrations'
-import { SDKSetupInstructions } from './environment/SDKSetupInstructions'
+import { SDKInstallOptions } from './environment/SDKInstallOptions'
 import {
     CanvasCaptureSettings,
     LogCaptureSettings,
@@ -202,13 +203,6 @@ import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/Pe
 import { ProfilePictureSettings } from './user/ProfilePictureSettings'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
-import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
-import {
-    HomepageSetting,
-    SidebarItemsSetting,
-    SidebarLayoutSetting,
-    SidebarMyProductsSetting,
-} from './user/SidebarSettings'
 import { TaskCommentSlackNotifications } from './user/TaskCommentSlackNotifications'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
@@ -244,9 +238,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'snippet',
                 title: 'SDK setup',
                 description:
-                    'Install PostHog in your app using one of our SDKs. Select your platform to see the setup instructions.',
+                    'Install PostHog in your app with Wizard, or set it up manually by following the instructions for your platform.',
                 docsUrl: 'https://posthog.com/docs/getting-started/install',
-                component: <SDKSetupInstructions />,
+                component: <SDKInstallOptions />,
                 keywords: [
                     'install',
                     'setup',
@@ -254,6 +248,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'code',
                     'sdk',
                     'snippet',
+                    'wizard',
+                    'setup agent',
                     'javascript',
                     'html',
                     'react',
@@ -332,7 +328,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 description:
-                    'Define filters to exclude internal users and test accounts from your analytics. Filtered users will not appear in insights by default.',
+                    'Add filters that match the users you want to keep, for example "email does not contain yourcompany.com". When this filter is on, events that do not match every filter are hidden from insights. A destination applies these filters only when "Filter out internal and test users" is turned on in its filters.',
                 docsUrl: 'https://posthog.com/tutorials/filter-internal-users',
                 component: <ProjectAccountFiltersSetting />,
                 keywords: ['test account', 'internal', 'exclude', 'filter'],
@@ -1881,6 +1877,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ],
             },
             {
+                id: 'workflows-frequency-cap',
+                title: 'Frequency cap',
+                description:
+                    'The most marketing messages one person can get in a rolling number of days, across all workflows and broadcasts. Sends past the cap are skipped and the workflow moves on to the next step. Transactional messages are never capped and do not count. A workflow run without a person, for example one triggered by an event without a person profile, is not capped. Leave both fields empty to turn the cap off.',
+                component: <WorkflowsFrequencyCapSettings />,
+                keywords: ['workflows', 'frequency', 'cap', 'limit', 'fatigue', 'marketing', 'broadcast', 'email'],
+            },
+            {
                 id: 'workflows-ai-task-limits',
                 title: 'AI task limits',
                 description:
@@ -1899,7 +1903,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'environment-access-control',
                 title: 'Access control',
-                description: 'Manage who has access to this environment and what they can do.',
+                description: 'Manage who has access to this project and what they can do.',
                 docsUrl: 'https://posthog.com/docs/settings/access-control',
                 component: <TeamAccessControl />,
                 keywords: ['permission', 'role', 'access', 'rbac', 'team'],
@@ -2456,7 +2460,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-roles',
                 title: 'Roles',
                 description:
-                    'Use roles to group your organization members and assign them permissions. Roles are used for access control across your organization.',
+                    'Use roles to group members across your organization for access control and issue assignment in Error tracking.',
                 docsUrl: 'https://posthog.com/docs/settings/access-control',
                 component: <RolesAccessControls />,
                 keywords: ['role', 'permission', 'rbac', 'access control'],
@@ -2636,16 +2640,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['impersonation', 'support login', 'debug'],
             },
             {
-                id: 'sidebar-auto-suggest',
-                title: 'Automatically suggest new products',
-                description:
-                    "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new one.",
-                component: <SidebarAutoSuggestSetting />,
-                // Suggestions land in custom products, which the simple sidebar does not show.
-                flag: '!SIMPLE_SIDEPANEL',
-                keywords: ['sidebar', 'suggest', 'products', 'apps', 'tools', 'auto'],
-            },
-            {
                 id: 'web-analytics-achievements',
                 title: 'Web analytics achievements',
                 description:
@@ -2673,46 +2667,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                         to customize yourself outside of the app
                     </div>
                 ),
-            },
-        ],
-    },
-    {
-        level: 'user',
-        id: 'user-navigation',
-        title: 'Navigation',
-        // The simple sidebar edits these inline, from its own customize dialog.
-        flag: ['UI_CUSTOMIZATION', '!SIMPLE_SIDEPANEL'],
-        settings: [
-            {
-                id: 'homepage',
-                title: 'Homepage',
-                description:
-                    'The page that opens when you open PostHog or select Home in the sidebar. This applies to the current project.',
-                component: <HomepageSetting />,
-                keywords: ['homepage', 'home', 'default page', 'landing page', 'launchpad', 'start'],
-            },
-            {
-                id: 'sidebar-layout',
-                title: 'Layout',
-                description: 'Control how dense the sidebar rows are.',
-                component: <SidebarLayoutSetting />,
-                keywords: ['sidebar', 'layout', 'density', 'compact', 'comfortable'],
-            },
-            {
-                id: 'sidebar-items',
-                title: 'Navigation items',
-                description:
-                    'Choose which items appear in your sidebar. These preferences only apply to you. Activity and Settings always stay visible.',
-                component: <SidebarItemsSetting />,
-                keywords: ['sidebar', 'navigation', 'navbar', 'menu', 'hide', 'show', 'customize', 'starred'],
-            },
-            {
-                id: 'sidebar-my-tools',
-                title: 'My products',
-                description:
-                    'Choose which products appear in the My products section of your sidebar. This selection applies to the current project.',
-                component: <SidebarMyProductsSetting />,
-                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'my products', 'customize'],
             },
         ],
     },

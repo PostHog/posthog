@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import gates
 import github
 from github import (
     CommitProvenance,
@@ -20,6 +21,7 @@ from github import (
     parse_provenance_trailers,
     write_pr_diff,
 )
+from policy import DenyException
 
 
 def test_normalize_reviews_marks_current_head_and_preserves_stale_reviews() -> None:
@@ -142,23 +144,44 @@ def _git(cwd: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-def test_touched_paths_carry_both_rename_names_unquoted(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "old_path, new_path, denied",
+    [
+        ("models/flow.py", "flow.py", []),
+        ("apps/billing/old.yaml", "apps/billing/new.yaml", []),
+        ("apps/billing/old\tname.yaml", "apps/billing/new\nname.yaml", []),
+        ("apps/billing/service.py", "apps/plain/values.yaml", ["billing"]),
+    ],
+)
+def test_touched_paths_carry_both_rename_names_unquoted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, old_path: str, new_path: str, denied: list[str]
+) -> None:
     repo = tmp_path / "repo"
     _git(tmp_path, "init", "--quiet", "-b", "main", str(repo))
     _git(repo, "config", "user.name", "t")
     _git(repo, "config", "user.email", "t@example.com")
-    (repo / "models").mkdir()
-    (repo / "models" / "flow.py").write_text("\n".join(f"line {i}" for i in range(20)) + "\n")
+    (repo / old_path).parent.mkdir(parents=True)
+    (repo / old_path).write_text("\n".join(f"line {i}" for i in range(20)) + "\n")
     _git(repo, "add", ".")
     _git(repo, "commit", "--quiet", "-m", "root")
     base = _git(repo, "rev-parse", "HEAD")
-    _git(repo, "mv", "models/flow.py", "flow.py")
+    (repo / new_path).parent.mkdir(parents=True, exist_ok=True)
+    _git(repo, "mv", old_path, new_path)
     (repo / "odd\nname.py").write_text("x\n")
     _git(repo, "add", "--all")
     _git(repo, "commit", "--quiet", "-m", "move")
     head = _git(repo, "rev-parse", "HEAD")
 
-    assert sorted(git_touched_paths(base, head, repo)) == ["flow.py", "models/flow.py", "odd\nname.py"]
+    touched = git_touched_paths(base, head, repo)
+    assert sorted(touched) == sorted([old_path, new_path, "odd\nname.py"])
+    files = _git_diff_files(base, head, repo)
+    assert {f["filename"]: f for f in files} == {
+        new_path: {"filename": new_path, "additions": 0, "deletions": 0, "binary": False, "status": "R100"},
+        "odd\nname.py": {"filename": "odd\nname.py", "additions": 1, "deletions": 0, "binary": False, "status": "A"},
+    }
+    exceptions = {"billing": (DenyException(keyword="billing", path_prefixes=("apps/",), extensions=(".yaml",)),)}
+    monkeypatch.setattr(gates, "DENY_EXCEPTIONS", gates._compile_deny_exceptions(gates._DENY_PATTERN_DEFS, exceptions))
+    assert gates.detect_deny_categories([*(f["filename"] for f in files), *touched]) == denied
 
 
 def test_shallow_checkout_diffs_from_the_given_merge_base(tmp_path: Path) -> None:

@@ -2,7 +2,6 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -25,10 +24,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.s
     CALENDLY_WEBHOOK_EVENTS,
     ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.source import CalendlySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calendly import (
+    CalendlySourceConfig,
+)
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
+# The two webhook-manager integration tests still need direct session patches.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# The /users/me bootstrap and validate_credentials build their own tracked session in the calendly module.
 CALENDLY_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.calendly.calendly.make_tracked_session"
 )
@@ -66,6 +75,18 @@ def _users_me_response(status: int = 200) -> Response:
     resp.url = f"{CALENDLY_BASE_URL}/users/me"
     resp._content = json.dumps({"resource": {"current_organization": ORG_URI}}).encode()
     return resp
+
+
+def _page(collection: list[dict[str, Any]], next_page: str | None = None, status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json={"collection": collection, "pagination": {"next_page": next_page}})
+
+
+def _me_page(status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json={"resource": {"current_organization": ORG_URI}})
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(CalendlySource(), CalendlySourceConfig(personal_access_token="token"))
 
 
 def _make_manager(resume_state: Optional[CalendlyResumeConfig] = None) -> mock.MagicMock:
@@ -123,74 +144,53 @@ class TestFormatDatetime:
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(
-        self, _name: str, status_code: int, expected: bool, mock_session: mock.MagicMock
-    ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("token") == (expected, status_code)
+    def test_validate_credentials_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
+        with scripted_network([_me_page(status_code)]) as network:
+            assert validate_credentials("token") == (expected, status_code)
+        assert network.requests_log[0].path == "/users/me"
+        assert network.requests_log[0].headers["authorization"] == "Bearer token"
 
 
 class TestPagination:
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_mid_pagination_does_not_terminate_early(
-        self, MockClientSession: mock.MagicMock, mock_calendly_session: mock.MagicMock
-    ) -> None:
+    def test_empty_page_mid_pagination_does_not_terminate_early(self) -> None:
         # An empty page that still advertises a next_page must not end the sync.
-        mock_calendly_session.return_value.get.return_value = _users_me_response()
-        _wire(
-            MockClientSession.return_value,
-            [_response([], next_page=f"{CALENDLY_BASE_URL}/event_types?page=2"), _response([{"uri": "a"}])],
+        result = _driver().run(
+            "event_types",
+            [_me_page(), _page([], next_page=f"{CALENDLY_BASE_URL}/event_types?page=2"), _page([{"uri": "a"}])],
         )
 
-        rows = _rows(_source(_make_manager()))
+        assert result.raised is None
+        assert [row["uri"] for row in result.rows] == ["a"]
+        assert result.paths == ["/users/me", "/event_types", "/event_types"]
+        assert result.params("page") == [None, None, "2"]
 
-        assert [r["uri"] for r in rows] == ["a"]
-
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_users_me_and_starts_from_saved_url(
-        self, MockClientSession: mock.MagicMock, mock_calendly_session: mock.MagicMock
-    ) -> None:
+    def test_resume_skips_users_me_and_starts_from_saved_url(self) -> None:
         resume_url = f"{CALENDLY_BASE_URL}/event_types?page=5"
-        snapshots = _wire(MockClientSession.return_value, [_response([{"uri": "z"}])])
-        manager = _make_manager(resume_state=CalendlyResumeConfig(next_url=resume_url))
+        result = _driver().run(
+            "event_types", [_page([{"uri": "z"}])], resume_state=CalendlyResumeConfig(next_url=resume_url)
+        )
 
-        rows = _rows(_source(manager))
-
-        assert [r["uri"] for r in rows] == ["z"]
+        assert result.raised is None
+        assert [row["uri"] for row in result.rows] == ["z"]
         # No /users/me bootstrap call on resume; first request is the saved URL.
-        mock_calendly_session.assert_not_called()
-        assert snapshots[0]["url"] == resume_url
-        assert snapshots[0]["params"] == {}
+        assert result.urls == [resume_url]
+        assert result.queries == [{"page": ("5",)}]
 
     @parameterized.expand([(version,) for version in SUPPORTED_API_VERSIONS])
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_every_supported_version_targets_calendly_host(
-        self, api_version: str, MockClientSession: mock.MagicMock, mock_calendly_session: mock.MagicMock
-    ) -> None:
-        mock_calendly_session.return_value.get.return_value = _users_me_response()
-        snapshots = _wire(MockClientSession.return_value, [_response([{"uri": "a"}])])
-
-        _rows(_source(_make_manager(), api_version=api_version))
+    def test_every_supported_version_targets_calendly_host(self, api_version: str) -> None:
+        result = _driver().run("event_types", [_me_page(), _page([{"uri": "a"}])], api_version=api_version)
 
         # Both the /users/me bootstrap and the list request must stay on the Calendly host for
         # every pinned version — the version→base-url map must never retarget the bearer token.
-        assert mock_calendly_session.return_value.get.call_args.args[0].startswith(CALENDLY_BASE_URL)
-        assert all(snapshot["url"].startswith(CALENDLY_BASE_URL) for snapshot in snapshots)
+        assert result.raised is None
+        assert result.paths == ["/users/me", "/event_types"]
+        assert all(url.startswith(CALENDLY_BASE_URL) for url in result.urls)
 
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_http_4xx_fails_loudly(
-        self, MockClientSession: mock.MagicMock, mock_calendly_session: mock.MagicMock
-    ) -> None:
-        mock_calendly_session.return_value.get.return_value = _users_me_response()
-        _wire(MockClientSession.return_value, [_response([], status=401)])
+    def test_http_4xx_fails_loudly(self) -> None:
+        result = _driver().run("event_types", [_me_page(), _page([], status=401)])
 
-        with pytest.raises(HTTPError, match="401 Client Error"):
-            _rows(_source(_make_manager()))
+        assert isinstance(result.raised, HTTPError)
+        assert "401 Client Error" in str(result.raised)
 
 
 class TestRequestParams:
@@ -213,24 +213,16 @@ class TestRequestParams:
 
         assert snapshots[0]["params"]["min_start_time"] == "2026-01-01T00:00:00.000000Z"
 
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_incremental_endpoint_never_adds_filter(
-        self, MockClientSession: mock.MagicMock, mock_calendly_session: mock.MagicMock
-    ) -> None:
-        mock_calendly_session.return_value.get.return_value = _users_me_response()
-        snapshots = _wire(MockClientSession.return_value, [_response([{"uri": "a"}])])
-
-        _rows(
-            _source(
-                _make_manager(),
-                endpoint="event_types",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            )
+    def test_non_incremental_endpoint_never_adds_filter(self) -> None:
+        result = _driver().run(
+            "event_types",
+            [_me_page(), _page([{"uri": "a"}])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        assert "min_start_time" not in snapshots[0]["params"]
+        assert result.raised is None
+        assert result.requests[1].param("min_start_time") is None
 
 
 class TestFanoutEndpoints:
@@ -259,33 +251,27 @@ class TestFanoutEndpoints:
             ),
         ]
     )
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_child_request_is_bound_to_its_parent(
         self,
         endpoint: str,
         parent: str,
         expected_child_url: str,
         expected_sort: Optional[str],
-        MockClientSession: mock.MagicMock,
-        mock_calendly_session: mock.MagicMock,
     ) -> None:
-        mock_calendly_session.return_value.get.return_value = _users_me_response()
-        snapshots = _wire(
-            MockClientSession.return_value,
-            [_response([{"uri": PARENT_URIS[endpoint]}]), _response([{"uri": "child-1"}])],
+        result = _driver().run(
+            endpoint,
+            [_me_page(), _page([{"uri": PARENT_URIS[endpoint]}]), _page([{"uri": "child-1"}])],
         )
-
-        rows = _rows(_source(_make_manager(), endpoint=endpoint))
 
         # The parent walk stays org-scoped; the child carries the parent identity in its path,
         # percent-encoded where it rides in a query param.
-        assert snapshots[0]["url"] == f"{CALENDLY_BASE_URL}/{parent}"
-        assert snapshots[0]["params"]["organization"] == ORG_URI
-        assert snapshots[1]["url"] == expected_child_url
-        assert snapshots[1]["params"].get("sort") == expected_sort
-        assert snapshots[1]["params"]["count"] == 100
-        assert [r["uri"] for r in rows] == ["child-1"]
+        assert result.raised is None
+        assert result.requests[1].path == f"/{parent}"
+        assert result.requests[1].param("organization") == ORG_URI
+        assert result.requests[2].url.startswith(expected_child_url)
+        assert result.requests[2].param("sort") == expected_sort
+        assert result.requests[2].param("count") == "100"
+        assert [row["uri"] for row in result.rows] == ["child-1"]
 
 
 class TestCalendlySource:
@@ -339,29 +325,8 @@ def _subscription(
     }
 
 
-def _subscriptions_response(items: list[dict[str, Any]], next_page: Optional[str] = None) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp.url = f"{CALENDLY_BASE_URL}/webhook_subscriptions"
-    resp._content = json.dumps({"collection": items, "pagination": {"next_page": next_page}}).encode()
-    return resp
-
-
-def _wire_webhook_session(
-    mock_session: mock.MagicMock,
-    subscription_pages: Optional[list[Response]] = None,
-) -> mock.MagicMock:
-    """Serve `/users/me` and the subscription listing off the one patched session factory."""
-    session = mock_session.return_value
-    pages = list(subscription_pages if subscription_pages is not None else [_subscriptions_response([])])
-
-    def _get(url: str, **_kwargs: Any) -> Response:
-        if url.endswith("/users/me"):
-            return _users_me_response()
-        return pages.pop(0)
-
-    session.get.side_effect = _get
-    return session
+def _subscriptions_response(items: list[dict[str, Any]], next_page: Optional[str] = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"collection": items, "pagination": {"next_page": next_page}})
 
 
 class TestWebhookTableTransformer:
@@ -394,22 +359,21 @@ class TestWebhookTableTransformer:
 
 
 class TestCreateWebhook:
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    def test_creates_an_organization_scoped_subscription_and_keeps_the_signing_key(
-        self, mock_session: mock.MagicMock
-    ) -> None:
-        session = _wire_webhook_session(mock_session)
-        created = Response()
-        created.status_code = 201
-        created._content = json.dumps({"resource": _subscription(signing_key="key-from-calendly")}).encode()
-        session.post.return_value = created
-
-        result = create_webhook("token", WEBHOOK_URL)
+    def test_creates_an_organization_scoped_subscription_and_keeps_the_signing_key(self) -> None:
+        with scripted_network(
+            [
+                _me_page(),
+                _subscriptions_response([]),
+                ScriptedResponse(status=201, json={"resource": _subscription(signing_key="key-from-calendly")}),
+            ]
+        ) as network:
+            result = create_webhook("token", WEBHOOK_URL)
 
         assert result.success is True
         # Without the signing key on the hog function every delivery fails verification.
         assert result.extra_inputs["signing_secret"] == "key-from-calendly"
-        body = session.post.call_args.kwargs["json"]
+        assert [request.method for request in network.requests_log] == ["GET", "GET", "POST"]
+        body = network.requests_log[2].json()
         assert body["url"] == WEBHOOK_URL
         assert body["scope"] == "organization"
         assert body["organization"] == ORG_URI
@@ -417,101 +381,99 @@ class TestCreateWebhook:
         assert body["signing_key"]
 
     @parameterized.expand([("payment_required", 402), ("forbidden", 403), ("conflict", 409)])
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    def test_rejection_surfaces_an_actionable_error(
-        self, _name: str, status_code: int, mock_session: mock.MagicMock
-    ) -> None:
-        session = _wire_webhook_session(mock_session)
-        session.post.return_value = mock.MagicMock(status_code=status_code)
-
-        result = create_webhook("token", WEBHOOK_URL)
+    def test_rejection_surfaces_an_actionable_error(self, _name: str, status_code: int) -> None:
+        with scripted_network(
+            [_me_page(), _subscriptions_response([]), ScriptedResponse(status=status_code)]
+        ) as network:
+            result = create_webhook("token", WEBHOOK_URL)
 
         assert result.success is False
         assert result.error is not None
         assert "Standard plan" in result.error
+        assert network.requests_log[2].path == "/webhook_subscriptions"
 
-    @mock.patch(CALENDLY_SESSION_PATCH, side_effect=Exception("network down"))
-    def test_network_failure_is_reported_rather_than_raised(self, _mock_session: mock.MagicMock) -> None:
-        result = create_webhook("token", WEBHOOK_URL)
+    def test_network_failure_is_reported_rather_than_raised(self) -> None:
+        with scripted_network(always(ConnectionResetError("network down"))) as network:
+            result = create_webhook("token", WEBHOOK_URL)
 
         assert result.success is False
         assert result.error is not None and "network down" in result.error
+        assert {request.path for request in network.requests_log} == {"/users/me"}
 
 
 class TestDeleteWebhook:
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    def test_deletes_only_subscriptions_pointing_at_our_url(self, mock_session: mock.MagicMock) -> None:
-        session = _wire_webhook_session(
-            mock_session,
+    def test_deletes_only_subscriptions_pointing_at_our_url(self) -> None:
+        with scripted_network(
             [
+                _me_page(),
                 _subscriptions_response(
                     [
                         _subscription(uuid="ours"),
                         _subscription(uuid="theirs", callback_url="https://elsewhere.example.com/hook"),
                     ]
-                )
-            ],
-        )
-        session.delete.return_value = mock.MagicMock(status_code=204)
-
-        result = delete_webhook("token", WEBHOOK_URL)
+                ),
+                ScriptedResponse(status=204),
+            ]
+        ) as network:
+            result = delete_webhook("token", WEBHOOK_URL)
 
         assert result.success is True
-        assert session.delete.call_count == 1
-        assert session.delete.call_args.args[0].endswith("/webhook_subscriptions/ours")
+        assert [request.method for request in network.requests_log] == ["GET", "GET", "DELETE"]
+        assert network.requests_log[2].path == "/webhook_subscriptions/ours"
 
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    def test_failed_delete_is_reported(self, mock_session: mock.MagicMock) -> None:
-        session = _wire_webhook_session(mock_session, [_subscriptions_response([_subscription(uuid="ours")])])
-        session.delete.return_value = mock.MagicMock(status_code=500)
+    def test_failed_delete_is_reported(self) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/users/me":
+                return _me_page()
+            if request.method == "GET":
+                return _subscriptions_response([_subscription(uuid="ours")])
+            return ScriptedResponse(status=500)
 
-        result = delete_webhook("token", WEBHOOK_URL)
+        with scripted_network(answer) as network:
+            result = delete_webhook("token", WEBHOOK_URL)
 
         assert result.success is False
         assert result.error is not None and "ours" in result.error
+        assert {request.path for request in network.requests_log[2:]} == {"/webhook_subscriptions/ours"}
 
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    def test_off_origin_next_page_is_refused(self, mock_session: mock.MagicMock) -> None:
+    def test_off_origin_next_page_is_refused(self) -> None:
         # `pagination.next_page` is response-controlled and the session carries the access token.
-        _wire_webhook_session(
-            mock_session,
-            [_subscriptions_response([], next_page="https://evil.example.com/webhook_subscriptions")],
-        )
-
-        result = delete_webhook("token", WEBHOOK_URL)
+        with scripted_network(
+            [_me_page(), _subscriptions_response([], next_page="https://evil.example.com/webhook_subscriptions")]
+        ) as network:
+            result = delete_webhook("token", WEBHOOK_URL)
 
         assert result.success is False
         assert result.error is not None and "Refusing to follow" in result.error
+        assert [request.path for request in network.requests_log] == ["/users/me", "/webhook_subscriptions"]
 
 
 class TestGetExternalWebhookInfo:
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    def test_reports_the_registered_subscription(self, mock_session: mock.MagicMock) -> None:
-        _wire_webhook_session(mock_session, [_subscriptions_response([_subscription()])])
-
-        info = get_external_webhook_info("token", WEBHOOK_URL)
+    def test_reports_the_registered_subscription(self) -> None:
+        with scripted_network([_me_page(), _subscriptions_response([_subscription()])]) as network:
+            info = get_external_webhook_info("token", WEBHOOK_URL)
 
         assert info.exists is True
         assert info.url == WEBHOOK_URL
         assert info.enabled_events == list(CALENDLY_WEBHOOK_EVENTS)
         assert info.status == "active"
+        assert network.requests_log[1].param("organization") == ORG_URI
 
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    def test_reports_absence_when_nothing_points_at_our_url(self, mock_session: mock.MagicMock) -> None:
-        _wire_webhook_session(
-            mock_session, [_subscriptions_response([_subscription(callback_url="https://elsewhere/hook")])]
-        )
-
-        info = get_external_webhook_info("token", WEBHOOK_URL)
-
-        assert info.exists is False
-
-    @mock.patch(CALENDLY_SESSION_PATCH, side_effect=Exception("network down"))
-    def test_network_failure_is_reported_rather_than_raised(self, _mock_session: mock.MagicMock) -> None:
-        info = get_external_webhook_info("token", WEBHOOK_URL)
+    def test_reports_absence_when_nothing_points_at_our_url(self) -> None:
+        with scripted_network(
+            [_me_page(), _subscriptions_response([_subscription(callback_url="https://elsewhere/hook")])]
+        ):
+            info = get_external_webhook_info("token", WEBHOOK_URL)
 
         assert info.exists is False
-        assert info.error == "network down"
+
+    def test_network_failure_is_reported_rather_than_raised(self) -> None:
+        with scripted_network(always(ConnectionResetError("network down"))) as network:
+            info = get_external_webhook_info("token", WEBHOOK_URL)
+
+        assert info.exists is False
+        assert info.error is not None and "network down" in info.error
+        assert {request.path for request in network.requests_log} == {"/users/me"}
 
 
 class TestWebhookPipelineWiring:

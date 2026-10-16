@@ -46,6 +46,7 @@ from products.tasks.backend.logic.services.workflow_dispatch import (
 )
 from products.tasks.backend.management.commands.run_task_workflow_dispatcher import (
     Command,
+    _capture_run_feature_flags_in_worker_thread,
     _scheduled_run_usage_error,
     _user_can_dispatch,
     dispatch_attempt_already_started,
@@ -191,9 +192,20 @@ class TestWorkflowDispatchPersistence(TestCase):
         self.assertEqual([row.id for row in claimed], [dispatch.id])
         client = Mock(start_workflow=AsyncMock())
 
-        with self.captureOnCommitCallbacks(execute=True):
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            patch("products.tasks.backend.temporal.metrics.posthoganalytics.capture") as capture,
+        ):
             async_to_sync(Command()._process)(client, claimed[0], "dispatcher-1", asyncio.Semaphore(1))
 
+        dispatch_event = next(
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.args
+            and call.args[0] == "task_startup_step_completed"
+            and call.kwargs["properties"]["step"] == "dispatch"
+        )
+        self.assertEqual(dispatch_event["status"], "FAILED" if scheduled and (limited or deactivated) else "COMPLETED")
         dispatch.refresh_from_db()
         self.task_run.refresh_from_db()
         if scheduled and (limited or deactivated):
@@ -958,6 +970,23 @@ class TestWorkflowDispatchPermissions(SimpleTestCase):
         else:
             usage_response.return_value = Mock(data={"error": error}) if error is not None else None
             self.assertEqual(_scheduled_run_usage_error(user, 1), error)
+        self.assertEqual(close_connections.call_count, 2)
+
+    @parameterized.expand([("captured", False), ("error", True)])
+    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher.close_old_connections")
+    @patch("products.tasks.backend.management.commands.run_task_workflow_dispatcher._capture_run_feature_flags")
+    def test_flag_capture_worker_releases_connections(
+        self, _name: str, capture_fails: bool, capture_flags: Mock, close_connections: Mock
+    ) -> None:
+        if capture_fails:
+            capture_flags.side_effect = RuntimeError("database unavailable")
+            with self.assertRaises(RuntimeError):
+                _capture_run_feature_flags_in_worker_thread("run-id")
+        else:
+            capture_flags.return_value = {"agent_otel_telemetry_enabled": True}
+            self.assertEqual(
+                _capture_run_feature_flags_in_worker_thread("run-id"), {"agent_otel_telemetry_enabled": True}
+            )
         self.assertEqual(close_connections.call_count, 2)
 
     def test_scheduled_usage_checks_do_not_block_each_other(self) -> None:

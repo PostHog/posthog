@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models import User
@@ -69,7 +71,7 @@ class TestDispatchIssueAssignedRealtime(BaseTest):
         )
 
 
-class TestAssignerExcludingResolver(BaseTest):
+class TestAssignerExcludingResolver(SimpleTestCase):
     @parameterized.expand(
         [
             ("excludes_assigner_present", [10, 20, 30], 20, [10, 30]),

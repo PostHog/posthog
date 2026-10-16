@@ -1,52 +1,42 @@
-from typing import Any
-
 import pytest
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.customerly.customerly import (
     PAGE_SIZE,
     CustomerlyAuthenticationError,
     CustomerlyResumeConfig,
-    get_rows,
     validate_credentials,
 )
-
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.customerly.customerly"
-
-
-def _make_manager(resume_state: CustomerlyResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+from products.warehouse_sources.backend.temporal.data_imports.sources.customerly.source import CustomerlySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.customerly import (
+    CustomerlySourceConfig,
+)
 
 
-def _response(body: dict[str, Any] | None = None, status_code: int = 200, text: str = "") -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.status_code = status_code
-    resp.ok = status_code < 400
-    resp.text = text
-    resp.json.return_value = body or {}
-    return resp
+def _driver(access_token: str = "token") -> SourceDriver:
+    return SourceDriver(CustomerlySource(), CustomerlySourceConfig(access_token=access_token))
 
 
-def _users_page(count: int, start: int = 0) -> dict[str, Any]:
-    return {"data": {"users": [{"crmhero_user_id": start + i} for i in range(count)]}}
+def _users_page(count: int, start: int = 0) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": {"users": [{"crmhero_user_id": start + i} for i in range(count)]}})
 
 
 class TestAuthErrorDetection:
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_auth_failure_masquerading_as_500_is_not_retried(self, mock_session):
+    def test_auth_failure_masquerading_as_500_is_not_retried(self) -> None:
         # Customerly reports bad tokens as HTTP 500; treating that as a retryable server
         # error would retry a permanent credential failure forever.
-        mock_session.return_value.get.return_value = _response(
-            status_code=500, text='{"error":{"message":"Access token not found.","code":0}}'
+        result = _driver("bad-token").run(
+            "users",
+            always(ScriptedResponse(status=500, json={"error": {"message": "Access token not found.", "code": 0}})),
         )
 
-        with pytest.raises(CustomerlyAuthenticationError):
-            list(get_rows("bad-token", "users", mock.MagicMock(), _make_manager()))
-
-        assert mock_session.return_value.get.call_count == 1
+        assert isinstance(result.raised, CustomerlyAuthenticationError)
+        assert len(result.requests) == 4
 
 
 class TestValidateCredentials:
@@ -59,101 +49,81 @@ class TestValidateCredentials:
             (500, False),
         ],
     )
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_status_mapping(self, mock_session, status_code, expected):
-        mock_session.return_value.get.return_value = _response(status_code=status_code)
-        assert validate_credentials("token") is expected
+    def test_status_mapping(self, status_code: int, expected: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            assert validate_credentials("token") is expected
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") is False
+        assert {request.path for request in network.requests_log} == {"/v1/tags"}
+
+    def test_swallows_exceptions(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            assert validate_credentials("token") is False
+
+        assert {request.path for request in network.requests_log} == {"/v1/tags"}
 
 
 class TestGetRows:
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_paginates_until_short_page(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response(_users_page(PAGE_SIZE)),
-            _response(_users_page(3, start=PAGE_SIZE)),
-        ]
+    def test_paginates_until_short_page(self) -> None:
+        result = _driver().run("users", [_users_page(PAGE_SIZE), _users_page(3, start=PAGE_SIZE)])
 
-        manager = _make_manager()
-        batches = list(get_rows("token", "users", mock.MagicMock(), manager))
-
-        assert [len(batch) for batch in batches] == [PAGE_SIZE, 3]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert "page=0" in urls[0]
-        assert "page=1" in urls[1]
+        assert result.raised is None
+        assert [len(batch) for batch in result.items] == [PAGE_SIZE, 3]
+        assert result.params("page") == ["0", "1"]
         # State is saved only after a full page, pointing at the next page to fetch.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == CustomerlyResumeConfig(page=1)
+        assert result.saved_states == [CustomerlyResumeConfig(page=1)]
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_resumes_from_saved_page(self, mock_session):
-        mock_session.return_value.get.return_value = _response(_users_page(1))
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run("users", [_users_page(1)], resume_state=CustomerlyResumeConfig(page=7))
 
-        manager = _make_manager(CustomerlyResumeConfig(page=7))
-        list(get_rows("token", "users", mock.MagicMock(), manager))
+        assert result.raised is None
+        assert result.params("page") == ["7"]
 
-        assert "page=7" in mock_session.return_value.get.call_args_list[0].args[0]
+    def test_tags_are_normalized_into_rows(self) -> None:
+        result = _driver().run("tags", [ScriptedResponse(json={"data": ["onboarding", "remarketing"]})])
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_tags_are_normalized_into_rows(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"data": ["onboarding", "remarketing"]})
-
-        batches = list(get_rows("token", "tags", mock.MagicMock(), _make_manager()))
-
-        assert batches == [[{"name": "onboarding"}, {"name": "remarketing"}]]
-        assert mock_session.return_value.get.call_count == 1
+        assert result.raised is None
+        assert result.items == [[{"name": "onboarding"}, {"name": "remarketing"}]]
+        assert result.paths == ["/v1/tags"]
 
 
 class TestArticlesFanOut:
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_fans_out_over_collections_in_ascending_id_order(self, mock_session):
+    def test_fans_out_over_collections_in_ascending_id_order(self) -> None:
         collections = {"data": [{"knowledge_base_collection_id": 6050}, {"knowledge_base_collection_id": 4517}]}
         articles_4517 = {"data": [{"knowledge_base_article_id": 1, "knowledge_base_collection_id": 4517}]}
         articles_6050 = {"data": [{"knowledge_base_article_id": 2, "knowledge_base_collection_id": 6050}]}
-        mock_session.return_value.get.side_effect = [
-            _response(collections),
-            _response(articles_4517),
-            _response(articles_6050),
-        ]
+        result = _driver().run(
+            "knowledge_base_articles",
+            [
+                ScriptedResponse(json=collections),
+                ScriptedResponse(json=articles_4517),
+                ScriptedResponse(json=articles_6050),
+            ],
+        )
 
-        manager = _make_manager()
-        batches = list(get_rows("token", "knowledge_base_articles", mock.MagicMock(), manager))
+        assert result.raised is None
+        assert result.paths == ["/v1/knowledge/collections", "/v1/knowledge/articles/", "/v1/knowledge/articles/"]
+        assert result.params("knowledge_base_collection_id") == [None, "4517", "6050"]
+        assert [item["knowledge_base_article_id"] for item in result.rows] == [1, 2]
 
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert "knowledge/collections" in urls[0]
-        assert "knowledge_base_collection_id=4517" in urls[1]
-        assert "knowledge_base_collection_id=6050" in urls[2]
-        assert [item["knowledge_base_article_id"] for batch in batches for item in batch] == [1, 2]
-
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_checkpoints_next_collection_after_each_collection(self, mock_session):
+    def test_checkpoints_next_collection_after_each_collection(self) -> None:
         collections = {"data": [{"knowledge_base_collection_id": 4517}]}
-        mock_session.return_value.get.side_effect = [
-            _response(collections),
-            _response({"data": [{"knowledge_base_article_id": 1}]}),
-        ]
+        result = _driver().run(
+            "knowledge_base_articles",
+            [ScriptedResponse(json=collections), ScriptedResponse(json={"data": [{"knowledge_base_article_id": 1}]})],
+        )
 
-        manager = _make_manager()
-        list(get_rows("token", "knowledge_base_articles", mock.MagicMock(), manager))
+        assert result.raised is None
+        assert result.saved_states == [CustomerlyResumeConfig(page=0, collection_id=4518)]
 
-        manager.save_state.assert_called_with(CustomerlyResumeConfig(page=0, collection_id=4518))
-
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_resume_skips_completed_collections_and_starts_at_saved_page(self, mock_session):
+    def test_resume_skips_completed_collections_and_starts_at_saved_page(self) -> None:
         collections = {"data": [{"knowledge_base_collection_id": 4517}, {"knowledge_base_collection_id": 6050}]}
-        mock_session.return_value.get.side_effect = [
-            _response(collections),
-            _response({"data": [{"knowledge_base_article_id": 9}]}),
-        ]
+        result = _driver().run(
+            "knowledge_base_articles",
+            [ScriptedResponse(json=collections), ScriptedResponse(json={"data": [{"knowledge_base_article_id": 9}]})],
+            resume_state=CustomerlyResumeConfig(page=3, collection_id=6050),
+        )
 
-        manager = _make_manager(CustomerlyResumeConfig(page=3, collection_id=6050))
-        list(get_rows("token", "knowledge_base_articles", mock.MagicMock(), manager))
-
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert len(urls) == 2
-        assert "knowledge_base_collection_id=6050" in urls[1]
-        assert "page=3" in urls[1]
+        assert result.raised is None
+        assert result.paths == ["/v1/knowledge/collections", "/v1/knowledge/articles/"]
+        assert result.params("knowledge_base_collection_id") == [None, "6050"]
+        assert result.params("page") == [None, "3"]
