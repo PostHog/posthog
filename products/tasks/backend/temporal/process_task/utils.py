@@ -1782,7 +1782,11 @@ def turn_person_message(run_id: str | None, message_id: str | None, *, mention: 
         try:
             recorded = get_tasks_cache().get(_message_record_key("person-message", run_id, message_id))
         except Exception:
-            logger.warning("turn_person_message_lookup_failed", run_id=run_id, message_id=message_id, exc_info=True)
+            logger.warning(
+                "turn_person_message_lookup_failed",
+                extra={"run_id": run_id, "message_id": message_id},
+                exc_info=True,
+            )
             recorded = None
         if isinstance(recorded, str) and recorded:
             return recorded

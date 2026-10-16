@@ -102,7 +102,7 @@ class TestSuggestReplies(SimpleTestCase):
 
         assert build.call_args.kwargs == {
             "product": "slack_app_routing",
-            "ai_product": "slack_app",
+            "ai_product": "slack_app_routing",
             "trace_id": "trace-1",
             "session_id": "T1:C1:1.0",
             "distinct_id": "user-1",
