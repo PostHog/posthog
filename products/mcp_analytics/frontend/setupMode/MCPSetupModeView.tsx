@@ -26,6 +26,7 @@ export interface MCPSetupModeViewProps {
     recentCallsFailed: boolean
     agentPrompt: string | null
     onExit: (reason: MCPSetupExitReason) => void
+    onAskPostHogAI: (prompt: string) => void
     onGoToUseful: () => void
 }
 
@@ -73,7 +74,7 @@ function StepBody({ step, ...props }: MCPSetupModeViewProps & { step: MCPSetupSt
             />
         )
     }
-    return <SetupUsefulStep onFinish={() => props.onExit('finished')} />
+    return <SetupUsefulStep onFinish={() => props.onExit('finished')} onAskPostHogAI={props.onAskPostHogAI} />
 }
 
 /** The fullscreen setup walkthrough: a header with the step rail, and the current step below it. */

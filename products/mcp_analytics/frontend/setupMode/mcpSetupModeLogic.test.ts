@@ -10,8 +10,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { SidePanelTab } from '~/types'
 
 import { mcpSetupModeLogic, resetSetupModeTrackingForTests } from './mcpSetupModeLogic'
 
@@ -103,6 +105,26 @@ describe('mcpSetupModeLogic', () => {
             path: 'agent',
             step: 'connect',
             reason: testCase.reason,
+        })
+    })
+
+    it('asking PostHog AI closes setup mode before opening the side panel with the question', async () => {
+        enableSetupMode(true)
+        sidePanelStateLogic.mount()
+        router.actions.push(urls.mcpAnalyticsDashboard(), { setup: 'agent', setup_step: 'useful' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.askPostHogAI('What can MCP analytics tell me?')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isOpen).toBe(false)
+        expect(router.values.location.pathname).toBe(`/project/${MOCK_TEAM_ID}${urls.mcpAnalyticsActivity()}`)
+        expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
+        expect(sidePanelStateLogic.values.selectedTabOptions).toBe('!What can MCP analytics tell me?')
+        expect(captureRawMock).toHaveBeenCalledWith('mcp analytics setup mode exited', {
+            path: 'agent',
+            step: 'connect',
+            reason: 'ask_ai',
         })
     })
 

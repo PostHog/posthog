@@ -7,11 +7,14 @@ import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/produc
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
+import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { SidePanelTab } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import { mcpAnalyticsSetupLogic } from '../emptyState/mcpAnalyticsSetupLogic'
@@ -118,6 +121,9 @@ export interface mcpSetupModeLogicActions {
     exitSetupMode: (reason: MCPSetupExitReason) => {
         reason: MCPSetupExitReason
     }
+    askPostHogAI: (prompt: string) => {
+        prompt: string
+    }
     goToUsefulStep: () => {
         value: true
     }
@@ -194,6 +200,7 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
         openSetupMode: (path: MCPSetupPath, trigger: MCPSetupTrigger) => ({ path, trigger }),
         goToUsefulStep: true,
         exitSetupMode: (reason: MCPSetupExitReason) => ({ reason }),
+        askPostHogAI: (prompt: string) => ({ prompt }),
     }),
     loaders(({ values }) => ({
         recentCalls: [
@@ -276,6 +283,11 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                 [SETUP_PARAM]: path,
             })
         },
+        askPostHogAI: ({ prompt }) => {
+            // The side panel opens under the fullscreen setup mode, so close setup mode first.
+            actions.exitSetupMode('ask_ai')
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(prompt))
+        },
         goToUsefulStep: () => {
             router.actions.replace(values.location.pathname, { ...values.searchParams, [SETUP_STEP_PARAM]: 'useful' })
         },
@@ -287,7 +299,7 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             tracking.opened = false
             tracking.lastViewedStep = null
             const searchParams = withoutSetupParams(values.searchParams)
-            if (reason === 'finished') {
+            if (reason === 'finished' || reason === 'ask_ai') {
                 router.actions.push(urls.mcpAnalyticsActivity(), searchParams)
             } else {
                 router.actions.replace(values.location.pathname, searchParams)

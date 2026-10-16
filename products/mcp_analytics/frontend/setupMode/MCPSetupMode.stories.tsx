@@ -41,6 +41,7 @@ const BASE: MCPSetupModeViewProps = {
     agentPrompt:
         'Install PostHog MCP analytics in the MCP server in this repository. Target PostHog project 997 at https://us.posthog.com.',
     onExit: () => {},
+    onAskPostHogAI: () => {},
     onGoToUseful: () => {},
 }
 

@@ -13,7 +13,7 @@ export const SETUP_STEP_PARAM = 'setup_step'
 
 export type MCPSetupTrigger = 'wizard_copy' | 'agent_copy' | 'url'
 
-export type MCPSetupExitReason = 'back' | 'escape' | 'finished'
+export type MCPSetupExitReason = 'back' | 'escape' | 'finished' | 'ask_ai'
 
 export function parseSetupPath(value: unknown): MCPSetupPath | null {
     return value === 'wizard' || value === 'agent' ? value : null
