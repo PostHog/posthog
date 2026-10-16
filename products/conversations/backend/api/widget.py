@@ -463,7 +463,12 @@ class WidgetMessageView(APIView):
             scope="conversations_ticket",
             item_id=str(ticket.id),
             content=message_content,
-            item_context={"author_type": "customer", "distinct_id": distinct_id, "is_private": False},
+            item_context={
+                "author_type": "customer",
+                "distinct_id": distinct_id,
+                "distinct_id_verified": verified_distinct_id is not None,
+                "is_private": False,
+            },
         )
 
         # tickets + messages caches are invalidated by the post_save signal

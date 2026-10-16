@@ -220,7 +220,12 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                 capture_message_sent(ticket, comment_id, content or "", author=author)
             elif not is_team_message:
                 author = None
-                capture_message_received(ticket, comment_id, content or "")
+                capture_message_received(
+                    ticket,
+                    comment_id,
+                    content or "",
+                    item_context=item_context if isinstance(item_context, dict) else None,
+                )
 
             # Internal analytics (PostHog tracking its own usage)
             props = {"channel_source": ticket.channel_source}

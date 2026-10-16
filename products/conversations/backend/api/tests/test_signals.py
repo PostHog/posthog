@@ -80,6 +80,29 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.updated_at == comment.created_at
         assert self.ticket.unread_customer_count == 0  # Customer messages don't increment this
 
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_customer_message_event_checks_the_message_author(self, mock_capture, mock_on_commit):
+        Ticket.objects.filter(id=self.ticket.id).update(
+            identity_verified=True,
+            distinct_id="customer@example.com",
+            anonymous_traits={"email": "customer@example.com"},
+        )
+
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Hello",
+            item_context={
+                "author_type": "customer",
+                "distinct_id": "customer@example.com",
+                "distinct_id_verified": True,
+                "is_private": False,
+            },
+        )
+
+        assert mock_capture.call_args.kwargs["properties"]["customer_email_verified"] is True
+
     @patch("products.conversations.backend.signals.capture_message_received")
     @patch("products.conversations.backend.signals.capture_message_sent")
     def test_public_workflow_message_counts_without_emitting_a_trigger_event(

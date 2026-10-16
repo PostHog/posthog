@@ -6,6 +6,7 @@ Staff/system actions use the actor's distinct_id; customer actions use the ticke
 Events are sent to the customer's PostHog project via their team's API token.
 """
 
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Literal
 
@@ -445,6 +446,25 @@ def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = Fals
     return properties
 
 
+def _message_author_identity(ticket: Ticket, item_context: Mapping[str, object]) -> str:
+    # The ticket's attested identity belongs to the person who opened it, but other Slack or Teams
+    # thread members, other email senders, and an unsigned widget session can add messages to the
+    # ticket. This returns the identity that a server check attested for the message's author, in the
+    # same form as the ticket's attested identity, or "" when no check attested the author.
+    author: object = None
+    if ticket.channel_source == Channel.EMAIL:
+        if item_context.get("email_sender_authenticated") is True:
+            author = item_context.get("email_from")
+    elif ticket.channel_source == Channel.SLACK:
+        author = item_context.get("slack_author_email")
+    elif ticket.channel_source == Channel.TEAMS:
+        author = item_context.get("teams_author_email")
+    elif ticket.channel_source == Channel.WIDGET:
+        if item_context.get("distinct_id_verified") is True:
+            author = item_context.get("distinct_id")
+    return author if isinstance(author, str) else ""
+
+
 def _get_assignment_properties(ticket: Ticket) -> dict:
     """Current assignment on the ticket, so workflows can route a single team's tickets.
 
@@ -648,13 +668,21 @@ def capture_private_message_sent(
     _capture_team_message(ticket, message_id, None, author, "$conversation_private_message_sent")
 
 
-def capture_message_received(ticket: Ticket, message_id: str, message_content: str) -> None:
+def capture_message_received(
+    ticket: Ticket, message_id: str, message_content: str, item_context: Mapping[str, object] | None = None
+) -> None:
     """Customer sent a message on a ticket."""
     properties = _get_ticket_base_properties(ticket)
     properties["message_id"] = message_id
     properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "customer"
-    properties.update(_get_customer_properties(ticket))
+    customer_properties = _get_customer_properties(ticket)
+    author_identity = _message_author_identity(ticket, item_context or {})
+    customer_properties["customer_email_verified"] = (
+        customer_properties["customer_email_verified"]
+        and author_identity.lower() == customer_properties["customer_email"].lower()
+    )
+    properties.update(customer_properties)
     properties.update(_get_assignment_properties(ticket))
 
     team = ticket.team
