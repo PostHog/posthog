@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{
-    Charge, GroupCompletion, Offset, Partition, TopicOffsetLedger, TopicPartition,
+    AssignmentEpoch, Charge, GroupCompletion, Offset, Partition, TopicOffsetLedger, TopicPartition,
 };
 use futures::StreamExt;
 use lifecycle::Handle;
@@ -22,7 +22,8 @@ use crate::debug_recorder::{
 use crate::discovery::DiscoveryMode;
 use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
-use crate::order_sentinel::{OffsetSpan, RevokeHook, SentinelContext};
+use crate::order_sentinel::OffsetSpan;
+use crate::rebalance::{PartitionHook, RebalanceContext};
 use crate::settlement::{self, ChargedSlice, Settlement};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
@@ -230,25 +231,74 @@ struct RevokedPartition {
 
 /// The consumer's revocation hook: purge the batcher, and record the revoked
 /// partitions, because the purge means their polls never complete.
+fn forget_partitions(
+    ledger: &TopicOffsetLedger,
+    settlement: &dyn Settlement,
+    partitions: &[TopicPartition],
+) {
+    ledger.forget_partitions(
+        partitions
+            .iter()
+            .map(|tp| (tp.topic.as_str(), tp.partition)),
+    );
+    settlement.forget_partitions(partitions);
+}
+
 fn revoke_hook(
     revoker: Revoker,
     ledger: Arc<TopicOffsetLedger>,
+    settlement: Arc<dyn Settlement>,
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
-) -> RevokeHook {
+) -> PartitionHook {
     Box::new(move |partitions| {
-        revoker.purge_revoked(partitions);
+        forget_partitions(&ledger, &*settlement, partitions);
+        let pairs: Vec<(String, i32)> = partitions
+            .iter()
+            .map(|tp| (tp.topic.clone(), tp.partition))
+            .collect();
+        revoker.purge_revoked(&pairs);
         revoked_partitions
             .lock()
             .unwrap()
-            .extend(partitions.iter().map(|(topic, partition)| {
-                let topic_partition = TopicPartition::new(topic, *partition);
-                let generation = ledger.generation(&topic_partition);
-                RevokedPartition {
-                    topic_partition,
-                    generation,
-                }
+            .extend(partitions.iter().map(|topic_partition| RevokedPartition {
+                topic_partition: topic_partition.clone(),
+                generation: ledger.generation(topic_partition),
             }));
     })
+}
+
+fn assign_hook(
+    ledger: Arc<TopicOffsetLedger>,
+    settlement: Arc<dyn Settlement>,
+    assignment_epoch: AssignmentEpoch,
+) -> PartitionHook {
+    Box::new(move |partitions| {
+        // Also covers a loss with no revoke callback (an error rebalance, a fenced member).
+        forget_partitions(&ledger, &*settlement, partitions);
+        assignment_epoch.bump();
+    })
+}
+
+fn wire_rebalance_hooks(
+    context: &RebalanceContext,
+    revoker: Revoker,
+    ledger: &Arc<TopicOffsetLedger>,
+    settlement: &Arc<dyn Settlement>,
+    assignment_epoch: AssignmentEpoch,
+) -> Arc<Mutex<Vec<RevokedPartition>>> {
+    let revoked_partitions = Arc::new(Mutex::new(Vec::new()));
+    context.set_on_revoke(revoke_hook(
+        revoker,
+        Arc::clone(ledger),
+        Arc::clone(settlement),
+        Arc::clone(&revoked_partitions),
+    ));
+    context.set_on_assign(assign_hook(
+        Arc::clone(ledger),
+        Arc::clone(settlement),
+        assignment_epoch,
+    ));
+    revoked_partitions
 }
 
 /// Remove revoked partitions from in-flight polls, and remove polls left
@@ -393,13 +443,14 @@ pub struct IngestionConsumerOptions {
     pub debug_recorder: Option<Arc<DebugRecorder>>,
     pub completion_granularity: CompletionGranularity,
     pub commit_interval: Duration,
+    pub ledger: Arc<TopicOffsetLedger>,
 }
 
 /// The main consumer loop: reads from Kafka, demuxes each poll into groups,
 /// submits them to the [`Batcher`] (which routes, dispatches, and flushes),
 /// and commits offsets once the batcher's completions cover a poll or a group.
 pub struct IngestionConsumer {
-    consumer: Arc<StreamConsumer<SentinelContext>>,
+    consumer: Arc<StreamConsumer<RebalanceContext>>,
     batcher: Batcher,
     /// Taken once by `process`.
     outputs: Option<BatcherOutputs>,
@@ -413,9 +464,6 @@ pub struct IngestionConsumer {
     group_id: String,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
-    /// The per-partition offset ledger the commit path reads its frontiers
-    /// from. Shared with the consumer's [`SentinelContext`], which forgets
-    /// partitions on rebalance.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
     /// Partitions revoked since the loop last looked, fed by the rebalance
     /// callback.
@@ -427,7 +475,7 @@ impl IngestionConsumer {
     /// Constructs a consumer from pre-built parts. Useful in integration tests
     /// where the Kafka consumer is created and subscribed externally.
     pub fn from_parts(
-        consumer: StreamConsumer<SentinelContext>,
+        consumer: StreamConsumer<RebalanceContext>,
         batcher: Batcher,
         outputs: BatcherOutputs,
         transport: Arc<GrpcTransport>,
@@ -435,22 +483,19 @@ impl IngestionConsumer {
         options: IngestionConsumerOptions,
         handle: Handle,
     ) -> Self {
-        // Share the context's ledger and sentinel so rebalance callbacks
-        // forget partitions on the same ones the commit path uses.
-        let topic_offset_ledger = consumer.context().topic_offset_ledger();
+        let topic_offset_ledger = options.ledger;
         let settlement = settlement::for_granularity(
             options.completion_granularity,
             Arc::clone(&topic_offset_ledger),
             options.commit_interval,
         );
-        let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
-            Arc::new(Mutex::new(Vec::new()));
-        consumer.context().set_revoke_hook(revoke_hook(
+        let revoked_partitions = wire_rebalance_hooks(
+            consumer.context(),
             batcher.revoker(),
-            Arc::clone(&topic_offset_ledger),
-            Arc::clone(&revoked_partitions),
-        ));
-        consumer.context().set_settlement(Arc::clone(&settlement));
+            &topic_offset_ledger,
+            &settlement,
+            transport.assignment_epoch(),
+        );
         let consumer = Arc::new(consumer);
         Self {
             debug_recorder: options.debug_recorder,
@@ -507,17 +552,15 @@ impl IngestionConsumer {
             Arc::clone(&topic_offset_ledger),
             Duration::from_millis(config.consumer_commit_interval_ms),
         );
-        let mut context = SentinelContext::new(Arc::clone(&topic_offset_ledger));
-        context.set_assignment_epoch(transport.assignment_epoch());
-        let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
-            Arc::new(Mutex::new(Vec::new()));
-        context.set_revoke_hook(revoke_hook(
+        let context = RebalanceContext::new();
+        let revoked_partitions = wire_rebalance_hooks(
+            &context,
             batcher.revoker(),
-            Arc::clone(&topic_offset_ledger),
-            Arc::clone(&revoked_partitions),
-        ));
-        context.set_settlement(Arc::clone(&settlement));
-        let consumer: StreamConsumer<SentinelContext> =
+            &topic_offset_ledger,
+            &settlement,
+            transport.assignment_epoch(),
+        );
+        let consumer: StreamConsumer<RebalanceContext> =
             client_config.create_with_context(context)?;
         consumer.subscribe(&[&config.ingestion_consumer_consume_topic])?;
         let consumer = Arc::new(consumer);
@@ -1214,6 +1257,26 @@ mod tests {
 
     fn credit(in_flight: &mut VecDeque<InFlightPoll>, completion: GroupCompletion) {
         apply_completion(in_flight, &completion, |_, _, _| {});
+    }
+
+    #[test]
+    fn an_assignment_without_a_revoke_drops_the_partitions_pending_frontier() {
+        let ledger = Arc::new(TopicOffsetLedger::new());
+        let settlement: Arc<dyn Settlement> = Arc::new(GroupSettlement::new(
+            Arc::clone(&ledger),
+            Duration::from_secs(3600),
+        ));
+        let epoch = AssignmentEpoch::new();
+        let on_assign = assign_hook(Arc::clone(&ledger), Arc::clone(&settlement), epoch.clone());
+        let p0 = TopicPartition::new("events", 0);
+        charge_offsets(&ledger, &p0, ledger.generation(&p0), &[10]);
+        settlement.settle_run(&p0, ledger.generation(&p0), &[MessageOffset(10)]);
+
+        on_assign(std::slice::from_ref(&p0));
+
+        assert!(settlement.take_all().is_none());
+        assert_eq!(ledger.generation(&p0), 1);
+        assert_eq!(epoch.current(), 2);
     }
 
     fn regained_poll(charged: i64, span_last: i64, delivered: u32) -> InFlightPoll {
