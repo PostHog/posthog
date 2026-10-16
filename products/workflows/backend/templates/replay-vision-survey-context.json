@@ -18,35 +18,6 @@
                 }
             ],
             "source": "events",
-            "bytecode": [
-                "_H",
-                1,
-                31,
-                32,
-                "$survey_id",
-                32,
-                "properties",
-                1,
-                2,
-                12,
-                29,
-                32,
-                "$survey_completed",
-                32,
-                "properties",
-                1,
-                2,
-                11,
-                32,
-                "survey sent",
-                32,
-                "event",
-                1,
-                1,
-                11,
-                3,
-                3
-            ],
             "properties": [
                 {
                     "key": "$survey_id",
@@ -58,6 +29,11 @@
                     "type": "event",
                     "value": true,
                     "operator": "exact"
+                },
+                {
+                    "key": "$session_id",
+                    "type": "event",
+                    "operator": "is_set"
                 }
             ],
             "filter_test_accounts": false
@@ -119,35 +95,6 @@
                         }
                     ],
                     "source": "events",
-                    "bytecode": [
-                        "_H",
-                        1,
-                        31,
-                        32,
-                        "$survey_id",
-                        32,
-                        "properties",
-                        1,
-                        2,
-                        12,
-                        29,
-                        32,
-                        "$survey_completed",
-                        32,
-                        "properties",
-                        1,
-                        2,
-                        11,
-                        32,
-                        "survey sent",
-                        32,
-                        "event",
-                        1,
-                        1,
-                        11,
-                        3,
-                        3
-                    ],
                     "properties": [
                         {
                             "key": "$survey_id",
@@ -159,6 +106,11 @@
                             "type": "event",
                             "value": true,
                             "operator": "exact"
+                        },
+                        {
+                            "key": "$session_id",
+                            "type": "event",
+                            "operator": "is_set"
                         }
                     ],
                     "filter_test_accounts": false
@@ -254,7 +206,7 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": "*{person.name}* left negative survey feedback\n\n*Rating:* {event.properties.$survey_response}\n\n*What happened in the session:*\n{variables.vision_summary}"
+                                    "text": "*{person.name}* left negative survey feedback\n\n*Rating:* {event.properties.$survey_response ?? event.properties.$survey_questions[1].response}\n\n*What happened in the session:*\n{variables.vision_summary}"
                                 }
                             },
                             {

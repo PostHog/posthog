@@ -156,14 +156,6 @@
                                             "text": "View person in PostHog"
                                         },
                                         "url": "{person.url}"
-                                    },
-                                    {
-                                        "type": "button",
-                                        "text": {
-                                            "type": "plain_text",
-                                            "text": "Open ticket"
-                                        },
-                                        "url": "{source.url}"
                                     }
                                 ]
                             }

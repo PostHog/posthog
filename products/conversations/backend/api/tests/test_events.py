@@ -65,6 +65,8 @@ class TestConversationEvents(BaseTest):
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_status_changed_uses_team_token(self, mock_capture):
+        self.ticket.session_id = "session-abc"
+        self.ticket.save(update_fields=["session_id"])
         capture_ticket_status_changed(self.ticket, "new", "pending", actor=self.user, actor_type="user")
 
         mock_capture.assert_called_once()
@@ -83,6 +85,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["customer_name"] == "Test Customer"
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
         assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
+        assert "$session_id" not in call_kwargs["properties"]
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_priority_changed_uses_team_token(self, mock_capture):

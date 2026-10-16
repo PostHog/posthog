@@ -247,7 +247,7 @@
         {
             "key": "vision_score",
             "type": "number",
-            "default": null
+            "default": ""
         },
         {
             "key": "vision_reasoning",
