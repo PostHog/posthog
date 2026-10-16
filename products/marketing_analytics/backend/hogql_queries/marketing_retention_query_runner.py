@@ -20,6 +20,7 @@ from posthog.schema import (
     MarketingAnalyticsRetentionQuery,
     MarketingAnalyticsRetentionQueryResponse,
     MarketingAnalyticsRetentionRow,
+    MarketingAnalyticsRetentionSummaryRow,
 )
 
 from posthog.hogql import ast
@@ -664,12 +665,13 @@ class MarketingAnalyticsRetentionQueryRunner(
         named_results = [dict(zip(columns, row)) for row in response.results or []]
 
         if self.query.summary:
-            from posthog.schema import MarketingAnalyticsRetentionSummaryRow
-
+            overall_medians = {bool(row["previous"]): row.pop("overallMedianReturnDays") for row in named_results}
             summary = [MarketingAnalyticsRetentionSummaryRow(**row) for row in named_results]
             return self._empty_response().model_copy(
                 update={
                     "summary": summary,
+                    "overallMedianReturnDays": overall_medians.get(False),
+                    "previousOverallMedianReturnDays": overall_medians.get(True),
                     "totalCohortSize": sum(row.acquired for row in summary if not row.previous),
                     "hogql": response.hogql,
                     "timings": response.timings,

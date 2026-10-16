@@ -139,6 +139,10 @@ def _log_conversation_spans(hooks: CaseHooks, parsed: ParsedLog) -> None:
             span.log(metadata={"message": span_desc.content})
 
 
+class CaseBudgetExceeded(TimeoutError):
+    pass
+
+
 class _BaseEvalRun:
     """One evaluation suite run — the per-experiment state and the generic
     Braintrust orchestration, independent of how a case's task executes.
@@ -168,7 +172,7 @@ class _BaseEvalRun:
         self.cases = cases
         self.ctx = ctx
         self.is_public = is_public
-        self.no_send_logs = no_send_logs
+        self.no_send_logs = no_send_logs or ctx.no_send_logs
         # The execution/reporting backend, resolved once per run and shared via
         # ctx.engine; an explicit engine (in tests) overrides it.
         self.engine = engine or ctx.engine
@@ -225,9 +229,9 @@ class _BaseEvalRun:
     async def _execute_case(self, input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any]:
         """Run one case and return the scorer ``output`` dict.
 
-        Owns the case's concurrency slot and its ``asyncio.wait_for`` budget;
-        a ``TimeoutError`` escaping here is scored 0 by ``_task`` rather than
-        marked as an infra error.
+        Owns the case's concurrency slot and its ``asyncio.timeout`` budget;
+        an expired budget raises ``CaseBudgetExceeded`` and is scored 0 by
+        ``_task``, while an internal ``TimeoutError`` remains an infra error.
         """
         raise NotImplementedError
 
@@ -261,7 +265,7 @@ class _BaseEvalRun:
         cancelled = False
         try:
             return await self._execute_case(input, hooks)
-        except (TimeoutError, TurnPollTimeout) as error:
+        except (CaseBudgetExceeded, TurnPollTimeout) as error:
             # A case that outran its budget is a task result (too slow), not an
             # infra error: score it 0 rather than letting Braintrust mark it errored.
             status = "timeout"
@@ -664,23 +668,27 @@ class _SandboxedEvalRun(_BaseEvalRun):
             try:
                 with suppress(Exception):
                     await self._set_case_phase(hooks, "agent")
-                result = await asyncio.wait_for(
-                    run_eval_case(
-                        eval_case,
-                        prepared.context,
-                        provider=self._provider_strategy,
-                        on_cleanup=partial(self._set_case_phase, hooks, "cleanup"),
-                        timeout_seconds=ctx.per_case_timeout_seconds,
-                        on_poll_timeout=(
-                            lambda error: (
-                                hooks.metadata.update({"poll_timeout": error.diagnostics()})
-                                if hooks is not None
-                                else None
-                            )
-                        ),
-                    ),
-                    timeout=ctx.per_case_timeout_seconds,
-                )
+                budget = asyncio.timeout(ctx.per_case_timeout_seconds)
+                try:
+                    async with budget:
+                        result = await run_eval_case(
+                            eval_case,
+                            prepared.context,
+                            provider=self._provider_strategy,
+                            on_cleanup=partial(self._set_case_phase, hooks, "cleanup"),
+                            timeout_seconds=ctx.per_case_timeout_seconds,
+                            on_poll_timeout=(
+                                lambda error: (
+                                    hooks.metadata.update({"poll_timeout": error.diagnostics()})
+                                    if hooks is not None
+                                    else None
+                                )
+                            ),
+                        )
+                except TimeoutError as error:
+                    if budget.expired():
+                        raise CaseBudgetExceeded from error
+                    raise
             finally:
                 # Still inside the slot: a notebook python or duckdb cell provisions a
                 # kernel sandbox of its own, and nothing else reclaims it. A timed-out

@@ -229,6 +229,7 @@ export class ToolDomainExtractor {
         'move',
         'patch',
         'pause',
+        'preview',
         'publish',
         'record',
         'rename',

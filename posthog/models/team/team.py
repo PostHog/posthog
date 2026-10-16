@@ -1,7 +1,10 @@
 from collections import defaultdict
 from datetime import timedelta
 from decimal import Decimal
-from functools import lru_cache
+from functools import (
+    cached_property as instance_cached_property,
+    lru_cache,
+)
 from typing import TYPE_CHECKING, Optional, cast
 from zoneinfo import ZoneInfo
 
@@ -755,7 +758,7 @@ class Team(UUIDTClassicModel):
 
         return get_or_create_team_extension(self, TeamRevenueAnalyticsConfig)
 
-    @cached_property
+    @instance_cached_property
     def marketing_analytics_config(self):
         from .team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 

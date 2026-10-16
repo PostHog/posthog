@@ -107,6 +107,9 @@ def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDat
     A reason string rather than a bool, so the caller can label the fallback counter: these carry very
     different weight, and an unlabeled counter would blur permanent and transient apart.
     """
+    if runner.goal.kind == "DataWarehouseNode":
+        return "warehouse_conversion_goal"
+
     if reason := _session_modifiers_reason(runner):
         return reason
 

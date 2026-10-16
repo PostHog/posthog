@@ -1,38 +1,68 @@
+from datetime import UTC, datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
+
+from django.conf import settings
+from django.core.cache import cache
 
 from parameterized import parameterized
 
 from posthog.schema import (
     AttributionMode,
     BaseMathType,
+    CachedMarketingAnalyticsAttributionPathsQueryResponse,
+    CachedMarketingAnalyticsAttributionQueryResponse,
     ConversionGoalFilter1,
     ConversionGoalFilter2,
+    ConversionGoalFilter3,
+    DataWarehousePropertyFilter,
     DateRange,
     EventPropertyFilter,
     MarketingAnalyticsAttributionBreakdown,
+    MarketingAnalyticsAttributionPathsQuery,
     MarketingAnalyticsAttributionQuery,
     PropertyMathType,
     PropertyOperator,
+    RevenueCurrencyPropertyConfig,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.models import PropertyDefinition
+from posthog.clickhouse.query_tagging import tags_context
+from posthog.constants import AvailableFeature
+from posthog.errors import ExposedCHQueryError
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import OrganizationMembership, PropertyDefinition
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.marketing_analytics.backend.hogql_queries.attribution_paths_query_runner import (
+    MarketingAnalyticsAttributionPathsQueryRunner,
+)
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
+from products.marketing_analytics.backend.hogql_queries.utils import convert_team_conversion_goals_to_objects
+from products.marketing_analytics.backend.services.conversion_goal_preview import (
+    ConversionGoalPreview,
+    ConversionGoalPreviewOptions,
+    ConversionGoalPreviewRunner,
+)
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 GOAL_ID = "goal-1"
 CONVERSION_EVENT = "purchase"
@@ -151,6 +181,353 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         response = runner.calculate()
         assert runner._live_session_resolution_used == live_resolution
         return response
+
+    def _preview(self, *, multiple: bool | None = None) -> ConversionGoalPreview:
+        goal = convert_team_conversion_goals_to_objects(
+            self.team.marketing_analytics_config.conversion_goals, self.team.pk
+        )[0]
+        options = ConversionGoalPreviewOptions(
+            goal=goal,
+            date_from=datetime(2023, 1, 1, tzinfo=UTC),
+            date_to=datetime(2023, 1, 31, 23, 59, 59, tzinfo=UTC),
+            allow_multiple_conversions_per_visitor=multiple,
+            filter_test_accounts=False,
+        )
+        return ConversionGoalPreviewRunner(options=options, team=self.team, user=self.user).preview()
+
+    def _configure_warehouse_goal(self) -> ConversionGoalFilter3:
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="marketing_payments",
+            query={
+                "kind": "HogQLQuery",
+                "query": """
+                SELECT properties.invoice_id AS invoice_id, timestamp AS paid_at,
+                    properties.buyer_id AS buyer_id, toFloat(properties.revenue) AS amount
+                FROM events WHERE event = 'warehouse_payment'
+            """,
+            },
+            columns={"invoice_id": "String", "paid_at": "DateTime", "buyer_id": "String", "amount": "Float64"},
+        )
+        goal = ConversionGoalFilter3(
+            kind="DataWarehouseNode",
+            id=str(view.id),
+            table_name=view.name,
+            name="Payments",
+            id_field="invoice_id",
+            timestamp_field="paid_at",
+            distinct_id_field="buyer_id",
+            schema_map={},
+            conversion_goal_id=GOAL_ID,
+            conversion_goal_name="Payments",
+            math=PropertyMathType.SUM,
+            math_property="amount",
+            counts_as_revenue=True,
+        )
+        config = self.team.marketing_analytics_config
+        config.conversion_goals = [goal.model_dump()]
+        config.save()
+        return goal
+
+    def _warehouse_payment(
+        self, invoice_id: str, buyer_id: str, amount: float | str | None, at: str = CONVERSION_AT
+    ) -> None:
+        _create_event(
+            team=self.team,
+            event="warehouse_payment",
+            distinct_id="warehouse-import",
+            timestamp=at,
+            properties={"invoice_id": invoice_id, "buyer_id": buyer_id, "revenue": amount},
+        )
+
+    @parameterized.expand(
+        [
+            (surface, multiple, attributed, value, live_resolution)
+            for surface, multiple, attributed, value in [
+                ("table", True, 2, 80.0),
+                ("table", False, 1, 100.0),
+                ("paths", True, 2, 80.0),
+            ]
+            for live_resolution in (False, True)
+        ]
+    )
+    def test_warehouse_conversions_resolve_aliases_and_preserve_unmatched(
+        self, surface: str, multiple: bool, attributed: int, value: float, live_resolution: bool
+    ) -> None:
+        self._configure_warehouse_goal()
+        create_person(team=self.team, distinct_ids=["visitor", "customer-123"])
+        self._session("visitor", ONE_DAY_BEFORE, utm_source="google", pageviews=3)
+        for _ in range(2):
+            self._warehouse_payment("invoice-1", "customer-123", 100.0)
+        self._warehouse_payment("refund-1", "customer-123", -20.0, "2023-01-11T12:00:00Z")
+        self._warehouse_payment("invoice-2", "unknown-customer", 70.0)
+        self._warehouse_payment("old-invoice", "customer-123", 999.0, "2022-12-31T12:00:00Z")
+        flush_persons_and_events()
+        if surface == "paths":
+            paths_runner = MarketingAnalyticsAttributionPathsQueryRunner(
+                query=MarketingAnalyticsAttributionPathsQuery(
+                    dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+                    breakdownBy=MarketingAnalyticsAttributionBreakdown.SOURCE,
+                    conversionGoalId=GOAL_ID,
+                    properties=[],
+                    filterTestAccounts=False,
+                ),
+                team=self.team,
+            )
+            paths_runner.config.live_session_resolution_enabled = live_resolution
+            paths = paths_runner.calculate()
+            assert paths.totalConversions == attributed + 1
+            assert paths.results[0].conversionValue == value
+            return
+        runner = MarketingAnalyticsAttributionQueryRunner(
+            query=MarketingAnalyticsAttributionQuery(
+                dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+                breakdownBy=MarketingAnalyticsAttributionBreakdown.SOURCE,
+                conversionGoalId=GOAL_ID,
+                allowMultipleConversionsPerVisitor=multiple,
+                filterTestAccounts=False,
+                properties=[],
+            ),
+            team=self.team,
+        )
+        runner.config.live_session_resolution_enabled = live_resolution
+        response = runner.calculate()
+        assert response.totalConversions == attributed + 1
+        assert response.unattributedConversions == 1
+        preview = self._preview(multiple=multiple)
+        assert preview.total_conversions == response.totalConversions
+        assert preview.attributed_conversions == attributed
+        assert preview.total_value == value + 70.0
+        assert preview.attributed_value == value
+        assert preview.unattributed_value == 70.0
+        assert not preview.is_approximate
+        assert len(response.results) == 1
+        assert response.results[0].breakdownValue == "google"
+        for model in response.results[0].models:
+            assert model.conversions == attributed
+            assert model.conversionValue == value
+
+    @parameterized.expand(
+        [
+            ("column", "Column"),
+            ("filter", "warehouse column filters"),
+            ("math", "sum math"),
+            ("test_accounts", "test-account filters"),
+            ("multiplier", "currency units"),
+        ]
+    )
+    def test_warehouse_goal_validation(self, case: str, error: str) -> None:
+        goal = self._configure_warehouse_goal()
+        if case == "column":
+            goal.distinct_id_field = "missing_customer"
+        elif case == "filter":
+            goal.properties = [EventPropertyFilter(key="status", value="paid", operator=PropertyOperator.EXACT)]
+        elif case == "multiplier":
+            goal.math_multiplier = 0.01
+        elif case == "test_accounts":
+            self.team.test_account_filters = [
+                {"key": "email", "value": "@internal.example.com", "operator": "not_icontains", "type": "person"}
+            ]
+            self.team.save()
+        else:
+            goal.math_property = None
+        config = self.team.marketing_analytics_config
+        config.conversion_goals = [goal.model_dump()]
+        config.save()
+        with pytest.raises(ValueError, match=error):
+            self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, filter_test_accounts=case == "test_accounts")
+
+    @parameterized.expand(
+        [
+            ("conflicting_id", "conflicting rows"),
+            ("missing_id", "must not be empty"),
+            ("invalid_amount", "finite numbers"),
+            ("missing_amount", "finite numbers"),
+        ]
+    )
+    def test_warehouse_rejects_invalid_conversion_rows(self, case: str, error: str) -> None:
+        self._configure_warehouse_goal()
+        self._warehouse_payment("invoice-1", "buyer", 10.0)
+        if case == "conflicting_id":
+            self._warehouse_payment("invoice-1", "buyer", 20.0)
+        elif case == "missing_id":
+            self._warehouse_payment("", "buyer", 20.0)
+        else:
+            self._warehouse_payment("invoice-2", "buyer", None if case == "missing_amount" else "inf")
+        with pytest.raises(ExposedCHQueryError, match=error):
+            self._run(MarketingAnalyticsAttributionBreakdown.SOURCE)
+
+    def test_warehouse_attribution_enforces_source_access(self) -> None:
+        self._configure_warehouse_goal()
+        with (
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: key == "hogql-warehouse-access-control",
+            ),
+            pytest.raises(TableAccessDeniedError),
+        ):
+            self._run(MarketingAnalyticsAttributionBreakdown.SOURCE)
+
+    @parameterized.expand([("table",), ("paths",)])
+    def test_warehouse_attribution_cache_respects_source_permissions(self, surface: str) -> None:
+        goal = self._configure_warehouse_goal()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self._warehouse_payment("invoice-1", "buyer", 100.0)
+        flush_persons_and_events()
+        query_type = (
+            MarketingAnalyticsAttributionQuery if surface == "table" else MarketingAnalyticsAttributionPathsQuery
+        )
+        runner_type = (
+            MarketingAnalyticsAttributionQueryRunner
+            if surface == "table"
+            else MarketingAnalyticsAttributionPathsQueryRunner
+        )
+        query = query_type(
+            properties=[],
+            conversionGoalId=GOAL_ID,
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            filterTestAccounts=False,
+        )
+        cache.clear()
+        self.addCleanup(cache.clear)
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key == "hogql-warehouse-access-control",
+        ):
+            allowed = runner_type(query=query, team=self.team, user=self.user).run()
+            assert isinstance(
+                allowed,
+                (
+                    CachedMarketingAnalyticsAttributionQueryResponse,
+                    CachedMarketingAnalyticsAttributionPathsQueryResponse,
+                ),
+            )
+            assert allowed.totalConversions == 1
+            cached = runner_type(query=query, team=self.team, user=self.user).run()
+            assert isinstance(
+                cached,
+                (
+                    CachedMarketingAnalyticsAttributionQueryResponse,
+                    CachedMarketingAnalyticsAttributionPathsQueryResponse,
+                ),
+            )
+            assert cached.is_cached
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_view",
+                resource_id=goal.id,
+                organization_member=self.organization_membership,
+                access_level="none",
+            )
+            with pytest.raises(TableAccessDeniedError):
+                runner_type(query=query, team=self.team, user=self.user).run(
+                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+                )
+
+            self._configure_goal()
+            event_response = runner_type(query=query, team=self.team, user=self.user).run()
+            assert isinstance(
+                event_response,
+                (
+                    CachedMarketingAnalyticsAttributionQueryResponse,
+                    CachedMarketingAnalyticsAttributionPathsQueryResponse,
+                ),
+            )
+            assert event_response.totalConversions == 0
+
+    @parameterized.expand([("calendar",), ("explicit",), ("empty",)])
+    def test_warehouse_conversion_timestamp_boundaries(self, window: str) -> None:
+        goal = self._configure_warehouse_goal()
+        for invoice_id, at in [
+            ("before", "2023-01-30T23:59:59.999Z"),
+            ("start", "2023-01-31T00:00:00.000Z"),
+            ("fraction", "2023-01-31T23:59:59.500Z"),
+            ("after", "2023-02-01T00:00:00.000Z"),
+        ]:
+            self._warehouse_payment(invoice_id, "buyer", 10.0, at)
+        flush_persons_and_events()
+        if window == "calendar":
+            response = self._run(
+                MarketingAnalyticsAttributionBreakdown.SOURCE, date_from="2023-01-31", date_to="2023-01-31"
+            )
+            assert response.totalConversions == 2
+        else:
+            options = ConversionGoalPreviewOptions(
+                goal=goal,
+                date_from=datetime(2023, 1, 31, 0, 0, 0, 500000, tzinfo=UTC)
+                if window == "explicit"
+                else datetime(2023, 2, 2, tzinfo=UTC),
+                date_to=datetime(2023, 1, 31, 23, 59, 59, 500000, tzinfo=UTC)
+                if window == "explicit"
+                else datetime(2023, 2, 3, tzinfo=UTC),
+                allow_multiple_conversions_per_visitor=True,
+                filter_test_accounts=False,
+            )
+            preview = ConversionGoalPreviewRunner(options=options, team=self.team, user=self.user).preview()
+            assert preview.total_conversions == (1 if window == "explicit" else 0)
+            assert preview.total_value == (10.0 if window == "explicit" else 0.0)
+            assert preview.attributed_value == 0.0
+
+    def test_warehouse_goal_filters_include_fixed_properties(self) -> None:
+        goal = self._configure_warehouse_goal()
+        goal.properties = [DataWarehousePropertyFilter(key="amount", value=0, operator=PropertyOperator.GT)]
+        goal.fixedProperties = [
+            DataWarehousePropertyFilter(key="buyer_id", value="buyer", operator=PropertyOperator.EXACT)
+        ]
+        config = self.team.marketing_analytics_config
+        config.conversion_goals = [goal.model_dump()]
+        config.save()
+        self._warehouse_payment("paid", "buyer", 100.0)
+        self._warehouse_payment("refund", "buyer", -20.0)
+        self._warehouse_payment("other", "other-buyer", 200.0)
+        response = self._run(MarketingAnalyticsAttributionBreakdown.SOURCE)
+        assert response.totalConversions == 1
+        assert response.unattributedConversions == 1
+
+    def test_warehouse_table_revenue(self) -> None:
+        goal = self._configure_warehouse_goal()
+        with TemporaryDirectory() as directory:
+            csv = Path(directory) / "payments.csv"
+            csv.write_text("id,timestamp,distinct_id,value,currency\npayment-1,2023-01-10 12:00:00,buyer,125.5,USD\n")
+            table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
+                csv,
+                "attribution_payments",
+                {
+                    "id": "String",
+                    "timestamp": "DateTime",
+                    "distinct_id": "String",
+                    "value": "Float64",
+                    "currency": "String",
+                },
+                "test_storage_bucket-posthog.marketing_analytics.warehouse_attribution",
+                self.team,
+            )
+        self.addCleanup(cleanup)
+        goal.table_name = table.name
+        goal.id = str(table.id)
+        goal.id_field = "id"
+        goal.timestamp_field = "timestamp"
+        goal.distinct_id_field = "distinct_id"
+        goal.math_property = "value"
+        goal.math_property_revenue_currency = RevenueCurrencyPropertyConfig(property="currency")
+        config = self.team.marketing_analytics_config
+        config.conversion_goals = [goal.model_dump()]
+        config.save()
+        create_person(team=self.team, distinct_ids=["buyer"])
+        self._session("buyer", ONE_DAY_BEFORE, utm_source="google")
+        response = self._run(MarketingAnalyticsAttributionBreakdown.SOURCE)
+        assert response.totalConversions == 1
+        assert response.results[0].models[0].conversionValue == 125.5
+        preview = self._preview()
+        assert preview.total_conversions == 1
+        assert preview.total_value == preview.attributed_value == 125.5
+        assert preview.currency == "USD"
 
     @parameterized.expand([(False, "frequent"), (True, "valuable")])
     def test_revenue_ranking_precedes_row_limit(self, include_revenue: bool, expected: str) -> None:
@@ -742,6 +1119,51 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
 
         self.assertEqual(response.totalConversions, 3)
         self.assertEqual(response.unattributedConversions, 1)
+        with (
+            tags_context(product=None, feature=None),
+            patch("posthog.clickhouse.client.execute.DEBUG", True),
+            patch("posthog.clickhouse.client.execute.TEST", False),
+        ):
+            preview = self._preview(multiple=True)
+        assert preview.total_conversions == 3
+        assert preview.evaluated_conversions == 2
+        assert preview.total_value is None
+        assert preview.unattributed_value is None
+        assert preview.conversion_limit_reached
+        assert preview.is_approximate
+
+    @parameterized.expand([("static", False), ("property", True)])
+    def test_preview_and_report_convert_event_revenue_currency(self, _name: str, property_currency: bool) -> None:
+        self.team.base_currency = "EUR"
+        self.team.save()
+        config = self.team.marketing_analytics_config
+        goal = config.conversion_goals[0]
+        goal["math_property_revenue_currency"] = {"property": "currency"} if property_currency else {"static": "USD"}
+        config.conversion_goals = [goal]
+        config.save()
+        create_person(team=self.team, distinct_ids=["buyer"])
+        self._session("buyer", "2023-12-31T12:00:00Z", utm_source="google")
+        _create_event(
+            team=self.team,
+            event=CONVERSION_EVENT,
+            distinct_id="buyer",
+            timestamp="2024-01-01T12:00:00Z",
+            properties={"revenue": 100.0, "currency": "USD"},
+        )
+        report = self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, date_from="2024-01-01", date_to="2024-01-02")
+        preview = ConversionGoalPreviewRunner(
+            options=ConversionGoalPreviewOptions(
+                goal=ConversionGoalFilter1.model_validate(goal),
+                date_from=datetime(2024, 1, 1, tzinfo=UTC),
+                date_to=datetime(2024, 1, 2, 23, 59, 59, tzinfo=UTC),
+                filter_test_accounts=False,
+            ),
+            team=self.team,
+            user=self.user,
+        ).preview()
+        assert preview.total_value == preview.attributed_value == 90.49
+        assert report.results[0].models[0].conversionValue == 90.49
+        assert preview.currency == "EUR"
 
     def test_value_columns_are_populated_only_for_revenue_goals(self):
         # `hasValue` gates the value columns in the table. If the flag and the numbers disagree the UI
@@ -827,6 +1249,10 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         self.assertEqual(response.totalConversions, 1)
         by_campaign = self._by_breakdown(response)
         self.assertAlmostEqual(by_campaign["a"][AttributionMode.LAST_TOUCH], 1.0, places=4)
+        preview = self._preview()
+        assert preview.total_conversions == preview.attributed_conversions == 1
+        assert preview.total_value is None
+        assert preview.currency is None
 
     def test_referring_domain_breakdown_reads_the_sessions_entry_field(self):
         # Channel and source get sentinel and normalization treatment; the remaining breakdowns pass the
@@ -1075,7 +1501,9 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         context.enable_select_queries = True
         printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
         assert runner._live_session_resolution_used == live_resolution
-        return pretty_print_in_tests(printed[0] if isinstance(printed, tuple) else printed, self.team.pk)
+        return pretty_print_in_tests(printed[0] if isinstance(printed, tuple) else printed, self.team.pk).replace(
+            f"{settings.CLICKHOUSE_DATABASE}.channel_definition_dict", "posthog_test.channel_definition_dict"
+        )
 
     # One breakdown per SQL shape. Campaign reads a stored property, and the five breakdowns not listed
     # here produce the same query with a different column. Source adds the alias normalization, and

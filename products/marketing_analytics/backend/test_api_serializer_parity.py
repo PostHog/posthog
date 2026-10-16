@@ -14,15 +14,19 @@ from parameterized import parameterized
 from products.marketing_analytics.backend.api import (
     CampaignAuditResultSerializer,
     CampaignMappingSuggestionSerializer,
+    ConversionGoalsSummaryResponseSerializer,
+    MarketingDiagnosticResponseSerializer,
     SourceMappingSuggestionSerializer,
     UtmAuditResponseSerializer,
     UtmEventSerializer,
     UtmIssueSerializer,
 )
+from products.marketing_analytics.backend.services.conversion_goals_inspector import ConversionGoalsListResponse
 from products.marketing_analytics.backend.services.mapping_suggester import (
     CampaignMappingSuggestion,
     SourceMappingSuggestion,
 )
+from products.marketing_analytics.backend.services.marketing_diagnostic import MarketingDiagnosticResponse
 from products.marketing_analytics.backend.services.types import (
     CampaignAuditResult,
     UtmAuditResponse,
@@ -35,8 +39,19 @@ _INTENTIONALLY_UNSERIALIZED: dict[str, set[str]] = {}
 
 
 class TestSerializerFieldParity(SimpleTestCase):
+    def test_diagnostic_serializes_empty_conversion_goal_summary(self) -> None:
+        diagnostic = MarketingDiagnosticResponse(
+            conversion_goals=ConversionGoalsListResponse(
+                goals=[], attribution_window_days=30, attribution_mode="last_touch", has_misconfigured=False
+            )
+        )
+        result = MarketingDiagnosticResponseSerializer(diagnostic.to_dict()).data
+        self.assertEqual(result["conversion_goals"]["goals"], [])
+        self.assertEqual(result["conversion_goals"]["attribution_window_days"], 30)
+
     @parameterized.expand(
         [
+            ("ConversionGoalsListResponse", ConversionGoalsListResponse, ConversionGoalsSummaryResponseSerializer),
             ("UtmIssue", UtmIssue, UtmIssueSerializer),
             ("CampaignAuditResult", CampaignAuditResult, CampaignAuditResultSerializer),
             ("UtmEvent", UtmEvent, UtmEventSerializer),
@@ -58,6 +73,7 @@ class TestSerializerFieldParity(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("ConversionGoalsListResponse", ConversionGoalsListResponse, ConversionGoalsSummaryResponseSerializer),
             ("UtmIssue", UtmIssue, UtmIssueSerializer),
             ("CampaignAuditResult", CampaignAuditResult, CampaignAuditResultSerializer),
             ("UtmEvent", UtmEvent, UtmEventSerializer),
