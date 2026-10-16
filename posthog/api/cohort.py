@@ -419,6 +419,32 @@ def _single_value_operator_value(operator: str | None, value: Any) -> Any:
     return value
 
 
+_COMPUTED_FILTER_KEYS = frozenset({"bytecode", "bytecode_error", "conditionHash"})
+
+
+def _canonical_criteria(node: Any) -> Any:
+    """The criteria with server-computed keys removed and single-child groups collapsed.
+
+    The editor wraps conditions in an extra group and the server recompiles bytecode on every save,
+    so comparing raw filters would count a save that touched no criteria as a change.
+    """
+    if isinstance(node, list):
+        return [_canonical_criteria(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    canonical = {key: _canonical_criteria(value) for key, value in node.items() if key not in _COMPUTED_FILTER_KEYS}
+    values = canonical.get("values")
+    if (
+        canonical.get("type") in ("AND", "OR")
+        and isinstance(values, list)
+        and len(values) == 1
+        and isinstance(values[0], dict)
+        and values[0].get("type") in ("AND", "OR")
+    ):
+        return values[0]
+    return canonical
+
+
 def _coerce_stored_filter_values(filters: Any) -> Any:
     """Apply the single-value unwrap to a stored filters dict, without re-running validation.
 
@@ -1600,9 +1626,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         existing_has_criteria = cohort_filters_have_values(cohort.filters)
-        filters_changed = "filters" in validated_data and validated_data.get("filters") != _coerce_stored_filter_values(
-            cohort.filters
-        )
+        filters_changed = "filters" in validated_data and _canonical_criteria(
+            validated_data.get("filters")
+        ) != _canonical_criteria(_coerce_stored_filter_values(cohort.filters))
 
         create_in_folder = validated_data.pop("_create_in_folder", None)
         if create_in_folder is not None:
@@ -1636,16 +1662,27 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
         # A cohort that stops being realtime stops emitting membership changes, so its workflows would
         # never trigger and their branches would read frozen membership, with no error anywhere.
-        if was_realtime and (cohort.is_static or cohort.cohort_type != CohortType.REALTIME):
-            workflows_relying_on_realtime = _workflows_relying_on_cohort(cohort)
-            if workflows_relying_on_realtime:
+        stops_realtime = was_realtime and (cohort.is_static or cohort.cohort_type != CohortType.REALTIME)
+        # A criteria edit makes the stream processor re-evaluate every person and send `entered` again for
+        # current members, so cohort-triggered workflows would run again for people who never left.
+        if stops_realtime or filters_changed:
+            workflows_relying_on_cohort = _workflows_relying_on_cohort(cohort)
+            if workflows_relying_on_cohort:
+                count = len(workflows_relying_on_cohort)
                 names = _workflow_names_suffix(
-                    request, self._user_access_control(), cohort.team_id, workflows_relying_on_realtime
+                    request, self._user_access_control(), cohort.team_id, workflows_relying_on_cohort
                 )
+                if stops_realtime:
+                    raise ValidationError(
+                        f"This change stops the cohort updating in real time, and {count} "
+                        f"active workflow(s) rely on that{names}. "
+                        "Please remove the cohort from these workflows before making this change.",
+                        code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
+                    )
                 raise ValidationError(
-                    f"This change stops the cohort updating in real time, and {len(workflows_relying_on_realtime)} "
-                    f"active workflow(s) rely on that{names}. "
-                    "Please remove the cohort from these workflows before making this change.",
+                    f"This cohort is used in {count} active workflow(s){names}. Changing its criteria would send "
+                    "its current members through them again. "
+                    "Please remove the cohort from these workflows before changing its criteria.",
                     code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
                 )
 
