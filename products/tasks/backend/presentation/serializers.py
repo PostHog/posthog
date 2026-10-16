@@ -62,6 +62,7 @@ from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     CONTEXT_WINDOW_CHOICES,
+    FX_INITIAL_PERMISSION_MODE_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
     REASONING_EFFORTS,
     WARMABLE_ORIGIN_PRODUCTS,
@@ -4367,6 +4368,25 @@ class CodexTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
     )
 
 
+class FxTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
+    runtime_adapter = serializers.ChoiceField(
+        choices=[RuntimeAdapter.FX.value],
+        required=True,
+        help_text="Agent runtime adapter to launch for this run. Must be 'fx' for fx runtimes.",
+    )
+    model = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        help_text="LLM gateway model identifier to run in the fx runtime. Any model the gateway serves works.",
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=FX_INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Initial permission mode for fx runtimes.",
+    )
+
+
 class TaskRunResumeRequestSchemaSerializer(TaskRunScheduleSerializer):
     model = serializers.CharField(required=False, allow_blank=False)
     reasoning_effort = serializers.ChoiceField(
@@ -4444,6 +4464,7 @@ TaskRunCreateRequestSchemaSerializer = PolymorphicProxySerializer(
     serializers=[
         ClaudeTaskRunCreateSchemaSerializer,
         CodexTaskRunCreateSchemaSerializer,
+        FxTaskRunCreateSchemaSerializer,
         TaskRunResumeRequestSchemaSerializer,
     ],
     resource_type_field_name=None,

@@ -2,6 +2,8 @@ import {
     ClaudeRuntimeAdapterEnumApi,
     CodexRuntimeAdapterEnumApi,
     CodexTaskRunCreateSchemaInitialPermissionModeEnumApi,
+    FxTaskRunCreateSchemaInitialPermissionModeEnumApi,
+    FxTaskRunCreateSchemaRuntimeAdapterEnumApi,
     InitialPermissionModeEnumApi,
     ModelChoiceApi,
     ReasoningEffortEnumApi,
@@ -72,6 +74,16 @@ export function getRuntimeAdapterForModel(
     model: string | null | undefined
 ): RuntimeAdapterEnumApi {
     return catalogueEntry(catalogue, model)?.runtime_adapter ?? RuntimeAdapterEnumApi.Claude
+}
+
+export function getSuccessorRuntimeAdapter(
+    catalogue: ModelChoiceApi[],
+    model: string | null | undefined,
+    currentRuntimeAdapter: string | null | undefined
+): RuntimeAdapterEnumApi {
+    return currentRuntimeAdapter === RuntimeAdapterEnumApi.Fx
+        ? RuntimeAdapterEnumApi.Fx
+        : getRuntimeAdapterForModel(catalogue, model)
 }
 
 // The harnesses the catalogue actually offers, in the order the models arrive. Derived rather than enumerated, so a
@@ -255,8 +267,21 @@ export function buildRunCreateRequest(
     model: string,
     reasoningEffort: ReasoningEffortEnumApi,
     permissionMode: PermissionMode,
-    rest: Partial<TaskRunCreateRequestSchemaApi>
+    rest: Partial<TaskRunCreateRequestSchemaApi>,
+    currentRuntimeAdapter?: string | null
 ): TaskRunCreateRequestSchemaApi {
+    if (currentRuntimeAdapter === RuntimeAdapterEnumApi.Fx) {
+        return {
+            ...rest,
+            runtime_adapter: FxTaskRunCreateSchemaRuntimeAdapterEnumApi.Fx,
+            model,
+            initial_permission_mode: resolveModeForRuntimeAdapter(
+                RuntimeAdapterEnumApi.Fx,
+                permissionMode
+            ) as FxTaskRunCreateSchemaInitialPermissionModeEnumApi,
+        }
+    }
+
     // A model with no effort control rejects any effort at all — `get_reasoning_effort_error` answers
     // "Supported values: none" — so the field is left off rather than sent with a display fallback.
     const effort = getEffortsForModel(catalogue, model).length ? reasoningEffort : undefined

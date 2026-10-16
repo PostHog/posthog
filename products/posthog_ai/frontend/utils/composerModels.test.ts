@@ -102,15 +102,19 @@ describe('composerModels', () => {
     // runtime validates permission modes against its own vocabulary, so `bypassPermissions` has to become
     // `full-access` on the way out. Getting either wrong is a request the backend rejects.
     it.each([
-        ['claude-opus-4-8', 'claude', InitialPermissionModeEnumApi.BypassPermissions],
-        ['gpt-5.6-luna', 'codex', CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.FullAccess],
-    ])('%s launches on %s', (model, expectedAdapter, expectedMode) => {
+        ['claude-opus-4-8', null, 'claude', InitialPermissionModeEnumApi.BypassPermissions],
+        ['gpt-5.6-luna', null, 'codex', CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.FullAccess],
+        ['gpt-5.6-luna', 'codex', 'codex', CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.FullAccess],
+        ['gpt-5.6-luna', 'fx', 'fx', InitialPermissionModeEnumApi.BypassPermissions],
+        ['claude-opus-4-8', 'fx', 'fx', InitialPermissionModeEnumApi.BypassPermissions],
+    ])('%s after a %s run launches on %s', (model, currentAdapter, expectedAdapter, expectedMode) => {
         const request = buildRunCreateRequest(
             CATALOGUE,
             model,
             ReasoningEffortEnumApi.High,
             InitialPermissionModeEnumApi.BypassPermissions as PermissionMode,
-            { branch: 'main' }
+            { branch: 'main' },
+            currentAdapter
         )
 
         expect(request).toMatchObject({

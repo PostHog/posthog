@@ -2650,6 +2650,152 @@ export interface CodexTaskRunCreateSchemaApi {
     initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi
 }
 
+/**
+ * * `fx` - fx
+ */
+export type FxTaskRunCreateSchemaRuntimeAdapterEnumApi =
+    (typeof FxTaskRunCreateSchemaRuntimeAdapterEnumApi)[keyof typeof FxTaskRunCreateSchemaRuntimeAdapterEnumApi]
+
+export const FxTaskRunCreateSchemaRuntimeAdapterEnumApi = {
+    Fx: 'fx',
+} as const
+
+/**
+ * * `default` - default
+ * * `acceptEdits` - acceptEdits
+ * * `auto` - auto
+ * * `bypassPermissions` - bypassPermissions
+ * * `full-access` - full-access
+ */
+export type FxTaskRunCreateSchemaInitialPermissionModeEnumApi =
+    (typeof FxTaskRunCreateSchemaInitialPermissionModeEnumApi)[keyof typeof FxTaskRunCreateSchemaInitialPermissionModeEnumApi]
+
+export const FxTaskRunCreateSchemaInitialPermissionModeEnumApi = {
+    Default: 'default',
+    AcceptEdits: 'acceptEdits',
+    Auto: 'auto',
+    BypassPermissions: 'bypassPermissions',
+    FullAccess: 'full-access',
+} as const
+
+/**
+ * Request body for creating a new task run
+ */
+export interface FxTaskRunCreateSchemaApi {
+    /**
+     * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * @nullable
+     */
+    imported_mcp_servers?: ImportedMcpServerApi[] | null
+    /**
+     * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * @nullable
+     */
+    relayed_mcp_servers?: RelayedMcpServerApi[] | null
+    /**
+     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
+     * @nullable
+     */
+    rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from whoever started the run; Desktop relays it interactively and an API key caller relays it unattended. The token is sent in flight and never stored on PostHog servers. Only PostHog Desktop and API keys can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ModelAccessEnumApi | null
+    /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    codex_model_access?: ModelAccessEnumApi | null
+    /**
+     * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+     * @nullable
+     */
+    scheduled_at?: string | null
+    /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
+     *
+     * * `interactive` - interactive
+     * * `background` - background */
+    mode?: TaskExecutionModeEnumApi
+    /**
+     * Git branch to checkout in the sandbox
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
+    /** ID of a previous run to resume from. Must belong to the same task. */
+    resume_from_run_id?: string
+    /** Initial or follow-up user message to include in the run prompt. */
+    pending_user_message?: string
+    /**
+     * Identifiers for staged task artifacts that should be attached to the initial run prompt.
+     * @items.maxLength 128
+     */
+    pending_user_artifact_ids?: string[]
+    /** Optional sandbox environment to apply for this cloud run. */
+    sandbox_environment_id?: string
+    /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+    custom_image_id?: string
+    /** Whether pull requests for this run should be authored by the user or the bot.
+     *
+     * * `user` - user
+     * * `bot` - bot */
+    pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+     * @nullable
+     */
+    auto_publish?: boolean | null
+    /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
+     *
+     * * `manual` - manual
+     * * `signal_report` - signal_report
+     * * `agent` - agent */
+    run_source?: RunSourceEnumApi
+    /** Optional signal report identifier when this run was started from Inbox. */
+    signal_report_id?: string
+    /** Agent runtime adapter to launch for this run. Must be 'fx' for fx runtimes.
+     *
+     * * `fx` - fx */
+    runtime_adapter: FxTaskRunCreateSchemaRuntimeAdapterEnumApi
+    /** LLM gateway model identifier to run in the fx runtime. Any model the gateway serves works. */
+    model: string
+    /** Reasoning effort to request for models that expose an effort control.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode */
+    reasoning_effort?: ReasoningEffortEnumApi
+    /** Context window size for models that support the 1M window.
+     *
+     * * `200k` - 200k
+     * * `1m` - 1m */
+    context_window?: ContextWindowEnumApi
+    /**
+     * Enable fast mode for models that support it.
+     * @nullable
+     */
+    fast_mode?: boolean | null
+    /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+    github_user_token?: string
+    /** Initial permission mode for fx runtimes.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `auto` - auto
+     * * `bypassPermissions` - bypassPermissions
+     * * `full-access` - full-access */
+    initial_permission_mode?: FxTaskRunCreateSchemaInitialPermissionModeEnumApi
+}
+
 export interface TaskRunResumeRequestSchemaApi {
     /**
      * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
@@ -2697,6 +2843,7 @@ export interface TaskRunResumeRequestSchemaApi {
 export type TaskRunCreateRequestSchemaApi =
     | ClaudeTaskRunCreateSchemaApi
     | CodexTaskRunCreateSchemaApi
+    | FxTaskRunCreateSchemaApi
     | TaskRunResumeRequestSchemaApi
 
 /**

@@ -13,6 +13,7 @@ absorbed into the run-lifecycle facade functions in ``api.py``.
 from products.tasks.backend.constants import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
+    FX_INITIAL_PERMISSION_MODE_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
     REASONING_EFFORTS,
     InitialPermissionMode,
@@ -65,6 +66,7 @@ __all__ = [
     "ALL_INITIAL_PERMISSION_MODE_CHOICES",
     "CODEX_INITIAL_PERMISSION_MODE_CHOICES",
     "CONTEXT_WINDOW_CHOICES",
+    "FX_INITIAL_PERMISSION_MODE_CHOICES",
     "INITIAL_PERMISSION_MODE_CHOICES",
     "WARMABLE_ORIGIN_PRODUCTS",
     "InitialPermissionMode",

@@ -24,6 +24,7 @@ import {
     buildRunCreateRequest,
     getDefaultModelForTaskRuntime,
     getRuntimeAdapterForModel,
+    getSuccessorRuntimeAdapter,
     resolveEffortForModel,
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import {
@@ -1231,12 +1232,15 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 values.selectedModel,
                 values.selectedEffort,
                 values.selectedMode,
-                { resume_from_run_id: props.runId }
+                { resume_from_run_id: props.runId },
+                props.currentRuntimeAdapter
             )
             // A run on the ChatGPT plan boots cold, so its draft releases the warm like an empty one.
             getWarmLogic()?.actions.noteDraft(
                 Boolean(values.composerForm.draft.trim()) &&
-                    !usesChatGptPlan(getRuntimeAdapterForModel(values.catalogue, values.selectedModel)),
+                    !usesChatGptPlan(
+                        getSuccessorRuntimeAdapter(values.catalogue, values.selectedModel, props.currentRuntimeAdapter)
+                    ),
                 createRequest as WarmTaskResumeRequestApi
             )
         }
@@ -1611,7 +1615,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         pending_user_message: wrapWithPosthogContext(content, pendingContext),
                     }
                     const codexModelAccess = pickedCodexModelAccess(
-                        getRuntimeAdapterForModel(values.catalogue, values.selectedModel)
+                        getSuccessorRuntimeAdapter(values.catalogue, values.selectedModel, props.currentRuntimeAdapter)
                     )
                     const createRequest = isPiTaskRuntime(props.taskRuntime)
                         ? {
@@ -1627,7 +1631,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                               {
                                   ...resumeRequest,
                                   ...(codexModelAccess ? { codex_model_access: codexModelAccess } : {}),
-                              }
+                              },
+                              props.currentRuntimeAdapter
                           )
                     // The task already exists here, so staged artifacts hold the files whether this request
                     // activates a warm run or cold-boots one.
