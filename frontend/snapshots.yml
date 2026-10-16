@@ -3852,14 +3852,18 @@ snapshots:
         hash: v1.k794b7964.78fb6437968de10ad57843fbf5878102a73d60befd9fb4cad75d798df9890019.sRau17NRwFfT6JEJzu_sn1c8TkoQ8eyg_BsqpejRrwk
     insights-funnelpropertycorrelationtable--default--light:
         hash: v1.k794b7964.d92e6f81c63dc330f512b926f058c176125ac0413296275f5a3f416ae2fab10d.WgPOHv1rLmkFI1GCi8XasA5UoHRyk-wIzuiTFfgHX4I
+    insights-funnelstepsbarchart--bar-labels--dark:
+        hash: v1.k794b7964.5de2ee4fdd7ba021e1af1363b1e7977b10a245ce3ae6486008b83552cc41296d.tMGnyCUxbncHrGz42VrPrOAdXqsv6oqpZP2N6hjMW48
+    insights-funnelstepsbarchart--bar-labels--light:
+        hash: v1.k794b7964.e83a257faa00b86d54af31d9036282287980fb3364f113e8a0d2aecebb45ab67.abnZOn1eB9PVmogPAEiACEwtoKJtInL232ouk55ZBeU
     insights-funnelstepsbarchart--bar-labels-breakdown--dark:
-        hash: v1.k794b7964.1b81a37668d87d9e22111138a41b64ba2a35df1e2ade467aaee188f2c8d04f3c.UKeyJfLXVsNRZ8KxhlOZvv62ThvYUL_o399r-hVnvO0
+        hash: v1.k794b7964.d3675eb469f32b3a3767a993ebae285cf78dadaeece9b92bd9fc5e91080b6068.Lsx3bzPCJAlujEQn8J9l7O77jhh10eNRXSiDPoVe7r4
     insights-funnelstepsbarchart--bar-labels-breakdown--light:
-        hash: v1.k794b7964.c0c82357191864f94bcaff7b5b10b488167a0b280e703373d0148325cfc2355e.AdRk7JPu1Ee4wOEJR3vBS_e7YpIBee-ZV_lscrfYQlk
+        hash: v1.k794b7964.2c3c0f0066ab4d0d241134e6de2ddd48c34ec5996e06067e8097a20a62922cf8.K2qM77LHmP27bs4qp40o8hdxMSEsznlBDv8V2F_BMR4
     insights-funnelstepsbarchart--bar-labels-many-steps--dark:
-        hash: v1.k794b7964.10eb1afc21f49174149c7679c740deeb02d6483d9535e1083b8cef2d6ffb7f26.jQR-MrvgFYeHiqHWGcaOkLNHXfwz0aC-2Hl_ERddPNQ
+        hash: v1.k794b7964.f8f7ee9285db3cd93dad1945ba60c8a785dd4884bddda6a2615fef74cef6aa74.vo-lKwvxnbnPRqLX1vuqTnFa7-t_z3l4bmsYSdq5GXM
     insights-funnelstepsbarchart--bar-labels-many-steps--light:
-        hash: v1.k794b7964.8c792f8d561d28f5468edd450b1495b5e475b2507f126d3d17534856e8e26f15.mG7etoFQtpXzqFLbq5bJ3psNR5r7RjklLaexltXIrpw
+        hash: v1.k794b7964.446c2439434ebc7c2548104754e305d55996c802f4bbba92400abe26cf131f87.J8KJa21D37xtnfweXJdk9CSYFCKkUQyv7n0RvofA1gM
     insights-funnelstepsbarchart--breakdown--dark:
         hash: v1.k794b7964.790ff5760fabe3a875385fc7f09cd89d8096abf331d4b36a59abee7f0a35bc23.3uG4AjVvDhojZ8UlnAa4vzwgAdjl3zsbKVnN6ysAHls
     insights-funnelstepsbarchart--breakdown--light:
