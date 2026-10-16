@@ -4350,8 +4350,10 @@ jobs:
                   # GitHub rejects a summary over 65535 characters, and the byte budget below stays
                   # under that however the characters are encoded.
                   touch "$GATE_SUMMARY"
+                  # First, because the byte budget below trims the summary from the end.
                   if [ "$CONCLUSION" = failure ]; then
-                      printf '\nTo retry the failed jobs without a new push, comment `/retry` on this pull request.\n' >> "$GATE_SUMMARY"
+                      { printf 'To retry the failed jobs without a new push, comment `/retry` on this pull request.\n\n'; cat "$GATE_SUMMARY"; } > "$GATE_SUMMARY.new"
+                      mv "$GATE_SUMMARY.new" "$GATE_SUMMARY"
                   fi
                   jq -n --arg name "$GATE_CHECK" --arg sha "$SHA" --arg conclusion "$CONCLUSION" --arg url "$DEPOT_JOB_URL" \
                       --arg title "$title" --rawfile summary "$GATE_SUMMARY" \

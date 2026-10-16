@@ -24,7 +24,7 @@ def workflow(workflow_id: str, *job_statuses: str) -> dict[str, Any]:
     "runs,expected",
     [
         pytest.param([run("b", 9), run("a", 5)], "b", id="newest_by_time"),
-        pytest.param([run("a", 5), run("z", 5)], "z", id="same_second_tie_higher_id"),
+        pytest.param([run("z", 5), run("a", 5)], "z", id="same_second_tie_keeps_list_order"),
         pytest.param([], None, id="no_runs"),
     ],
 )

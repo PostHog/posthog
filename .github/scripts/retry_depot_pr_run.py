@@ -14,6 +14,7 @@ import sys
 import json
 import subprocess
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 RETRYABLE = ("failed", "cancelled")
@@ -22,8 +23,9 @@ CLI_TIMEOUT_SECONDS = 60
 
 
 def newest_run_id(runs: Sequence[dict[str, str]]) -> str | None:
-    # Depot runs keep event order, and the run id breaks a same-second tie.
-    newest = max(runs, key=lambda run: (run["created_at"], run["run_id"]), default=None)
+    # Run ids are random, so they cannot break a same-second tie. max() keeps the first of equal
+    # times, and `depot ci run list` lists the newest run first.
+    newest = max(runs, key=lambda run: datetime.fromisoformat(run["created_at"]), default=None)
     return newest["run_id"] if newest else None
 
 
@@ -40,17 +42,16 @@ def depot(*args: str) -> Any:
     result = subprocess.run(
         ["depot", "ci", *args, "-o", "json"], check=True, stdout=subprocess.PIPE, text=True, timeout=CLI_TIMEOUT_SECONDS
     )
-    # `depot ci run list` prints `null` when nothing matches.
-    return json.loads(result.stdout) or []
+    return json.loads(result.stdout)
 
 
 def main() -> int:
     repo, pr_number = os.environ["REPO"], os.environ["PR_NUMBER"]
     statuses = (flag for status in ALL_STATUSES for flag in ("--status", status))
-    run_id = newest_run_id(
-        depot("run", "list", "--repo", repo, "--pr", pr_number, "--trigger", "pull_request", "-n", "200", *statuses)
-    )
-    workflow_ids = retryable_workflow_ids(depot("status", run_id)) if run_id else []
+    # Both commands print `null` when nothing matches, as for a run that has no workflow yet.
+    runs = depot("run", "list", "--repo", repo, "--pr", pr_number, "--trigger", "pull_request", "-n", "200", *statuses)
+    run_id = newest_run_id(runs or [])
+    workflow_ids = retryable_workflow_ids(depot("status", run_id) or {}) if run_id else []
     for workflow_id in workflow_ids:
         sys.stdout.write(f"Retrying the failed and cancelled jobs of run {run_id} (workflow {workflow_id})\n")
         depot("retry", run_id, "--failed", "--workflow", workflow_id)
