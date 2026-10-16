@@ -3,7 +3,8 @@
 //! in its order: the first rule that matches wins.
 //!
 //! The patterns are JavaScript regexes without the `u` flag. There `.` also excludes `\r`, U+2028
-//! and U+2029, `\s` has U+FEFF but not U+0085, and `\d`, `\b` and `i` are ASCII-only.
+//! and U+2029 and matches one UTF-16 unit, `\s` has U+FEFF but not U+0085, and `\d`, `\b` and `i`
+//! are ASCII-only.
 
 use std::sync::LazyLock;
 
@@ -13,7 +14,10 @@ use serde_json::{json, Value};
 // Mirrors MAX_USER_AGENT_LENGTH, which JavaScript measures in UTF-16 code units.
 const MAX_USER_AGENT_LENGTH: usize = 1024;
 
+// An astral character is a surrogate pair in JavaScript: a run of `.` (`{D}*`) matches both
+// units, but a single `.` (`{.}`) has room for one unit and so never matches that character.
 const DOT: &str = r"[^\n\r\u{2028}\u{2029}]";
+const DOT_UNIT: &str = r"[^\n\r\u{2028}\u{2029}\u{10000}-\u{10FFFF}]";
 const SPACE: &str = r"[\t\n\x0B\x0C\r \u{A0}\u{1680}\u{2000}-\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}\u{FEFF}]";
 
 enum Rule {
@@ -29,7 +33,14 @@ struct BrowserRule {
 }
 
 fn js(pattern: &str) -> Regex {
-    let pattern = pattern.replace("{D}", DOT).replace("{S}", SPACE);
+    debug_assert!(
+        !pattern.replace("{D}*", "").contains("{D}"),
+        "a single JavaScript `.` is `{{.}}`, not `{{D}}`: {pattern}"
+    );
+    let pattern = pattern
+        .replace("{D}", DOT)
+        .replace("{.}", DOT_UNIT)
+        .replace("{S}", SPACE);
     Regex::new(&pattern).unwrap_or_else(|e| panic!("invalid user agent pattern {pattern}: {e}"))
 }
 
@@ -82,10 +93,10 @@ static BROWSER_RULES: LazyLock<Vec<BrowserRule>> = LazyLock::new(|| {
         ),
         plain(
             "netfront",
-            r"^Mozilla/[0-9]\.[0-9]+{D}*NetFront/([0-9]{D}[0-9])",
+            r"^Mozilla/[0-9]\.[0-9]+{D}*NetFront/([0-9]{.}[0-9])",
         ),
         plain("ie", r"Trident/7\.0{D}*rv:([0-9.]+){D}*\){D}*Gecko$"),
-        plain("ie", r"MSIE{S}([0-9.]+);{D}*Trident/[4-7]{D}0"),
+        plain("ie", r"MSIE{S}([0-9.]+);{D}*Trident/[4-7]{.}0"),
         plain("ie", r"MSIE{S}(7\.0)"),
         plain("bb10", r"BB10;{S}Touch{D}*Version/([0-9.]+)"),
         plain("android", r"Android{S}([0-9.]+)"),
@@ -113,14 +124,14 @@ static OS_RULES: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
         ("Windows 3.11", r"Win16"),
         ("Windows 95", r"(Windows 95)|(Win95)|(Windows_95)"),
         ("Windows 98", r"(Windows 98)|(Win98)"),
-        ("Windows 2000", r"(Windows NT 5{D}0)|(Windows 2000)"),
-        ("Windows XP", r"(Windows NT 5{D}1)|(Windows XP)"),
-        ("Windows Server 2003", r"(Windows NT 5{D}2)"),
-        ("Windows Vista", r"(Windows NT 6{D}0)"),
-        ("Windows 7", r"(Windows NT 6{D}1)"),
-        ("Windows 8", r"(Windows NT 6{D}2)"),
-        ("Windows 8.1", r"(Windows NT 6{D}3)"),
-        ("Windows 10", r"(Windows NT 10{D}0)"),
+        ("Windows 2000", r"(Windows NT 5{.}0)|(Windows 2000)"),
+        ("Windows XP", r"(Windows NT 5{.}1)|(Windows XP)"),
+        ("Windows Server 2003", r"(Windows NT 5{.}2)"),
+        ("Windows Vista", r"(Windows NT 6{.}0)"),
+        ("Windows 7", r"(Windows NT 6{.}1)"),
+        ("Windows 8", r"(Windows NT 6{.}2)"),
+        ("Windows 8.1", r"(Windows NT 6{.}3)"),
+        ("Windows 10", r"(Windows NT 10{.}0)"),
         ("Windows ME", r"Windows ME"),
         (
             "Windows CE",
@@ -238,7 +249,7 @@ fn detect_device_type(device: &str) -> &'static str {
 }
 
 pub fn parse_user_agent(ua: &str) -> Value {
-    if ua.is_empty() || ua.encode_utf16().count() > MAX_USER_AGENT_LENGTH {
+    if ua.is_empty() || ua.encode_utf16().nth(MAX_USER_AGENT_LENGTH).is_some() {
         return Value::Null;
     }
     let detected = detect(ua);
