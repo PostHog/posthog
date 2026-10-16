@@ -7,7 +7,8 @@ from products.product_analytics.backend.facade.api import get_insight_series
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext
 
 from ...facade.enums import HighlightLabel
-from ..highlight_rules import exact, pretty, short, usable_series
+from ..highlight_rules import exact, short
+from ..highlight_series import pretty, usable_series
 from ..highlight_trends import BAD_METRIC, MONEY, UNKNOWN_DIRECTION, detect
 from ..highlight_types import Candidate, Context, Found, Source
 

@@ -10,7 +10,8 @@ from products.product_analytics.backend.facade.api import get_insight_series
 
 from ...facade import contracts
 from ...facade.enums import HighlightInterval, HighlightUnit
-from ..highlight_rules import pretty, short, usable_series
+from ..highlight_rules import short
+from ..highlight_series import pretty, usable_series
 from ..highlight_trends import complete, detect
 from ..highlight_types import Context, Found, Source
 
