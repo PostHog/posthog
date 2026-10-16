@@ -156,6 +156,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     GONG = "Gong", "Gong"
     CALENDLY = "Calendly", "Calendly"
     TYPEFORM = "Typeform", "Typeform"
+    UNITYADS = "UnityAds", "UnityAds"
     ITERABLE = "Iterable", "Iterable"
     ZOHOCRM = "ZohoCRM", "ZohoCRM"
     CLOSE = "Close", "Close"

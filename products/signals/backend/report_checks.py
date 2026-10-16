@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from products.signals.backend.report_charts import _unstorable_text
 from products.signals.backend.report_metrics import (
+    MAX_LIVE_METRIC_WINDOW_DAYS,
     MAX_METRIC_UNIT_LENGTH,
     ReportMetric,
     ReportMetricKind,
@@ -150,6 +151,32 @@ class CheckComparison(BaseModel):
         return self
 
 
+class MonitoringMetricConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reference_period_minutes: int = Field(
+        strict=True,
+        gt=0,
+        le=MAX_LIVE_METRIC_WINDOW_DAYS * 24 * 60,
+        description="The period the comparison target describes, in minutes. Independent of the soak and run schedule.",
+    )
+    threshold_scaling: Literal["linear", "fixed"] = Field(
+        description=(
+            "How the target applies to a measurement from Monitoring start to the observation time. "
+            "`linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive "
+            "event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. "
+            "This definition does not enable Monitoring execution."
+        ),
+    )
+    baseline_period_minutes: int | None = Field(
+        default=None,
+        strict=True,
+        gt=0,
+        le=MAX_LIVE_METRIC_WINDOW_DAYS * 24 * 60,
+        description="The actual period measured by baseline_value, in minutes. Required when a baseline is supplied.",
+    )
+
+
 class MetricThresholdConfig(BaseModel):
     """A deterministic check: measure one number, compare it, record the verdict.
 
@@ -184,6 +211,13 @@ class MetricThresholdConfig(BaseModel):
             "series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. "
             "A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for "
             "you unless `metricSummary` is `latest`, which keeps compare mode off already."
+        ),
+    )
+    monitoring: MonitoringMetricConfig | None = Field(
+        default=None,
+        description=(
+            "Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. "
+            "Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks."
         ),
     )
     comparison: CheckComparison = Field(description="What the measured value must satisfy to pass.")
@@ -338,6 +372,27 @@ def parse_check_config(kind: str, config: object) -> BaseModel:
 def validate_metric_check_for_write(config: MetricThresholdConfig) -> None:
     if config.query is None:
         raise CheckConfigValidationError("The metric query must be resolved before writing a check.")
+    if config.monitoring is not None:
+        if config.baseline_value is not None and config.monitoring.baseline_period_minutes is None:
+            raise CheckConfigValidationError("A Monitoring baseline needs its measured baseline_period_minutes.")
+        if config.monitoring.threshold_scaling == "linear":
+            source = config.query["source"]
+            series = source["series"]
+            if (
+                len(series) != 1
+                or any((source.get("trendsFilter") or {}).get(key) for key in ("formula", "formulas", "formulaNodes"))
+                or series[0].get("math") not in {None, "total", "sum"}
+                or (
+                    series[0].get("math") == "sum"
+                    and (
+                        series[0].get("math_property") == "$session_duration"
+                        or series[0].get("math_property_type") == "session_properties"
+                    )
+                )
+            ):
+                raise CheckConfigValidationError(
+                    "Linear Monitoring targets require one additive event count or property sum, without a formula."
+                )
     kind = config.metric_kind or "custom"
     value_format = config.value_format or "number"
     try:
