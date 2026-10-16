@@ -172,7 +172,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         assert cohort1.is_calculating is True
         assert cohort1 not in get_cohort_calculation_candidates_queryset()
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch(
         "posthog.tasks.calculate_cohort.calculate_cohort_ch.delay",
@@ -318,7 +318,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         # Realtime-eligible filters on a team the realtime pipeline does not cover.
         self.assertFalse(reported["realtime_enabled"])
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch(
         "posthog.tasks.calculate_cohort.calculate_cohort_ch.delay",
@@ -1780,7 +1780,7 @@ user456
             "No cohort should be left in calculating state after error",
         )
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None: func())
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_static_cohort_to_dynamic_cohort(
@@ -2501,7 +2501,7 @@ email@example.org,
         self.assertIn(leaf_cohort.id, result_ids)
         self.assertIn(parent_cohort.id, result_ids)
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None: func())
     def test_cohort_activity_log(self, patch_on_commit):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()

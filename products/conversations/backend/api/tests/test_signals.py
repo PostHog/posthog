@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Callable
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -21,7 +22,7 @@ from products.conversations.backend.models.constants import Channel
 
 
 # Patch on_commit to execute immediately in tests
-def immediate_on_commit(func):
+def immediate_on_commit(func: Callable[[], object], using: str | None = None) -> None:
     func()
 
 
