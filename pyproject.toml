@@ -761,6 +761,15 @@ ignore_imports = [
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.temporal.sql.events",
     "products.batch_exports.backend.presentation.views.batch_export.runs -> products.batch_exports.backend.models.batch_export",
     "products.batch_exports.backend.presentation.views.batch_export.runs -> products.batch_exports.backend.service",
+    # TODO: subscriptions presentation wave. The viewsets and model serializers moved from ee/
+    # with their ORM access: the subscription models (in exports until they move into the
+    # product) and the dashboard models behind dashboard and tile selection. Thin them to
+    # parse -> facade -> serialize and delete each entry. backend:contract-check stays off
+    # until this list is empty.
+    "products.subscriptions.backend.presentation.views -> products.dashboards.backend.models.dashboard",
+    "products.subscriptions.backend.presentation.views -> products.dashboards.backend.models.dashboard_tile",
+    "products.subscriptions.backend.presentation.views -> products.exports.backend.models.subscription",
+    "products.subscriptions.backend.presentation.views -> products.exports.backend.models.subscription_context",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
