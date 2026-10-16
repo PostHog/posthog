@@ -1884,17 +1884,28 @@ def get_ready_job_ids(
     placeholders: dict[str, ast.Expr] | None = None,
     sentinel_placeholders: set[str] | None = None,
     cache_key_context: dict[str, str] | None = None,
-) -> list[uuid.UUID]:
+    stale_while_revalidate_seconds: float = 0,
+    min_ready_age_seconds: float = 0,
+) -> LazyComputationResult:
     """Resolve the READY job_ids covering [start, end) for data populated by
     `ensure_precomputed` with the same (insert_query, placeholders, table).
 
     Read-only: it never triggers computation — callers that only want to READ a
     pre-populated table (e.g. the scheduled dimensional precompute) filter their
-    SELECT to `job_id IN (returned ids)`. Returns [] when nothing is ready, so the
-    caller can fall back to its non-precomputed path. The (insert_query, placeholders,
-    sentinel_placeholders, table, cache_key_context) must exactly match the writer's so the query_hash
-    lines up.
+    SELECT to `job_id IN (returned ids)`. Returns `ready=False` with no ids when nothing
+    is ready, so the caller can fall back to its non-precomputed path. The (insert_query,
+    placeholders, sentinel_placeholders, table, cache_key_context) must exactly match the
+    writer's so the query_hash lines up.
+
+    `stale_while_revalidate_seconds` also accepts READY jobs that expired within that many
+    seconds, for readers whose writer runs on a schedule rather than on demand.
+    `min_ready_age_seconds` skips READY jobs computed less than that many seconds ago, so
+    that an older overlapping job covers their window instead. Use it when the writer
+    skips the replica quorum (`read_after_write=False`): a job can turn READY before its
+    rows reach every replica, and a read on a lagging replica would under-count.
     """
+    if stale_while_revalidate_seconds >= EXPIRY_BUFFER_SECONDS:
+        raise ValueError("stale_while_revalidate_seconds must be below EXPIRY_BUFFER_SECONDS")
     query_info = _build_query_info_for_hash(
         insert_query=insert_query,
         base_placeholders=placeholders or {},
@@ -1908,15 +1919,35 @@ def get_ready_job_ids(
     # project-local bound would shift the checked days and accept partial coverage.
     time_range_start = _as_utc(time_range_start)
     time_range_end = _as_utc(time_range_end)
-    existing = find_existing_jobs(team, query_hash, time_range_start, time_range_end)
-    ready = filter_overlapping_jobs([j for j in existing if j.status == PreaggregationJob.Status.READY])
+    existing = find_existing_jobs(
+        team, query_hash, time_range_start, time_range_end, expired_grace_seconds=stale_while_revalidate_seconds
+    )
+    now = django_timezone.now()
+    settled_before = now - timedelta(seconds=min_ready_age_seconds)
+    # The age filter runs before the overlap filter. Otherwise the newest job wins the
+    # overlap, the age filter then drops it, and its window reads as uncovered although an
+    # older job still covers it.
+    # A job that predates `computed_at` falls back to `updated_at`, which the READY save
+    # also stamps, so the fallback is never earlier than the real READY time.
+    readable = [
+        j
+        for j in existing
+        if j.status == PreaggregationJob.Status.READY
+        and (min_ready_age_seconds <= 0 or (j.computed_at or j.updated_at) <= settled_before)
+    ]
+    ready = filter_overlapping_jobs(readable)
     # Only return ids when READY jobs fully cover [start, end). Partial coverage
     # (mid-backfill, or a day that expired/failed) would make a `job_id IN (ids)`
     # read silently drop the uncovered windows — so return nothing, signalling the
     # caller to fall back to its non-precomputed path instead of under-counting.
     if find_missing_contiguous_windows(ready, time_range_start, time_range_end):
-        return []
-    return [j.id for j in ready]
+        return LazyComputationResult(ready=False, job_ids=[])
+    return LazyComputationResult(
+        ready=True,
+        job_ids=[j.id for j in ready],
+        stale=any(j.expires_at is not None and j.expires_at < now for j in ready),
+        computed_at=_oldest_computed_at(ready),
+    )
 
 
 def _as_utc(value: datetime) -> datetime:

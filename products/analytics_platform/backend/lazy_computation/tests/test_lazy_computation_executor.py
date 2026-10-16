@@ -1,4 +1,5 @@
 import time as time_mod
+import uuid
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -274,7 +275,7 @@ class TestGetReadyJobIds(BaseTest):
         super().setUp()
         self.team.timezone = "America/Los_Angeles"
         self.team.save()
-        query_hash = compute_query_hash(
+        self.query_hash = compute_query_hash(
             _build_query_info_for_hash(
                 insert_query=self.INSERT_QUERY,
                 base_placeholders={},
@@ -287,7 +288,7 @@ class TestGetReadyJobIds(BaseTest):
         self.job_ids = {
             PreaggregationJob.objects.create(
                 team=self.team,
-                query_hash=query_hash,
+                query_hash=self.query_hash,
                 time_range_start=datetime(2024, 1, day, tzinfo=UTC),
                 time_range_end=datetime(2024, 1, day + 1, tzinfo=UTC),
                 status=PreaggregationJob.Status.READY,
@@ -309,10 +310,62 @@ class TestGetReadyJobIds(BaseTest):
         ]
     )
     def test_returns_ids_only_for_full_coverage(self, _name, start, end, expect_covered) -> None:
-        ids = get_ready_job_ids(
+        result = get_ready_job_ids(
             team=self.team, insert_query=self.INSERT_QUERY, time_range_start=start, time_range_end=end, table=self.TABLE
         )
-        assert set(ids) == (self.job_ids if expect_covered else set())
+        assert (result.ready, set(result.job_ids)) == ((True, self.job_ids) if expect_covered else (False, set()))
+
+    @parameterized.expand(
+        [
+            # (name, previous job expired this long ago or None for no previous job, newer job computed this long ago
+            #  or None for no newer job, min ready age, expected served job)
+            ("expired_within_grace_is_served", timedelta(minutes=10), None, 0, "previous"),
+            ("expired_past_grace_is_not_served", timedelta(minutes=40), None, 0, None),
+            ("settled_newer_job_wins", timedelta(minutes=10), timedelta(minutes=5), 120, "newer"),
+            ("too_new_job_yields_to_graced_previous", timedelta(minutes=10), timedelta(seconds=30), 120, "previous"),
+            ("too_new_job_without_previous_is_not_served", None, timedelta(seconds=30), 120, None),
+        ]
+    )
+    def test_grace_and_min_ready_age(
+        self,
+        _name: str,
+        previous_expired_ago: timedelta | None,
+        newer_computed_ago: timedelta | None,
+        min_ready_age_seconds: float,
+        expected: str | None,
+    ) -> None:
+        PreaggregationJob.objects.filter(team=self.team).delete()
+        now = django_timezone.now()
+
+        def create_job(expires_at: datetime, computed_at: datetime) -> uuid.UUID:
+            return PreaggregationJob.objects.create(
+                team=self.team,
+                query_hash=self.query_hash,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                status=PreaggregationJob.Status.READY,
+                expires_at=expires_at,
+                computed_at=computed_at,
+            ).id
+
+        job_ids: dict[str, uuid.UUID] = {}
+        if previous_expired_ago is not None:
+            job_ids["previous"] = create_job(now - previous_expired_ago, now - timedelta(hours=1))
+        if newer_computed_ago is not None:
+            job_ids["newer"] = create_job(now + timedelta(hours=1), now - newer_computed_ago)
+
+        result = get_ready_job_ids(
+            team=self.team,
+            insert_query=self.INSERT_QUERY,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            table=self.TABLE,
+            stale_while_revalidate_seconds=30 * 60,
+            min_ready_age_seconds=min_ready_age_seconds,
+        )
+
+        assert result.job_ids == ([job_ids[expected]] if expected else [])
+        assert result.stale is (expected == "previous")
 
 
 class TestClampRangesToDataHorizon(SimpleTestCase):

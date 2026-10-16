@@ -9,6 +9,7 @@ from posthog.schema import WebAnalyticsQueryModifiers
 
 from posthog.hogql import ast
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder import (
     WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
     WEB_STATS_DIMENSIONAL_READ_TABLE,
@@ -16,6 +17,7 @@ from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder i
 )
 
 _QB = "products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder"
+_READY = LazyComputationResult(ready=True, job_ids=[uuid.uuid4()])
 
 
 def _runner(opted_in: bool) -> MagicMock:
@@ -30,8 +32,8 @@ def _runner(opted_in: bool) -> MagicMock:
 
 
 class TestDimensionalReadSelection(SimpleTestCase):
-    @patch(f"{_QB}.web_bounces_dimensional_job_ids", return_value=[uuid.uuid4()])
-    @patch(f"{_QB}.web_stats_dimensional_job_ids", return_value=[uuid.uuid4()])
+    @patch(f"{_QB}.web_bounces_dimensional_ready_jobs", return_value=_READY)
+    @patch(f"{_QB}.web_stats_dimensional_ready_jobs", return_value=_READY)
     def test_opted_in_query_with_ready_data_reads_dimensional_and_filters_job_id(self, _mock_stats, _mock_bounces):
         builder = WebAnalyticsPreAggregatedQueryBuilder(_runner(True), {})
 
@@ -48,8 +50,8 @@ class TestDimensionalReadSelection(SimpleTestCase):
             "dimensional read WHERE must include job_id IN (...)"
         )
 
-    @patch(f"{_QB}.web_bounces_dimensional_job_ids", return_value=[uuid.uuid4()])
-    @patch(f"{_QB}.web_stats_dimensional_job_ids", return_value=[])
+    @patch(f"{_QB}.web_bounces_dimensional_ready_jobs", return_value=_READY)
+    @patch(f"{_QB}.web_stats_dimensional_ready_jobs", return_value=LazyComputationResult(ready=False, job_ids=[]))
     def test_opted_in_query_without_ready_data_falls_back_to_v2(self, _mock_stats, _mock_bounces):
         builder = WebAnalyticsPreAggregatedQueryBuilder(_runner(True), {})
 

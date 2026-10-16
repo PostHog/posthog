@@ -10,7 +10,7 @@ query-builder table selection and the `job_id IN` dedup filter applied through
 `StatsTablePreAggregatedQueryBuilder`.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
@@ -31,6 +31,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
+from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
@@ -48,6 +49,9 @@ DATE_TO = "2024-01-02"
 # (events only land on 01-01; the 01-02 window precomputes to an empty, still-READY job).
 WINDOW_START = datetime(2024, 1, 1, tzinfo=UTC)
 WINDOW_END = datetime(2024, 1, 3, tzinfo=UTC)
+
+# Relative to the real clock because the jobs' TTLs are, and older than the read's replica-lag guard.
+COMPUTED_AT = (datetime.now(UTC) - timedelta(hours=1)).replace(microsecond=0)
 
 LEGACY = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
 OPT_IN = WebAnalyticsQueryModifiers(useDimensionalTables=True)
@@ -137,6 +141,8 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             )
         ensure_web_stats_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
         ensure_web_bounces_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+        # Reads skip jobs that turned READY too recently to have replicated, so age them past that guard.
+        PreaggregationJob.objects.filter(team=self.team).update(computed_at=COMPUTED_AT)
 
     def _run(
         self,

@@ -10,6 +10,7 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.dataclasses import frozen
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.web_analytics.backend.hogql_queries.pre_aggregated.property_transformer import (
     ChannelTypeReplacer,
     PreAggregatedPropertyTransformer,
@@ -17,8 +18,8 @@ from products.web_analytics.backend.hogql_queries.pre_aggregated.property_transf
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
     WEB_STATS_DIMENSIONAL_READ_TABLE,
-    web_bounces_dimensional_job_ids,
-    web_stats_dimensional_job_ids,
+    web_bounces_dimensional_ready_jobs,
+    web_stats_dimensional_ready_jobs,
 )
 
 # V1 tables have been removed - always use v2 tables
@@ -39,25 +40,28 @@ class WebAnalyticsPreAggregatedQueryBuilder:
     def __init__(self, runner, supported_props_filters) -> None:
         self.runner = runner
         self.supported_props_filters = supported_props_filters
-        # Resolved once per build: "stats"/"bounces" -> READY dimensional job_ids.
-        self._dimensional_job_ids: dict[str, list[uuid.UUID]] = {}
+        # Resolved once per build: "stats"/"bounces" -> READY dimensional jobs.
+        self._dimensional_ready_jobs: dict[str, LazyComputationResult] = {}
 
-    def _job_ids_for(self, which: str) -> list[uuid.UUID]:
-        if which not in self._dimensional_job_ids:
+    def _ready_jobs_for(self, which: str) -> LazyComputationResult:
+        if which not in self._dimensional_ready_jobs:
             # Cover the compare period too, since both feed the same SELECT.
             start = self.runner.query_date_range.date_from()
             if self.runner.query_compare_to_date_range:
                 start = min(start, self.runner.query_compare_to_date_range.date_from())
             end = self.runner.query_date_range.date_to()
-            resolver = web_stats_dimensional_job_ids if which == "stats" else web_bounces_dimensional_job_ids
+            resolver = web_stats_dimensional_ready_jobs if which == "stats" else web_bounces_dimensional_ready_jobs
             try:
-                self._dimensional_job_ids[which] = resolver(self.runner.team, start, end)
+                self._dimensional_ready_jobs[which] = resolver(self.runner.team, start, end)
             except Exception:
                 # The dimensional read is optional, so a failed lookup must not fail the tile.
-                # An empty list makes the runner use the legacy or live path instead.
+                # A not-ready result makes the runner use the legacy or live path instead.
                 logger.exception("web_dimensional_ready_jobs_lookup_failed", team_id=self.runner.team.pk)
-                self._dimensional_job_ids[which] = []
-        return self._dimensional_job_ids[which]
+                self._dimensional_ready_jobs[which] = LazyComputationResult(ready=False, job_ids=[])
+        return self._dimensional_ready_jobs[which]
+
+    def _job_ids_for(self, which: str) -> list[uuid.UUID]:
+        return self._ready_jobs_for(which).job_ids
 
     def use_dimensional_tables(self) -> bool:
         """Serve opted-in queries from the dimensional precompute tables when both

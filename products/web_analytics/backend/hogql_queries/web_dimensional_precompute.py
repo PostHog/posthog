@@ -22,7 +22,6 @@ Parity with v2 is intentional, with two deliberate deviations:
     NULL, so they fit the non-nullable Int64 columns deterministically.
 """
 
-import uuid
 from datetime import datetime
 
 from posthog.schema import HogQLQueryModifiers
@@ -381,10 +380,23 @@ def ensure_web_bounces_dimensional_precomputed(
     )
 
 
-def web_stats_dimensional_job_ids(team: Team, time_range_start: datetime, time_range_end: datetime) -> list[uuid.UUID]:
-    """READY job_ids for the stats dimensional table covering [start, end). Read-only —
-    reuses the writer's insert template/placeholders so the query_hash matches. Empty
-    when nothing is ready (caller falls back to v2/live)."""
+# The hourly writer rebuilds today's window, and the read keeps serving the previous
+# generation while the rebuild runs or after a run fails. The grace stays far below
+# EXPIRY_BUFFER_SECONDS, so the ClickHouse rows of a graced job still exist.
+DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS = 30 * 60
+
+# The writers skip the replica quorum (`read_after_write=False`), so a job can turn READY
+# before its rows reach every replica. Reads skip a job this young and use the previous
+# generation, which the grace above keeps visible.
+DIMENSIONAL_READ_MIN_READY_AGE_SECONDS = 2 * 60
+
+
+def web_stats_dimensional_ready_jobs(
+    team: Team, time_range_start: datetime, time_range_end: datetime
+) -> LazyComputationResult:
+    """READY jobs for the stats dimensional table covering [start, end). Read-only —
+    reuses the writer's insert template/placeholders so the query_hash matches. Not
+    ready when nothing covers the range (caller falls back to v2/live)."""
     return get_ready_job_ids(
         team=team,
         insert_query=STATS_INSERT_TEMPLATE,
@@ -392,14 +404,16 @@ def web_stats_dimensional_job_ids(team: Team, time_range_start: datetime, time_r
         time_range_end=time_range_end,
         table=LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED,
         placeholders=_base_placeholders(),
+        stale_while_revalidate_seconds=DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS,
+        min_ready_age_seconds=DIMENSIONAL_READ_MIN_READY_AGE_SECONDS,
     )
 
 
-def web_bounces_dimensional_job_ids(
+def web_bounces_dimensional_ready_jobs(
     team: Team, time_range_start: datetime, time_range_end: datetime
-) -> list[uuid.UUID]:
-    """READY job_ids for the bounces dimensional table covering [start, end). See
-    `web_stats_dimensional_job_ids`."""
+) -> LazyComputationResult:
+    """READY jobs for the bounces dimensional table covering [start, end). See
+    `web_stats_dimensional_ready_jobs`."""
     return get_ready_job_ids(
         team=team,
         insert_query=BOUNCES_INSERT_TEMPLATE,
@@ -407,4 +421,6 @@ def web_bounces_dimensional_job_ids(
         time_range_end=time_range_end,
         table=LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED,
         placeholders=_base_placeholders(),
+        stale_while_revalidate_seconds=DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS,
+        min_ready_age_seconds=DIMENSIONAL_READ_MIN_READY_AGE_SECONDS,
     )
