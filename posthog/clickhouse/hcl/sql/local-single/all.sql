@@ -2240,6 +2240,8 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   response LowCardinality(String) DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_response',
   session_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$session_id',
   request_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_request_id',
+  properties_group_custom Map(String, String) MATERIALIZED mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))),
+  person_properties_map_custom Map(String, String) MATERIALIZED mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)'))),
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64,
@@ -2247,7 +2249,11 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   INDEX person_id_idx person_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX session_id_idx session_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX request_id_idx request_id TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
+  INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1,
+  INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter GRANULARITY 1,
+  INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter GRANULARITY 1,
+  INDEX person_properties_map_custom_keys_bf mapKeys(person_properties_map_custom) TYPE bloom_filter GRANULARITY 1,
+  INDEX person_properties_map_custom_values_bf mapValues(person_properties_map_custom) TYPE bloom_filter GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.flag_evaluations', '{replica}', _timestamp) ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_heatmaps (
   session_id String,
@@ -5359,6 +5365,55 @@ FROM
     GROUP BY
       team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, severity_text, attributes
   );
+CREATE MATERIALIZED VIEW posthog.logs34_to_pattern_buckets TO posthog.logs_pattern_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), pattern_version UInt8, pattern String, retention_days SimpleAggregateFunction(max, UInt16), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  namespace,
+  environment,
+  severity_text,
+  pattern_version,
+  pattern,
+  maxSimpleState(retention_days) AS retention_days,
+  sumSimpleState(1) AS log_count
+FROM
+  (
+    SELECT
+      team_id,
+      toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+      service_name,
+      if(
+        (resource_attributes['k8s.namespace.name']) != '',
+        resource_attributes['k8s.namespace.name'],
+        resource_attributes['service.namespace']
+      ) AS namespace,
+      if(
+        (resource_attributes['deployment.environment.name']) != '',
+        resource_attributes['deployment.environment.name'],
+        if(
+          (resource_attributes['deployment.environment']) != '',
+          resource_attributes['deployment.environment'],
+          resource_attributes['env']
+        )
+      ) AS environment,
+      lower(severity_text) AS severity_text,
+      pattern_version,
+      pattern,
+      toUInt16(
+        least(
+          intDiv(
+            greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0)
+            + 86399999999,
+            86400000000
+          ),
+          3650
+        )
+      ) AS retention_days
+    FROM posthog.logs34
+    WHERE pattern_version != 0
+  )
+GROUP BY
+  team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern;
 CREATE MATERIALIZED VIEW posthog.logs34_to_resource_attributes3 TO posthog.log_attributes3 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), severity_text LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
@@ -6801,6 +6856,8 @@ CREATE TABLE posthog.flag_evaluations (
   response LowCardinality(String) COMMENT 'column_materializer::properties::$feature_flag_response',
   session_id String COMMENT 'column_materializer::properties::$session_id',
   request_id String COMMENT 'column_materializer::properties::$feature_flag_request_id',
+  properties_group_custom Map(String, String),
+  person_properties_map_custom Map(String, String),
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64

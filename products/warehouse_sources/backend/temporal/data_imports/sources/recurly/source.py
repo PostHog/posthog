@@ -129,7 +129,7 @@ class RecurlySource(ResumableSource[RecurlySourceConfig, RecurlyResumeConfig]):
         return SourceResponse(
             name=resource.name,
             items=lambda: resource,
-            primary_keys=["id"],
+            primary_keys=list(RECURLY_ENDPOINTS[inputs.schema_name].primary_keys),
             column_hints=resource.column_hints,
             partition_count=1,
             partition_size=1,

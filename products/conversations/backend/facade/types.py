@@ -12,6 +12,8 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from posthog.dataclasses import frozen
+
 
 @dataclass(frozen=True)
 class SupportChannel:
@@ -126,6 +128,17 @@ class AccountEmailThreadSummary:
 class EmailThreadAddress:
     name: str
     email: str
+
+
+@frozen
+class RoleSlaBreach:
+    """Open tickets assigned to one of the viewer's roles, due inside the caller's window."""
+
+    role_id: UUID
+    role_name: str
+    ticket_count: int
+    soonest_ticket_number: int
+    soonest_due_at: datetime
 
 
 @dataclass(frozen=True)
