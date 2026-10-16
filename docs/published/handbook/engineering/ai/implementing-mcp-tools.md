@@ -90,6 +90,39 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
 
+## Intent prompt trials
+
+The MCP Analytics SDK adds a `context` argument asking the agent to explain why it calls a tool.
+The `mcp-intent-prompt` flag can select a different description for ordinary external MCP requests.
+Disabled flags, missing or invalid payloads, impersonation, and analytics-suppressed requests retain the SDK default.
+
+Keep prompt versions in Prompt management under `mcp-tool-call-intent`.
+Publish a version, then copy its immutable text into the flag payload:
+
+```json
+{
+  "prompt_name": "mcp-tool-call-intent",
+  "prompt_version": 2,
+  "prompt": "The exact published prompt text, including its privacy instructions."
+}
+```
+
+The payload is a snapshot: editing the managed prompt does not update it.
+Publish and copy a new version to change the trial.
+The server validates the name, positive integer version, and nonblank text of at most 2,000 characters.
+It reads the snapshot from the existing flag evaluation, without another prompt fetch during tool discovery.
+Start with a release condition matching one authenticated user's distinct ID; do not add an unconditional release condition.
+
+On a trial tool listing, the existing SDK `captureToolsList` response field records one tool's served `context` schema.
+This bounded projection excludes the command reference and other tool arguments.
+Compare that description against the immutable prompt version to establish which text the server supplied.
+The flag's current value alone does not prove exposure: clients cache schemas and may need a fresh connection.
+Calls without a matching observed listing have unknown prompt exposure.
+
+This collection trial changes no tool results and adds no recommendations or elicitation.
+Evaluate intent against independently recorded abstract task goals, checking invented goals, identifying details, and appropriate uncertainty.
+Prompt experiments can manage later variant assignments; their generation metrics require instrumented LLM calls and do not automatically observe an external client's intent generation.
+
 ## Interview recruitment with URL elicitation
 
 > [!CAUTION]

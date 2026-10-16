@@ -27,6 +27,7 @@ import type { Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/to
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { type IntentPrompt, MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
     type InterviewRecruitmentConfig,
     resolveInterviewRecruitmentConfig,
@@ -50,6 +51,7 @@ export interface ResolvedState {
     useSingleExec: boolean
     toolFeatureFlags: EvaluatedFlags | undefined
     interviewRecruitmentConfig?: InterviewRecruitmentConfig
+    intentPrompt?: IntentPrompt
     apiKeyScopes: string[]
     isImpersonated?: boolean
     suppressAnalytics?: boolean
@@ -170,6 +172,7 @@ export class RequestStateResolver {
                 MCP_GATEWAY_FLAG,
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
+                MCP_INTENT_PROMPT_FLAG,
             ]),
         ]
 
@@ -223,6 +226,10 @@ export class RequestStateResolver {
         // even when no catalog tool referenced it.
         const flagKeysForState = [...new Set([...allFlagKeys, ...Object.keys(overrides)])]
         const toolFeatureFlags = Object.fromEntries(flagKeysForState.map((k) => [k, mergedFlags[k]]))
+        const intentPrompt =
+            source === EVENT_SOURCE.MCP && !_apiKey?.is_impersonated && !props.suppressAnalytics
+                ? resolveIntentPrompt(mergedFlags[MCP_INTENT_PROMPT_FLAG], payloads[MCP_INTENT_PROMPT_FLAG])
+                : undefined
 
         const clientProfile = new MCPClientProfile({
             clientName: clientContext.mcpClientName,
@@ -289,6 +296,7 @@ export class RequestStateResolver {
             useSingleExec,
             toolFeatureFlags,
             interviewRecruitmentConfig,
+            intentPrompt,
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,
@@ -429,10 +437,15 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Recruitment still needs an explicit override so development tasks do not ask for interviews.
+        // Optional prompt trials need explicit opt-in even when product surfaces default on locally.
         if (isLocalApi()) {
             return {
-                flags: Object.fromEntries(flagKeys.map((key) => [key, key !== MCP_INTERVIEW_RECRUITMENT_FLAG])),
+                flags: Object.fromEntries(
+                    flagKeys.map((key) => [
+                        key,
+                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG && key !== MCP_INTENT_PROMPT_FLAG,
+                    ])
+                ),
                 payloads: {},
             }
         }

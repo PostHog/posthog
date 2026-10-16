@@ -30,6 +30,7 @@ vi.mock('@/lib/posthog', async () => {
 })
 
 import { InstructionsBuilder } from '@/hono/instructions'
+import { type IntentPrompt, MCP_INTENT_PROMPT_NAME } from '@/hono/intent-prompt'
 import { toolCallsTotal } from '@/hono/metrics'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
@@ -197,21 +198,61 @@ describe('ToolExecutor analytics capture', () => {
         expect(state.context.api.config.onPrivateResponse).toBeUndefined()
     })
 
-    it('injects the analytics arguments into advertised tools', async () => {
-        const state = makeToolExecutorState([], { useSingleExec: true })
+    it.each([true, false])(
+        'isolates intent descriptions and captures the served schema with single exec=%s',
+        async (useSingleExec) => {
+            const tool = catalog.getFilteredTools({ scopes: ['*'] }).find((entry) => entry.name === 'projects-get')!
+            const state = makeToolExecutorState([tool], { useSingleExec })
+            const capture = vi.spyOn(getPostHogClient(), 'captureToolsList').mockImplementation(() => {})
+            const prompt: IntentPrompt = {
+                prompt_name: MCP_INTENT_PROMPT_NAME,
+                prompt_version: 2,
+                prompt: 'State the task objective before the tool action. Omit identifying details.',
+            }
 
-        const result = await executor.handleToolsList(state)
+            const result = await executor.handleToolsList(state)
+            const treatment = await executor.handleToolsList({
+                ...state,
+                distinctId: 'trial-user',
+                intentPrompt: prompt,
+            })
+            const other = await executor.handleToolsList({ ...state, distinctId: 'another-user' })
+            vi.spyOn(getPostHogClient(), 'prepareToolList').mockImplementationOnce(() => {
+                throw new Error('Synthetic SDK preparation failure')
+            })
+            const fallback = await executor.handleToolsList({ ...state, intentPrompt: prompt })
+            await new Promise<void>((resolve) => setImmediate(resolve))
 
-        const execEntry = result.tools.find((t) => t.name === 'exec')!
-        const properties = execEntry.inputSchema.properties as Record<string, unknown>
-        // The SDK injects `context` (required, to nudge the agent to state intent)
-        // while leaving the existing `command` arg untouched.
-        expect(properties).toHaveProperty('context')
-        expect(properties).toHaveProperty('llm_model')
-        expect(properties).toHaveProperty('command')
-        expect(execEntry.inputSchema.required).toContain('context')
-        expect(execEntry.inputSchema.required).toContain('llm_model')
-    })
+            const entry = result.tools[0]!
+            const properties = entry.inputSchema.properties as Record<string, unknown>
+            expect(properties).toHaveProperty('context')
+            expect(properties).toHaveProperty('llm_model')
+            expect(entry.inputSchema.required).toContain('context')
+            expect(entry.inputSchema.required).toContain('llm_model')
+            expect(treatment.tools[0]!.inputSchema.properties?.context).toMatchObject({ description: prompt.prompt })
+            expect(other.tools[0]!.inputSchema.properties?.context).toEqual(properties.context)
+            expect(properties.context).not.toEqual(treatment.tools[0]!.inputSchema.properties?.context)
+            expect(fallback.tools[0]!.inputSchema.properties).not.toHaveProperty('context')
+            if (useSingleExec) {
+                expect(properties).toHaveProperty('command')
+            }
+            const recorded = capture.mock.calls.filter(([call]) => call.response !== undefined)
+            expect(recorded).toHaveLength(1)
+            expect(recorded[0]![0]).toMatchObject({
+                distinctId: 'trial-user',
+                toolNames: treatment.tools.map((advertised) => advertised.name),
+                response: {
+                    tools: [
+                        {
+                            name: treatment.tools[0]!.name,
+                            inputSchema: { properties: { context: { description: prompt.prompt } } },
+                        },
+                    ],
+                },
+            })
+            expect(JSON.stringify(recorded[0]![0].response)).not.toContain('command')
+        }
+    )
 
     it.each([
         {

@@ -1,3 +1,4 @@
+import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 import { randomUUID } from 'node:crypto'
 
 import type { MCPAnalyticsIntentSource, MCPAnalyticsModelSource } from '@posthog/mcp-analytics'
@@ -531,7 +532,11 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
     }
 }
 
-export async function trackToolsList(toolNames: string[], state: ResolvedState): Promise<void> {
+export async function trackToolsList(
+    toolNames: string[],
+    state: ResolvedState,
+    response?: Pick<ListToolsResult, 'tools'>
+): Promise<void> {
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
 
@@ -544,6 +549,7 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
         // "advertised but never called" analysis.
         getPostHogClient().captureToolsList({
             toolNames,
+            ...(response ? { response } : {}),
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
