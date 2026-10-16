@@ -8,6 +8,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { IntegrationType } from '~/types'
 
+import { getIntegrationsAuthorizeRetrieveUrl } from 'products/integrations/frontend/generated/api'
+
 import type { SDK } from '../../../../types'
 import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
 // onboardingLogic gives the GitHub-connect return URL for the active flow, and sdksLogic carries the
@@ -92,7 +94,7 @@ export interface wizardCloudRunLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         githubIntegration: (integrations: IntegrationType[] | null) => IntegrationType | null
         isGithubConnected: (githubIntegration: IntegrationType | null) => boolean
-        connectGitHubUrl: (installStepReturnUrl: string) => string
+        connectGitHubUrl: (currentProjectId: number | string, installStepReturnUrl: string) => string
         skillId: (selectedSDK: SDK | null) => string | undefined
     }
 }
@@ -191,14 +193,16 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
             (githubIntegration: IntegrationType | null): boolean => !!githubIntegration,
         ],
         connectGitHubUrl: [
-            (s) => [s.installStepReturnUrl],
-            (installStepReturnUrl: string): string => {
+            (s) => [s.currentProjectId, s.installStepReturnUrl],
+            (currentProjectId: number | string, installStepReturnUrl: string): string =>
                 // Full-page redirect to install/authorize the GitHub App, then back to
                 // the install step. integrationsLogic's callback appends the new
                 // integration id, and loadIntegrations() repopulates githubIntegration,
                 // so the block advances from "connect" to "pick a repo" on return.
-                return api.integrations.authorizeUrl({ kind: 'github', next: installStepReturnUrl })
-            },
+                `${getIntegrationsAuthorizeRetrieveUrl(String(currentProjectId))}?${new URLSearchParams({
+                    kind: 'github',
+                    next: installStepReturnUrl,
+                })}`,
         ],
         // The cloud wizard auto-detects the framework, so this is a hint rather than a
         // requirement — only set when the user happens to have picked an SDK manually.
