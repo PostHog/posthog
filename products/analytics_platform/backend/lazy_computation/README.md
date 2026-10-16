@@ -136,7 +136,7 @@ The code holds the current values.
 
 ### Freshness and expiry
 
-- **Freshness is per reader, expiry is per creator (#47942).** A job's `expires_at` comes from the TTL of the caller that built it, but each reader judges freshness against its own schedule. Callers with different freshness needs share one job, and a stricter reader builds a replacement instead of forcing its TTL on everyone.
+- **Freshness is per reader, expiry is per creator (#47942).** A job's `expires_at` comes from the TTL of the caller that built it, but each reader judges freshness against its own schedule. The fresh lookup drops jobs past `expires_at`; a reader with `stale_while_revalidate_seconds` set still serves jobs inside that grace. Callers with different freshness needs share one job, and a stricter reader builds a replacement instead of forcing its TTL on everyone.
 - **No force-rebuild parameter.** A builder that wants a window rebuilt early gives it a shorter TTL, which makes the existing job stale for that builder only. The shorter TTL also stamps a shorter `expires_at` on the new job, so readers rely on stale-while-revalidate to cover the gap until the next build.
 - **Stale-while-revalidate (#70080).** User reads that would block on a rebuild get recently expired, complete rows at once, and the caller rebuilds in the background. The grace stays under the ClickHouse expiry buffer, because the rows are deleted after it.
 - **Refreshers never get the grace (#70563).** A refresher served its own stale rows stores them as a fresh result and never recomputes, so nothing refreshes again. The rule lives in `stale_policy.py` so every product uses the same one.

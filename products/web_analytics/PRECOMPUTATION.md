@@ -144,6 +144,8 @@ Stored via the `LAZY_TTL_SECONDS` dict in `web_lazy_precompute_common.py` (see t
 For the framework mechanisms behind it, see [design decisions](../analytics_platform/backend/lazy_computation/README.md#design-decisions).
 
 A user forced refresh treats today's bucket as expired for that read only (#86699): the 4-hour today band otherwise left hourly graphs hours behind after a Reload.
+The forced read goes live, but the stored bucket is not rebuilt early: the revalidation it enqueues runs as a background build with the normal TTL, finds the job still fresh, and reuses it.
+Later non-forced reads keep serving that bucket until its normal TTL lapses.
 Background builds never get this rule, because the same schedule stamps `expires_at` and the revalidation task runs in the forced mode, so it would store buckets that expire after 1 second.
 A forced refresh also never gets the stale grace, or repeated Reloads kept serving the stale row they were meant to clear (#73693).
 
