@@ -126,7 +126,6 @@ export type metricVariableEditorLogicType = MakeLogicType<
     metricVariableEditorLogicMeta
 >
 
-/** A variable that changes its source drops the settings that the new source does not use. */
 function withSourceSettings(variable: MetricsDashboardVariable, previousSource: string): MetricsDashboardVariable {
     if (variable.source === previousSource || variable.source !== 'textbox') {
         return variable
@@ -158,7 +157,6 @@ function newVariableName(variables: MetricsDashboardVariable[]): string {
     return `var${index}`
 }
 
-/** Problems that stop the variables from being saved, by variable name. */
 export function variableErrors(variables: MetricsDashboardVariable[]): Record<string, MetricVariableError> {
     // A null prototype, so a variable named `__proto__` gets its own entry.
     const errors: Record<string, MetricVariableError> = Object.create(null)

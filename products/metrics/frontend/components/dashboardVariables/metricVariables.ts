@@ -22,7 +22,7 @@ export function referencedNames(text: string | null | undefined): string[] {
     return [...names]
 }
 
-/** The variables that a variable's options query refers to. A query that refers to its own variable is a loop. */
+/** Includes the variable itself when its query refers to it, so that `orderVariables` reports the loop. */
 export function variableParents(variable: MetricsDashboardVariable, variables: MetricsDashboardVariable[]): string[] {
     if (variable.source !== 'promql' && variable.source !== 'sql') {
         return []
@@ -31,7 +31,6 @@ export function variableParents(variable: MetricsDashboardVariable, variables: M
     return referencedNames(variable.query).filter((name) => names.has(name))
 }
 
-/** The variable names in an order where each variable comes after the variables its query refers to. */
 export function orderVariables(variables: MetricsDashboardVariable[]): { order: string[]; cycle: string[] } {
     const parents = new Map(variables.map((variable) => [variable.name, variableParents(variable, variables)]))
     const order: string[] = []
@@ -50,7 +49,6 @@ export function orderVariables(variables: MetricsDashboardVariable[]): { order: 
     return { order, cycle: variables.map((variable) => variable.name).filter((name) => !placed.has(name)) }
 }
 
-/** The variables whose options depend on any of `names`, directly or through other variables. */
 export function dependentsOf(variables: MetricsDashboardVariable[], names: string[]): string[] {
     const found = new Set<string>()
     const queue = [...names]
@@ -119,9 +117,7 @@ export function applyVariableRegex(options: string[], regex: string | null | und
     return [...new Set(matched)]
 }
 
-/** The selection after the options change: a value that is gone is replaced.
-
-All keeps no values, so a high-cardinality variable does not make the dashboard URL too long. */
+/** All keeps no values, so that a high-cardinality variable does not make the dashboard URL too long. */
 export function reconcileSelection(
     variable: MetricsDashboardVariable,
     options: string[]
@@ -139,7 +135,6 @@ export function reconcileSelection(
     return options.length ? { values: [options[0]] } : null
 }
 
-/** The selection for the values picked in a select. Picking every option of a variable with All means All. */
 export function selectionFromValues(
     variable: MetricsDashboardVariable,
     values: string[],

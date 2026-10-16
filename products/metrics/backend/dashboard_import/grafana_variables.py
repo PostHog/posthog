@@ -17,7 +17,6 @@ from products.metrics.backend.variables import (
 
 _SKIPPED_TYPES = frozenset({"datasource", "adhoc", "groupby"})
 ALL_VALUE = "$__all"
-# The Grafana query variable functions that a promql dashboard variable runs.
 _PROMQL_VARIABLE_QUERY = re.compile(r"^\s*(label_values|label_names|metrics|query_result)\s*\(", re.IGNORECASE)
 
 

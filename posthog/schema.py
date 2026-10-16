@@ -7130,11 +7130,7 @@ class MetricsVariableValue(BaseModel):
     allValue: str | None = None
     definition: MetricsDashboardVariable | None = Field(
         default=None,
-        description=(
-            "The variable's definition, when SQL needs the options of All. The runner"
-            " loads them when the query runs, after its access checks, so a cached"
-            " result runs no options query."
-        ),
+        description=("The definition of a variable set to All, so that a SQL query can load its options."),
     )
     values: list[str]
 

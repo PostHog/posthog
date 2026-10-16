@@ -31,7 +31,6 @@ const QUERY_HELP: Record<'promql' | 'sql', string> = {
 }
 const PREVIEW_LIMIT = 60
 
-/** The settings of the selected dashboard variable in the variable editor. */
 export function MetricVariableForm({ variable }: { variable: MetricsDashboardVariable }): JSX.Element {
     const { draft, selectedIndex, shownErrors, preview, previewError, previewLoading } =
         useValues(metricVariableEditorLogic)

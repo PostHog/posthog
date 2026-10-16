@@ -628,7 +628,7 @@ export const getMetricsVariableOptionsCreateUrl = (projectId: string) => {
 }
 
 /**
- * The options of one dashboard variable. Backs the variable selects on dashboards.
+ * The options of one dashboard variable, for the variable selects on dashboards.
  */
 export const metricsVariableOptionsCreate = async (
     projectId: string,

@@ -1,7 +1,4 @@
-"""The options of a metrics dashboard variable, from a static list or a PromQL or SQL query.
-
-The query can refer to other variables, so a variable can depend on the selection of another one.
-"""
+"""The options of a metrics dashboard variable, from a static list or a PromQL or SQL query."""
 
 from __future__ import annotations
 
@@ -53,7 +50,6 @@ _REGEX_QUERY = "SELECT arrayDistinct(arrayFilter(x -> match(x, {pattern}), {opti
 _REGEX_WITH_GROUP_QUERY = (
     "SELECT arrayDistinct(arrayMap(x -> extract(x, {pattern}), arrayFilter(x -> match(x, {pattern}), {options})))"
 )
-# The dashboard selects and the SQL tiles that use a variable set to All share the options for this long.
 _OPTIONS_CACHE_SECONDS = 60
 # Tiles of one dashboard run at the same time. One of them loads the options and holds a lock while it runs.
 # The lock outlasts the slowest query, a 60 second Snuffle or ClickHouse query, so a slow query runs only once.

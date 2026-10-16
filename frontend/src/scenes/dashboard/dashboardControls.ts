@@ -46,7 +46,7 @@ const CONTROLS_BY_QUERY_KIND: Partial<Record<NodeKind, DashboardControl[]>> = {
 
 export function dashboardControlsForQuery(query: Node | null | undefined): DashboardControl[] {
     const source = isNodeWithSource(query) ? query.source : query
-    // Label filters are added to builder clauses only; PromQL and SQL text is not rewritten. Variables reach all three.
+    // Label filters reach builder clauses only, because PromQL and SQL text is not rewritten for them. Variables reach all three languages.
     const metricsLanguage = source?.kind === NodeKind.MetricsQuery ? (source as MetricsQuery).language : undefined
     if (metricsLanguage && metricsLanguage !== 'builder') {
         return ['dateRange', 'metricVariables']

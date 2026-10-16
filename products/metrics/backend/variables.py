@@ -140,7 +140,6 @@ def from_dashboard(definitions: Iterable[MetricsDashboardVariable] | None) -> di
 
 
 def from_query(values: Mapping[str, MetricsVariableValue] | None) -> dict[str, Variable]:
-    """The variables that a dashboard set on a metrics query."""
     return {
         name: Variable(values=tuple(value.values), is_all=bool(value.all), all_value=value.allValue or None, options=())
         for name, value in (values or {}).items()
@@ -344,7 +343,6 @@ def _anchored_alternation(values: Iterable[str]) -> str:
 
 
 def substitute_filter(metric_filter: MetricsQueryFilter, variables: Mapping[str, Variable]) -> FilterSubstitution:
-    """Put the variable values in one builder filter."""
     negated = metric_filter.op in (MetricsFilterOp.NEQ, MetricsFilterOp.NOT_REGEX)
     is_regex = metric_filter.op in (MetricsFilterOp.REGEX, MetricsFilterOp.NOT_REGEX)
     match = REFERENCE.fullmatch(metric_filter.value.strip())

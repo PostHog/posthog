@@ -57720,7 +57720,7 @@ export namespace Schemas {
       /** True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the filter, and SQL gets `values`, which the dashboard fills with every option of the variable. */
       all?: boolean | null;
       allValue?: string | null;
-      /** The variable's definition, when SQL needs the options of All. The runner loads them when the query runs, after its access checks, so a cached result runs no options query. */
+      /** The definition of a variable set to All, so that a SQL query can load its options. */
       definition?: MetricsDashboardVariable | null;
       values: string[];
     }

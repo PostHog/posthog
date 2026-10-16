@@ -16,7 +16,6 @@ const SOURCE_LABELS: Record<MetricsDashboardVariable['source'], string> = {
     textbox: 'Text input',
 }
 
-/** Adds, changes, orders and removes the metric variables of a dashboard. */
 export function MetricVariablesModal({
     dashboardId,
     variables,

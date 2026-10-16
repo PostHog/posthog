@@ -1111,7 +1111,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
     def variable_options(self, request: Request, *args, **kwargs) -> Response:
-        """The options of one dashboard variable. Backs the variable selects on dashboards."""
+        """The options of one dashboard variable, for the variable selects on dashboards."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         body = _MetricVariableOptionsRequestSerializer(data=request.data)

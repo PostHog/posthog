@@ -763,7 +763,7 @@ export const MetricsValuesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * The options of one dashboard variable. Backs the variable selects on dashboards.
+ * The options of one dashboard variable, for the variable selects on dashboards.
  */
 export const metricsVariableOptionsCreateBodyQueryMax = 10000
 

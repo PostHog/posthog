@@ -16,7 +16,6 @@ import { MetricVariablesModal } from './MetricVariablesModal'
 
 const NO_VARIABLES: MetricsDashboardVariable[] = []
 
-/** The dashboard's metric variables: one select per variable, and a button that opens the variable editor. */
 export function DashboardMetricVariables(): JSX.Element | null {
     const { dashboard, dashboardEditing, effectiveEditBarFilters } = useValues(dashboardLogic)
     const { setMetricVariables, setDashboardEditing } = useActions(dashboardLogic)

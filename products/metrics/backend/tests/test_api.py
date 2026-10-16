@@ -83,7 +83,6 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
         assert results == [["api", "worker"]] * 8
 
     def test_the_dashboard_select_fills_the_cache_that_tiles_read(self) -> None:
-        # The select sends the dashboard date filter as written, and the tile resolves the same filter.
         window = metrics_query_date_range(self.team, DateRange(date_from="-6h"))
         too_long = "x" * 1025
         with patch(

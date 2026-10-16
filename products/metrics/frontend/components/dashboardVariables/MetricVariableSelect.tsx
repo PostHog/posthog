@@ -10,7 +10,6 @@ import type { MetricsDashboardVariable, MetricsDashboardVariableSelection } from
 
 import { ALL_OPTION, MAX_VALUE_LENGTH, selectionFromValues } from './metricVariables'
 
-/** One dashboard variable: a select of its options, or a text input for a free-text variable. */
 export function MetricVariableSelect({
     variable,
     options,
