@@ -5,7 +5,8 @@ use std::time::Duration;
 /// Memory-only implementation of IdentifyCache using moka for when Redis is not available
 #[derive(Clone)]
 pub struct MemoryIdentifyCache {
-    cache: Cache<String, ()>, // Key -> presence marker
+    cache: Cache<String, ()>,          // Key -> presence marker
+    device_counts: Cache<String, u64>, // User key -> distinct devices seen
 }
 
 impl MemoryIdentifyCache {
@@ -15,8 +16,15 @@ impl MemoryIdentifyCache {
             .time_to_live(ttl)
             .max_capacity(max_capacity)
             .build();
+        let device_counts = Cache::builder()
+            .time_to_live(ttl)
+            .max_capacity(max_capacity)
+            .build();
 
-        Self { cache }
+        Self {
+            cache,
+            device_counts,
+        }
     }
 
     /// Create with default settings (10K entries, 30 min TTL)
@@ -61,6 +69,15 @@ impl super::IdentifyCache for MemoryIdentifyCache {
         let key = Self::make_key(team_id, user_id, device_id);
         self.cache.insert(key, ());
         Ok(())
+    }
+
+    fn increment_user_device_count(&self, team_id: i32, user_id: &str) -> Result<u64, Error> {
+        let key = format!("devices:{team_id}:{}", urlencoding::encode(user_id));
+        let entry = self
+            .device_counts
+            .entry(key)
+            .and_upsert_with(|current| current.map_or(1, |e| e.into_value() + 1));
+        Ok(entry.into_value())
     }
 }
 
