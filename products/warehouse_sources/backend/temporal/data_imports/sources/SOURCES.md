@@ -731,6 +731,7 @@ the row lists both.
 | scale_ai                         | HTTP                        | requests                                                        | ✅                          |
 | scaleway                         | HTTP                        | requests                                                        | ✅                          |
 | scalr                            | HTTP                        | requests                                                        | ✅                          |
+| schematic                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | scrunch                          | HTTP                        | requests                                                        | ✅                          |
 | secoda                           | HTTP                        | requests                                                        | ✅                          |
 | secureframe                      | HTTP                        | requests                                                        | ✅                          |
@@ -1416,7 +1417,6 @@ doesn't conflict with concurrent PRs.
 - savvycal
 - scale_ai
 - scaleway
-- schematic
 - search_ads_360
 - sec_edgar
 - secureframe
