@@ -750,6 +750,7 @@ export interface taxonomicFilterLogicMeta {
                 excludedProperties: TaxonomicFilterGroupValueMap
                 includeHiddenEvents: boolean | undefined
                 propertyAllowList: TaxonomicFilterGroupValueMap | undefined
+                showNumericalPropsOnly: boolean | undefined
             },
             metadataPropertyDefinitionsByType: {
                 event: PropertyDefinition[]
