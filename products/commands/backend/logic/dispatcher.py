@@ -11,8 +11,8 @@ Every command passes the same steps, in this order, before its handler runs:
    ``review``, the project that owns the repository in PostHog Review. Membership and access are
    checked only there, and the requester's linked accounts must include a member of one of them.
    With several linked accounts, the member the channel lists first acts.
-4. The subject allows the command, for example the pull request is open, and the command allows
-   forks if the head is a fork.
+4. The command accepts the kind of subject, and the subject allows the command: for a pull request,
+   it is open, and the command allows forks if the head is a fork.
 5. The account has the access the command declares on the project, in PostHog access control.
 """
 
@@ -29,12 +29,11 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import UserAccessControl
 
-from .commands import Answer, CommandContext, CommandRequest, DispatchOutcome, ProjectMember
-from .github import CommandGitHub
+from .commands import SUBJECT_NAMES, Answer, CommandContext, CommandRequest, DispatchOutcome, ProjectMember
 from .identity import Requester, resolve_requester
 from .registry import COMMANDS, CommandSpec, Invocation, help_text
 from .schema import HELP_VERB, ArgumentError, ResourceAccess, resolve_verb, usage
-from .subjects import PullRequestSubject
+from .subjects import Subject
 
 logger = structlog.get_logger(__name__)
 
@@ -49,10 +48,10 @@ COMMANDS_TOTAL = Counter(
 class Admission:
     """A request the channel let through, with what the shared steps need from it."""
 
-    # Projects on the installation in the channel's rollout, oldest integration first. A command
-    # runs only in one of them.
+    # The subject's projects in the channel's rollout, in the subject's order. A command runs only
+    # in one of them.
     team_ids: tuple[int, ...]
-    github: CommandGitHub
+    subject: Subject
 
 
 class CommandChannel(Protocol):
@@ -92,8 +91,8 @@ class CommandDispatcher:
             channel=self._channel.name,
             verb=verb_label,
             outcome=outcome,
-            repository=request.subject.repository,
-            pr_number=request.subject.number,
+            subject_kind=request.subject.kind,
+            subject=request.subject.describe(),
         )
         return outcome
 
@@ -110,7 +109,7 @@ class CommandDispatcher:
             self._channel.reply(command.message)
             return command.outcome
 
-        return self._run(command, admission.team_ids, admission.github)
+        return self._run(command, admission)
 
     def _runnable_command(self, spec: CommandSpec[Any] | None) -> Invocation[Any] | Answer:
         """The command to run, or the answer to a request that needs no PostHog account: help, and
@@ -122,19 +121,21 @@ class CommandDispatcher:
             return Answer(outcome="help", message=help_text())
         if spec is None:
             return Answer(outcome="unknown_command", message="I don't know that command.\n\n" + help_text())
+        if request.subject.kind not in spec.declaration.subject_kinds:
+            return Answer(
+                outcome="wrong_subject",
+                message=f"`{spec.declaration.verb}` doesn't run on {SUBJECT_NAMES[request.subject.kind]}.",
+            )
         invocation = spec.parse(request.argument)
         if isinstance(invocation, ArgumentError):
             return Answer(outcome="invalid_arguments", message=f"{invocation.reason} Use `{usage(spec.declaration)}`.")
         return invocation
 
-    def _command_context(
-        self, spec: CommandSpec[Any], team_ids: tuple[int, ...], github: CommandGitHub
-    ) -> CommandContext | Answer:
+    def _command_context(self, spec: CommandSpec[Any], admission: Admission) -> CommandContext | Answer:
         request = self._channel.request
         declaration = spec.declaration
-        not_member_message = (
-            "You aren't a member of a PostHog project that uses pull request commands on this repository."
-        )
+        team_ids = admission.team_ids
+        not_member_message = admission.subject.not_member_message
         # The command's product names the projects it acts in first, so membership and access are
         # checked only there.
         if spec.target is not None:
@@ -152,9 +153,9 @@ class CommandDispatcher:
         if not members:
             return Answer(outcome="no_project", message=not_member_message)
 
-        pull_request = PullRequestSubject(request.subject, github).facts(declaration)
-        if isinstance(pull_request, Answer):
-            return pull_request
+        subject = admission.subject.facts(declaration)
+        if isinstance(subject, Answer):
+            return subject
 
         access = declaration.access
         if access is not None:
@@ -164,21 +165,19 @@ class CommandDispatcher:
                     outcome="access_denied",
                     message=f"You need {access.level} access to {access.resource} in PostHog to use `{declaration.verb}`.",
                 )
-        return CommandContext(request=request, pull_request=pull_request, members=members)
+        return CommandContext(request=request, subject=subject, members=members)
 
-    def _run(self, command: Invocation[Any], team_ids: tuple[int, ...], github: CommandGitHub) -> DispatchOutcome:
+    def _run(self, command: Invocation[Any], admission: Admission) -> DispatchOutcome:
         """Builds the context and runs the handler. A failure in either answers the requester."""
         verb = command.spec.declaration.verb
         try:
-            context = self._command_context(command.spec, team_ids, github)
+            context = self._command_context(command.spec, admission)
             if isinstance(context, Answer):
                 self._channel.reply(context.message)
                 return context.outcome
             outcome = command.run(context)
         except GitHubRateLimitError:
-            self._channel.reply(
-                "GitHub is limiting how fast PostHog can work on this repository. Try again in a few minutes."
-            )
+            self._channel.reply("GitHub is limiting how fast PostHog can work right now. Try again in a few minutes.")
             return "failed"
         except Exception as error:
             capture_exception(error)

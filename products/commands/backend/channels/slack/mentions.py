@@ -1,4 +1,4 @@
-"""Commands from Slack mentions: which installation, who may ask, and how the answer goes back.
+"""Commands from Slack mentions: what they act on, who may ask, and how the answer goes back.
 
 The Slack app hands every mention it would give its agent to ``accept_slack_mention``, inside the
 Slack webhook. ``read_slack_command`` takes it only when it reads exactly as a command and its
@@ -7,9 +7,11 @@ gives people the agent back. The rollout and the projects a command may reach ar
 once, and the task trusts them. The run happens in this product's task, and the answer goes out
 through the Slack integration the mention came in on.
 
-A Slack command needs no GitHub permission check: it runs as a PostHog account that is a member
-of the project, the same as the review trigger in the PostHog API and MCP. It reaches only
-projects of organizations that connected this Slack workspace, the same scope the agent has.
+The message names its subject by URL. For a pull request, the GitHub App installation on the
+repository owner tells which projects may act on it. A Slack command needs no GitHub permission
+check: it runs as a PostHog account that is a member of the project, the same as the review
+trigger in the PostHog API and MCP. It reaches only projects of organizations that connected this
+Slack workspace, the same scope the agent has.
 """
 
 from collections.abc import Collection
@@ -24,12 +26,13 @@ from posthog.slack.markdown import slack_markdown_block
 
 from ...facade.contracts import SlackMention
 from ...logic.admission import claim, rolled_out_team_ids, within_rate_limit
-from ...logic.commands import Answer, CommandRequest, DispatchOutcome, PullRequestRef
+from ...logic.commands import Answer, CommandRequest, DispatchOutcome, PullRequestRef, SubjectRef
 from ...logic.dispatcher import Admission, CommandDispatcher
-from ...logic.github import CommandGitHub, InstallationGitHub
+from ...logic.github import CommandGitHub
 from ...logic.registry import COMMANDS
 from ...logic.schema import ArgumentError, resolve_verb
-from .parsing import parse_slack_command
+from ...logic.subjects import open_subject
+from .parsing import SubjectUrl, parse_slack_command
 
 logger = structlog.get_logger(__name__)
 
@@ -40,12 +43,10 @@ ROLLOUT_FLAG = "slack-commands"
 class SlackCommandRequest:
     """Everything the task needs: the command, where it may run, and the thread it answers in."""
 
-    installation_id: str
-    # Projects on the installation, in the rollout and in the organizations that connected the
-    # Slack workspace, oldest integration first.
+    subject: SubjectRef
+    # The subject's projects in the rollout and in the organizations that connected the Slack
+    # workspace, in the subject's order.
     team_ids: tuple[int, ...]
-    repository: str
-    pr_number: int
     verb: str
     argument: str
     slack_team_id: str
@@ -72,8 +73,16 @@ def _installation_id(owner: str, organization_ids: Collection[str]) -> str | Non
     return integration.integration_id if integration is not None else None
 
 
+def _subject_ref(url: SubjectUrl, organization_ids: Collection[str]) -> SubjectRef | None:
+    """Where the subject lives for PostHog, or None when no connected organization reaches it."""
+    installation_id = _installation_id(url.repository.split("/", 1)[0], organization_ids)
+    if installation_id is None:
+        return None
+    return PullRequestRef(installation_id=installation_id, repository=url.repository, number=url.number)
+
+
 def read_slack_command(mention: SlackMention) -> SlackCommandRequest | None:
-    """The command a Slack mention runs on a pull request, or None to leave the mention to the agent."""
+    """The command a Slack mention runs, or None to leave the mention to the agent."""
     parsed = parse_slack_command(mention.text)
     if parsed is None:
         return None
@@ -83,18 +92,15 @@ def read_slack_command(mention: SlackMention) -> SlackCommandRequest | None:
     spec = COMMANDS.get(verb) if verb is not None else None
     if spec is None or isinstance(spec.parse(parsed.argument), ArgumentError):
         return None
-    owner = parsed.repository.split("/", 1)[0]
-    installation_id = _installation_id(owner, mention.organization_ids)
-    if installation_id is None:
+    subject = _subject_ref(parsed.subject, mention.organization_ids)
+    if subject is None:
         return None
-    team_ids = rolled_out_team_ids(ROLLOUT_FLAG, installation_id, mention.organization_ids, only_evaluate_locally=True)
+    team_ids = rolled_out_team_ids(ROLLOUT_FLAG, subject, mention.organization_ids, only_evaluate_locally=True)
     if not team_ids:
         return None
     return SlackCommandRequest(
-        installation_id=installation_id,
+        subject=subject,
         team_ids=team_ids,
-        repository=parsed.repository,
-        pr_number=parsed.pr_number,
         verb=parsed.verb,
         argument=parsed.argument,
         slack_team_id=mention.slack_team_id,
@@ -119,9 +125,7 @@ class SlackMentionChannel:
         self._command = command
         self._github = github
         self.request = CommandRequest(
-            subject=PullRequestRef(
-                installation_id=command.installation_id, repository=command.repository, number=command.pr_number
-            ),
+            subject=command.subject,
             verb=command.verb,
             argument=command.argument,
             ambiguous=False,
@@ -144,13 +148,10 @@ class SlackMentionChannel:
                 outcome="rate_limited",
                 message="You've sent a lot of commands in a short time. Try again in a few minutes.",
             )
-        github = self._github or InstallationGitHub.for_installation(command.installation_id, command.team_ids)
-        if github is None:
-            return Answer(
-                outcome="no_installation",
-                message="I couldn't reach GitHub for this repository. Try again in a few minutes.",
-            )
-        return Admission(team_ids=command.team_ids, github=github)
+        subject = open_subject(command.subject, command.team_ids, github=self._github)
+        if isinstance(subject, Answer):
+            return subject
+        return Admission(team_ids=command.team_ids, subject=subject)
 
     def linked_users(self) -> list[User]:
         user_ids = self._command.user_ids
