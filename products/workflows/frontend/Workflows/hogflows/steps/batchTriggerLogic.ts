@@ -13,7 +13,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api, { ApiError } from 'lib/api'
+import { ApiError } from 'lib/api'
 import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -130,6 +130,20 @@ export type batchTriggerLogicType = MakeLogicType<
     batchTriggerLogicMeta
 >
 
+async function requestBlastRadius(
+    projectId: number | null,
+    props: BatchTriggerLogicProps
+): Promise<BlastRadiusApi | null> {
+    if (!projectId || !props.filters) {
+        return null
+    }
+    return await hogFlowsUserBlastRadiusCreate(String(projectId), {
+        filters: props.filters,
+        dedupe_key: props.dedupeKey ?? null,
+        sends_email: props.sendsEmail ?? true,
+    })
+}
+
 export const batchTriggerLogic = kea<batchTriggerLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'hogflows', 'steps', 'batchTriggerLogic']),
     props({} as BatchTriggerLogicProps),
@@ -199,19 +213,12 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
             null as BlastRadiusApi | null,
             {
                 loadBlastRadius: async () => {
-                    if (!props.filters) {
-                        return null
-                    }
-                    return await api.hogFlows.getBatchTriggerBlastRadius(
-                        props.filters,
-                        props.dedupeKey,
-                        props.sendsEmail
-                    )
+                    return await requestBlastRadius(values.currentProjectId, props)
                 },
             },
         ],
     })),
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, values }) => ({
         loadBlastRadius: () => {
             actions.loadRecipientsWithoutEmail(null)
         },
@@ -225,11 +232,7 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
                 await breakpoint(REALTIME_COHORT_STATUS_POLL_MS)
                 let refreshed: BlastRadiusApi | null = null
                 try {
-                    refreshed = await api.hogFlows.getBatchTriggerBlastRadius(
-                        props.filters,
-                        props.dedupeKey,
-                        props.sendsEmail
-                    )
+                    refreshed = await requestBlastRadius(values.currentProjectId, props)
                 } catch {
                     // A failed check tries again on the next interval.
                 }

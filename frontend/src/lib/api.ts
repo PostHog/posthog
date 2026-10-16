@@ -244,7 +244,6 @@ import type {
     ExternalDataSourceTypeEnumApi,
     SourceConfigMapResponseApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
-import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -6379,16 +6378,6 @@ const api = {
             }
         ): Promise<HogflowTestResult> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
-        },
-        async getBatchTriggerBlastRadius(
-            filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
-            dedupeKey?: 'email',
-            sendsEmail?: boolean
-        ): Promise<BlastRadiusApi> {
-            return await new ApiRequest()
-                .hogFlows()
-                .withAction('user_blast_radius')
-                .create({ data: { filters, dedupe_key: dedupeKey ?? null, sends_email: sendsEmail ?? true } })
         },
         async createHogFlowBatchJob(
             hogFlowId: HogFlow['id'],
