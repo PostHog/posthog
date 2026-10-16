@@ -22,7 +22,7 @@ import type { TodayReportState } from './todayReportState'
 export type TodayReportVerdict = 'resolve' | 'dismiss'
 
 /** Where the person gave the verdict, sent with the `today report state changed` event. */
-export type TodayReportVerdictSurface = 'briefing' | 'report_page'
+export type TodayReportVerdictSurface = 'briefing'
 
 /** The report a verdict acts on. */
 export interface TodayReportVerdictTarget {

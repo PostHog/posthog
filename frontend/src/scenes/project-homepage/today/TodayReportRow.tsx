@@ -13,6 +13,7 @@ import { reportStateLabel } from './todayReportState'
 import { TodayRow } from './TodayRow'
 import { pullRequestFact, rowFacts } from './todayRowFacts'
 import { reportIcon } from './todayRowIcons'
+import { isSampleReportId } from './todaySampleReports'
 import { reportTitle } from './todaySignalReports'
 import { TodayVerdictButtons } from './TodayVerdictButtons'
 import { type TodayReportVerdictTarget, todayVerdictLogic } from './todayVerdictLogic'
@@ -31,7 +32,7 @@ export function TodayReportRow({
     const { reportOpened, toggleReportRow } = useActions(todayLogic)
     const state = reportStateOverrides[report.id]
     const preview = reportPreviews[report.id]
-    const to = urls.todayReport(report.id)
+    const to = isSampleReportId(report.id) ? undefined : urls.inboxReport('reports', report.id)
     const target: TodayReportVerdictTarget = {
         reportId: report.id,
         title: reportTitle(report),
@@ -76,7 +77,6 @@ export function TodayReportRow({
             }
             actions={<TodayVerdictButtons target={target} />}
             done={done}
-            reportId={report.id}
             dataAttr="today-list-report"
         />
     )

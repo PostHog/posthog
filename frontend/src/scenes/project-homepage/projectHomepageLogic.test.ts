@@ -34,15 +34,11 @@ describe('projectHomepageLogic', () => {
         await expectLogic(logic).toNotHaveDispatchedActions(['loadRecentInsights', 'loadRecentInsightsSuccess'])
     })
 
-    it.each([
-        [true, '/home/reports/report-1'],
-        [false, '/inbox/reports/report-1'],
-    ])('waits for the flags before it leaves a Today report (today on: %s)', async (todayOn, expectedPath) => {
-        router.actions.push(urls.todayReport('report-1'))
-        expect(router.values.location.pathname).toContain('/home/reports/report-1')
-
+    it.each([true, false])('opens a Today report link in the Inbox (today on: %s)', (todayOn) => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: todayOn })
 
-        expect(router.values.location.pathname).toContain(expectedPath)
+        router.actions.push(urls.todayReport('report-1'))
+
+        expect(router.values.location.pathname).toContain('/inbox/reports/report-1')
     })
 })

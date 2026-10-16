@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 import { IconArrowRight, IconArrowUpRight, IconPullRequest } from '@posthog/icons'
 import { Button } from '@posthog/quill'
@@ -6,7 +6,6 @@ import { Button } from '@posthog/quill'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import type { TodayReportPreview } from './todayReportPreviews'
-import { isPlainClick, navigateWithCrossfade } from './todayViewTransition'
 
 const PULL_REQUEST_STATES: Record<string, string> = {
     open: 'ready for review',
@@ -44,18 +43,11 @@ export function TodayReportRowDetail({
     dataAttr,
 }: {
     preview: TodayReportPreview
-    to: string
+    to: string | undefined
     onOpen: () => void
     actions?: ReactNode
     dataAttr: string
 }): JSX.Element {
-    const openReport = (event: MouseEvent<HTMLElement>): void => {
-        onOpen()
-        if (isPlainClick(event)) {
-            event.preventDefault()
-            navigateWithCrossfade(to)
-        }
-    }
     const facts = [preview.sources, preview.metric && `${preview.metric.title}: ${preview.metric.value}`].filter(
         (fact): fact is string => !!fact
     )
@@ -74,17 +66,19 @@ export function TodayReportRowDetail({
                 </p>
                 <div className="TodayRow__detailActions">
                     {actions}
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        nativeButton={false}
-                        render={<LinkPrimitive to={to} />}
-                        onClick={openReport}
-                        data-attr={dataAttr}
-                    >
-                        Open report
-                        <IconArrowRight />
-                    </Button>
+                    {to && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            nativeButton={false}
+                            render={<LinkPrimitive to={to} />}
+                            onClick={onOpen}
+                            data-attr={dataAttr}
+                        >
+                            Open report
+                            <IconArrowRight />
+                        </Button>
+                    )}
                 </div>
             </div>
         </div>
