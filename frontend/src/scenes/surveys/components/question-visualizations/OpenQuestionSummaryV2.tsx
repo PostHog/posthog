@@ -17,7 +17,6 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 const MIN_RESPONSES_FOR_SUMMARY = 10
@@ -44,12 +43,11 @@ export function OpenQuestionSummaryV2({
     totalResponses,
 }: OpenQuestionSummaryV2Props): JSX.Element | null {
     const { survey } = useValues(surveyLogic)
-    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     const [summary, setSummary] = useState<SummaryData | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const [showConsentPopover, setShowConsentPopover] = useState(false)
     const [isExpanded, setIsExpanded] = useState(true)
 
     const shouldShowSummary = totalResponses >= MIN_RESPONSES_FOR_SUMMARY
@@ -94,17 +92,6 @@ export function OpenQuestionSummaryV2({
         }
     }, [shouldShowSummary, dataProcessingAccepted, summary, loading, error, loadSummary])
 
-    const handleRegenerateClick = (): void => {
-        if (!dataProcessingAccepted) {
-            setShowConsentPopover(true)
-        } else {
-            loadSummary(true)
-        }
-    }
-
-    const handleDismissPopover = (): void => {
-        setShowConsentPopover(false)
-    }
     const {
         respond: submitRating,
         response: rating,
@@ -118,7 +105,8 @@ export function OpenQuestionSummaryV2({
         },
     })
 
-    if (!shouldShowSummary) {
+    // An organization without AI consent cannot use this feature, so the results page keeps no trace of it.
+    if (!shouldShowSummary || !dataProcessingAccepted) {
         return null
     }
 
@@ -155,34 +143,6 @@ export function OpenQuestionSummaryV2({
     }
 
     if (!summary) {
-        // Waiting for consent or initial load
-        if (!dataProcessingAccepted) {
-            return (
-                <div className="mb-2 border rounded p-4 bg-surface-primary">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <IconSparkles className="text-warning" />
-                            <span className="font-semibold">Response summary</span>
-                        </div>
-                        <AIConsentPopoverWrapper
-                            showArrow
-                            onDismiss={handleDismissPopover}
-                            hidden={!showConsentPopover}
-                        >
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconSparkles />}
-                                onClick={() => setShowConsentPopover(true)}
-                                disabledReason={dataProcessingApprovalDisabledReason}
-                            >
-                                Generate summary
-                            </LemonButton>
-                        </AIConsentPopoverWrapper>
-                    </div>
-                </div>
-            )
-        }
         return null
     }
 
@@ -234,33 +194,17 @@ export function OpenQuestionSummaryV2({
                                 {generatedTime.isValid() && ` • ${generatedTime.fromNow()}`}
                                 {' • AI-generated • Verify key details'}
                             </span>
-                            {dataProcessingAccepted || !showConsentPopover ? (
-                                <LemonButton
-                                    type="tertiary"
-                                    size="xsmall"
-                                    icon={<IconRefresh />}
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        handleRegenerateClick()
-                                    }}
-                                    loading={loading}
-                                    tooltip="Regenerate summary"
-                                />
-                            ) : (
-                                <AIConsentPopoverWrapper showArrow onDismiss={handleDismissPopover}>
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="xsmall"
-                                        icon={<IconRefresh />}
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            handleRegenerateClick()
-                                        }}
-                                        loading={loading}
-                                        tooltip="Regenerate summary"
-                                    />
-                                </AIConsentPopoverWrapper>
-                            )}
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                icon={<IconRefresh />}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    loadSummary(true)
+                                }}
+                                loading={loading}
+                                tooltip="Regenerate summary"
+                            />
                         </div>
                         <div className="flex items-center gap-1" ref={triggerRef}>
                             {rating === null && <span>Was this helpful?</span>}
