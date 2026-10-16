@@ -26,11 +26,11 @@ export function WaysToUseSurfaceCard({
     return (
         <section
             aria-labelledby={titleId}
-            className={`group/card relative row-span-3 grid min-w-0 grid-rows-subgrid gap-y-3 transition duration-300 ease-out group-data-[starting-style]/popup:translate-y-2 group-data-[starting-style]/popup:opacity-0 motion-reduce:transition-none ${ENTER_DELAYS[order]}`}
+            className={`group/card relative row-span-3 grid min-w-0 grid-rows-subgrid gap-y-3 @md:@max-2xl:row-span-1 @md:@max-2xl:grid-cols-2 @md:@max-2xl:grid-rows-none @md:@max-2xl:content-start @md:@max-2xl:gap-x-4 transition duration-300 ease-out group-data-[starting-style]/popup:translate-y-2 group-data-[starting-style]/popup:opacity-0 motion-reduce:transition-none ${ENTER_DELAYS[order]}`}
         >
             <div
                 aria-hidden
-                className="pointer-events-none relative h-36 overflow-hidden rounded-lg border border-border bg-chrome select-none"
+                className="pointer-events-none relative h-36 overflow-hidden @md:@max-2xl:row-span-2 rounded-lg border border-border bg-chrome select-none"
                 {...{ inert: '' }}
             >
                 <span className="absolute top-3 left-3 flex size-6 items-center justify-center">{logo}</span>
@@ -38,7 +38,7 @@ export function WaysToUseSurfaceCard({
                     {illustration}
                 </div>
             </div>
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 @md:@max-2xl:col-start-2 @md:@max-2xl:self-end">
                 <Heading id={titleId} size="sm" render={<h3 />} className="m-0">
                     {title}
                 </Heading>
@@ -46,7 +46,7 @@ export function WaysToUseSurfaceCard({
                     {description}
                 </Text>
             </div>
-            <div className="flex items-center">{action}</div>
+            <div className="flex items-center @md:@max-2xl:col-start-2 @md:@max-2xl:self-start">{action}</div>
         </section>
     )
 }

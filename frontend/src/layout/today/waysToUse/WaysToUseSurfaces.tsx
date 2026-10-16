@@ -1,11 +1,10 @@
-import { IconMCP, IconTerminal } from '@posthog/icons'
+import { IconMCP } from '@posthog/icons'
 import { Badge, Dot } from '@posthog/quill'
 
 import { Logomark } from 'lib/brand'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { CliIllustration } from './illustrations/CliIllustration'
 import { McpIllustration } from './illustrations/McpIllustration'
 import { SlackIllustration } from './illustrations/SlackIllustration'
 import { WebAppIllustration } from './illustrations/WebAppIllustration'
@@ -14,13 +13,13 @@ import { WaysToUseSurfaceCard } from './WaysToUseSurfaceCard'
 import { WaysToUseSurfaceLink } from './WaysToUseSurfaceLink'
 
 export interface WaysToUseSurfacesProps {
-    onSurfaceLinkClick: (surface: WaysToUseSurface, opensNewTab: boolean) => void
+    onSurfaceLinkClick: (surface: WaysToUseSurface) => void
 }
 
 export function WaysToUseSurfaces({ onSurfaceLinkClick }: WaysToUseSurfacesProps): JSX.Element {
     return (
         <div className="@container">
-            <div className="grid grid-cols-1 gap-x-4 gap-y-8 @md:grid-cols-2 @4xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-x-4 gap-y-8 @2xl:grid-cols-3">
                 <WaysToUseSurfaceCard
                     order={0}
                     logo={<Logomark size="xs" />}
@@ -44,7 +43,6 @@ export function WaysToUseSurfaces({ onSurfaceLinkClick }: WaysToUseSurfacesProps
                         <WaysToUseSurfaceLink
                             surface="slack"
                             to={urls.settings('environment-integrations', 'integration-slack')}
-                            opensNewTab={false}
                             onClick={onSurfaceLinkClick}
                         >
                             Connect Slack
@@ -61,27 +59,9 @@ export function WaysToUseSurfaces({ onSurfaceLinkClick }: WaysToUseSurfacesProps
                         <WaysToUseSurfaceLink
                             surface="mcp"
                             to={urls.settings('posthog-mcp')}
-                            opensNewTab={false}
                             onClick={onSurfaceLinkClick}
                         >
                             Set up MCP
-                        </WaysToUseSurfaceLink>
-                    }
-                />
-                <WaysToUseSurfaceCard
-                    order={3}
-                    logo={<IconTerminal className="size-5" />}
-                    title="CLI"
-                    description="Call PostHog tools from your terminal, your scripts, and your coding agents."
-                    illustration={<CliIllustration />}
-                    action={
-                        <WaysToUseSurfaceLink
-                            surface="cli"
-                            to="https://posthog.com/docs/cli"
-                            opensNewTab
-                            onClick={onSurfaceLinkClick}
-                        >
-                            Install the CLI
                         </WaysToUseSurfaceLink>
                     }
                 />

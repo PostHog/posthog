@@ -17,7 +17,7 @@ import { WaysToUseSurfaces } from './WaysToUseSurfaces'
 
 export function TodayWaysToUseDialog(): JSX.Element {
     const { isOpen } = useValues(waysToUseLogic)
-    const { closeWaysToUse, surfaceLinkClicked } = useActions(waysToUseLogic)
+    const { closeWaysToUse } = useActions(waysToUseLogic)
     const popupRef = useRef<HTMLDivElement>(null)
 
     return (
@@ -26,18 +26,17 @@ export function TodayWaysToUseDialog(): JSX.Element {
                 ref={popupRef}
                 size="wide"
                 initialFocus={popupRef}
-                className="group/popup"
+                className="group/popup lg:max-w-4xl"
                 data-attr="today-ways-to-use-dialog"
             >
                 <DialogHeader className="items-center text-center">
                     <DialogTitle className="text-lg">Use PostHog where you work</DialogTitle>
                     <DialogDescription className="max-w-xl text-balance">
-                        Use the web app, ask in Slack, or connect your AI agents and terminal. They all use the same
-                        project data.
+                        Use the web app, ask in Slack, or connect your AI agents. They all use the same project data.
                     </DialogDescription>
                 </DialogHeader>
                 <DialogBody>
-                    <WaysToUseSurfaces onSurfaceLinkClick={surfaceLinkClicked} />
+                    <WaysToUseSurfaces onSurfaceLinkClick={(surface) => closeWaysToUse('surface_link', surface)} />
                 </DialogBody>
                 <DialogFooter className="sm:justify-center">
                     <Button

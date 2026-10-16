@@ -63,14 +63,5 @@ describe('waysToUse', () => {
                 .toDispatchActions([userLogic.actionCreators.updateHasSeenProductIntroFor(WAYS_TO_USE_SEEN_KEY)])
                 .toMatchValues({ closed: true, isOpen: false })
         })
-
-        it.each([
-            ['an in-app link closes the dialog', 'slack' as const, false, true],
-            ['a link that opens a new tab keeps the dialog open', 'cli' as const, true, false],
-        ])('%s', async (_label, surface, opensNewTab, closed) => {
-            await expectLogic(logic, () => {
-                logic.actions.surfaceLinkClicked(surface, opensNewTab)
-            }).toMatchValues({ closed })
-        })
     })
 })
