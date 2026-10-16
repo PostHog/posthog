@@ -58,7 +58,8 @@ use personhog_proto::personhog::types::v1::{
     SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
     SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse, WriteDistinctIdsRequest,
+    WriteDistinctIdsResponse,
 };
 use personhog_router::backend::{
     ChannelBackend, DnsBackendConfig, LeaderBackend, LeaderBackendConfig, StashTable,
@@ -575,6 +576,13 @@ impl PersonHogReplica for TestReplicaService {
         _request: Request<RestorePersonsRequest>,
     ) -> Result<Response<RestorePersonsResponse>, Status> {
         Ok(Response::new(RestorePersonsResponse::default()))
+    }
+
+    async fn write_distinct_ids(
+        &self,
+        _request: Request<WriteDistinctIdsRequest>,
+    ) -> Result<Response<WriteDistinctIdsResponse>, Status> {
+        Ok(Response::new(WriteDistinctIdsResponse::default()))
     }
 }
 

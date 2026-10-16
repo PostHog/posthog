@@ -1,5 +1,7 @@
 use uuid::Uuid;
 
+use super::DistinctIdRow;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RaiseOutcome {
     Raised,
@@ -43,4 +45,36 @@ pub struct RestoreResult {
     pub person_id: i64,
     pub version: i64,
     pub restored_distinct_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DistinctIdWriteAction {
+    Insert,
+    Raise,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DistinctIdWrite {
+    pub distinct_id: String,
+    pub action: DistinctIdWriteAction,
+    /// The insert target, or the row's expected owner for raise.
+    pub person_uuid: Uuid,
+    pub min_version: i64,
+    pub expected_version: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DistinctIdWriteOutcome {
+    Applied,
+    Unchanged,
+    PreconditionFailed,
+    PersonNotLive,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DistinctIdWriteResult {
+    pub distinct_id: String,
+    pub outcome: DistinctIdWriteOutcome,
+    /// The row after the call, when one exists.
+    pub row: Option<DistinctIdRow>,
 }

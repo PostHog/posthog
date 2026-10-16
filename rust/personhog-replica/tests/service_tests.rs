@@ -6,6 +6,7 @@ use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, ConsistencyLevel, CountGroupTypeMappingsRequest,
     DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest, DeletePersonsMode,
     DeletePersonsRequest, DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
+    DistinctIdWrite, DistinctIdWriteAction, DistinctIdWriteOutcome,
     EnsurePersonVersionFloorsRequest, GetDistinctIdRowsRequest, GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
@@ -18,6 +19,7 @@ use personhog_proto::personhog::types::v1::{
     RestoredDistinctId, RestoredPerson, SetPersonDistinctIdVersionFloorRequest,
     SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
     UpsertHashKeyOverridesRequest, VersionBoundedPerson, VersionFloorOutcome,
+    WriteDistinctIdsRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -2030,6 +2032,41 @@ async fn test_repair_writes_round_trip_through_the_service() {
         vec!["svc_repair_restored"]
     );
 
+    let written = ctx
+        .service
+        .write_distinct_ids(Request::new(WriteDistinctIdsRequest {
+            team_id: ctx.team_id,
+            writes: vec![DistinctIdWrite {
+                distinct_id: "svc_repair_new".to_string(),
+                action: DistinctIdWriteAction::Insert as i32,
+                person_uuid: person.uuid.to_string(),
+                min_version: 6,
+                expected_version: None,
+            }],
+        }))
+        .await
+        .expect("write")
+        .into_inner()
+        .results;
+    assert_eq!(written[0].outcome, DistinctIdWriteOutcome::Applied as i32);
+    let row = written[0].row.as_ref().expect("row after the write");
+    assert_eq!(
+        (
+            row.person_id,
+            row.person_uuid.clone(),
+            row.version,
+            row.is_deleted,
+            row.person_is_deleted
+        ),
+        (
+            person.id,
+            Some(person.uuid.to_string()),
+            6,
+            false,
+            Some(false)
+        )
+    );
+
     ctx.cleanup().await.ok();
 }
 
@@ -2040,6 +2077,7 @@ enum BadRepairRequest {
     PropertiesNotJson,
     PropertiesNotAnObject,
     DuplicateRestoredDistinctId,
+    UnknownWriteAction,
 }
 
 #[rstest]
@@ -2048,6 +2086,7 @@ enum BadRepairRequest {
 #[case::properties_not_json(BadRepairRequest::PropertiesNotJson)]
 #[case::properties_not_an_object(BadRepairRequest::PropertiesNotAnObject)]
 #[case::duplicate_restored_distinct_id(BadRepairRequest::DuplicateRestoredDistinctId)]
+#[case::unknown_write_action(BadRepairRequest::UnknownWriteAction)]
 #[tokio::test]
 async fn test_repair_writes_reject_bad_requests(#[case] bad: BadRepairRequest) {
     let ctx = ServiceTestContext::new().await;
@@ -2108,6 +2147,20 @@ async fn test_repair_writes_reject_bad_requests(#[case] bad: BadRepairRequest) {
                 .await
                 .map(|_| ())
         }
+        BadRepairRequest::UnknownWriteAction => ctx
+            .service
+            .write_distinct_ids(Request::new(WriteDistinctIdsRequest {
+                team_id: ctx.team_id,
+                writes: vec![DistinctIdWrite {
+                    distinct_id: "svc_bad_action".to_string(),
+                    action: DistinctIdWriteAction::Unspecified as i32,
+                    person_uuid: uuid.clone(),
+                    min_version: 1,
+                    expected_version: None,
+                }],
+            }))
+            .await
+            .map(|_| ()),
     }
     .expect_err("rejected");
     assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status:?}");

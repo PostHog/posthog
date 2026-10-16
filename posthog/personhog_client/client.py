@@ -104,6 +104,8 @@ from posthog.personhog_client.proto import (
     UpdateGroupResponse,
     UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse,
+    WriteDistinctIdsRequest,
+    WriteDistinctIdsResponse,
 )
 
 logger = structlog.get_logger(__name__)
@@ -295,6 +297,11 @@ class PersonHogClient:
 
     def restore_persons(self, request: RestorePersonsRequest, timeout: float | None = None) -> RestorePersonsResponse:
         return self._stub.RestorePersons(request, timeout=timeout or self._timeout)
+
+    def write_distinct_ids(
+        self, request: WriteDistinctIdsRequest, timeout: float | None = None
+    ) -> WriteDistinctIdsResponse:
+        return self._stub.WriteDistinctIds(request, timeout=timeout or self._timeout)
 
     # -- Person lookups --
 

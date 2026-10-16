@@ -1129,6 +1129,75 @@ class FakePersonHogClient:
             )
         return response
 
+    def _mapping_row(self, team_id: int, distinct_id: str) -> person_pb2.DistinctIdRow | None:
+        owner = self._persons_by_distinct_id.get((team_id, distinct_id))
+        if owner is None:
+            return None
+        mapping = next(
+            (m for m in self._distinct_ids.get((team_id, owner.id), []) if m.distinct_id == distinct_id), None
+        )
+        if mapping is None:
+            return None
+        return person_pb2.DistinctIdRow(
+            distinct_id=distinct_id,
+            person_id=owner.id,
+            person_uuid=owner.uuid,
+            version=mapping.version or 0,
+            is_deleted=(team_id, distinct_id) in self._tombstoned_distinct_ids,
+            person_is_deleted=owner.is_deleted,
+        )
+
+    def write_distinct_ids(
+        self, request: person_pb2.WriteDistinctIdsRequest, timeout: float | None = None
+    ) -> person_pb2.WriteDistinctIdsResponse:
+        self.calls.append(_Call("write_distinct_ids", request))
+        self._check_repair_batch(
+            [w.distinct_id for w in request.writes], [w.min_version for w in request.writes], uuid_keys=False
+        )
+        for write in request.writes:
+            UUID(write.person_uuid)
+            if write.action not in (
+                person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT,
+                person_pb2.DISTINCT_ID_WRITE_ACTION_RAISE,
+            ):
+                raise ValueError(f"Unknown action {write.action} for {write.distinct_id}")
+        response = person_pb2.WriteDistinctIdsResponse()
+        team_id = request.team_id
+        for write in request.writes:
+            outcome = self._apply_distinct_id_write(team_id, write)
+            result = response.results.add(distinct_id=write.distinct_id, outcome=outcome)
+            row = self._mapping_row(team_id, write.distinct_id)
+            if row is not None:
+                result.row.CopyFrom(row)
+        return response
+
+    def _apply_distinct_id_write(
+        self, team_id: int, write: person_pb2.DistinctIdWrite
+    ) -> person_pb2.DistinctIdWriteOutcome:
+        person = self._persons_by_uuid.get((team_id, write.person_uuid))
+        if person is None or person.is_deleted:
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE
+        row = self._mapping_row(team_id, write.distinct_id)
+        exists = row is not None or (team_id, write.distinct_id) in self._tombstoned_distinct_ids
+        if write.action == person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT:
+            if exists:
+                return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
+            self._persons_by_distinct_id[(team_id, write.distinct_id)] = person
+            self._distinct_ids.setdefault((team_id, person.id), []).append(
+                person_pb2.DistinctIdWithVersion(distinct_id=write.distinct_id, version=write.min_version)
+            )
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_APPLIED
+        expected_ok = not write.HasField("expected_version") or (
+            row is not None and row.version == write.expected_version
+        )
+        if row is None or row.is_deleted or row.person_id != person.id or not expected_ok:
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
+        mapping = next(m for m in self._distinct_ids[(team_id, person.id)] if m.distinct_id == write.distinct_id)
+        if (mapping.version or 0) >= write.min_version:
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_UNCHANGED
+        mapping.version = write.min_version
+        return person_pb2.DISTINCT_ID_WRITE_OUTCOME_APPLIED
+
     # ── Assertion helpers ────────────────────────────────────────────
 
     def assert_called(self, method: str, *, times: int | None = None) -> list[_Call]:

@@ -478,6 +478,13 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<RestorePersonsResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+
+    async fn write_distinct_ids(
+        &self,
+        _: Request<WriteDistinctIdsRequest>,
+    ) -> Result<Response<WriteDistinctIdsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
 }
 
 // -- helpers ------------------------------------------------------------

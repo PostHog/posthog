@@ -2,7 +2,9 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
-use crate::storage::types::{RaiseResult, RestoreResult, RestoredPerson};
+use crate::storage::types::{
+    DistinctIdWrite, DistinctIdWriteResult, RaiseResult, RestoreResult, RestoredPerson,
+};
 
 /// Writes for the person consistency repair. Each runs in one primary transaction, fails fast on a
 /// held row lock, and only raises versions, so a retry after an unknown commit is a no-op.
@@ -23,4 +25,13 @@ pub trait PersonRepair: Send + Sync {
         team_id: i64,
         persons: &[RestoredPerson],
     ) -> StorageResult<Vec<RestoreResult>>;
+
+    /// Apply each mapping write only while the row is in the state the write expects, under
+    /// lifecycle marks on the persons written. `writes` must not repeat a distinct id. Results
+    /// keep request order.
+    async fn write_distinct_ids(
+        &self,
+        team_id: i64,
+        writes: &[DistinctIdWrite],
+    ) -> StorageResult<Vec<DistinctIdWriteResult>>;
 }

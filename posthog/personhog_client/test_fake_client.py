@@ -811,6 +811,20 @@ class TestFakePersonHogClientRepairWrites:
             distinct_ids=["stray-did"],
         )
 
+    def _write(
+        self, *writes: tuple[str, person_pb2.DistinctIdWriteAction, str, int]
+    ) -> list[person_pb2.DistinctIdWriteResult]:
+        response = self.client.write_distinct_ids(
+            person_pb2.WriteDistinctIdsRequest(
+                team_id=self.TEAM_ID,
+                writes=[
+                    person_pb2.DistinctIdWrite(distinct_id=d, action=a, person_uuid=u, min_version=m)
+                    for d, a, u, m in writes
+                ],
+            )
+        )
+        return list(response.results)
+
     def test_raise_person_floors_raises_only_live_persons(self):
         response = self.client.raise_person_version_floors(
             person_pb2.RaisePersonVersionFloorsRequest(
@@ -876,7 +890,44 @@ class TestFakePersonHogClientRepairWrites:
         rows = {r.distinct_id: (r.person_uuid, r.version) for r in stored.rows}
         assert rows == {"new": (reachable, 4), "taken": (holder, 0)}
 
-    def test_rejects_a_repeated_uuid_before_any_write(self):
+    def test_write_distinct_ids_applies_each_write_only_from_its_expected_state(self):
+        insert = person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT
+        raise_ = person_pb2.DISTINCT_ID_WRITE_ACTION_RAISE
+        applied = person_pb2.DISTINCT_ID_WRITE_OUTCOME_APPLIED
+        failed = person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
+        not_live = person_pb2.DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE
+
+        results = self._write(
+            ("new-did", insert, self.LIVE, 5),
+            ("other-did", insert, self.LIVE, 5),
+            ("dead-did", insert, self.TOMB, 5),
+            ("live-did", raise_, self.LIVE, 3),
+            ("other-did-2", raise_, self.LIVE, 3),
+            ("dead-did-raise", raise_, self.TOMB, 3),
+        )
+        assert [
+            (
+                r.distinct_id,
+                r.outcome,
+                (r.row.person_id, r.row.version, r.row.is_deleted) if r.HasField("row") else None,
+            )
+            for r in results
+        ] == [
+            ("new-did", applied, (1, 5, False)),
+            ("other-did", failed, (2, 0, False)),
+            ("dead-did", not_live, None),
+            ("live-did", applied, (1, 3, False)),
+            ("other-did-2", failed, None),
+            ("dead-did-raise", not_live, None),
+        ]
+
+    def test_rejects_the_whole_batch_before_any_write(self):
+        with pytest.raises(ValueError, match="must not be negative"):
+            self._write(
+                ("first-did", person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT, self.LIVE, 1),
+                ("second-did", person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT, self.LIVE, -1),
+            )
+        assert self.client.stored_person_by_distinct_id(self.TEAM_ID, "first-did") is None
         with pytest.raises(ValueError, match="Duplicate key"):
             self.client.raise_person_version_floors(
                 person_pb2.RaisePersonVersionFloorsRequest(
