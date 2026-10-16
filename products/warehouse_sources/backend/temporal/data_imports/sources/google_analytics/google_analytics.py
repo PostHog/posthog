@@ -409,6 +409,8 @@ def google_analytics_source(
                 start_date = max(start_date, dt.date.fromisoformat(resume_chunk_start))
 
         session = google_analytics_session(config.google_analytics_integration_id, team_id)
+        # A resumed attempt continues a run whose earlier attempt already queued rows.
+        run_has_rows = resume_chunk_start is not None
 
         for chunk_start, chunk_end in _iter_chunks(start_date, end_date):
             chunk_start_iso = chunk_start.isoformat()
@@ -418,20 +420,35 @@ def google_analytics_source(
             while True:
                 # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
                 resumable_source_manager.safe_point()
-                payload = _run_report(
-                    session=session,
-                    property_id=config.property_id,
-                    start_date=chunk_start_iso,
-                    end_date=chunk_end.isoformat(),
-                    dimensions=dimensions,
-                    metrics=metrics,
-                    offset=offset,
-                )
+                try:
+                    payload = _run_report(
+                        session=session,
+                        property_id=config.property_id,
+                        start_date=chunk_start_iso,
+                        end_date=chunk_end.isoformat(),
+                        dimensions=dimensions,
+                        metrics=metrics,
+                        offset=offset,
+                    )
+                except GoogleAnalyticsQuotaExceededError:
+                    # Rows arrive in date order, so an incremental run that ends here keeps them and the next run
+                    # re-reads the last date through the lookback window. A full refresh would replace the table.
+                    if not (should_use_incremental_field and run_has_rows):
+                        raise
+                    logger.warning(
+                        "Google Analytics Data API quota is used up. This sync keeps the rows it read, and the "
+                        "next sync continues from the last date it read.",
+                        property_id=config.property_id,
+                        chunk_start=chunk_start_iso,
+                        offset=offset,
+                    )
+                    return
                 rows = _rows_to_dicts(payload)
                 if not rows:
                     break
 
                 yield rows
+                run_has_rows = True
 
                 next_offset = offset + len(rows)
                 row_count = payload.get("rowCount", 0)
