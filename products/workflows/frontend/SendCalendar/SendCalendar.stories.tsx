@@ -2,8 +2,12 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
-import { useStorybookMocks } from '~/mocks/browser'
+import { dayjs } from 'lib/dayjs'
 
+import { useStorybookMocks } from '~/mocks/browser'
+import { toPaginatedResponse } from '~/mocks/handlers'
+
+import type { MessageCategoryApi } from 'products/messaging/frontend/generated/api.schemas'
 import type {
     HogFlowBatchJobApi,
     HogFlowMinimalApi,
@@ -13,6 +17,8 @@ import type {
 
 import { SendCalendar } from './SendCalendar'
 import { sendCalendarLogic } from './sendCalendarLogic'
+import { SendCalendarSendDetails } from './SendCalendarSendDetails'
+import { CalendarSend, describeRepeat, sendAudience, sendCategory } from './sendCalendarUtils'
 
 const meta: Meta<typeof SendCalendar> = {
     title: 'Products/Workflows/Send calendar',
@@ -38,12 +44,59 @@ const SAM = person(2, 'Sam')
 
 const flowId = (n: number): string => `0199e0aa-0000-7000-8000-0000000000${String(n).padStart(2, '0')}`
 
+const category = (n: number, name: string, category_type: 'marketing' | 'transactional'): MessageCategoryApi =>
+    ({
+        id: `0199e0aa-0000-7000-8000-0000000003${String(n).padStart(2, '0')}`,
+        key: name.toLowerCase().replace(/\W+/g, '-'),
+        name,
+        category_type,
+    }) as MessageCategoryApi
+
+const PRODUCT_UPDATES = category(1, 'Product updates', 'marketing')
+const NEWSLETTER = category(2, 'Newsletter', 'marketing')
+const ACCOUNT_NOTICES = category(3, 'Account notices', 'transactional')
+const EVENT_REMINDERS = category(4, 'Event reminders', 'transactional')
+const CATEGORIES = [PRODUCT_UPDATES, NEWSLETTER, ACCOUNT_NOTICES, EVENT_REMINDERS]
+
+const cohort = (id: number, name: string, count: number, is_static = false): Record<string, unknown> => ({
+    id,
+    name,
+    count,
+    is_static,
+    is_calculating: false,
+    deleted: false,
+    filters: { properties: { type: 'OR', values: [] } },
+    groups: [],
+})
+
+const COHORTS = [
+    cohort(21, 'Active trial users', 1204),
+    cohort(22, 'Newsletter subscribers', 18450),
+    cohort(23, 'Webinar sign-ups', 312, true),
+    cohort(24, 'Partners', 86, true),
+]
+
+const inCohort = (id: number): Record<string, unknown> => ({ key: 'id', type: 'cohort', value: id })
+const personProperty = (key: string, operator: string, value: unknown): Record<string, unknown> => ({
+    key,
+    type: 'person',
+    operator,
+    value,
+})
+
+interface FlowRecipients {
+    audience?: Record<string, unknown>[]
+    to?: string
+    category?: MessageCategoryApi
+}
+
 const flow = (
     n: number,
     name: string,
     origin_product: 'broadcasts' | null,
     trigger: 'batch' | 'schedule',
-    created_by: UserBasicApi
+    created_by: UserBasicApi,
+    { audience = [], to = '{{ person.properties.email }}', category }: FlowRecipients = {}
 ): HogFlowMinimalApi =>
     ({
         id: flowId(n),
@@ -52,10 +105,18 @@ const flow = (
         status: 'active',
         origin_product,
         created_by,
-        trigger: { type: trigger },
+        trigger: trigger === 'batch' ? { type: 'batch', filters: { properties: audience } } : { type: 'schedule' },
         actions: [
             { id: 'trigger', type: 'trigger' },
-            { id: 'email', type: 'function_email' },
+            {
+                id: 'email',
+                type: 'function_email',
+                config: {
+                    message_category_id: category?.id,
+                    message_category_type: category?.category_type,
+                    inputs: { email: { value: { to: { email: to } } } },
+                },
+            },
         ],
     }) as unknown as HogFlowMinimalApi
 
@@ -79,15 +140,27 @@ const job = (id: string, status: HogFlowBatchJobApi['status'], created_at: strin
     ({ id, status, created_at }) as HogFlowBatchJobApi
 
 const FLOWS: HogFlowMinimalApi[] = [
-    flow(1, 'October product update', 'broadcasts', 'batch', PRIYA),
-    flow(2, 'Weekly digest', null, 'batch', SAM),
-    flow(3, 'Webinar reminder', 'broadcasts', 'batch', PRIYA),
-    flow(4, 'Product tips: dashboards', null, 'batch', SAM),
-    flow(5, 'Partner newsletter', 'broadcasts', 'batch', PRIYA),
+    flow(1, 'October product update', 'broadcasts', 'batch', PRIYA, {
+        audience: [inCohort(21), personProperty('email', 'is_set', 'is_set')],
+        category: PRODUCT_UPDATES,
+    }),
+    flow(2, 'Weekly digest', null, 'batch', SAM, { audience: [inCohort(22)], category: NEWSLETTER }),
+    flow(3, 'Webinar reminder', 'broadcasts', 'batch', PRIYA, { audience: [inCohort(23)], category: EVENT_REMINDERS }),
+    flow(4, 'Product tips: dashboards', null, 'batch', SAM, {
+        audience: [inCohort(21), personProperty('plan', 'exact', ['free'])],
+        category: PRODUCT_UPDATES,
+    }),
+    flow(5, 'Partner newsletter', 'broadcasts', 'batch', PRIYA, { audience: [inCohort(24)], category: NEWSLETTER }),
     flow(6, 'Customer survey', 'broadcasts', 'batch', PRIYA),
-    flow(7, 'Win-back: 30 days inactive', null, 'batch', SAM),
-    flow(8, 'Trial ending reminder', null, 'batch', SAM),
-    flow(9, 'Monthly account summary', null, 'schedule', SAM),
+    flow(7, 'Win-back: 30 days inactive', null, 'batch', SAM, {
+        audience: [personProperty('days_since_last_seen', 'gt', 30)],
+        category: PRODUCT_UPDATES,
+    }),
+    flow(8, 'Trial ending reminder', null, 'batch', SAM, { audience: [inCohort(21)], category: ACCOUNT_NOTICES }),
+    flow(9, 'Monthly account summary', null, 'schedule', SAM, {
+        to: 'finance@example.com',
+        category: ACCOUNT_NOTICES,
+    }),
 ]
 
 const SCHEDULES: Record<string, HogFlowScheduleApi[]> = {
@@ -129,6 +202,12 @@ function useCalendarMocks(flows: HogFlowMinimalApi[]): void {
                 200,
                 BATCH_JOBS[info.params.id as string] ?? [],
             ],
+            '/api/projects/:team_id/cohorts/': toPaginatedResponse(COHORTS),
+            '/api/projects/:team_id/cohorts/:id/': (info) => {
+                const match = COHORTS.find((item) => String(item.id) === info.params.id)
+                return match ? [200, match] : [404, { detail: 'Not found.' }]
+            },
+            '/api/projects/:team_id/messaging_categories/': toPaginatedResponse(CATEGORIES),
         },
     })
 }
@@ -176,4 +255,40 @@ export const NothingScheduled: StoryFn = () => {
 }
 NothingScheduled.parameters = {
     testOptions: { waitForLoadersToDisappear: true, waitForSelector: '[data-attr=send-calendar]' },
+}
+
+const detailsSend = (item: HogFlowMinimalApi): CalendarSend => {
+    const itemSchedule = SCHEDULES[item.id][0]
+    return {
+        key: `details-${item.id}`,
+        flowId: item.id,
+        name: item.name ?? '',
+        kind: item.origin_product === 'broadcasts' ? 'broadcast' : 'workflow',
+        state: 'planned',
+        at: dayjs(itemSchedule.starts_at),
+        repeat: describeRepeat(itemSchedule),
+        isRecurring: itemSchedule.rrule !== 'FREQ=DAILY;COUNT=1',
+        createdBy: item.created_by,
+        schedule: itemSchedule,
+        userAccessLevel: item.user_access_level ?? null,
+        audience: sendAudience(item),
+        category: sendCategory(item),
+    }
+}
+
+// Who a send goes to: a broadcast with a cohort audience, and a scheduled workflow that sends to one address.
+export const SendDetails: StoryFn = () => {
+    useCalendarMocks(FLOWS)
+    return (
+        <div className="flex items-start gap-4">
+            {[detailsSend(FLOWS[0]), detailsSend(FLOWS[8])].map((send) => (
+                <div key={send.key} className="rounded border bg-surface-primary">
+                    <SendCalendarSendDetails send={send} />
+                </div>
+            ))}
+        </div>
+    )
+}
+SendDetails.parameters = {
+    testOptions: { waitForLoadersToDisappear: true, waitForSelector: '[data-attr=send-calendar-audience]' },
 }

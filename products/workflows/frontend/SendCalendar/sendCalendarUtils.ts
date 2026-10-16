@@ -2,6 +2,8 @@ import { RRule } from 'rrule'
 
 import { dayjs } from 'lib/dayjs'
 
+import { AnyPropertyFilter, PropertyFilterType } from '~/types'
+
 import type {
     HogFlowBatchJobApi,
     HogFlowMinimalApi,
@@ -9,6 +11,7 @@ import type {
     UserBasicApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
+import { audienceCohortIds } from '../Broadcasts/audience/audienceList'
 import { manageDisabledReason } from '../Broadcasts/broadcastLifecycle'
 import {
     fakeUtcToReal,
@@ -18,6 +21,7 @@ import {
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
 import { SCHEDULED_TRIGGER_TYPES } from '../Workflows/hogflows/steps/types'
+import type { HogFlowAction } from '../Workflows/hogflows/types'
 
 export type CalendarView = 'month' | 'week'
 export type CalendarTypeFilter = 'all' | 'broadcasts' | 'workflows'
@@ -44,6 +48,26 @@ export interface CalendarSend {
     /** The schedule behind a planned or paused send. Null for a past run. */
     schedule: HogFlowScheduleApi | null
     userAccessLevel: string | null
+    audience: SendAudience
+    category: SendCategory
+}
+
+/** Who the sends of a flow go to. */
+export interface SendAudience {
+    /** The cohorts that the audience filters on, once each. */
+    cohortIds: number[]
+    /** The other audience filters, such as person properties. */
+    filters: AnyPropertyFilter[]
+    /** True when the flow runs once for each matching account, not for each person. */
+    accounts: boolean
+    /** The "To" address of the email. Only a schedule trigger uses it, because that trigger has no audience. */
+    address: string | null
+}
+
+/** The message category of the email, which decides if people who opted out still get it. */
+export interface SendCategory {
+    id: string | null
+    type: 'marketing' | 'transactional' | null
 }
 
 /** From the start of the first day to the start of the day after the last day, in the project time zone. */
@@ -56,14 +80,39 @@ export interface CalendarRange {
 // Stop at a number that the grid can still show.
 const MAX_SENDS_PER_SCHEDULE = 200
 
+type EmailAction = Extract<HogFlowAction, { type: 'function_email' }>
+
+function emailAction(flow: Pick<HogFlowMinimalApi, 'actions'>): EmailAction | null {
+    const actions = Array.isArray(flow.actions) ? (flow.actions as (HogFlowAction | null)[]) : []
+    return actions.find((action): action is EmailAction => action?.type === 'function_email') ?? null
+}
+
 export function isScheduledEmailFlow(flow: Pick<HogFlowMinimalApi, 'status' | 'trigger' | 'actions'>): boolean {
     const triggerType = (flow.trigger as { type?: string } | null)?.type ?? ''
-    const actions = Array.isArray(flow.actions) ? (flow.actions as ({ type?: string } | null)[]) : []
-    return (
-        flow.status === 'active' &&
-        SCHEDULED_TRIGGER_TYPES.includes(triggerType) &&
-        actions.some((action) => action?.type === 'function_email')
-    )
+    return flow.status === 'active' && SCHEDULED_TRIGGER_TYPES.includes(triggerType) && !!emailAction(flow)
+}
+
+export function sendAudience(flow: Pick<HogFlowMinimalApi, 'trigger' | 'actions'>): SendAudience {
+    const trigger = flow.trigger as {
+        type?: string
+        filters?: { properties?: AnyPropertyFilter[]; audience_type?: string }
+    } | null
+    if (trigger?.type !== 'batch') {
+        const email = emailAction(flow)?.config.inputs.email?.value as { to?: { email?: string } } | undefined
+        return { cohortIds: [], filters: [], accounts: false, address: email?.to?.email || null }
+    }
+    const properties = trigger.filters?.properties ?? []
+    return {
+        cohortIds: audienceCohortIds(properties),
+        filters: properties.filter((filter) => filter.type !== PropertyFilterType.Cohort),
+        accounts: trigger.filters?.audience_type === 'accounts',
+        address: null,
+    }
+}
+
+export function sendCategory(flow: Pick<HogFlowMinimalApi, 'actions'>): SendCategory {
+    const config = emailAction(flow)?.config
+    return { id: config?.message_category_id ?? null, type: config?.message_category_type ?? null }
 }
 
 export function matchesTypeFilter(
@@ -120,6 +169,8 @@ export function calendarSendsForFlow(
         kind: (flow.origin_product === 'broadcasts' ? 'broadcast' : 'workflow') as CalendarSendKind,
         createdBy: flow.created_by ?? null,
         userAccessLevel: flow.user_access_level ?? null,
+        audience: sendAudience(flow),
+        category: sendCategory(flow),
     }
     const sends: CalendarSend[] = []
     // A schedule shows only the sends still to come. An occurrence in the past is not proof that a send

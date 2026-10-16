@@ -18,6 +18,7 @@ import {
     movedScheduleFields,
     periodLabel,
     scheduleSendTimes,
+    sendAudience,
 } from './sendCalendarUtils'
 
 const EMAIL_STEP = { type: 'function_email' }
@@ -59,6 +60,37 @@ describe('sendCalendarUtils', () => {
         ['a draft', flow('batch', [EMAIL_STEP], 'draft'), false],
     ])('decides whether to show %s', (_, value, expected) => {
         expect(isScheduledEmailFlow(value)).toBe(expected)
+    })
+
+    const COHORT_FILTER = { key: 'id', type: 'cohort', value: 21 }
+    const EMAIL_IS_SET = { key: 'email', type: 'person', operator: 'is_set', value: 'is_set' }
+
+    it.each([
+        [
+            'a broadcast that filters on a cohort and a person property',
+            { type: 'batch', filters: { properties: [COHORT_FILTER, EMAIL_IS_SET] } },
+            [EMAIL_STEP],
+            { cohortIds: [21], filters: [EMAIL_IS_SET], accounts: false, address: null },
+        ],
+        [
+            'a batch workflow that runs for each account',
+            { type: 'batch', filters: { properties: [], audience_type: 'accounts' } },
+            [EMAIL_STEP],
+            { cohortIds: [], filters: [], accounts: true, address: null },
+        ],
+        [
+            'a scheduled workflow, which sends to the To address of its email',
+            { type: 'schedule' },
+            [
+                {
+                    type: 'function_email',
+                    config: { inputs: { email: { value: { to: { email: 'team@example.com' } } } } },
+                },
+            ],
+            { cohortIds: [], filters: [], accounts: false, address: 'team@example.com' },
+        ],
+    ])('reads who %s sends to', (_, trigger, actions, expected) => {
+        expect(sendAudience({ trigger, actions } as Pick<HogFlowMinimalApi, 'trigger' | 'actions'>)).toEqual(expected)
     })
 
     it.each([
