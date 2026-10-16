@@ -380,71 +380,37 @@ describe('RecipientPreferencesService', () => {
                     expect(result).toBe('suppressed')
                 })
 
-                // A suppressed address placed in cc or bcc must still block the send, because SES
-                // delivers to every recipient list, not just `to`.
+                // Suppressed cc and bcc addresses are removed at send time, and a deliverable cc address
+                // replaces a suppressed `to`. The step is skipped only when no cc address is left.
                 it.each([
-                    ['cc', 'suppressed-cc@example.com', 'suppressed-cc@example.com'],
-                    ['bcc', 'suppressed-bcc@example.com', 'suppressed-bcc@example.com'],
+                    ['a suppressed cc', 'legit-to@example.com', { cc: 'suppressed-cc@example.com' }, null],
+                    ['a suppressed bcc', 'legit-to@example.com', { bcc: 'suppressed-bcc@example.com' }, null],
                     [
-                        'cc RFC-822 bracketed',
-                        'suppressed-name@example.com',
-                        '"Blocked User" <suppressed-name@example.com>',
+                        'a suppressed to with a deliverable cc',
+                        'suppressed-to@example.com',
+                        { cc: 'ok@example.com' },
+                        null,
                     ],
                     [
-                        'bcc mixed comma-separated list',
-                        'suppressed-mixed@example.com',
-                        'ok@example.com, suppressed-mixed@example.com, other@example.com',
+                        'a suppressed to with only bcc left',
+                        'suppressed-to@example.com',
+                        { bcc: 'ok@example.com' },
+                        'suppressed',
                     ],
-                ] as const)(
-                    'skips when a suppressed address appears in %s',
-                    async (field, suppressedEmail, headerValue) => {
-                        await insertSuppressionRow(suppressedEmail)
-                        const action = createEmailAction(
-                            'legit-to@example.com',
-                            '123e4567-e89b-12d3-a456-426614174000',
-                            'marketing'
-                        )
-                        const invocation = createFunctionStepInvocation(action)
-                        // Inject the cc/bcc into the resolved invocation inputs (this is what the
-                        // executor sees at send time after template resolution).
-                        const emailInputs = invocation.state.globals!.inputs!.email as {
-                            to: { email: string }
-                            cc?: string
-                            bcc?: string
-                        }
-                        if (field.startsWith('cc')) {
-                            emailInputs.cc = headerValue
-                        } else {
-                            emailInputs.bcc = headerValue
-                        }
-
-                        const result = await service.shouldSkipAction(invocation, action)
-
-                        expect(result).toBe('suppressed')
-                    }
-                )
-
-                it('does not skip when cc/bcc contain only non-suppressed addresses', async () => {
-                    // Sanity check: the CC/BCC scan must not over-suppress. `to` is not suppressed
-                    // and cc/bcc contain unrelated addresses → fall through to the opt-out path.
-                    const action = createEmailAction(
-                        'legit-to@example.com',
-                        '123e4567-e89b-12d3-a456-426614174000',
-                        'marketing'
-                    )
+                ] as const)('handles %s', async (_label, to, extraInputs, expected) => {
+                    await insertSuppressionRow('suppressed-cc@example.com')
+                    await insertSuppressionRow('suppressed-bcc@example.com')
+                    await insertSuppressionRow('suppressed-to@example.com')
+                    const action = createEmailAction(to, '123e4567-e89b-12d3-a456-426614174000', 'marketing')
                     const invocation = createFunctionStepInvocation(action)
-                    const emailInputs = invocation.state.globals!.inputs!.email as {
-                        to: { email: string }
-                        cc?: string
-                        bcc?: string
-                    }
-                    emailInputs.cc = 'ok1@example.com, ok2@example.com'
-                    emailInputs.bcc = 'ok3@example.com'
+                    // Inject the cc/bcc into the resolved invocation inputs (this is what the
+                    // executor sees at send time after template resolution).
+                    Object.assign(invocation.state.globals!.inputs!.email as object, extraInputs)
                     mockRecipientsManagerGet.mockResolvedValue(null)
 
                     const result = await service.shouldSkipAction(invocation, action)
 
-                    expect(result).toBeNull()
+                    expect(result).toBe(expected)
                 })
             })
         })
