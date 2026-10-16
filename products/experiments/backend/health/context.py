@@ -128,6 +128,8 @@ class HealthContext:
     split_history: SplitHistory | SplitHistoryNotChecked | None
     # None when not loaded or unknown. Only the health endpoint loads it, because it queries the events.
     condition_set_traffic: ConditionSetTraffic | None
+    # The variants that the analysis leaves out of the results.
+    excluded_variant_keys: frozenset[str]
 
 
 def parse_flag_state(
@@ -229,4 +231,5 @@ def load_health_context(
         exposures=exposures,
         split_history=split_history,
         condition_set_traffic=None,
+        excluded_variant_keys=frozenset(experiment.excluded_variants or []),
     )

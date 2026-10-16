@@ -43,6 +43,7 @@ RUNNING_UNEVEN_SPLIT = HealthContext(
     exposures=UNEVEN_SPLIT_TOTALS,
     split_history=None,
     condition_set_traffic=None,
+    excluded_variant_keys=frozenset(),
 )
 
 NO_EXPOSURES = replace(UNEVEN_SPLIT_TOTALS, total_exposures={"control": 0, "test": 0})

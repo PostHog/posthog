@@ -40,6 +40,7 @@ def _context(
         exposures=None,
         split_history=None,
         condition_set_traffic=None,
+        excluded_variant_keys=frozenset(),
     )
 
 

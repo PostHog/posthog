@@ -23,6 +23,7 @@ def _context(**changes: Any) -> HealthContext:
         "exposures": None,
         "split_history": None,
         "condition_set_traffic": None,
+        "excluded_variant_keys": frozenset(),
     }
     return HealthContext(**{**values, **changes})
 

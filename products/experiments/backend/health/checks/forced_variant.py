@@ -58,10 +58,12 @@ class PinnedShareUnknownReason(StrEnum):
 class _Pins:
     pinned: tuple[ReachableCondition, ...]
     all_pinned: bool
+    # The pinned conditions whose variant the analysis includes, in evaluation order.
+    analyzed: tuple[ReachableCondition, ...]
     weighted: tuple[ReachableCondition, ...]
     split: Split
-    # The pinned conditions whose variant has 0% in the split. The hash assigns nobody to such a variant, so it
-    # holds its users apart, such as internal users or a holdout, and they are not part of the comparison.
+    # The analyzed pins to a variant with 0% in the split. The split sends nobody there, so they don't bias the
+    # other variants, but that variant's results show only the pinned users.
     unweighted: tuple[ReachableCondition, ...]
 
 
@@ -133,7 +135,11 @@ def needs_condition_set_traffic(ctx: HealthContext) -> bool:
 def has_too_few_people(ctx: HealthContext, traffic: ConditionSetTraffic) -> bool:
     """Whether the check leaves the share of `traffic` unknown only because too few people count."""
     pins = _pins(ctx)
-    return pins is not None and _grade(pins, traffic).unknown_reason == PinnedShareUnknownReason.TOO_FEW_PEOPLE
+    return (
+        pins is not None
+        and bool(pins.weighted)
+        and _grade(pins, traffic).unknown_reason == PinnedShareUnknownReason.TOO_FEW_PEOPLE
+    )
 
 
 def forced_variant_release_condition(ctx: HealthContext) -> ExperimentHealthFinding | None:
@@ -170,34 +176,37 @@ def _pins(ctx: HealthContext) -> _Pins | None:
     pinned = tuple(condition for condition in flag.reachable_conditions if condition.pinned_variant is not None)
     if not pinned:
         return None
+    # A variant that the experiment excludes is not in the results, so its pins can't bias them.
+    analyzed = tuple(condition for condition in pinned if condition.pinned_variant not in ctx.excluded_variant_keys)
     unweighted_keys = {variant.key for variant in flag.variants if variant.rollout_percentage == 0}
     return _Pins(
         pinned=pinned,
         all_pinned=len(pinned) == len(flag.reachable_conditions),
-        weighted=tuple(condition for condition in pinned if condition.pinned_variant not in unweighted_keys),
+        analyzed=analyzed,
+        weighted=tuple(condition for condition in analyzed if condition.pinned_variant not in unweighted_keys),
         split=flag.variants,
-        unweighted=tuple(condition for condition in pinned if condition.pinned_variant in unweighted_keys),
+        unweighted=tuple(condition for condition in analyzed if condition.pinned_variant in unweighted_keys),
     )
 
 
 def _some_conditions_pinned(
     pins: _Pins, traffic: ConditionSetTraffic | None, is_draft: bool
 ) -> ExperimentHealthFinding | None:
-    if not pins.weighted:
+    if not pins.analyzed:
         return None
-    grade = None if is_draft else _grade(pins, traffic)
+    grade = None if is_draft or not pins.weighted else _grade(pins, traffic)
     share = grade.share if grade is not None else None
-    if share is not None and share < _NO_FINDING_BELOW_SHARE:
+    if share is not None and share < _NO_FINDING_BELOW_SHARE and not pins.unweighted:
         return None
-    pinned_numbers = [condition.number for condition in pins.weighted]
-    pinned_keys = _variant_keys(pins.weighted)
+    pinned_numbers = [condition.number for condition in pins.analyzed]
+    pinned_keys = _variant_keys(pins.analyzed)
     return _finding(
         subcode=SOME_CONDITIONS_PINNED,
         severity=ExperimentHealthFindingSeverity.WARNING
         if share is not None and share > _WARNING_ABOVE_SHARE
         else ExperimentHealthFindingSeverity.INFO,
         title="Some users are not randomly assigned to a variant",
-        detail=_some_pinned_detail(pinned_numbers, pinned_keys, is_draft, grade),
+        detail=_some_pinned_detail(pinned_numbers, pinned_keys, is_draft, grade, _variant_keys(pins.unweighted)),
         pinned_numbers=pinned_numbers,
         pinned_keys=pinned_keys,
         diagnostic_ref="A7",
@@ -304,7 +313,11 @@ def _all_pinned_detail(numbers: Sequence[int], pinned_keys: Sequence[str], is_dr
 
 
 def _some_pinned_detail(
-    numbers: Sequence[int], pinned_keys: Sequence[str], is_draft: bool, grade: _Grade | None
+    numbers: Sequence[int],
+    pinned_keys: Sequence[str],
+    is_draft: bool,
+    grade: _Grade | None,
+    unweighted_keys: Sequence[str],
 ) -> str:
     if len(numbers) == 1:
         key = pinned_keys[0]
@@ -335,6 +348,14 @@ def _some_pinned_detail(
         )
     if grade is not None:
         fact += grade.sentence(them)
+    if len(unweighted_keys) == 1:
+        fact += (
+            f' Nobody gets "{unweighted_keys[0]}" at random, so the results of "{unweighted_keys[0]}" show only '
+            "these users."
+        )
+    elif unweighted_keys:
+        names = " or ".join(f'"{key}"' for key in unweighted_keys)
+        fact += f" Nobody gets {names} at random, so their results show only these users."
     return f"{fact} {why} {fix}"
 
 

@@ -38,6 +38,7 @@ def _context(
     deleted: bool = False,
     early_exit: bool = False,
     traffic: ConditionSetTraffic | None = None,
+    excluded: frozenset[str] = frozenset(),
 ) -> HealthContext:
     return HealthContext(
         **status,
@@ -50,6 +51,7 @@ def _context(
         exposures=None,
         split_history=None,
         condition_set_traffic=traffic,
+        excluded_variant_keys=excluded,
     )
 
 
@@ -173,18 +175,36 @@ class TestForcedVariantReleaseCondition(TestCase):
                 ("some_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "test", 0.2143),
             ),
             (
-                "pins_to_a_zero_percent_variant_only",
+                "pins_to_a_zero_percent_variant_the_analysis_shows",
                 _context([{**STAFF, "variant": "holdout"}, EVERYONE], variants=SPLIT_WITH_HOLDOUT),
+                ("some_conditions_pinned", ExperimentHealthFindingSeverity.INFO, "1", "holdout", None),
+            ),
+            (
+                "pins_to_a_zero_percent_variant_the_analysis_excludes",
+                _context(
+                    [{**STAFF, "variant": "holdout"}, EVERYONE],
+                    variants=SPLIT_WITH_HOLDOUT,
+                    excluded=frozenset({"holdout"}),
+                ),
                 None,
             ),
             (
-                "pins_to_a_zero_percent_variant_do_not_count",
+                "pins_to_a_variant_the_analysis_excludes",
+                _context(
+                    [{**STAFF, "variant": "test-2"}, EVERYONE],
+                    variants=[*EVEN_SPLIT, {"key": "test-2", "rollout_percentage": 0}],
+                    excluded=frozenset({"test-2"}),
+                ),
+                None,
+            ),
+            (
+                "pins_to_a_zero_percent_variant_stay_out_of_the_share",
                 _context(
                     [{**STAFF, "variant": "holdout"}, {**IOS, "variant": "test"}, EVERYONE],
                     variants=SPLIT_WITH_HOLDOUT,
                     traffic=_traffic({1: 500, 2: 30, 3: 470}),
                 ),
-                ("some_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "2", "test", 0.1132),
+                ("some_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 2", "holdout, test", 0.1132),
             ),
         ]
     )
@@ -212,6 +232,7 @@ class TestForcedVariantReleaseCondition(TestCase):
         )
         self.assertEqual("before launch" in finding.detail, not ctx.is_launched)
         self.assertEqual("of the users who got" in finding.detail, expected[4] is not None)
+        self.assertEqual('Nobody gets "holdout" at random' in finding.detail, "holdout" in expected[3])
 
     @parameterized.expand(
         [
