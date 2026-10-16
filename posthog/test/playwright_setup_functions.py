@@ -176,7 +176,6 @@ def create_organization_with_team(
             "say_on_complete": False,
             "skip_materialization": True,
             "skip_flag_sync": True,
-            "skip_user_product_list": True,
         }
 
         with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):

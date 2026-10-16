@@ -4,7 +4,10 @@ Kept apart from ``facade/api.py`` so ``temporalio`` stays off the light data-sur
 """
 
 from products.slack_app.backend.temporal import SLACK_APP_ACTIVITIES
-from products.slack_app.backend.temporal.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
+from products.slack_app.backend.temporal.posthog_code_slack_mention import (
+    LegacyPostHogCodeSlackMentionWorkflow,
+    SlackAppMentionProcessingWorkflow,
+)
 from products.slack_app.backend.temporal.posthog_code_slack_mention_command import (
     PostHogCodeSlackMentionCommandWorkflow,
 )
@@ -14,7 +17,8 @@ from products.slack_app.backend.temporal.slack_app_mention import SlackAppMentio
 from products.slack_app.backend.temporal.slack_app_unfurl_charts import SlackAppUnfurlChartsWorkflow
 
 WORKFLOWS = [
-    PostHogCodeSlackMentionWorkflow,
+    SlackAppMentionProcessingWorkflow,
+    LegacyPostHogCodeSlackMentionWorkflow,
     SlackAppMentionWorkflow,
     PostHogCodeSlackMentionCommandWorkflow,
     SlackAppForkThreadWorkflow,
