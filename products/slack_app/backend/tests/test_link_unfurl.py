@@ -60,6 +60,7 @@ from products.tasks.backend.models import Channel, Task, TaskRun
 _TASK_ID = "c76f58f4-4c64-4cd7-825d-4ef89f6dd4ac"
 _CHANNEL_ID = "0192f0a0-0000-4000-8000-000000000001"
 _CANVAS_ID = "0192f0a0-0000-4000-8000-000000000002"
+_RUN_ID = "0192f0a0-0000-4000-8000-000000000003"
 
 
 class TestParsePosthogResourceLink:
@@ -81,6 +82,12 @@ class TestParsePosthogResourceLink:
             ("desktop_task", f"https://us.posthog.com/code/task/{_TASK_ID}", "task", _TASK_ID),
             ("space_task", f"https://us.posthog.com/code/channel/{_CHANNEL_ID}/tasks/{_TASK_ID}", "task", _TASK_ID),
             ("ai_task", f"https://us.posthog.com/project/42/ai?task={_TASK_ID}", "task", _TASK_ID),
+            (
+                "task_artifact",
+                f"https://us.posthog.com/api/projects/42/tasks/{_TASK_ID}/runs/{_RUN_ID}/artifacts/file-1/download/",
+                "task_artifact",
+                "file-1",
+            ),
             ("canvas", f"https://us.posthog.com/project/42/canvases/{_CANVAS_ID}", "canvas", _CANVAS_ID),
             ("desktop_canvas", f"https://us.posthog.com/code/canvas/{_CHANNEL_ID}/{_CANVAS_ID}", "canvas", _CANVAS_ID),
             ("notebook", "https://us.posthog.com/project/42/notebooks/Xy12", "notebook", "Xy12"),
@@ -806,6 +813,8 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                     "*Completed*",
                     "View pull request",
                 ]
+            case "task_artifact":
+                return self._create_task_artifact(), ["report.md", "2.0 KB", "Task: Fix checkout", "View task"]
             case "report":
                 report = SignalReport.objects.create(
                     team=self.team,
@@ -821,10 +830,79 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 ]
         raise ValueError(kind)
 
+    def _create_task_artifact(self, run_state: dict | None = None, project_id: int | None = None) -> str:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Fix checkout",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            state=run_state or {},
+            artifacts=[
+                {
+                    "id": "file-1",
+                    "name": "report.md",
+                    "type": "artifact",
+                    "size": 2048,
+                    "storage_path": "tasks/artifacts/run_1/file-1_report.md",
+                    "uploaded_at": "2026-10-01T12:00:00+00:00",
+                }
+            ],
+        )
+        project = project_id or self.team.pk
+        return f"http://testserver/api/projects/{project}/tasks/{task.id}/runs/{run.id}/artifacts/file-1/download/"
+
+    @parameterized.expand(
+        [
+            ("task_hidden_from_sharer", None, None, True),
+            ("run_with_analytics_context", {"analytics_query_context": {"kind": "metric"}}, None, False),
+            ("other_project", None, 999999, False),
+        ]
+    )
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_skips_task_artifact_the_sharer_cannot_download(
+        self,
+        _name: str,
+        run_state: dict | None,
+        project_id: int | None,
+        shared_by_other_member: bool,
+        mock_slack_integration_class: MagicMock,
+        mock_resolve: MagicMock,
+    ) -> None:
+        url = self._create_task_artifact(run_state, project_id)
+        sharer = (
+            User.objects.create_and_join(self.organization, "other-member@posthog.com", "password")
+            if shared_by_other_member
+            else self.user
+        )
+        mock_resolve.return_value = MagicMock(user=sharer)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        self._unfurl_links([url])
+
+        mock_client.chat_unfurl.assert_not_called()
+
     @parameterized.expand(
         [
             (kind,)
-            for kind in ("canvas", "notebook", "flag", "experiment", "survey", "cohort", "error", "report", "task")
+            for kind in (
+                "canvas",
+                "notebook",
+                "flag",
+                "experiment",
+                "survey",
+                "cohort",
+                "error",
+                "report",
+                "task",
+                "task_artifact",
+            )
         ]
     )
     @patch("products.slack_app.backend.api.resolve_slack_user")

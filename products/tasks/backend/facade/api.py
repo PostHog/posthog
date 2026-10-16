@@ -767,6 +767,38 @@ def get_task_for_slack_unfurl(task_id: str | UUID, team_id: int, user_id: int) -
     )
 
 
+def get_task_artifact_for_slack_unfurl(
+    *, task_id: str | UUID, run_id: str | UUID, artifact_id: str, team_id: int, user_id: int
+) -> contracts.TaskArtifactSlackUnfurlDTO | None:
+    """A downloadable run artifact the user may see, or ``None``.
+
+    A run with analytics context is refused. The download endpoint checks the caller's access to
+    that context against the request, and an unfurl has no request, so it fails closed.
+    """
+    task = _visible_task_qs(team_id, user_id).filter(id=task_id, internal=False).only("id", "title").first()
+    if task is None:
+        return None
+    run = _get_visible_run(run_id, task.id, team_id)
+    if run is None or "analytics_query_context" in (run.state or {}):
+        return None
+    entry = next((a for a in run.artifacts or [] if a.get("id") == artifact_id and a.get("storage_path")), None)
+    if entry is None:
+        return None
+    size = entry.get("size")
+    uploaded_at = entry.get("uploaded_at")
+    try:
+        uploaded = datetime.fromisoformat(uploaded_at) if isinstance(uploaded_at, str) else None
+    except ValueError:
+        uploaded = None
+    return contracts.TaskArtifactSlackUnfurlDTO(
+        name=str(entry.get("name") or "artifact"),
+        size=size if isinstance(size, int) else None,
+        uploaded_at=uploaded,
+        task_id=task.id,
+        task_title=task.title,
+    )
+
+
 _StateEntryResult = TypeVar("_StateEntryResult")
 
 

@@ -12,7 +12,7 @@ import dataclasses
 from collections.abc import Callable
 from datetime import datetime
 from typing import Literal, cast
-from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
+from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlparse, urlsplit, urlunsplit
 from uuid import UUID
 
 from django.conf import settings
@@ -87,6 +87,8 @@ _UNFURL_TEMPLATES: dict[str, tuple[str, ...]] = {
     "dashboard": OBJECT_URL_TEMPLATES["dashboard"],
     "ticket": OBJECT_URL_TEMPLATES["ticket"],
     "task": ("/tasks/{id}", "/code/task/{id}", "/code/channel/{channel}/tasks/{id}", "/ai?task={id}"),
+    # The stable download link an agent hands out for a file it made.
+    "task_artifact": ("/api/projects/{project}/tasks/{task}/runs/{run}/artifacts/{id}/download",),
     "canvas": ("/canvases/{id}", "/code/canvas/{channel}/{id}"),
     "notebook": ("/notebooks/{id}",),
     "flag": OBJECT_URL_TEMPLATES["flag"],
@@ -102,6 +104,7 @@ _KIND_EMOJI: dict[str, str] = {
     "dashboard": "📊",
     "ticket": "🎫",
     "task": "🤖",
+    "task_artifact": "📎",
     "canvas": "🎨",
     "notebook": "📓",
     "flag": "🚩",
@@ -792,6 +795,43 @@ def _task_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipRe
     )
 
 
+def _file_size(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    value = size / 1024
+    for unit in ("KB", "MB"):
+        if value < 1024:
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} GB"
+
+
+def _task_artifact_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    parsed = urlparse(url)
+    # The matched template fixes the layout: /api/projects/<team>/tasks/<task>/runs/<run>/artifacts/<id>/...
+    segments = [unquote(segment) for segment in parsed.path.split("/") if segment]
+    team_ref, task_ref, run_ref = segments[2], segments[4], segments[6]
+    if team_ref != str(ctx.team.pk):
+        return "other_project"
+    task_id, run_id = _uuid(task_ref), _uuid(run_ref)
+    if task_id is None or run_id is None:
+        return "not_found"
+    artifact = tasks_facade.get_task_artifact_for_slack_unfurl(
+        task_id=task_id, run_id=run_id, artifact_id=ref, team_id=ctx.team.pk, user_id=ctx.user.id
+    )
+    if artifact is None:
+        return "not_found_or_no_access"
+    task_url = f"{parsed.scheme}://{parsed.netloc}/project/{ctx.team.pk}/tasks/{artifact.task_id}"
+    return _UnfurlCard(
+        label="Task artifact",
+        title=artifact.name,
+        details=(*((_file_size(artifact.size),) if artifact.size is not None else ()), f"Task: {artifact.task_title}"),
+        timestamp=artifact.uploaded_at,
+        timestamp_label="Uploaded",
+        button=_CardButton(label="View task", url=task_url),
+    )
+
+
 def _canvas_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
     summary = canvas_access.live_canvas_summary(team_id=ctx.team.pk, canvas_id=ref) if _uuid(ref) else None
     if summary is None:
@@ -972,6 +1012,7 @@ _CARD_BUILDERS: dict[str, Callable[[_UnfurlContext, str, str], _UnfurlCard | _Sk
     "dashboard": _dashboard_card,
     "ticket": _ticket_card,
     "task": _task_card,
+    "task_artifact": _task_artifact_card,
     "canvas": _canvas_card,
     "notebook": _notebook_card,
     "flag": _flag_card,
