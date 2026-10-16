@@ -1456,6 +1456,8 @@ class ExternalDataSourceType(LabeledStrEnum):
     WISE = "Wise", "Wise"
     LARAVELCLOUD = "LaravelCloud", "LaravelCloud"
     NORTHBEAM = "Northbeam", "Northbeam"
+    NAVERADS = "NaverAds", "NaverAds"
+    CHANNELIO = "ChannelIO", "ChannelIO"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:
