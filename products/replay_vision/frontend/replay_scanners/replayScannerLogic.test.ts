@@ -357,46 +357,66 @@ describe('replayScannerLogic', () => {
         })
 
         // The experiment is not part of the query, so the form is its only carrier: dropped here, the
-        // saved scanner watches every visitor of the drafted pages instead of the participants. The
-        // API refuses new legacy targeting, so either draft shape must become the experiment type.
+        // saved scanner watches every visitor of the drafted pages instead of the participants.
         it.each([
             {
-                shape: 'legacy targeting on another type',
-                scanner_type: 'classifier',
-                scanner_config: { prompt: 'Describe the friction.', tags: ['smooth'], multi_label: false },
-                experiment_targeting: { experiment_id: 11, variant: 'test' },
+                experimentScanners: true,
+                expected: {
+                    scanner_type: 'experiment',
+                    scanner_config: { prompt: 'Describe the friction.', experiment_id: 11, variants: ['test'] },
+                    experiment_targeting: null,
+                },
             },
             {
-                shape: 'the experiment type',
-                scanner_type: 'experiment',
-                scanner_config: { prompt: 'Describe the friction.', experiment_id: 11, variants: ['test'] },
-                experiment_targeting: null,
-            },
-        ])('carries the drafted experiment onto the form from $shape', async (draft) => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
-            draftSpy.mockReturnValue([
-                200,
-                {
-                    name: 'New entrypoint friction',
-                    description: 'Describes friction in the new entrypoint.',
-                    rationale: '',
-                    query: null,
-                    scanner_type: draft.scanner_type,
-                    scanner_config: draft.scanner_config,
-                    experiment_targeting: draft.experiment_targeting,
+                experimentScanners: false,
+                expected: {
+                    scanner_type: 'summarizer',
+                    scanner_config: { prompt: 'Describe the friction.', length: 'medium' },
+                    experiment_targeting: { experiment_id: 11, variant: 'test' },
                 },
-            ])
+            },
+        ])(
+            'carries a drafted experiment scanner onto the form, experiment scanners $experimentScanners',
+            async ({ experimentScanners, expected }) => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: experimentScanners,
+                })
+                draftSpy.mockReturnValue([
+                    200,
+                    {
+                        name: 'New entrypoint friction',
+                        description: 'Describes friction in the new entrypoint.',
+                        rationale: '',
+                        query: null,
+                        scanner_type: 'experiment',
+                        scanner_config: {
+                            prompt: 'Describe the friction.',
+                            length: 'medium',
+                            experiment_id: 11,
+                            variants: ['test'],
+                            balance_variants: true,
+                        },
+                    },
+                ])
+                router.actions.push(urls.replayVisionScannerTemplate('new'))
+
+                await expectLogic(logic, () =>
+                    logic.actions.draftScannerFromGoal('friction in the new AI entrypoint')
+                ).toFinishAllListeners()
+
+                expect(logic.values.scanner).toMatchObject(expected)
+            }
+        )
+
+        it('sends the experiment the person picked with a goal-flow draft', async () => {
             router.actions.push(urls.replayVisionScannerTemplate('new'))
 
             await expectLogic(logic, () =>
-                logic.actions.draftScannerFromGoal('friction in the new AI entrypoint')
+                logic.actions.draftScannerFromGoal('Track the checkout test', 500, 'track_experiment', false, 11)
             ).toFinishAllListeners()
 
-            expect(logic.values.scanner).toMatchObject({
-                scanner_type: 'experiment',
-                scanner_config: { prompt: 'Describe the friction.', experiment_id: 11, variants: ['test'] },
-                experiment_targeting: null,
-            })
+            const { request } = (draftSpy.mock.calls as unknown as [{ request: Request }][])[0][0]
+            expect(await request.json()).toMatchObject({ monthly_credit_budget: 500, experiment_id: 11 })
         })
 
         // Until the flag is on for a team, the prefill stays legacy targeting on the drafted type.

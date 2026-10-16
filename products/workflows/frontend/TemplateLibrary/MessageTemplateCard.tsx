@@ -1,3 +1,5 @@
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -39,7 +41,14 @@ export function MessageTemplateCard({
                 </div>
 
                 <div className="px-2 py-2 border-t">
-                    <h5 className="mb-0.5">{template.name || 'Unnamed template'}</h5>
+                    <div className="flex items-center gap-1 mb-0.5">
+                        <h5 className="mb-0 truncate">{template.name || 'Unnamed template'}</h5>
+                        {template.transactional_hog_flow_id && (
+                            <LemonTag type="success" size="small">
+                                Transactional
+                            </LemonTag>
+                        )}
+                    </div>
                     {template.description && (
                         <p className="text-secondary text-xs line-clamp-1 mb-1">{template.description}</p>
                     )}

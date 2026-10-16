@@ -885,18 +885,15 @@ export interface ActivityEventsListWidgetConfigApi {
     properties?: ActivityEventsPropertyFilterApi[] | null
 }
 
-/**
- * Issue ranking column.
- */
-export type ErrorTrackingListWidgetConfigApiOrderBy =
-    (typeof ErrorTrackingListWidgetConfigApiOrderBy)[keyof typeof ErrorTrackingListWidgetConfigApiOrderBy]
+export type ErrorTrackingOrderByApi = (typeof ErrorTrackingOrderByApi)[keyof typeof ErrorTrackingOrderByApi]
 
-export const ErrorTrackingListWidgetConfigApiOrderBy = {
+export const ErrorTrackingOrderByApi = {
     LastSeen: 'last_seen',
     FirstSeen: 'first_seen',
     Occurrences: 'occurrences',
     Users: 'users',
     Sessions: 'sessions',
+    Severity: 'severity',
 } as const
 
 /**
@@ -950,7 +947,7 @@ export interface ErrorTrackingListWidgetConfigApi {
      */
     limit?: number
     /** Issue ranking column. */
-    orderBy?: ErrorTrackingListWidgetConfigApiOrderBy
+    orderBy?: ErrorTrackingOrderByApi
     /** Sort direction for orderBy. */
     orderDirection?: ErrorTrackingListWidgetConfigApiOrderDirection
     /** Issue status filter. */
@@ -8188,17 +8185,6 @@ export interface MarketingAnalyticsAggregatedQueryApi {
     version?: number | null
 }
 
-export type ErrorTrackingOrderByApi = (typeof ErrorTrackingOrderByApi)[keyof typeof ErrorTrackingOrderByApi]
-
-export const ErrorTrackingOrderByApi = {
-    LastSeen: 'last_seen',
-    FirstSeen: 'first_seen',
-    Occurrences: 'occurrences',
-    Users: 'users',
-    Sessions: 'sessions',
-    Severity: 'severity',
-} as const
-
 export type OrderDirection2Api = (typeof OrderDirection2Api)[keyof typeof OrderDirection2Api]
 
 export const OrderDirection2Api = {
@@ -9633,6 +9619,8 @@ export interface BIValueApi {
 }
 
 export interface BIConfigApi {
+    /** Catalog provenance only: the snapshot does not track subsequent definition edits. */
+    catalogMetric?: string | null
     chartType: ChartDisplayTypeApi
     colorBy?: string | null
     columns: BIFieldApi[]
@@ -9654,6 +9642,8 @@ export interface BIConfigApi {
     missingDates?: MissingDatesApi | null
     /** Split the returned groups into charts using these ordered dimension IDs. */
     panes?: BIPaneSettingsApi | null
+    /** Executable catalog query snapshot. Dates and grouping belong to the definition, not the shelves. */
+    querySnapshot?: HogQLQueryApi | null
     resultFilterGroup?: BIConditionGroupApi | null
     resultFilters?: BIResultFilterApi[] | null
     rowFilterGroup?: BIConditionGroupApi | null

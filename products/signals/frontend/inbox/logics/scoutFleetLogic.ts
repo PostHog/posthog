@@ -53,6 +53,7 @@ import {
     captureScoutAction,
     captureScoutChatStarted,
     captureScoutConfigChanged,
+    captureScoutToolsSaveResult,
     ScoutChatType,
     ScoutFleetSyncOutcome,
     ScoutSurface,
@@ -139,6 +140,40 @@ function captureScoutConfigUpdates(
             success,
         })
     }
+    if ('allowed_mcp_tools' in updates || 'tool_preset' in updates) {
+        captureScoutToolsSaveResult({
+            skillName: config?.skill_name ?? '',
+            allTools: !updates.tool_preset && updates.allowed_mcp_tools === null,
+            toolPreset: updates.tool_preset ?? null,
+            toolCount: updates.allowed_mcp_tools?.length ?? null,
+            success,
+        })
+    }
+}
+
+/**
+ * Folds a later update into a queued one. A tool selection and `write_scopes` must never travel in
+ * one request, because the API rejects that pair, so the later of the two replaces the earlier.
+ */
+export function mergeQueuedScoutConfigUpdates(
+    queued: SignalScoutConfigUpdate | undefined,
+    next: SignalScoutConfigUpdate
+): SignalScoutConfigUpdate {
+    const merged = { ...queued, ...next }
+    if ('write_scopes' in next) {
+        delete merged.allowed_mcp_tools
+        delete merged.tool_preset
+    }
+    if ('allowed_mcp_tools' in next || 'tool_preset' in next) {
+        delete merged.write_scopes
+        if (!('tool_preset' in next)) {
+            delete merged.tool_preset
+        }
+        if (!('allowed_mcp_tools' in next)) {
+            delete merged.allowed_mcp_tools
+        }
+    }
+    return merged
 }
 
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
@@ -161,6 +196,16 @@ const RUN_COST_BATCH_CONCURRENCY = 4
 // generations cross ingestion, and it caches a total read in that grace for 60 seconds more. A run
 // that settled before this answers with its final total. The rest covers clock skew.
 const RUN_COST_FINAL_AFTER_MS = 10 * 60_000
+
+// Orders the fleet runs read and the single-scout runs read, which both write `scoutRuns`.
+function nextRunsRequestSeq(cache: Record<string, any>): number {
+    cache.runsRequestSeq = (cache.runsRequestSeq ?? 0) + 1
+    return cache.runsRequestSeq
+}
+
+function byNewestCreated(a: SignalScoutRunSummary, b: SignalScoutRunSummary): number {
+    return (b.created_at ?? '').localeCompare(a.created_at ?? '')
+}
 
 // Roster filter state also lives in the URL so a filtered view survives a refresh and is shareable.
 // The search param is written on this debounce, so typing does not rewrite the URL per keystroke.
@@ -537,6 +582,21 @@ export interface scoutFleetLogicActions {
         error: string
         errorObject?: any
     }
+    loadScoutRunsForSkill: (skillName: string) => string
+    loadScoutRunsForSkillFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScoutRunsForSkillSuccess: (
+        scoutRuns: SignalScoutRunSummary[],
+        payload?: string
+    ) => {
+        scoutRuns: SignalScoutRunSummary[]
+        payload?: string
+    }
     loadScoutRunsSuccess: (
         scoutRuns: SignalScoutRunSummary[],
         payload?: void
@@ -909,15 +969,62 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     if (!teamId) {
                         return values.scoutRuns
                     }
+                    const requestSeq = nextRunsRequestSeq(cache)
                     const runs = await signalsScoutRunsRecentPerScout(String(teamId), {
                         per_scout_limit: SCOUT_RUNS_PER_SCOUT,
                     })
                     breakpoint()
+                    const fleetSkills = new Set(runs.map((run) => run.skill_name))
+                    cache.lastFleetRuns = { seq: requestSeq, skills: fleetSkills }
+                    // A scout page's own read wins over this response when it started later, or when
+                    // this response could not probe that scout at all. Otherwise a slow fleet read
+                    // would put back older runs, or drop a history the fleet read never saw.
+                    const scopedRunsSeq: Record<string, number> = cache.scopedRunsSeq ?? {}
+                    const keptSkills = new Set(
+                        Object.entries(scopedRunsSeq)
+                            .filter(
+                                ([skillName, scopedSeq]) =>
+                                    scopedSeq > requestSeq ||
+                                    (!values.scoutRunsCoverFleet && !fleetSkills.has(skillName))
+                            )
+                            .map(([skillName]) => skillName)
+                    )
+                    const nextRuns =
+                        keptSkills.size === 0
+                            ? runs
+                            : [
+                                  ...runs.filter((run) => !keptSkills.has(run.skill_name)),
+                                  ...values.scoutRuns.filter((run) => keptSkills.has(run.skill_name)),
+                              ].sort(byNewestCreated)
                     // Reuse prior references for unchanged runs so the 60s poll doesn't churn every
                     // run's identity and needlessly re-render the memoized run/emission rows. Live
                     // (running/queued) runs are never reused: their rows show a wall-clock duration
                     // that must keep advancing with each poll.
-                    return reconcileById(values.scoutRuns, runs, (run) => run.run_id, isSettledRun)
+                    return reconcileById(values.scoutRuns, nextRuns, (run) => run.run_id, isSettledRun)
+                },
+                // One scout's runs, merged over that scout's slice of the window. A scout page loads
+                // this first, so it does not wait on the probes of every other scout in the fleet.
+                loadScoutRunsForSkill: async (skillName: string, breakpoint) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.scoutRuns
+                    }
+                    const requestSeq = nextRunsRequestSeq(cache)
+                    cache.scopedRunsSeq = { ...cache.scopedRunsSeq, [skillName]: requestSeq }
+                    const runs = await signalsScoutRunsRecentPerScout(String(teamId), {
+                        per_scout_limit: SCOUT_RUNS_PER_SCOUT,
+                        skill_name: skillName,
+                    })
+                    breakpoint()
+                    // A fleet read that started later already put newer runs for this scout in place.
+                    const lastFleetRuns: { seq: number; skills: Set<string> } | undefined = cache.lastFleetRuns
+                    if (lastFleetRuns && lastFleetRuns.seq > requestSeq && lastFleetRuns.skills.has(skillName)) {
+                        return values.scoutRuns
+                    }
+                    const merged = [...values.scoutRuns.filter((run) => run.skill_name !== skillName), ...runs].sort(
+                        byNewestCreated
+                    )
+                    return reconcileById(values.scoutRuns, merged, (run) => run.run_id, isSettledRun)
                 },
             },
         ],
@@ -1661,7 +1768,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 })
                 lemonToast.success('Run started. It shows up in this scout’s runs when it finishes.')
                 // The run row appears on the next poll; pull once now so the page reacts immediately.
-                actions.loadScoutRuns()
+                if (config) {
+                    actions.loadScoutRunsForSkill(config.skill_name)
+                } else {
+                    actions.loadScoutRuns()
+                }
             } catch (error: any) {
                 // The endpoint refuses deliberately in several ordinary cases — already running,
                 // over the daily budget — so the backend's own message is the useful one.
@@ -1705,7 +1816,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
 
             if (inFlight.has(configId)) {
                 actions.patchScoutConfigLocally(configId, updates)
-                pendingUpdates.set(configId, { ...pendingUpdates.get(configId), ...updates })
+                pendingUpdates.set(configId, mergeQueuedScoutConfigUpdates(pendingUpdates.get(configId), updates))
                 return
             }
 
