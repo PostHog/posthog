@@ -177,6 +177,11 @@ manual native experiments before running it. Native changes belong in config plu
 the source under `modules/` and `targets/`, so they survive regeneration. This also applies
 the app's scene-lifecycle plugin and generates the widget target.
 
+For repeat installs after JavaScript or TypeScript changes only, reuse the generated native
+project: rerun the dependency install and type check, then the `expo run:ios` command above.
+Regenerate first when changing native dependencies, app configuration, config plugins,
+native modules or widget sources, or when switching app variants.
+
 The second command builds the workspace for that physical device, signs both targets,
 installs the app, and launches it. `Release` embeds the current JavaScript and assets.
 The output can still say **Starting Metro Bundler** while generating that bundle;
@@ -215,6 +220,10 @@ screenshots of an existing session can contain private project data.
 
 ### If installation or launch fails
 
+- **Prebuild fails updating the widget target with `removeFromProject` undefined:** rerun
+  the prebuild command above without `--no-clean`. With `@bacons/apple-targets` 5.0.0,
+  updating an existing widget target can fail; regenerating the native project succeeds.
+  Preserve any manual native experiments first.
 - **Signing or provisioning fails:** open `ios/PostHog.xcworkspace` in Xcode and check
   Signing & Capabilities for both PostHog and HedgehogWidget. Use the authorized team and
   automatic signing. Resolve certificate, device-registration and App Group access through
@@ -254,6 +263,111 @@ After installation, an explicit relaunch succeeded, the PostHog process remained
 and a local screenshot confirmed that the inbox rendered with the existing session.
 No server was listening on Metro's default port 8081. Full feature QA and installation on
 other devices were not performed; the parameters and distribution options above cover reuse.
+
+## Install the current checkout on a connected Android phone
+
+This produces a local Release APK with JavaScript and assets embedded, so the installed app
+runs without Metro. It builds the current checkout, including local changes.
+
+### Prepare the build machine and phone
+
+Install the app's Node and pnpm versions, a JDK compatible with the Gradle wrapper, and the
+Android SDK. The verified setup uses JDK 17, Android SDK platform and build tools 36, and
+NDK `27.1.12297006`. Gradle reports its required SDK and NDK versions during configuration.
+Find your SDK location in Android Studio's SDK settings, then set these for your machine:
+
+```sh
+export ANDROID_HOME='<Android SDK directory>'
+export JAVA_HOME='<JDK home directory>'
+export PATH="$ANDROID_HOME/platform-tools:$JAVA_HOME/bin:$PATH"
+```
+
+On the phone, enable Developer options and **USB debugging**, connect a data-capable USB
+cable, unlock the screen, and accept the debugging authorization prompt. Then run:
+
+```sh
+adb devices -l
+```
+
+Select the physical device's row, whose state must be `device`. `unauthorized` means the
+phone still needs to approve the Mac. `offline` means it is not ready; reconnect and check
+again. An identifier beginning with `emulator-` belongs to an emulator.
+
+Keep the serial for commands that target the phone, and the row's `model:` value for Expo:
+
+```sh
+export ANDROID_SERIAL='<physical device serial>'
+export ANDROID_DEVICE_NAME='<model value from adb devices -l>'
+adb -s "$ANDROID_SERIAL" shell getprop ro.build.version.release
+adb -s "$ANDROID_SERIAL" shell getprop ro.product.cpu.abilist
+```
+
+### Sync, build and install
+
+From the repository root:
+
+```sh
+cd products/mobile
+pnpm install --frozen-lockfile
+pnpm typecheck
+CI=1 pnpm exec expo prebuild --platform android --no-clean --pnpm --skip-dependency-update react,react-native
+CI=1 pnpm exec expo run:android --device "$ANDROID_DEVICE_NAME" --variant release --no-bundler --no-install
+```
+
+Prebuild updates the ignored Android project from `app.config.ts`, including the version;
+`--no-clean` preserves the existing native directory. If native configuration is stale,
+regenerate without `--no-clean`, after preserving any manual native experiments.
+The build includes native dependencies, creates the APK, installs it on the selected phone,
+and launches it. The first Release build can compile libraries for several CPU architectures.
+Later builds reuse Gradle's cache. Metro messages during bundling do not mean a server must
+remain running after installation.
+
+Expo's `--device` selects by device name. If multiple connected phones have the same model,
+build without choosing a device and install explicitly by serial instead:
+
+```sh
+cd android
+./gradlew :app:assembleRelease
+cd ..
+adb -s "$ANDROID_SERIAL" install -r android/app/build/outputs/apk/release/app-release.apk
+```
+
+The generated local Release variant uses the project's debug keystore. Keep that key for
+subsequent local updates. Store releases use the existing production signing credentials
+through EAS. If `install -r` reports a signing mismatch, use a build signed with the matching
+key; do not uninstall the existing app automatically, because that clears its app data.
+
+### Verify the installation
+
+```sh
+adb -s "$ANDROID_SERIAL" shell dumpsys package com.posthog.code.mobile
+adb -s "$ANDROID_SERIAL" shell am force-stop com.posthog.code.mobile
+adb -s "$ANDROID_SERIAL" shell am start -W -n com.posthog.code.mobile/.MainActivity
+adb -s "$ANDROID_SERIAL" shell pidof com.posthog.code.mobile
+adb -s "$ANDROID_SERIAL" exec-out screencap -p > /tmp/posthog-mobile-android-install.png
+```
+
+Check `versionName` against `app.config.ts`, confirm launch succeeds and the process remains
+running, then inspect the phone or screenshot after startup. A fresh device should show sign-in;
+an update can retain the existing session. This verifies installation and startup, not every
+feature or a new sign-in. Keep serials, private screenshots and device logs out of the repository.
+
+If a screenshot is black, wake and unlock the phone before checking the screen. USB debugging
+can remain connected while the display is off. `adb -s "$ANDROID_SERIAL" shell input keyevent KEYCODE_WAKEUP`
+wakes the display; complete any secure unlock on the phone itself.
+
+### Verification record
+
+On October 15, 2026, this process installed version `1.1.0` (local build `1`) on a physical
+Moto G Play (2024) running Android 14 with an ARM64 CPU. The frozen dependency install, type
+check, Android prebuild and Gradle Release build succeeded. The APK passed `apksigner verify`.
+An explicit cold launch succeeded, the app stayed running in the foreground, and a local
+screenshot confirmed that the sign-in screen rendered. The app was left ready for sign-in;
+no account credentials were entered and full feature QA was not performed.
+
+References: [Android hardware-device setup](https://developer.android.com/studio/run/device),
+[Expo CLI](https://docs.expo.dev/more/expo-cli/), and
+[Android APK distribution](https://docs.expo.dev/build-reference/apk/).
 
 ## Install a development build on an iPhone
 
