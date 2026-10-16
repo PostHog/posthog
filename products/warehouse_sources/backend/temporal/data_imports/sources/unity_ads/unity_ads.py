@@ -2,7 +2,7 @@ from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
-from requests import Timeout
+from requests import ReadTimeout
 from requests.auth import HTTPBasicAuth
 
 from posthog.dataclasses import frozen
@@ -26,7 +26,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.unity_ads.
 )
 
 # Unity allows a report request 10 minutes, but one request may hold a worker for 5 at most, so short
-# windows keep each response well inside this read timeout.
+# windows keep each response well inside this read timeout. The retry budget matches it, so a window
+# that times out is halved after one attempt instead of being sent again at full size.
 REQUEST_TIMEOUT = (10, 240)
 PROBE_TIMEOUT = 60
 
@@ -36,6 +37,8 @@ INVALID_ORGANIZATION_ID = "The Unity organization ID must be the numeric Organiz
 @frozen
 class UnityAdsResumeConfig:
     next_window_start: str
+    # The window size after halving, so a resumed run does not time out again on full-size windows.
+    window_days: int | None = None
 
 
 def to_date(value: Any) -> date:
@@ -84,15 +87,16 @@ def _windows(
         except RESTClientRetryableError as error:
             # A report too large for the read timeout fails the same way on every retry, so ask for
             # half the days instead. A single day that still times out fails the run.
-            if not isinstance(error.__cause__, Timeout) or last_day == window:
+            if not isinstance(error.__cause__, ReadTimeout) or last_day == window:
                 raise
             span = max(1, ((last_day - window).days + 1) // 2)
+            manager.save_state(UnityAdsResumeConfig(next_window_start=window.isoformat(), window_days=span))
             manager.safe_point()
             continue
 
         next_window = last_day + timedelta(days=1)
         if next_window <= today:
-            manager.save_state(UnityAdsResumeConfig(next_window_start=next_window.isoformat()))
+            manager.save_state(UnityAdsResumeConfig(next_window_start=next_window.isoformat(), window_days=span))
         if rows:
             # Rows arrive in no stated order, and the source declares ascending order to the pipeline.
             rows.sort(key=lambda row: str(row.get("timestamp") or ""))
@@ -120,21 +124,25 @@ def unity_ads_source(
     floor = today - timedelta(days=HISTORY_DAYS)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    window_days = config.window_days
     if resume is not None:
+        window_days = min(resume.window_days or window_days, window_days)
         start = date.fromisoformat(resume.next_window_start)
     elif should_use_incremental_field and db_incremental_field_last_value is not None:
         start = max(to_date(db_incremental_field_last_value), floor)
     else:
         start = floor
 
-    client = RESTClient(auth=HttpBasicAuth(key_id, secret_key), request_timeout=REQUEST_TIMEOUT)
+    client = RESTClient(
+        auth=HttpBasicAuth(key_id, secret_key),
+        request_timeout=REQUEST_TIMEOUT,
+        retry_budget_seconds=REQUEST_TIMEOUT[1],
+    )
     url = UNITY_STATS_URL.format(organization_id=organization_id)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: _windows(
-            client, url, config.breakdowns, config.window_days, start, today, resumable_source_manager
-        ),
+        items=lambda: _windows(client, url, config.breakdowns, window_days, start, today, resumable_source_manager),
         primary_keys=list(config.primary_keys),
         partition_count=1,
         partition_size=1,

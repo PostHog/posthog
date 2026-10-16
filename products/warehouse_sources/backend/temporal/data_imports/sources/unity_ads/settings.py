@@ -43,7 +43,9 @@ class UnityAdsEndpointConfig:
     breakdowns: tuple[str, ...]
     primary_keys: tuple[str, ...]
     # Days per request. Both tables share Unity's quota of 30 requests per 30 minutes, so a first sync
-    # of both (16 requests for a year) fits inside one quota window.
+    # of both (16 requests for a year) fits inside one quota window. Unity also counts the quota per IP
+    # address, which other accounts syncing from the same workers share, so a 429 is still possible.
+    # It fails the attempt, and the retry resumes at the saved window.
     window_days: int
 
 

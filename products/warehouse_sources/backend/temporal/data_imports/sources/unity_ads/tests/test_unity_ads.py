@@ -74,7 +74,7 @@ class TestWindows:
         assert metrics is not None and "d7TotalRoas" in metrics
         assert first.headers["authorization"] == "Basic a2lkOmtzZWNyZXQ="
         assert [row["timestamp"] for row in result.rows] == ["2026-09-01", "2026-09-02", "2026-10-02"]
-        assert result.saved_states == [UnityAdsResumeConfig(next_window_start="2026-10-01")]
+        assert result.saved_states == [UnityAdsResumeConfig(next_window_start="2026-10-01", window_days=92)]
 
     def test_a_resumed_country_run_reads_from_the_saved_window_and_skips_an_empty_one(self) -> None:
         result = _run(
@@ -89,14 +89,18 @@ class TestWindows:
         ]
         assert result.rows == []
 
-    @pytest.mark.parametrize(("endpoint", "requests"), [("campaigns_daily", 4), ("campaigns_daily_by_country", 12)])
-    def test_a_first_sync_of_both_tables_fits_one_rate_limit_window(self, endpoint: str, requests: int) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_requests"), [("campaigns_daily", 4), ("campaigns_daily_by_country", 12)]
+    )
+    def test_a_first_sync_of_both_tables_fits_one_rate_limit_window(
+        self, endpoint: str, expected_requests: int
+    ) -> None:
         # Unity allows 30 requests per 30 minutes per organization, shared by both tables.
         result = _run(endpoint, always(ScriptedResponse(status=204)))
 
         assert result.raised is None
         assert result.params("start")[0] == "2025-10-15T00:00:00Z"
-        assert len(result.requests) == requests
+        assert len(result.requests) == expected_requests
 
     def test_a_window_that_keeps_timing_out_is_halved_until_it_answers(self) -> None:
         # Unity's report for a large account can outlast the read timeout on every retry of the same window.
@@ -115,7 +119,20 @@ class TestWindows:
         answered = [(str(r.param("start")), str(r.param("end"))) for r in result.requests if _window_days(r) <= 8]
         assert answered[0] == ("2026-09-15T00:00:00Z", "2026-09-22T00:00:00Z")
         assert answered[-1][1] == "2026-10-16T00:00:00Z"
+        # Later windows keep the halved size, so 31 days take 5 answered requests.
+        assert len(answered) == 5
         assert [row["timestamp"] for row in result.rows] == [start[:10] for start, _ in answered]
+        assert result.saved_states[-1] == UnityAdsResumeConfig(next_window_start="2026-10-13", window_days=7)
+
+    def test_a_resumed_run_keeps_the_halved_window_size(self) -> None:
+        result = _run(
+            "campaigns_daily_by_country",
+            always(ScriptedResponse(status=204)),
+            resume_state=UnityAdsResumeConfig(next_window_start="2026-10-01", window_days=7),
+        )
+
+        assert result.raised is None
+        assert [_window_days(r) for r in result.requests] == [7, 7, 1]
 
     @pytest.mark.parametrize("organization_id", ["../../other", "org-1", ""])
     def test_a_non_numeric_organization_id_never_reaches_the_url(self, organization_id: str) -> None:
