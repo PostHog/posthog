@@ -781,7 +781,7 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         response = self.client.get(self._url(), HTTP_IF_MATCH='"stale"')
         assert response.status_code == status.HTTP_412_PRECONDITION_FAILED
 
-    @parameterized.expand(["emit_tally", "task_run_settles", "report_deleted", "new_run"])
+    @parameterized.expand(["emit_tally", "task_run_settles", "total_spend", "report_deleted", "new_run"])
     def test_a_change_the_summary_shows_moves_the_etag(self, change: str) -> None:
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
         run = _make_run(self.team, emitted_report_ids=[str(report.id)])
@@ -794,6 +794,9 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         elif change == "task_run_settles":
             run.task_run.status = run.task_run.Status.COMPLETED
             run.task_run.save(update_fields=["status"])
+        elif change == "total_spend":
+            run.total_spend = Decimal("16.3456")
+            run.save(update_fields=["total_spend"])
         elif change == "report_deleted":
             SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.DELETED)
         else:
@@ -802,6 +805,8 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         second = self.client.get(self._url(), HTTP_IF_NONE_MATCH=first["ETag"])
         assert second.status_code == status.HTTP_200_OK
         assert second["ETag"] != first["ETag"]
+        if change == "total_spend":
+            assert second.json()[0]["total_spend"] == 16.3456
 
 
 class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
@@ -859,6 +864,24 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         # The errors scout's only touched report fell outside the cap — it must not count either,
         # or the callout advertises a scout the findings page's filter won't show.
         assert body["scout_count"] == 1
+
+    def test_summary_caps_runs_by_completion_among_the_newest_candidates(self) -> None:
+        # The page keeps the most recently *completed* runs, so a run that completes after a newer
+        # one must win the cap. Runs older than the candidate set are never ranked.
+        now = timezone.now()
+        timings = {"outside": (3, 0), "late": (2, 1), "newest": (1, 50)}
+        for emitted_count, (name, (created_hours_ago, completed_minutes_ago)) in zip((4, 2, 1), timings.items()):
+            run = _make_run(self.team, skill_name=f"signals-scout-{name}", emitted_count=emitted_count)
+            SignalScoutRun.objects.filter(id=run.id).update(created_at=now - timedelta(hours=created_hours_ago))
+            run.task_run.completed_at = now - timedelta(minutes=completed_minutes_ago)
+            run.task_run.save(update_fields=["completed_at"])
+        with (
+            patch("products.signals.backend.scout_harness.tools.runs.FLEET_FINDINGS_SUMMARY_RUN_CAP", 1),
+            patch("products.signals.backend.scout_harness.tools.runs.FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS", 2),
+        ):
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
 
     def test_summary_excludes_runs_outside_the_window(self) -> None:
         # Guards the `created_at` window filter: a finding emitted before the lookback must not count,

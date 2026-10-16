@@ -22,6 +22,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowNotFound,
     WorkflowSummary,
     WorkflowTaskDailyLimits,
+    WorkflowVisionScanDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 from products.workflows.backend.services.batch_jobs import create_batch_job
@@ -154,6 +155,20 @@ def get_workflow_task_daily_limits(*, team_id: int) -> WorkflowTaskDailyLimits:
     return WorkflowTaskDailyLimits(
         per_workflow=config.workflow_task_rate_limit_per_day,
         per_team=config.workflow_task_team_rate_limit_per_day,
+    )
+
+
+def get_workflow_vision_scan_daily_limits(*, team_id: int) -> WorkflowVisionScanDailyLimits:
+    config = (
+        TeamWorkflowsConfig.objects.filter(team_id=team_id)
+        .only("replay_vision_scan_rate_limit_per_day", "replay_vision_scan_team_rate_limit_per_day")
+        .first()
+    )
+    if config is None:
+        return WorkflowVisionScanDailyLimits(per_workflow=None, per_team=None)
+    return WorkflowVisionScanDailyLimits(
+        per_workflow=config.replay_vision_scan_rate_limit_per_day,
+        per_team=config.replay_vision_scan_team_rate_limit_per_day,
     )
 
 
