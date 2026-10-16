@@ -39,17 +39,14 @@ pub const MERGE_SAGA: WarningSource = WarningSource {
 };
 
 const KAFKA_CLIENT_ID: &str = "personhog-identity-ingestion-warnings";
-const KAFKA_ACKS: &str = "1";
-const KAFKA_RETRIES: u32 = 0;
-const KAFKA_LINGER_MS: u32 = 100;
-const KAFKA_QUEUE_MESSAGES: u32 = 10_000;
-const KAFKA_MESSAGE_TIMEOUT_MS: u32 = 5_000;
-const TYPE_BUDGET_PER_SECOND: NonZeroU32 = NonZeroU32::new(60).unwrap();
-/// Keys are per distinct id, so the crate default (sized for capture's
-/// per-token keys) would fill within the hour a key lives and silence every
-/// team on the pod. The type budgets admit well under this many keys an hour.
-const MAX_TRACKED_SCOPES: usize = 1_000_000;
-const _: () = assert!(MAX_TRACKED_SCOPES > DEFAULT_MAX_TRACKED_KEYS);
+/// Default for `INGESTION_WARNINGS_TYPE_BUDGET_PER_SECOND`.
+pub const DEFAULT_TYPE_BUDGET_PER_SECOND: NonZeroU32 = NonZeroU32::new(60).unwrap();
+/// Default for `INGESTION_WARNINGS_MAX_TRACKED_SCOPES`. Keys are per distinct
+/// id, so the crate default (sized for capture's per-token keys) would fill
+/// within the hour a key lives and silence every team on the pod. The type
+/// budgets admit well under this many keys an hour.
+pub const DEFAULT_MAX_TRACKED_SCOPES: usize = 1_000_000;
+const _: () = assert!(DEFAULT_MAX_TRACKED_SCOPES > DEFAULT_MAX_TRACKED_KEYS);
 const THROTTLE_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 /// The distinct id column's own limit: a legal id is never cut, and an
 /// oversized one is cut before it is copied into details.
@@ -177,9 +174,8 @@ impl MergeWarnings {
         }
     }
 
-    /// Scoped by the target: it is the id the warning is about, and an SDK
-    /// that identifies every visitor as "undefined" would otherwise hold one
-    /// key per visitor and spend the pod's whole budget for this type.
+    /// Scoped by the target, the id the warning is about; scoped by the
+    /// source, one bad target would hold a key per visitor and eat the budget.
     pub fn emit_illegal_target(&self, team_id: i64, source: WarningSource, pair: &MergePair<'_>) {
         if let Some(emitter) = &self.emitter {
             emitter.emit(
@@ -209,6 +205,13 @@ pub struct WarningsSettings {
     pub topic: String,
     pub kafka_queue_mib: u32,
     pub kafka_message_max_bytes: u32,
+    pub kafka_acks: String,
+    pub kafka_retries: u32,
+    pub kafka_linger_ms: u32,
+    pub kafka_queue_messages: u32,
+    pub kafka_message_timeout_ms: u32,
+    pub type_budget_per_second: NonZeroU32,
+    pub max_tracked_scopes: usize,
 }
 
 impl WarningsSettings {
@@ -217,11 +220,11 @@ impl WarningsSettings {
             kafka_hosts: self.kafka_hosts.clone(),
             kafka_tls: self.kafka_tls,
             kafka_client_id: KAFKA_CLIENT_ID.to_string(),
-            kafka_producer_acks: Some(KAFKA_ACKS.to_string()),
-            kafka_producer_retries: Some(KAFKA_RETRIES),
-            kafka_producer_linger_ms: KAFKA_LINGER_MS,
-            kafka_producer_queue_messages: KAFKA_QUEUE_MESSAGES,
-            kafka_message_timeout_ms: KAFKA_MESSAGE_TIMEOUT_MS,
+            kafka_producer_acks: Some(self.kafka_acks.clone()),
+            kafka_producer_retries: Some(self.kafka_retries),
+            kafka_producer_linger_ms: self.kafka_linger_ms,
+            kafka_producer_queue_messages: self.kafka_queue_messages,
+            kafka_message_timeout_ms: self.kafka_message_timeout_ms,
             kafka_producer_queue_mib: self.kafka_queue_mib,
             kafka_producer_message_max_bytes: Some(self.kafka_message_max_bytes),
             ..Default::default()
@@ -250,12 +253,12 @@ fn report_emitter_enabled(reason: &'static str, enabled: bool) {
     );
 }
 
-fn throttle() -> WarningThrottle {
+fn throttle(settings: &WarningsSettings) -> WarningThrottle {
     WarningThrottle::default()
-        .with_max_tracked_keys(MAX_TRACKED_SCOPES)
+        .with_max_tracked_keys(settings.max_tracked_scopes)
         .with_type_budget(
-            Duration::from_secs(1) / TYPE_BUDGET_PER_SECOND.get(),
-            TYPE_BUDGET_PER_SECOND,
+            Duration::from_secs(1) / settings.type_budget_per_second.get(),
+            settings.type_budget_per_second,
         )
 }
 
@@ -290,10 +293,16 @@ pub fn install(settings: &WarningsSettings, handle: Option<lifecycle::Handle>) -
             return MergeWarnings::disabled();
         }
     };
+    if settings.max_tracked_scopes <= DEFAULT_MAX_TRACKED_KEYS {
+        tracing::warn!(
+            max_tracked_scopes = settings.max_tracked_scopes,
+            "ingestion warnings scope cap is at or below the per-token default; a busy pod can fill it within the hour and drop every team's warnings"
+        );
+    }
     let emitter = Arc::new(KafkaRowWarningEmitter::with_throttle(
         producer,
         settings.topic.clone(),
-        throttle(),
+        throttle(settings),
     ));
 
     let background = emitter.clone();
@@ -521,6 +530,13 @@ mod tests {
             topic: topic.to_string(),
             kafka_queue_mib: 16,
             kafka_message_max_bytes: 1_048_576,
+            kafka_acks: "1".to_string(),
+            kafka_retries: 0,
+            kafka_linger_ms: 100,
+            kafka_queue_messages: 10_000,
+            kafka_message_timeout_ms: 5_000,
+            type_budget_per_second: DEFAULT_TYPE_BUDGET_PER_SECOND,
+            max_tracked_scopes: DEFAULT_MAX_TRACKED_SCOPES,
         }
     }
 
@@ -539,15 +555,23 @@ mod tests {
     }
 
     #[test]
-    fn the_producer_config_is_fire_and_forget_and_isolated() {
-        let config = settings(true, "broker:9092", "topic").kafka_config();
+    fn the_producer_config_carries_every_setting_and_stays_isolated() {
+        let config = WarningsSettings {
+            kafka_acks: "all".to_string(),
+            kafka_retries: 2,
+            kafka_linger_ms: 250,
+            kafka_queue_messages: 500,
+            kafka_message_timeout_ms: 9_000,
+            ..settings(true, "broker:9092", "topic")
+        }
+        .kafka_config();
         assert_eq!(config.kafka_hosts, "broker:9092");
         assert_eq!(config.kafka_client_id, KAFKA_CLIENT_ID);
-        assert_eq!(config.kafka_producer_acks.as_deref(), Some(KAFKA_ACKS));
-        assert_eq!(config.kafka_producer_retries, Some(KAFKA_RETRIES));
-        assert_eq!(config.kafka_producer_linger_ms, KAFKA_LINGER_MS);
-        assert_eq!(config.kafka_producer_queue_messages, KAFKA_QUEUE_MESSAGES);
-        assert_eq!(config.kafka_message_timeout_ms, KAFKA_MESSAGE_TIMEOUT_MS);
+        assert_eq!(config.kafka_producer_acks.as_deref(), Some("all"));
+        assert_eq!(config.kafka_producer_retries, Some(2));
+        assert_eq!(config.kafka_producer_linger_ms, 250);
+        assert_eq!(config.kafka_producer_queue_messages, 500);
+        assert_eq!(config.kafka_message_timeout_ms, 9_000);
         assert_eq!(config.kafka_producer_queue_mib, 16);
         assert_eq!(config.kafka_producer_message_max_bytes, Some(1_048_576));
         assert!(config.kafka_producer_enable_idempotence.is_none());
@@ -591,7 +615,7 @@ mod tests {
 
     #[test]
     fn the_throttle_tracks_only_admitted_scopes_and_caps_above_the_shared_default() {
-        let throttle = throttle();
+        let throttle = throttle(&settings(true, "broker:9092", "topic"));
         let warning = WarningType::CannotMergeAlreadyIdentified;
         let mut admitted = 0;
         for n in 0..=DEFAULT_MAX_TRACKED_KEYS {
@@ -601,7 +625,7 @@ mod tests {
                 other => panic!("scope {n}: {other:?}"),
             }
         }
-        assert!(admitted >= TYPE_BUDGET_PER_SECOND.get() as usize);
+        assert!(admitted >= DEFAULT_TYPE_BUDGET_PER_SECOND.get() as usize);
         assert_eq!(
             throttle.tracked_keys(),
             admitted,
@@ -610,10 +634,41 @@ mod tests {
     }
 
     #[test]
+    fn the_throttle_takes_its_budget_and_cap_from_settings() {
+        let throttle = throttle(&WarningsSettings {
+            type_budget_per_second: NonZeroU32::new(2).unwrap(),
+            max_tracked_scopes: 3,
+            ..settings(true, "broker:9092", "topic")
+        });
+        let warning = WarningType::CannotMergeAlreadyIdentified;
+        assert_eq!(
+            throttle.check(&throttle_key(7, "a"), warning),
+            ThrottleDecision::Emit
+        );
+        assert_eq!(
+            throttle.check(&throttle_key(7, "b"), warning),
+            ThrottleDecision::Emit
+        );
+        assert_eq!(
+            throttle.check(&throttle_key(7, "c"), warning),
+            ThrottleDecision::TypeBudgetExhausted
+        );
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(
+            throttle.check(&throttle_key(7, "c"), warning),
+            ThrottleDecision::Emit
+        );
+        assert_eq!(
+            throttle.check(&throttle_key(7, "d"), warning),
+            ThrottleDecision::CardinalityCapped
+        );
+    }
+
+    #[test]
     fn the_type_budget_refills_at_the_stated_rate() {
-        let throttle = throttle();
+        let throttle = throttle(&settings(true, "broker:9092", "topic"));
         let warning = WarningType::MergeRaceCondition;
-        for n in 0..TYPE_BUDGET_PER_SECOND.get() {
+        for n in 0..DEFAULT_TYPE_BUDGET_PER_SECOND.get() {
             assert_eq!(
                 throttle.check(&throttle_key(7, &n.to_string()), warning),
                 ThrottleDecision::Emit,

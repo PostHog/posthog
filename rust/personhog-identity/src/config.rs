@@ -2,6 +2,7 @@ use common_database::PoolConfig;
 use envconfig::Envconfig;
 use personhog_common::h2_window::{Http2Windows, WindowSize};
 use std::net::SocketAddr;
+use std::num::NonZeroU32;
 use std::time::Duration;
 
 use crate::pools::Lane;
@@ -215,6 +216,33 @@ pub struct Config {
 
     #[envconfig(default = "1048576")]
     pub ingestion_warnings_kafka_message_max_bytes: u32,
+
+    /// The defaults below are fire-and-forget: a warning is worth less than
+    /// the cost of retrying it, and a slow warnings topic must not hold a merge.
+    #[envconfig(default = "1")]
+    pub ingestion_warnings_kafka_acks: String,
+
+    #[envconfig(default = "0")]
+    pub ingestion_warnings_kafka_retries: u32,
+
+    #[envconfig(default = "100")]
+    pub ingestion_warnings_kafka_linger_ms: u32,
+
+    #[envconfig(default = "10000")]
+    pub ingestion_warnings_kafka_queue_messages: u32,
+
+    #[envconfig(default = "5000")]
+    pub ingestion_warnings_kafka_message_timeout_ms: u32,
+
+    /// Warnings a second per type that one pod sends, shared by every team
+    /// on it; the rest are dropped as `type_budget_exhausted`.
+    #[envconfig(default = "60")]
+    pub ingestion_warnings_type_budget_per_second: NonZeroU32,
+
+    /// Throttle keys (team, distinct id, type) a pod remembers for the hour a
+    /// key lives, at roughly 135 bytes each.
+    #[envconfig(default = "1000000")]
+    pub ingestion_warnings_max_tracked_scopes: usize,
 
     /// Write the publish outbox, one row per create or attach mapping and
     /// one pointer per completed merge or delete op, for the separate
@@ -498,6 +526,13 @@ impl Config {
             topic: self.ingestion_warnings_topic.clone(),
             kafka_queue_mib: self.ingestion_warnings_kafka_queue_mib,
             kafka_message_max_bytes: self.ingestion_warnings_kafka_message_max_bytes,
+            kafka_acks: self.ingestion_warnings_kafka_acks.clone(),
+            kafka_retries: self.ingestion_warnings_kafka_retries,
+            kafka_linger_ms: self.ingestion_warnings_kafka_linger_ms,
+            kafka_queue_messages: self.ingestion_warnings_kafka_queue_messages,
+            kafka_message_timeout_ms: self.ingestion_warnings_kafka_message_timeout_ms,
+            type_budget_per_second: self.ingestion_warnings_type_budget_per_second,
+            max_tracked_scopes: self.ingestion_warnings_max_tracked_scopes,
         }
     }
 }
