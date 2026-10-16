@@ -49,6 +49,22 @@ pub async fn create_topic(kafka_hosts: &str, topic: &str, partitions: u32) -> Re
     Ok(())
 }
 
+/// Create every topic or none: a topic left behind by a failed bring-up
+/// counts against the broker's partition budget until someone notices.
+pub async fn create_topics(kafka_hosts: &str, topics: &[(&str, u32)]) -> Result<()> {
+    for (index, (topic, partitions)) in topics.iter().enumerate() {
+        if let Err(e) = create_topic(kafka_hosts, topic, *partitions).await {
+            for (created, _) in &topics[..index] {
+                if let Err(cleanup) = delete_topic(kafka_hosts, created).await {
+                    tracing::warn!(topic = created, error = %cleanup, "failed to clean up topic");
+                }
+            }
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
 pub async fn delete_topic(kafka_hosts: &str, topic: &str) -> Result<()> {
     let admin = admin_client(kafka_hosts)?;
     let options = AdminOptions::new().operation_timeout(Some(Duration::from_secs(10)));

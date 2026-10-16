@@ -46,6 +46,10 @@ pub enum Command {
     /// seeds, and every database operation is confined to the configured
     /// validation table.
     Traffic(Box<TrafficArgs>),
+    /// Bring up the isolated stack the gate uses, print where it listens
+    /// and which topics it publishes to as one JSON line, and hold it until
+    /// SIGTERM or Ctrl-C. A fixture for tests in other languages.
+    Stack(StackArgs),
 }
 
 #[derive(Args, Clone)]
@@ -421,6 +425,53 @@ pub struct GateArgs {
     /// Leave seeded persons in Postgres after the gate finishes.
     #[arg(long, default_value_t = false)]
     pub keep_data: bool,
+
+    /// Directory containing the service binaries. Defaults to the
+    /// workspace target directory for this build profile.
+    #[arg(long)]
+    pub bin_dir: Option<PathBuf>,
+}
+
+#[derive(Args, Clone)]
+pub struct StackArgs {
+    #[arg(long, default_value_t = 1)]
+    pub leaders: u32,
+
+    #[arg(long, default_value_t = 1)]
+    pub routers: u32,
+
+    #[arg(long, default_value_t = 4)]
+    pub partitions: u32,
+
+    #[arg(long, default_value = DEFAULT_PERSONS_DB_URL)]
+    pub persons_db_url: String,
+
+    /// The table set every spawned service uses; see GateArgs.
+    #[arg(long, default_value = "personhog_person_tmp")]
+    pub pg_target_table: String,
+
+    #[arg(long, default_value = "localhost:9092")]
+    pub kafka_hosts: String,
+
+    #[arg(long, default_value = "http://localhost:2379")]
+    pub etcd_endpoints: String,
+
+    /// Also run publisher replicas draining the identity outbox to two
+    /// per-run topics, named in the ready line.
+    #[arg(long, default_value_t = false)]
+    pub publish: bool,
+
+    #[arg(long, default_value_t = 2)]
+    pub publishers: u32,
+
+    #[arg(long, default_value_t = 100)]
+    pub publish_rows_per_pass: i64,
+
+    /// Also write the ready line's JSON to this file once the stack is up.
+    /// A parent process polls for the file instead of parsing stdout,
+    /// which the logs share.
+    #[arg(long)]
+    pub ready_file: Option<PathBuf>,
 
     /// Directory containing the service binaries. Defaults to the
     /// workspace target directory for this build profile.

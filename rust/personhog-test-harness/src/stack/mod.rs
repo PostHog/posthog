@@ -204,29 +204,16 @@ impl Stack {
 
         let store = etcd::connect(&config.etcd_endpoints, ETCD_PREFIX).await?;
         etcd::reset(&store, config.partitions).await?;
-        kafka::create_topic(&config.kafka_hosts, &topic, config.partitions).await?;
-        let publish_topics = match &config.publish {
-            Some(_) => {
-                let topics = PublishTopics {
-                    distinct_ids: format!("{topic}_distinct_ids"),
-                    merge_events: format!("{topic}_merge_events"),
-                };
-                kafka::create_topic(
-                    &config.kafka_hosts,
-                    &topics.distinct_ids,
-                    PUBLISH_TOPIC_PARTITIONS,
-                )
-                .await?;
-                kafka::create_topic(
-                    &config.kafka_hosts,
-                    &topics.merge_events,
-                    PUBLISH_TOPIC_PARTITIONS,
-                )
-                .await?;
-                Some(topics)
-            }
-            None => None,
-        };
+        let publish_topics = config.publish.as_ref().map(|_| PublishTopics {
+            distinct_ids: format!("{topic}_distinct_ids"),
+            merge_events: format!("{topic}_merge_events"),
+        });
+        let mut topics = vec![(topic.as_str(), config.partitions)];
+        if let Some(publish) = &publish_topics {
+            topics.push((publish.distinct_ids.as_str(), PUBLISH_TOPIC_PARTITIONS));
+            topics.push((publish.merge_events.as_str(), PUBLISH_TOPIC_PARTITIONS));
+        }
+        kafka::create_topics(&config.kafka_hosts, &topics).await?;
 
         let mut infra = Vec::new();
 
@@ -689,6 +676,10 @@ impl Stack {
         self.infra_mut("writer")?.sigcont();
         tracing::info!("resumed writer");
         Ok(())
+    }
+
+    pub fn changelog_topic(&self) -> &str {
+        &self.topic
     }
 
     pub fn publish_topics(&self) -> Option<&PublishTopics> {

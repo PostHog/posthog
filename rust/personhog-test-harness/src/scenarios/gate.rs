@@ -137,7 +137,7 @@ fn chaos_timeline(args: &GateArgs) -> Vec<(Duration, ChaosEvent)> {
 /// attacker-influenceable — and the harness only ever runs sibling
 /// binaries produced by the same cargo build; `--bin-dir` overrides for
 /// anything else.
-fn default_bin_dir() -> PathBuf {
+pub(crate) fn default_bin_dir() -> PathBuf {
     let profile = if cfg!(debug_assertions) {
         "debug"
     } else {
@@ -263,13 +263,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
             .context("cleaning the publish outbox")?;
         // The publishers claim every team's rows, so another team's pending
         // rows would drain onto this run's topics and vanish with them.
-        let foreign_pending: i64 = sqlx::query_scalar(&format!(
-            "SELECT count(*) FROM {outbox_table} WHERE given_up_at IS NULL AND team_id <> $1"
-        ))
-        .bind(args.team_id as i32)
-        .fetch_one(&pool)
-        .await
-        .context("counting other teams' outbox rows")?;
+        let foreign_pending =
+            publish::pending_outbox_rows(&pool, outbox_table, Some(args.team_id as i32)).await?;
         if foreign_pending > 0 {
             bail!(
                 "{foreign_pending} pending outbox rows belong to other teams and the harness \
