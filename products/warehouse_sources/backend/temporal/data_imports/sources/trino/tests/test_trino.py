@@ -85,6 +85,7 @@ def test_connect_trino_uses_tracked_session_and_closes_resources() -> None:
     ("host", "port", "use_ssl", "verify_ssl", "expected_trust_env"),
     [
         ("trino.dw.us.postwh.com", 443, True, True, False),
+        ("trino.dw.eu.postwh.com", 443, True, True, False),
         ("TRINO.DW.DEV.POSTWH.COM.", 443, True, True, False),
         ("trino.example.com", 443, True, True, True),
         ("other.dw.us.postwh.com", 443, True, True, True),

@@ -26,6 +26,11 @@ class TestDebugbearSource:
         [
             ("401 Client Error", "401 Client Error: Unauthorized for url: https://www.debugbear.com/api/v1/projects"),
             ("403 Client Error", "403 Client Error: Forbidden for url: https://www.debugbear.com/api/v1/projects"),
+            (
+                "DebugBear rejected the RUM metrics request",
+                "DebugBear rejected the RUM metrics request for project 1 with a 400 error — "
+                "Real User Monitoring is likely not set up for this project.",
+            ),
         ],
     )
     def test_non_retryable_errors_match(self, pattern: str, message: str) -> None:

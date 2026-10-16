@@ -61,6 +61,10 @@ export const HARNESS_BY_LABEL: Record<string, HarnessDescriptor> = {
     Kiro: { mark: 'Kiro' },
     'Desktop Commander': { mark: 'Desktop Commander' },
     'PostHog CLI': { mark: 'PostHog', brand: 'posthog' },
+    // Not backend labels: clients the classifier does not recognize keep their own name, and these
+    // two names are common enough to get a mark.
+    'PostHog AI': { mark: 'PostHog', brand: 'posthog' },
+    Slack: { mark: 'Slack' },
 }
 
 export function harnessMark(label: string): BrandMarkName {

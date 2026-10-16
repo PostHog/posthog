@@ -7,7 +7,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { ManualLinkSourceType } from '~/types'
 
-import { describeStorageProviderMismatch } from '../../../shared/storageProvider'
+import { describeStorageProviderMismatch, storageProviderFromUrl } from '../../../shared/storageProvider'
 import { selfManagedSourceLogic } from '../selfManagedSourceLogic'
 import { sourceWizardLogic } from '../sourceWizardLogic'
 
@@ -58,7 +58,8 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
     const { manualLinkingProvider } = useValues(sourceWizardLogic)
     const { table } = useValues(selfManagedSourceLogic)
 
-    const provider = manualLinkingProvider ?? 'aws'
+    // A saved table stores no provider: the backend reads it from the URL host, so the edit form does too.
+    const provider = (onUpdate ? storageProviderFromUrl(table?.url_pattern) : manualLinkingProvider) ?? 'aws'
     const isCsvFormat = table?.format === 'CSV' || table?.format === 'CSVWithNames'
     const providerMismatch = describeStorageProviderMismatch(table?.url_pattern, provider)
 

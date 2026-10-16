@@ -14,6 +14,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
+    OpenApiResponse,
     extend_schema,
     extend_schema_field,
     extend_schema_serializer,
@@ -61,7 +62,7 @@ from posthog.models.person.bulk_delete import (
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
 )
-from posthog.models.person.divergence.repairs import repair_distinct_id
+from posthog.models.person.divergence.repairs import is_retryable, repair_distinct_id
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
@@ -1313,11 +1314,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "The original person always retains its properties. To clear individual "
             "properties afterward, use the `delete_property` endpoint.\n\n"
             "The split runs asynchronously: a 201 response means the task was enqueued. "
-            "Newly-created split-off persons get a deterministic UUID derived from "
-            "`(team_id, distinct_id)`, so they can be located client-side without polling. "
-            "If you need to delete a split-off person after this call, prefer looking it up by "
-            "that deterministic UUID rather than by distinct_id, since the latter still "
-            "resolves to the original merged person until the async task completes."
+            "A split-off person usually gets a UUID derived from `(team_id, distinct_id)`, "
+            "but gets a random UUID when another person already holds that UUID, so do not "
+            "compute it client-side. To find or delete a split-off person, look it up by its "
+            "distinct_id once the task completes. Until then the distinct_id still resolves "
+            "to the original person."
         ),
         request=PersonSplitRequestSerializer,
         responses={201: PersonSplitResponseSerializer},
@@ -1343,6 +1344,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             unknown = set(distinct_ids_to_split) - set(distinct_ids)
             if unknown:
                 raise ValidationError({"distinct_ids_to_split": f"not on this person: {sorted(unknown)}"})
+            if set(distinct_ids) <= set(distinct_ids_to_split):
+                raise ValidationError({"distinct_ids_to_split": "must leave at least one distinct ID on this person"})
+        elif main_distinct_id and main_distinct_id not in distinct_ids:
+            # An unknown main ID would split off every distinct ID and leave the person unreachable.
+            raise ValidationError({"main_distinct_id": "not on this person"})
 
         split_person.delay(
             person.id,
@@ -1721,6 +1727,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         description="Fix a distinct_id that stays hidden after its person was deleted and created again. Does nothing if no live person uses this distinct_id. In that case, send a new event for it instead.",
+        responses={
+            202: OpenApiResponse(description="The fix was applied, or nothing needed fixing."),
+            409: OpenApiResponse(description="The person is being updated by another operation. Try again shortly."),
+        },
     )
     @action(methods=["POST"], detail=False, required_scopes=["person:write"])
     def reset_person_distinct_id(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -1728,9 +1738,18 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not distinct_id or not isinstance(distinct_id, str):
             raise ValidationError(detail="distinct_id is required")
 
-        summary = repair_distinct_id(
-            self.team_id, distinct_id, delivery_timeout_seconds=RESET_DISTINCT_ID_DELIVERY_TIMEOUT_SECONDS
-        )
+        try:
+            summary = repair_distinct_id(
+                self.team_id, distinct_id, delivery_timeout_seconds=RESET_DISTINCT_ID_DELIVERY_TIMEOUT_SECONDS
+            )
+        except Exception as error:
+            # A merge or delete of the person holds it for a moment; the request rolled back and can be sent again.
+            if not is_retryable(error):
+                raise
+            return response.Response(
+                {"detail": "This person is being updated right now. Try again in a few seconds."},
+                status=409,
+            )
         if summary is not None:
             logger.info(
                 "person_reset_distinct_id",

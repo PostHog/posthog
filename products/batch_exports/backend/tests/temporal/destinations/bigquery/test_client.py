@@ -1,9 +1,26 @@
+import gc
+import io
 import random
 import string
+import asyncio
+import weakref
+import collections.abc
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import pyarrow as pa
+import requests
+import google.auth.exceptions
+from google.api_core.exceptions import (
+    Forbidden,
+    GatewayTimeout,
+    InternalServerError,
+    NotFound,
+    RetryError,
+    ServiceUnavailable,
+    TooManyRequests,
+)
 from google.cloud import bigquery
 
 from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError
@@ -73,6 +90,100 @@ async def test_execute_query_pending_timeout(states_sequence: list[str], should_
             poll_interval=0.01,
         )
         assert result == mock_result
+
+
+def _make_load_test_client(
+    reload_outcomes: collections.abc.Sequence[str | Exception],
+) -> tuple[BigQueryClient, BigQueryTable, list[int]]:
+    mock_sync_client = MagicMock()
+    mock_sync_client.project = "test-project"
+
+    load_job = bigquery.LoadJob(
+        "test-job-id", None, bigquery.TableReference.from_string("test-project.dataset.table"), mock_sync_client
+    )
+    load_job._properties["status"] = {"state": "RUNNING"}
+    outcomes = iter(reload_outcomes)
+
+    def reload(*args, **kwargs):
+        outcome = next(outcomes)
+        if isinstance(outcome, Exception):
+            raise outcome
+        load_job._set_properties({**load_job._properties, "status": {"state": outcome}})
+
+    load_job.reload = reload  # type: ignore
+    uploads: list[int] = []
+
+    # A plain function rather than a MagicMock, because a mock keeps the file alive in `call_args`.
+    def load_table_from_file(file, *args, **kwargs):
+        uploads.append(len(file.read()))
+        return load_job
+
+    mock_sync_client.load_table_from_file = load_table_from_file
+
+    table = BigQueryTable.from_arrow_schema(
+        pa.schema([pa.field("event", pa.string())]),
+        project_id="test-project",
+        dataset_id="dataset",
+        table_id="table",
+        primary_key=(),
+        version_key=(),
+    )
+    return BigQueryClient(mock_sync_client), table, uploads
+
+
+@pytest.mark.parametrize("reloads_until_done", [1, 3])
+@pytest.mark.asyncio
+async def test_load_file_does_not_keep_file_alive_after_load(reloads_until_done: int):
+    client, table, _ = _make_load_test_client(["RUNNING"] * (reloads_until_done - 1) + ["DONE"])
+    file = io.BytesIO(b"x" * 1024)
+    file_ref = weakref.ref(file)
+
+    gc.disable()
+    try:
+        await client.load_file(file, format="Parquet", table=table, poll_interval=0.01)
+        del file
+
+        assert file_ref() is None
+    finally:
+        gc.enable()
+
+
+@pytest.mark.parametrize(
+    "reload_outcomes,expected_exception",
+    [
+        ([ServiceUnavailable("unavailable"), "RUNNING", "DONE"], None),
+        ([GatewayTimeout("timeout"), TooManyRequests("slow down"), "DONE"], None),
+        ([RetryError("deadline exceeded", cause=InternalServerError("internal")), "DONE"], None),
+        ([requests.exceptions.ConnectionError("reset"), requests.exceptions.Timeout("timeout"), "DONE"], None),
+        ([google.auth.exceptions.TransportError("token refresh failed"), "DONE"], None),
+        ([NotFound("job not found")], NotFound),
+        (["RUNNING", Forbidden("forbidden")], Forbidden),
+    ],
+    ids=[
+        "service_unavailable",
+        "gateway_timeout_then_too_many_requests",
+        "client_retries_exhausted",
+        "requests_connection_errors",
+        "auth_transport_error",
+        "not_found_raises",
+        "forbidden_raises",
+    ],
+)
+@pytest.mark.asyncio
+async def test_load_file_retries_transient_poll_errors_without_uploading_again(
+    reload_outcomes: list[str | Exception], expected_exception: type[Exception] | None
+):
+    client, table, uploads = _make_load_test_client(reload_outcomes)
+    real_sleep = asyncio.sleep
+
+    with patch("asyncio.sleep", side_effect=lambda delay: real_sleep(0)):
+        if expected_exception is None:
+            await client.load_file(io.BytesIO(b"x"), format="Parquet", table=table, poll_interval=0.01)
+        else:
+            with pytest.raises(expected_exception):
+                await client.load_file(io.BytesIO(b"x"), format="Parquet", table=table, poll_interval=0.01)
+
+    assert len(uploads) == 1
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS

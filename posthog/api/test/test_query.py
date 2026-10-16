@@ -1,4 +1,5 @@
 import json
+import hashlib
 
 import time_machine
 from posthog.test.base import (
@@ -86,6 +87,54 @@ class TestQueryTraceCorrelation(SimpleTestCase):
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
+
+    @parameterized.expand(
+        [
+            ("ascii", "abc"),
+            ("utf8_digest", "99937"),
+            ("trailing_nul_digest", "25"),
+            ("utf8_trailing_nul_digest", "19130574"),
+            ("empty", ""),
+            ("unicode", "ünïcødé-😀"),
+            ("nul", "a\0b"),
+            ("long", "a" * 1000),
+        ]
+    )
+    def test_hogql_sha1_results_are_json_safe_and_cached(self, _name: str, value: str) -> None:
+        query = HogQLQuery(
+            query="""
+                SELECT sha1({value}), [sha1({value})], tuple(sha1({value}), 'plain text'),
+                    map('digest', sha1({value})), map(sha1({value}), 'digest'),
+                    length(sha1({value})), sha1(NULL), sha1(toNullableString({value})),
+                    toTypeName(sha1({value})),
+                    accurateCast('abc', 'FixedString(3)'), accurateCast('abc', 'FixedString(20)')
+            """,
+            values={"value": value},
+        )
+        digest = hashlib.sha1(value.encode()).hexdigest()
+        expected = [
+            [
+                digest,
+                [digest],
+                [digest, "plain text"],
+                {"digest": digest},
+                {digest: "digest"},
+                40,
+                None,
+                digest,
+                "String",
+                "abc",
+                "abc",
+            ]
+        ]
+        for refresh, is_cached in (("force_blocking", False), ("force_cache", True)):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": query.model_dump(), "refresh": refresh},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["results"], expected)
+            self.assertEqual(response.json()["is_cached"], is_cached)
 
     def test_concurrency_limit_returns_friendly_message_without_internal_key(self):
         # A concurrency block must surface as a 429 with a user-facing message — not str(exc),
