@@ -7269,6 +7269,7 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert response.status_code == expected, response.json()
         if expected == 400:
             assert f"used in 1 active workflow(s): Workflow {usage}" in response.json()["detail"]
+            assert response.json()["code"] == "cohort_used_by_workflows"
 
     @parameterized.expand(
         [
@@ -7312,6 +7313,39 @@ class TestCohortTypeIntegration(APIBaseTest):
         assert "used in 2 active workflow(s): Workflow branch and 1 more." in response.json()["detail"]
         assert "Workflow trigger" not in response.json()["detail"]
 
+    @parameterized.expand([("used_in", "workflows"), ("blocking_workflows", None)])
+    def test_lists_viewable_workflows_relying_on_the_cohort(self, path, key):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        cohort_id = self._create_realtime_cohort()
+        hidden_id = self._create_workflow_using_cohort(cohort_id, "trigger", "active")
+        visible_ids = {
+            self._create_workflow_using_cohort(cohort_id, "branch", "active"),
+            self._create_workflow_using_cohort(cohort_id, "branch_precalculated", "active"),
+        }
+        self._create_workflow_using_cohort(cohort_id, "branch", "draft")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="hog_flow",
+            resource_id=hidden_id,
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        with patch("posthog.api.cohort.COHORT_USED_IN_PAGE_SIZE", 1):
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/{path}/")
+
+        assert response.status_code == 200, response.json()
+        workflows = response.json()[key] if key else response.json()
+        assert [workflow["id"] for workflow in workflows["results"]] in [[visible_id] for visible_id in visible_ids]
+        assert {key: workflows[key] for key in ("total", "hidden", "has_more")} == {
+            "total": 3,
+            "hidden": 1,
+            "has_more": True,
+        }
+
     def test_edit_that_stops_realtime_is_blocked_by_active_workflows_using_it(self):
         cohort_id = self._create_realtime_cohort()
         self._create_workflow_using_cohort(cohort_id, "trigger", "active")
@@ -7329,6 +7363,7 @@ class TestCohortTypeIntegration(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert "stops the cohort updating in real time" in response.json()["detail"]
+        assert response.json()["code"] == "cohort_used_by_workflows"
         assert Cohort.objects.get(id=cohort_id).cohort_type == CohortType.REALTIME
 
     def test_edit_that_stops_realtime_is_blocked_by_workflows_on_a_cohort_that_includes_it(self):

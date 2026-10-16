@@ -2,8 +2,10 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.facade.contracts import AlertEventKind, SourceKind
@@ -61,9 +63,15 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
         return announcement(self.team.id, str(self.configuration.id), evaluation_key, source=SourceKind.LOGS)
 
     def test_a_recorded_firing_comes_back_as_the_message_it_should_send(self) -> None:
-        insert_events(self.team.id, [self._row()])
+        module = "products.alerts_platform.backend.logic.platform_alert_events"
+        with patch(f"{module}.sync_execute", wraps=sync_execute) as executed:
+            insert_events(self.team.id, [self._row()])
+            result = self._announcement()
 
-        result = self._announcement()
+        # As `default`, the history write and read share that user's per-user concurrency limit
+        # with every other caller, and a rejected insert loses the row.
+        assert executed.call_args_list
+        assert all(call.kwargs.get("ch_user") == ClickHouseUser.ALERTS_PLATFORM for call in executed.call_args_list)
 
         assert result is not None
         assert result.configuration_id == str(self.configuration.id)

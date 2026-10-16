@@ -5273,65 +5273,91 @@ describe("AgentServer HTTP Mode", () => {
       expect(result).toBeNull();
     });
 
-    it("removes pending prompt keys when clearing initial prompt state", async () => {
-      const s = createServer();
-      const updateTaskRun = vi
-        .spyOn(
-          (
-            s as unknown as {
-              posthogAPI: {
-                updateTaskRun: (...args: unknown[]) => Promise<unknown>;
-              };
-            }
-          ).posthogAPI,
-          "updateTaskRun",
-        )
-        .mockResolvedValue({} as never);
-      const run = {
-        id: "test-run-id",
-        task: "test-task-id",
-        state: {
-          sandbox_url: "https://sandbox.example.com",
-          sandbox_connect_token: "token",
-          pending_user_message: "read this",
-          pending_user_artifact_ids: ["artifact-1"],
-          pending_user_message_ts: "123.456",
-        },
-      } as unknown as TaskRun;
+    it.each([false, true])(
+      "acknowledges pending prompts across restarts (patch fails: %s)",
+      async (patchFails) => {
+        const agentStateDir = join(repo.path, ".posthog", "agent-state");
+        const s = createServer({ agentStateDir });
+        const updateTaskRun = vi
+          .spyOn(
+            (
+              s as unknown as {
+                posthogAPI: {
+                  updateTaskRun: (...args: unknown[]) => Promise<unknown>;
+                };
+              }
+            ).posthogAPI,
+            "updateTaskRun",
+          )
+          .mockResolvedValue({} as never);
+        const run = {
+          id: "test-run-id",
+          task: "test-task-id",
+          state: {
+            sandbox_url: "https://sandbox.example.com",
+            sandbox_connect_token: "token",
+            pending_user_message: "read this",
+            pending_user_artifact_ids: ["artifact-1"],
+            pending_user_message_ts: "123.456",
+          },
+        } as unknown as TaskRun;
 
-      const nextState = (
-        s as unknown as TestableServer
-      ).getClearedPendingUserState(run);
-      expect(nextState).toEqual([
-        "pending_user_message",
-        "pending_user_artifact_ids",
-        "pending_user_message_ts",
-      ]);
+        const nextState = (
+          s as unknown as TestableServer
+        ).getClearedPendingUserState(run);
+        expect(nextState).toEqual([
+          "pending_user_message",
+          "pending_user_artifact_ids",
+          "pending_user_message_ts",
+        ]);
 
-      await (s as unknown as TestableServer).clearPendingInitialPromptState(
-        {
-          run_id: "test-run-id",
-          task_id: "test-task-id",
+        if (patchFails) updateTaskRun.mockRejectedValue(new Error("HTTP 503"));
+        await (s as unknown as TestableServer).clearPendingInitialPromptState(
+          {
+            run_id: "test-run-id",
+            task_id: "test-task-id",
+            team_id: 1,
+            user_id: 1,
+            distinct_id: "test-distinct-id",
+            mode: "interactive",
+          },
+          run,
+        );
+
+        expect(updateTaskRun).toHaveBeenCalledWith(
+          "test-task-id",
+          "test-run-id",
+          {
+            state_remove_keys: [
+              "pending_user_message",
+              "pending_user_artifact_ids",
+              "pending_user_message_ts",
+            ],
+          },
+        );
+        const restored = createServer({ agentStateDir });
+        const api = (restored as unknown as { posthogAPI: PostHogAPIClient })
+          .posthogAPI;
+        vi.spyOn(api, "getTaskRun").mockResolvedValue(run);
+        vi.spyOn(api, "updateTaskRun").mockResolvedValue(run);
+        const payload: JwtPayload = {
+          run_id: run.id,
+          task_id: run.task,
           team_id: 1,
           user_id: 1,
-          distinct_id: "test-distinct-id",
+          distinct_id: "test-user",
           mode: "interactive",
-        },
-        run,
-      );
-
-      expect(updateTaskRun).toHaveBeenCalledWith(
-        "test-task-id",
-        "test-run-id",
-        {
-          state_remove_keys: [
-            "pending_user_message",
-            "pending_user_artifact_ids",
-            "pending_user_message_ts",
-          ],
-        },
-      );
-    });
+        };
+        const startup = restored as unknown as StartupTestServer;
+        expect(
+          (await startup.prepareInitialTaskMessage(payload, run)).action,
+        ).toBe("idle");
+        run.state.pending_user_message_ts = "123.457";
+        expect(
+          (await startup.prepareInitialTaskMessage(payload, run)).action,
+        ).toBe("initial");
+      },
+    );
   });
 
   describe("resume prompt display", () => {

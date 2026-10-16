@@ -2042,6 +2042,8 @@ class PullRequestFrictionBreakdown:
     pushes_after_approval: int | None
     # None when the pull request never entered the merge queue.
     queue_seconds: float | None
+    # Gate attempts with a failed workflow run. A failed run of a check the queue does not require
+    # leaves the pull request queued, so this is an upper bound on queue removals, not a count of them.
     kickout_count: int | None
 
 

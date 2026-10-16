@@ -17,7 +17,13 @@ from posthog import settings
 from products.signals.backend.ranking.model_contract import model_mismatch
 from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
 from products.signals.backend.ranking.overrides import NO_OVERRIDES
-from products.signals.backend.ranking.serving_manifest import CROSS_FAMILY_ROLE, ONNX_MODEL_FILE, ONNX_MODEL_KIND
+from products.signals.backend.ranking.serving_manifest import (
+    CROSS_FAMILY_ROLE,
+    DAILY_CANDIDATE_ROLE,
+    ONNX_MODEL_FILE,
+    ONNX_MODEL_KIND,
+    SERVED_ROLE,
+)
 from products.signals.dags.inbox_ranking.common import partition_object_key
 from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_TABLE, LABELS_TABLE
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig
@@ -48,11 +54,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
 )
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
 from products.signals.dags.inbox_ranking.training.train import HeadMetrics
-from products.signals.dags.inbox_ranking.training.unseen import (
-    NN_MODEL_NAME,
-    REPORT_EMBEDDINGS_MODEL_NAME,
-    TITLE_EMBEDDINGS_MODEL_NAME,
-)
+from products.signals.dags.inbox_ranking.training.unseen import NN_MODEL_NAME, REPORT_EMBEDDINGS_MODEL_NAME
 
 PREFIX = settings.INBOX_RANKING_DATASET_S3_PREFIX
 PARTITION = "2026-08-19"
@@ -91,9 +93,22 @@ def _parquet(table: pa.Table) -> bytes:
     return sink.getvalue()
 
 
-def _trained_network() -> TrainedNetwork:
-    metrics = HeadMetrics(
-        head="open",
+def _trained_network(heads: tuple[str, ...] = ("open",)) -> TrainedNetwork:
+    return TrainedNetwork(
+        output_heads=NN_HEAD_NAMES,
+        model_onnx=b"graph",
+        holdout_model_onnx=b"holdout-graph",
+        heads=tuple(NetworkHead(metrics=_head_metrics(head), calibration=()) for head in heads),
+        skipped=(),
+        network_train_rows=400,
+        refit_rows=600,
+        vector_kinds=(),
+    )
+
+
+def _head_metrics(head: str) -> HeadMetrics:
+    return HeadMetrics(
+        head=head,
         train_rows=400,
         train_positives=120,
         holdout_rows=200,
@@ -103,21 +118,11 @@ def _trained_network() -> TrainedNetwork:
         null_auc_std=0.01,
         readable=True,
     )
-    return TrainedNetwork(
-        output_heads=NN_HEAD_NAMES,
-        model_onnx=b"graph",
-        holdout_model_onnx=b"holdout-graph",
-        heads=(NetworkHead(metrics=metrics, calibration=()),),
-        skipped=(),
-        network_train_rows=400,
-        refit_rows=600,
-        vector_kinds=(),
-    )
 
 
-def _nn_metadata(version: str) -> dict[str, Any]:
+def _nn_metadata(version: str, heads: tuple[str, ...] = ("open",)) -> dict[str, Any]:
     return candidate_metadata(
-        version, _trained_network(), config=NetworkConfig(), windows={}, trained_at=NOW, run_id="run-1"
+        version, _trained_network(heads), config=NetworkConfig(), windows={}, trained_at=NOW, run_id="run-1"
     )
 
 
@@ -146,7 +151,7 @@ def test_the_main_location_never_fits_or_promotes_nn(monkeypatch, no_side_effect
             model_object_key(PREFIX, name, PARTITION, METADATA_FILE): json.dumps(
                 _xgboost_metadata(name, PARTITION)
             ).encode()
-            for name in (REPORT_EMBEDDINGS_MODEL_NAME, TITLE_EMBEDDINGS_MODEL_NAME, NN_MODEL_NAME)
+            for name in (REPORT_EMBEDDINGS_MODEL_NAME, NN_MODEL_NAME)
         }
     )
     monkeypatch.setattr("products.signals.dags.inbox_ranking.training.dag.s3_client", lambda: client)
@@ -156,7 +161,7 @@ def test_the_main_location_never_fits_or_promotes_nn(monkeypatch, no_side_effect
         inbox_ranking_model_champion(context)
 
     champions = {key.split("/")[-2] for key in client.objects if key.endswith(CHAMPION_FILE)}
-    assert champions == {REPORT_EMBEDDINGS_MODEL_NAME, TITLE_EMBEDDINGS_MODEL_NAME}
+    assert champions == {REPORT_EMBEDDINGS_MODEL_NAME}
     assert not [key for key in client.objects if f"/{NN_MODEL_NAME}/" in key and not key.endswith(METADATA_FILE)]
 
 
@@ -181,6 +186,37 @@ def test_the_manifest_carries_an_nn_champion_as_an_onnx_entry():
     assert entry.model_kind == ONNX_MODEL_KIND
     assert entry.files == [ONNX_MODEL_FILE]
     assert entry.heads == ["open"]
+
+
+def test_the_manifest_serves_an_nn_champion_with_the_xgboost_champion_as_a_challenger():
+    decision = compose_manifest(
+        [
+            FamilyModels(
+                name=REPORT_EMBEDDINGS_MODEL_NAME,
+                candidate=None,
+                champion=_xgboost_metadata(REPORT_EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+            ),
+            FamilyModels(
+                name=NN_MODEL_NAME,
+                candidate=_nn_metadata(PARTITION, heads=NN_HEAD_NAMES),
+                champion=_nn_metadata("2026-08-16", heads=NN_HEAD_NAMES),
+            ),
+        ],
+        served_family=NN_MODEL_NAME,
+        prefix=PREFIX,
+        now=NOW,
+    )
+
+    assert decision.manifest is not None
+    assert [(entry.model_name, entry.model_version, entry.roles) for entry in decision.manifest.models] == [
+        (NN_MODEL_NAME, "2026-08-16", [SERVED_ROLE]),
+        (NN_MODEL_NAME, PARTITION, [DAILY_CANDIDATE_ROLE]),
+        (REPORT_EMBEDDINGS_MODEL_NAME, "2026-08-15", [CROSS_FAMILY_ROLE]),
+    ]
+    served = decision.manifest.served
+    assert served.model_kind == ONNX_MODEL_KIND
+    assert served.files == [ONNX_MODEL_FILE]
+    assert sorted(served.heads) == sorted(NN_HEAD_NAMES)
 
 
 def test_nn_promotion_writes_only_its_own_pointer(no_side_effects):

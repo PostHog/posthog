@@ -359,6 +359,7 @@ def recent_runs_per_scout(
     per_scout_limit: int = DEFAULT_RUNS_PER_SCOUT,
     max_age_days: int = DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
     exclude_skill_name: str | None = None,
+    skill_name: str | None = None,
 ) -> list[RunSummary]:
     """Return each configured scout's most recent runs, newest first across the fleet.
 
@@ -369,6 +370,7 @@ def recent_runs_per_scout(
         per_scout_limit=per_scout_limit,
         max_age_days=max_age_days,
         exclude_skill_name=exclude_skill_name,
+        skill_name=skill_name,
     )
     return runs_by_id(team_id=team_id, run_ids=run_ids)
 
@@ -379,6 +381,7 @@ def recent_run_ids_per_scout(
     per_scout_limit: int = DEFAULT_RUNS_PER_SCOUT,
     max_age_days: int = DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
     exclude_skill_name: str | None = None,
+    skill_name: str | None = None,
 ) -> list[Any]:
     """Return the ids of each configured scout's most recent runs.
 
@@ -397,6 +400,7 @@ def recent_run_ids_per_scout(
     staleness cutoff is derived from.
 
     `max_age_days` is the floor of that cutoff, not a fixed window — see `_staleness_cutoff`.
+    `skill_name` narrows the probe to one scout.
     """
     per_scout_limit = max(1, min(per_scout_limit, MAX_RUNS_PER_SCOUT))
     floor_days = max(1, min(max_age_days, MAX_RUNS_PER_SCOUT_MAX_AGE_DAYS))
@@ -404,9 +408,11 @@ def recent_run_ids_per_scout(
 
     # Enabled first so that if a fleet ever exceeds the bound, the scouts dropped are the ones
     # nobody is watching run. Ordered within each group for a deterministic cut.
+    config_rows = SignalScoutConfig.objects.filter(team_id=team_id)
+    if skill_name is not None:
+        config_rows = config_rows.filter(skill_name=skill_name)
     configs = list(
-        SignalScoutConfig.objects.filter(team_id=team_id)
-        .exclude(skill_name=exclude_skill_name or "")
+        config_rows.exclude(skill_name=exclude_skill_name or "")
         .order_by("-enabled", "skill_name")
         .only("skill_name", "run_interval_minutes", "run_cron_schedule", "enabled")
     )

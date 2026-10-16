@@ -5,6 +5,7 @@ This module provides the public interface for creating and managing experiments
 using framework-free DTOs, wrapping the existing ExperimentService.
 """
 
+from typing import Any
 from uuid import UUID
 
 from rest_framework.exceptions import ValidationError
@@ -13,8 +14,8 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.health.context import load_health_context
-from products.experiments.backend.health.exposure_gate import load_split_history
+from products.experiments.backend.health.inputs_payload import health_inputs_payload
+from products.experiments.backend.health.loader import load_experiment_health_context, load_experiment_health_inputs
 from products.experiments.backend.health.registry import (
     EXPERIMENT_HEALTH_CHECKS,
     evaluate as evaluate_health,
@@ -130,16 +131,21 @@ def get_experiment_health_findings(
     *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess
 ) -> list[ExperimentHealthFinding]:
     """The findings of the health checks that read the experiment, its flag, its linked metrics, and the
-    changes of the flag's split since launch as far as `reader_access` allows."""
-    experiment = (
-        ExperimentModel.objects.filter(team_id=team_id)
-        .select_related("team", "feature_flag")
-        .prefetch_related("experimenttosavedmetric_set")
-        .get(id=experiment_id)
-    )
-    split_history = load_split_history(experiment, reader_access=reader_access)
-    context = load_health_context(experiment, split_history=split_history)
+    changes of the flag's split since launch and the flag's recent calls, as far as `reader_access` allows."""
+    context = load_experiment_health_context(team_id=team_id, experiment_id=experiment_id, reader_access=reader_access)
     return evaluate_health(context, EXPERIMENT_HEALTH_CHECKS)
+
+
+def get_experiment_health_inputs(
+    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
+) -> dict[str, Any]:
+    """Everything the health checks read for the reader, as plain data in the shape of the staff `health_inputs`
+    response: the checks' context, the exposure query's answer that the exposure checks read, and the project's
+    experiment defaults and SDK profile."""
+    inputs = load_experiment_health_inputs(
+        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
+    )
+    return health_inputs_payload(inputs)
 
 
 def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:

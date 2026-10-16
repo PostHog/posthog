@@ -329,12 +329,14 @@ export const HogFlowStateEnumApi = {
 /**
  * * `loops` - Loops
  * * `broadcasts` - Broadcasts
+ * * `transactional_emails` - Transactional emails
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
 export const HogFlowOriginProductEnumApi = {
     Loops: 'loops',
     Broadcasts: 'broadcasts',
+    TransactionalEmails: 'transactional_emails',
 } as const
 
 /**
@@ -676,7 +678,8 @@ export interface HogFlowApi {
     /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
     origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -777,7 +780,8 @@ export interface HogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -878,7 +882,8 @@ export interface PatchedHogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -2484,6 +2489,7 @@ export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof
 export const HogFlowsListOriginProduct = {
     Broadcasts: 'broadcasts',
     Loops: 'loops',
+    TransactionalEmails: 'transactional_emails',
 } as const
 
 export type HogFlowsListStatus = (typeof HogFlowsListStatus)[keyof typeof HogFlowsListStatus]
