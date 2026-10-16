@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     clear_repartition_checkpoint_if_claimed,
+    mark_repartition_dropping_if_claimed,
     release_repartition_hold_if_claimed,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import import_replaces_table
@@ -66,6 +67,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     MAX_REPARTITION_ATTEMPTS,
     base_event_props,
     capture_repartition_event,
+    is_automatic_split_of_append_table,
     is_repartition_hold_enabled,
     maybe_flag_for_repartition,
     needs_pre_extraction_detection,
@@ -471,6 +473,11 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         else _target_from_schema(schema)
     )
     trigger_reason = (pending or {}).get("trigger_reason", "resume")
+
+    # Before the reset deferral too, because a reset would write this split into the new table.
+    if swap is None and is_automatic_split_of_append_table(schema, trigger_reason):
+        _drop_append_split(inputs, schema, table_ref, trigger_reason, logger)
+        return
 
     # Never while a swap is staged: live may already be deleted, and temp is then the only intact copy.
     if replaces_table:
@@ -889,15 +896,15 @@ def _purge_abandoned_temp(
     logger: FilteringBoundLogger,
     *,
     clear_checkpoint: bool = False,
-) -> None:
-    """Delete the temp table that the rewrite checkpoint names. Best effort.
+) -> bool:
+    """Delete the temp table that the rewrite checkpoint names. Best effort; returns whether it is gone.
 
     A failure leaves the checkpoint in place when this function owns its removal, so the next run
     tries the delete again. It must not block the sync.
     """
     temp_uri = _rewrite_checkpoint_id(schema)
     if not temp_uri:
-        return
+        return True
     try:
         # A large temp table takes longer to delete than the heartbeat timeout.
         with HeartbeaterSync(logger=logger):
@@ -906,6 +913,7 @@ def _purge_abandoned_temp(
             )
         if purged and clear_checkpoint:
             clear_repartition_checkpoint_if_claimed(schema, claim_token=claim_token, temp_uri=temp_uri)
+        return purged
     except RepartitionSupersededError:
         logger.info("repartition: temp cleanup superseded by a newer claim")
     except Exception as e:
@@ -914,6 +922,7 @@ def _purge_abandoned_temp(
         if not _is_transient_infra_error(e):
             capture_exception(e)
         logger.warning("repartition: could not delete the temp table of an abandoned rewrite", exc_info=True)
+    return False
 
 
 def _capture_stood_down(
@@ -1202,6 +1211,62 @@ def _give_up(
     # already bound (bind_job_context) so the issue is attributed to the connector and table.
     capture_exception(error)
     DELTA_REPARTITION_TOTAL.labels(outcome="failed").inc()
+
+
+def _drop_append_split(
+    inputs: RepartitionActivityInputs,
+    schema: ExternalDataSchema,
+    table_ref: DeltaTableRef,
+    trigger_reason: str,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Discard an automatic split queued for an append table, with the temp table of its rewrite.
+
+    Same order as `_give_up`: the fresh claim fences out a predecessor that may still run as a
+    zombie, and the temp table goes before the checkpoint that records where it is.
+    """
+    claim_token = str(uuid.uuid4())
+    if not schema.set_repartition_claim(
+        {"token": claim_token, "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
+    ):
+        logger.info("repartition: append split drop superseded by a newer claim")
+        return
+    # A predecessor can stage a swap before the claim above fences it out. Temp is then the only
+    # intact copy, so the swap must finish, and the next run drops nothing. The claim write reloaded
+    # the config under the row lock, so this reads the current markers.
+    if schema.repartition_swap is not None:
+        logger.info("repartition: a swap is staged, so the append split stays until it lands")
+        return
+    rewrite_rows = _rewrite_rows_written(schema)
+    # First, so that a delete that keeps failing cannot hold the import of a rewrite that never resumes.
+    release_repartition_hold_if_claimed(schema, claim_token=claim_token)
+    if not _purge_abandoned_temp(schema, table_ref, claim_token, logger):
+        # The checkpoint is the only record of the temp table, and an append table rarely runs the fresh
+        # rebuild that sweeps orphans, so the drop retries on later runs, up to the attempt cap.
+        drop_attempts = mark_repartition_dropping_if_claimed(schema, claim_token=claim_token)
+        if drop_attempts is None:
+            logger.info("repartition: append split drop superseded by a newer claim")
+            return
+        if drop_attempts < MAX_REPARTITION_ATTEMPTS:
+            logger.info(f"repartition: append split drop waits for the temp table delete, attempt {drop_attempts}")
+            return
+        capture_exception(
+            Exception(f"repartition: could not delete the temp table of a dropped append split schema_id={schema.id}")
+        )
+    if not schema.abandon_repartition_if_claimed(claim_token, stamp_cooldown=False):
+        logger.info("repartition: append split drop superseded by a newer claim")
+        return
+    logger.info(
+        f"repartition: dropped the queued split of an append table, which never merges "
+        f"schema_id={schema.id} trigger_reason={trigger_reason} rewrite_rows={rewrite_rows}",
+        schema_id=str(schema.id),
+        trigger_reason=trigger_reason,
+        rewrite_rows=rewrite_rows,
+    )
+    DELTA_REPARTITION_TOTAL.labels(outcome="skipped").inc()
+    props = base_event_props(schema, schema.source, inputs.job_id)
+    props.update({"trigger_reason": trigger_reason, "reason": "append_never_merges", "rewrite_rows": rewrite_rows})
+    capture_repartition_event("warehouse_repartition_skipped", props)
 
 
 def _charge_attempt(
