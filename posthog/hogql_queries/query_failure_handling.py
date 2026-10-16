@@ -146,7 +146,7 @@ def budget_for_limit_context(limit_context: Optional[LimitContext]) -> Budget:
     """Interactive requests get 60s of ClickHouse execution time while async workers and other
     elevated contexts get 10x that, so a failure only proves anything about the budget it ran
     under."""
-    if limit_context in (None, LimitContext.QUERY, LimitContext.DATA_CATALOG):
+    if limit_context in (None, LimitContext.QUERY, LimitContext.DATA_CATALOG, LimitContext.BUSINESS_INTELLIGENCE):
         return BUDGET_INTERACTIVE
     return BUDGET_EXTENDED
 

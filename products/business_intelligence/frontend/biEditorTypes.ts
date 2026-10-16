@@ -57,7 +57,7 @@ export enum BIEditorView {
 
 export type BIShelf = 'rows' | 'columns' | 'values' | 'filters'
 
-export const BI_QUERY_LIMITS = [100, 1000, 10000, 50000] as const
+export const BI_QUERY_LIMITS = [100, 1000, 10000, 50000, 100000, 500000, 1000000] as const
 
 export interface BISortOption {
     key: string
@@ -227,7 +227,7 @@ export const DEFAULT_BI_CONFIG: BIConfig = {
     columns: [],
     values: [],
     filters: [],
-    limit: 1000,
+    limit: 50000,
     sort: null,
 }
 
@@ -1803,6 +1803,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                 query,
                 connectionId: config.source.connectionId,
                 sendRawQuery: undefined,
+                useBusinessIntelligenceLimits: true,
                 filters: getBIQueryFilters(config),
             },
             display: config.chartType,

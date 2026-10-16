@@ -102,5 +102,5 @@ export const DATE_BUCKET_OPTIONS: { value: BIDateBucket | null; label: string }[
 
 export const LIMIT_OPTIONS = BI_QUERY_LIMITS.map((limit) => ({
     value: limit,
-    label: limit === 1000 ? '1k' : limit === 10000 ? '10k' : limit === 50000 ? '50k' : String(limit),
+    label: limit === 1000000 ? '1M' : limit >= 1000 ? `${limit / 1000}k` : String(limit),
 }))

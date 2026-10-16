@@ -89,7 +89,7 @@ export interface biDataSourcePickerLogicMeta {
             selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined
         ) => TreeDataItem[]
         filteredTree: (sourceTree: TreeDataItem[], search: string) => TreeDataItem[]
-        visibleExpandedIds: (filteredTree: TreeDataItem[], search: string, expandedIds: string[] | null) => string[]
+        visibleExpandedIds: (filteredTree: TreeDataItem[], _search: string, expandedIds: string[] | null) => string[]
     }
 }
 
@@ -129,7 +129,10 @@ export const biDataSourcePickerLogic: LogicWrapper<biDataSourcePickerLogicType> 
     reducers({
         open: [false, { setOpen: (_, { open }) => open }],
         search: ['', { setSearch: (_, { search }) => search, setOpen: () => '' }],
-        expandedIds: [null as string[] | null, { setExpandedIds: (_, { ids }) => ids, setOpen: () => null }],
+        expandedIds: [
+            null as string[] | null,
+            { setExpandedIds: (_, { ids }) => ids, setOpen: () => null, setSearch: () => null },
+        ],
     }),
     selectors({
         selectedDirectSource: [
@@ -176,8 +179,8 @@ export const biDataSourcePickerLogic: LogicWrapper<biDataSourcePickerLogicType> 
         ],
         visibleExpandedIds: [
             (s) => [s.filteredTree, s.search, s.expandedIds],
-            (tree: TreeDataItem[], search: string, expandedIds: string[] | null): string[] =>
-                search || expandedIds === null ? getBIDataSourceFolderIds(tree) : expandedIds,
+            (tree: TreeDataItem[], _search: string, expandedIds: string[] | null): string[] =>
+                expandedIds === null ? getBIDataSourceFolderIds(tree) : expandedIds,
         ],
     }),
     listeners(({ actions, values }) => ({

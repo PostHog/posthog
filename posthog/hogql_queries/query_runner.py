@@ -2020,6 +2020,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # For caching purposes, QUERY_ASYNC is equivalent to QUERY (max query duration should be the only difference)
         if not self.limit_context or self.limit_context == LimitContext.QUERY_ASYNC:
             return LimitContext.QUERY
+        if self.limit_context == LimitContext.BUSINESS_INTELLIGENCE_ASYNC:
+            return LimitContext.BUSINESS_INTELLIGENCE
         return self.limit_context
 
     def calculate(self) -> R:

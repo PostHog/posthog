@@ -328,6 +328,7 @@ from posthog.schema_enums import (
     UsageMetricDisplay as UsageMetricDisplay,
     UsageMetricFormat as UsageMetricFormat,
     ValueDisplay as ValueDisplay,
+    ValueLabelPosition as ValueLabelPosition,
     WebAgentAnalyticsQueryType as WebAgentAnalyticsQueryType,
     WebAgentContentGrouping as WebAgentContentGrouping,
     WebAnalyticsItemKind as WebAnalyticsItemKind,
@@ -3150,6 +3151,7 @@ class ResultCustomizationByValue(BaseModel):
     )
     assignmentBy: Literal["value"] = "value"
     color: DataColorToken | None = None
+    customColor: str | None = None
     hidden: bool | None = None
 
 
@@ -16851,6 +16853,7 @@ class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    barGap: float | None = None
     boxPlot: BoxPlotSettings | None = None
     chartStyle: ChartStyle | None = Field(
         default=None,
@@ -16886,8 +16889,14 @@ class ChartSettings(BaseModel):
     showXAxisTicks: bool | None = None
     showYAxisBorder: bool | None = None
     stackBars100: bool | None = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
+    valueLabelBackground: bool | None = None
+    valueLabelFontSize: float | None = None
+    valueLabelPosition: ValueLabelPosition | None = None
+    valueLabelRotation: float | None = None
     xAxis: ChartAxis | None = None
+    xAxisDateFormat: str | None = None
     xAxisLabel: str | None = None
+    xAxisTickRotation: float | None = None
     yAxis: list[ChartAxis] | None = None
     yAxisAtZero: bool | None = Field(
         default=None,
@@ -30760,6 +30769,10 @@ class HogQLQuery(BaseModel):
         description=("Run the selected connection query directly without translating it through HogQL first"),
     )
     tags: QueryLogTags | None = None
+    useBusinessIntelligenceLimits: bool | None = Field(
+        default=None,
+        description=("BI worksheets can explicitly request up to one million aggregated rows."),
+    )
     values: dict[str, Any] | None = Field(
         default=None,
         description=("Constant values that can be referenced with the {placeholder} syntax in the query"),

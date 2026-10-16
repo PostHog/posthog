@@ -707,6 +707,9 @@ class BIQueryLimit(float, Enum):
     NUMBER_1000 = 1000
     NUMBER_10000 = 10000
     NUMBER_50000 = 50000
+    NUMBER_100000 = 100000
+    NUMBER_500000 = 500000
+    NUMBER_1000000 = 1000000
 
 
 class Operator2(StrEnum):
@@ -827,6 +830,11 @@ class ChartDisplayType(StrEnum):
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
     SCATTER_PLOT = "ScatterPlot"
+
+
+class ValueLabelPosition(StrEnum):
+    END = "end"
+    CENTER = "center"
 
 
 class Curve(StrEnum):

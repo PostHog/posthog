@@ -117,6 +117,44 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.hasMore, False)
         self.assertIsNotNone(response.limit)
 
+    @parameterized.expand(
+        [
+            (LimitContext.QUERY, None, 50_000),
+            (LimitContext.QUERY_ASYNC, None, 50_000),
+            (LimitContext.QUERY, 100_000, 100_000),
+            (LimitContext.QUERY_ASYNC, 2_000_000, 1_000_000),
+        ]
+    )
+    def test_bi_query_limits(self, context: LimitContext, requested: int | None, expected: int) -> None:
+        query = "SELECT 1" + (f" LIMIT {requested}" if requested is not None else "")
+        runner = HogQLQueryRunner(
+            query=HogQLQuery(query=query, useBusinessIntelligenceLimits=True),
+            team=self.team,
+            limit_context=context,
+        )
+        response = runner.calculate()
+        assert response.results == [(1,)]
+        assert response.clickhouse is not None
+        assert f"LIMIT {expected + 1 if requested is None else expected}" in response.clickhouse
+        if requested is None:
+            assert response.limit == expected
+        normal = self._create_runner(HogQLQuery(query=query))
+        assert runner.get_cache_key() != normal.get_cache_key()
+        synchronous = HogQLQueryRunner(
+            query=HogQLQuery(query=query, useBusinessIntelligenceLimits=True),
+            team=self.team,
+            limit_context=LimitContext.QUERY,
+        )
+        assert runner.get_cache_key() == synchronous.get_cache_key()
+
+    def test_bi_limit_hint_preserves_export_context(self) -> None:
+        runner = HogQLQueryRunner(
+            query=HogQLQuery(query="SELECT 1", useBusinessIntelligenceLimits=True),
+            team=self.team,
+            limit_context=LimitContext.EXPORT,
+        )
+        assert runner.limit_context == LimitContext.EXPORT
+
     def test_default_hogql_query_with_limit(self):
         runner = self._create_runner(HogQLQuery(query="select event from events limit 5"))
         response = runner.calculate()

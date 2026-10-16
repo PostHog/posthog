@@ -113,6 +113,8 @@ class LimitContext(StrEnum):
     RETENTION = "retention"
     POSTHOG_AI = "posthog_ai"
     DATA_CATALOG = "data_catalog"
+    BUSINESS_INTELLIGENCE = "business_intelligence"
+    BUSINESS_INTELLIGENCE_ASYNC = "business_intelligence_async"
 
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
@@ -136,6 +138,8 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
         return sys.maxsize  # Max python int
     elif limit_context == LimitContext.POSTHOG_AI:
         return MAX_SELECT_POSTHOG_AI_LIMIT  # 500
+    elif limit_context in (LimitContext.BUSINESS_INTELLIGENCE, LimitContext.BUSINESS_INTELLIGENCE_ASYNC):
+        return 1_000_000
     elif limit_context == LimitContext.DATA_CATALOG:
         return MAX_SELECT_DATA_CATALOG_LIMIT  # 10k
     else:
@@ -150,6 +154,8 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
         return DEFAULT_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.POSTHOG_AI:
         return DEFAULT_POSTHOG_AI_RETURNED_ROWS  # 100
+    elif limit_context in (LimitContext.BUSINESS_INTELLIGENCE, LimitContext.BUSINESS_INTELLIGENCE_ASYNC):
+        return 50_000
     elif limit_context == LimitContext.DATA_CATALOG:
         return DEFAULT_DATA_CATALOG_RETURNED_ROWS  # 1000
     elif limit_context == LimitContext.HEATMAPS:

@@ -341,7 +341,8 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                         const breakdownValue = getBreakdownValueKey(value)
                         const customColorToken = resultCustomizations[breakdownValue]?.color
                         const customColor =
-                            customColorToken && theme ? getColorFromToken(theme, customColorToken) : undefined
+                            resultCustomizations[breakdownValue]?.customColor ??
+                            (customColorToken && theme ? getColorFromToken(theme, customColorToken) : undefined)
 
                         // first filter data by breakdown column value
                         const filteredData = data.filter((n) => n[breakdownColumn.dataIndex] === value)
