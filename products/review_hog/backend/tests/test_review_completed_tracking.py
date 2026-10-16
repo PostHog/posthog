@@ -351,6 +351,7 @@ class TestTrackReviewCompleted(BaseTest):
             patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
         ):
             gate.return_value.decide.return_value = decision
+            gate.return_value.record_small_change_streak.side_effect = lambda decision, **_: decision
             results = [
                 _gate_push(
                     GatePushInput(
@@ -368,6 +369,8 @@ class TestTrackReviewCompleted(BaseTest):
 
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.IDLE
         assert [(result.skip, result.reason) for result in results] == [(True, "system_one_below_threshold")] * 2
+        recorded = gate.return_value.record_small_change_streak.call_args_list
+        assert [call.args[0] for call in recorded] == results
         first, second = capture.call_args_list
         assert first.kwargs["event"] == "reviewhog_push_gate_decided"
         props = first.kwargs["properties"]
