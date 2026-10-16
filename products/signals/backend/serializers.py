@@ -2109,6 +2109,17 @@ class SignalMatchMetadataField(serializers.JSONField):
 
 
 class SignalNodeSerializer(serializers.Serializer):
+    total_spend = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked signals.",
+    )
+    spend_accounting_failed_stages = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        default=list,
+        help_text="Pipeline stages with generations whose spend could not be accounted for. Cleared when accounting recovers.",
+    )
     signal_id = serializers.CharField(help_text="ClickHouse document id of the signal.")
     content = serializers.CharField(help_text="The signal's human-readable description.")
     source_product = serializers.ChoiceField(
@@ -2419,6 +2430,35 @@ class SignalReportCheckWriteSerializer(serializers.Serializer):
         return attrs
 
 
+# The head fields a reader needs to show a score: readability and the base rate behind each lift.
+_COMPACT_RANKING_HEAD_FIELDS = ("head", "readable", "refit_classification_threshold")
+
+
+def compact_ranking_score_content(content: dict) -> dict:
+    """Drop the copied model metadata from a `ranking_score` row, except the head fields that read a score.
+
+    The metadata holds training and holdout data that is tens of KB per model, so a work log with a
+    few scores is mostly metadata. The single-artefact read keeps the full row.
+    """
+    results = content.get("results")
+    if not isinstance(results, dict):
+        return content
+    compact_results = {}
+    for key, result in results.items():
+        if not isinstance(result, dict):
+            compact_results[key] = result
+            continue
+        metadata = result.get("metadata")
+        heads = metadata.get("heads") if isinstance(metadata, dict) else None
+        compact_heads = [
+            {field: entry[field] for field in _COMPACT_RANKING_HEAD_FIELDS if field in entry}
+            for entry in (heads if isinstance(heads, list) else [])
+            if isinstance(entry, dict)
+        ]
+        compact_results[key] = {**result, "metadata": {"heads": compact_heads}}
+    return {**content, "results": compact_results}
+
+
 class SignalReportArtefactSerializer(serializers.ModelSerializer):
     claim_id = serializers.UUIDField(
         read_only=True, allow_null=True, help_text="Work claim that produced this artefact."
@@ -2500,6 +2540,13 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
 
         if obj.type == SignalReportArtefact.ArtefactType.CHECK_RESULT and isinstance(parsed, dict):
             return self._redact_check_result(obj, parsed)
+
+        if (
+            obj.type == SignalReportArtefact.ArtefactType.RANKING_SCORE
+            and isinstance(parsed, dict)
+            and self.context.get("signals_compact_ranking_scores")
+        ):
+            return compact_ranking_score_content(parsed)
 
         if obj.type == SignalReportArtefact.ArtefactType.IMPACT_MEASUREMENT_PLAN and isinstance(parsed, dict):
             policy = report_metric_access_policy(self.context)
