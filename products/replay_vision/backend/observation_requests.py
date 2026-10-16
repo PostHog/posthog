@@ -639,7 +639,8 @@ _STEP_OUTPUT_FIELDS: dict[str, tuple[str, ...]] = {
 
 
 def _step_output(model_output: Any) -> Any:
-    fields = _STEP_OUTPUT_FIELDS.get(model_output.get("scanner_type")) if isinstance(model_output, dict) else None
+    scanner_type = model_output.get("scanner_type") if isinstance(model_output, dict) else None
+    fields = _STEP_OUTPUT_FIELDS.get(scanner_type) if isinstance(scanner_type, str) else None
     if fields is None:
         return model_output
     return {key: model_output[key] for key in fields if key in model_output}
