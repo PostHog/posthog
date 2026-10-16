@@ -13,12 +13,17 @@ import type {
     AppMetricsTotalsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
+    DataSuggestionBuildRequestApi,
+    DataSuggestionBuildResponseApi,
+    DataSuggestionGenerateRequestApi,
+    DataSuggestionsResponseApi,
     EmailDraftApi,
     EmailDraftRequestApi,
     EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
+    HogFlowInFlightApi,
     HogFlowInvocationApi,
     HogFlowOptimizationApi,
     HogFlowPublishRequestApi,
@@ -522,6 +527,21 @@ export const hogFlowsGraphPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedHogFlowGraphUpdateApi),
+    })
+}
+
+export const getHogFlowsInFlightRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/in_flight/`
+}
+
+export const hogFlowsInFlightRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowInFlightApi> => {
+    return apiMutator<HogFlowInFlightApi>(getHogFlowsInFlightRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1314,6 +1334,63 @@ export const hogFlowsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(blastRadiusRequestApi),
+    })
+}
+
+export const getWorkflowDataSuggestionsBuildUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/build/`
+}
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsBuild = async (
+    projectId: string,
+    dataSuggestionBuildRequestApi: DataSuggestionBuildRequestApi,
+    options?: RequestInit
+): Promise<DataSuggestionBuildResponseApi> => {
+    return apiMutator<DataSuggestionBuildResponseApi>(getWorkflowDataSuggestionsBuildUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataSuggestionBuildRequestApi),
+    })
+}
+
+export const getWorkflowDataSuggestionsCurrentUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/current/`
+}
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsCurrent = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataSuggestionsResponseApi> => {
+    return apiMutator<DataSuggestionsResponseApi>(getWorkflowDataSuggestionsCurrentUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowDataSuggestionsGenerateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_data_suggestions/generate/`
+}
+
+/**
+ * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const workflowDataSuggestionsGenerate = async (
+    projectId: string,
+    dataSuggestionGenerateRequestApi?: DataSuggestionGenerateRequestApi,
+    options?: RequestInit
+): Promise<DataSuggestionsResponseApi> => {
+    return apiMutator<DataSuggestionsResponseApi>(getWorkflowDataSuggestionsGenerateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataSuggestionGenerateRequestApi),
     })
 }
 

@@ -52,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     RepartitionAttemptsExhausted,
     RepartitionBudgetExceededError,
     RepartitionSchemePersistError,
+    RepartitionSliceEndedError,
     RepartitionStoppedError,
     RepartitionSupersededError,
     RepartitionTarget,
@@ -65,6 +66,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     MAX_REPARTITION_ATTEMPTS,
     base_event_props,
     capture_repartition_event,
+    is_repartition_hold_enabled,
     maybe_flag_for_repartition,
     needs_pre_extraction_detection,
     pre_extraction_measurement_is_redundant,
@@ -169,6 +171,40 @@ def _rewrite_deadline(activity_started: float) -> float | None:
     if budget <= 0:
         return None
     return activity_started + budget
+
+
+# Each slice pays for a resume, which lists the live table and the temp table again.
+MIN_REWRITE_SLICE = dt.timedelta(minutes=30)
+
+
+def _rewrite_slice_seconds(
+    schema: ExternalDataSchema,
+    pending: dict[str, Any] | None,
+    trigger_reason: str,
+    *,
+    activity_started: float,
+    deadline: float | None,
+    logger: FilteringBoundLogger,
+) -> float | None:
+    """How long the rewrite streams before it pauses so that this sync can import, or None for no slice.
+
+    No slice for an operator target, because the operator wants that rewrite done first. No slice
+    when the schema holds its imports for the rewrite, because the import would not run anyway.
+    """
+    if trigger_reason == "admin" or (pending or {}).get("slice_disabled"):
+        return None
+    interval = schema.sync_frequency_interval
+    if interval is None:
+        return None
+    slice_seconds = max(interval, MIN_REWRITE_SLICE).total_seconds()
+    if deadline is not None and activity_started + slice_seconds >= deadline:
+        return None
+    try:
+        if is_repartition_hold_enabled(schema):
+            return None
+    except Exception:
+        logger.warning("repartition: could not evaluate the repartition hold flag; slicing", exc_info=True)
+    return slice_seconds
 
 
 def _is_transient_infra_error(error: Exception) -> bool:
@@ -524,6 +560,15 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # attempt and is not charged, the same reason the give-up above exempts it.
     charged_attempts = None if swap is not None else _charge_attempt(schema, pending, inputs.job_id, logger)
 
+    deadline = _rewrite_deadline(activity_started)
+    rewrite_slice_seconds = (
+        None
+        if swap is not None
+        else _rewrite_slice_seconds(
+            schema, pending, trigger_reason, activity_started=activity_started, deadline=deadline, logger=logger
+        )
+    )
+
     start = time.monotonic()
     try:
         # HeartbeaterSync heartbeats on a background thread while the (possibly long) rewrite streams,
@@ -554,9 +599,19 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 target=target,
                 logger=logger,
                 claim_token=claim_token,
-                deadline=_rewrite_deadline(activity_started),
+                deadline=deadline,
                 should_stop=lambda: shutdown_monitor.is_worker_shutdown() or _activity_cancelled(),
+                rewrite_slice_seconds=rewrite_slice_seconds,
             )
+    except RepartitionSliceEndedError as e:
+        logger.info(
+            f"repartition: rewrite slice ended, resuming on the next sync rows_written={e.rows_written}",
+            rows_written=e.rows_written,
+        )
+        DELTA_REPARTITION_TOTAL.labels(outcome="sliced").inc()
+        _refund_attempt(schema, charged_attempts, logger)
+        _capture_stood_down(schema, inputs, trigger_reason, "sync_slice_ended", logger)
+        return
     except RepartitionStoppedError as e:
         # The rewrite stopped at a commit, or the swap between two groups of files. Temp and its
         # checkpoint or swap marker stay, so the next attempt copies only what is left. This is not

@@ -31,6 +31,7 @@ from django.db import transaction
 from django.db.models import Q, Value
 from django.db.models.functions import Coalesce, Lower, NullIf
 from django.utils import timezone
+from django.utils.cache import get_conditional_response
 from django.utils.dateparse import parse_datetime
 
 import structlog
@@ -65,7 +66,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
+from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, SCOUT_GRANTABLE_WRITE_SCOPES
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -237,8 +238,10 @@ from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
     fleet_findings_summary,
     get_run,
-    recent_runs_per_scout,
+    recent_run_ids_per_scout,
     run_id_for_sandbox_task,
+    runs_by_id,
+    runs_version,
     search_recent_runs,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import (
@@ -263,6 +266,7 @@ from products.signals.backend.scout_harness.trial_access import (
 )
 from products.signals.backend.scout_harness.trial_views import ScoutTrialConfigMixin
 from products.signals.backend.scout_report import InvalidScoutReportError
+from products.signals.backend.tasks import enqueue_project_profile_build
 from products.skills.backend.api.skill_services import (
     LLMSkillDuplicateNameConflictError,
     create_skill,
@@ -753,6 +757,10 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=SignalScoutRunSummarySerializer(many=True),
                 description="Each scout's most recent runs, newest-first across the fleet.",
             ),
+            304: OpenApiResponse(
+                description="The runs match the `ETag` sent in `If-None-Match`, so the body is left out.",
+            ),
+            412: OpenApiResponse(description="The runs do not match the `ETag` sent in `If-Match`."),
         },
         summary="List each scout's most recent runs",
         description=(
@@ -767,7 +775,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Runs older than the staleness guard are excluded too, so a scout that stopped running "
             "reads as stale instead of healthy — `max_age_days` (default 30) is that guard's floor, "
             "which each scout's own cadence extends. Use `list` instead when you want a literal "
-            "time window or a text/emitted filter. Strictly team-scoped."
+            "time window or a text/emitted filter. Pass `skill_name` to probe one scout only. "
+            "Strictly team-scoped."
         ),
         operation_id="signals_scout_runs_recent_per_scout",
     )
@@ -784,18 +793,39 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         saved = saved_reads_for_request(request, _canonical_team_id(self))
         per_scout_limit = validated.get("per_scout_limit") or DEFAULT_RUNS_PER_SCOUT
         max_age_days = validated.get("max_age_days") or DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS
-        rows = recent_runs_per_scout(
+        skill_name = validated.get("skill_name")
+        run_ids = recent_run_ids_per_scout(
             team_id=_canonical_team_id(self),
             per_scout_limit=per_scout_limit,
             max_age_days=max_age_days,
             exclude_skill_name=saved.context.skill_name if saved is not None else None,
+            skill_name=skill_name,
         )
         if saved is not None:
+            rows = runs_by_id(team_id=_canonical_team_id(self), run_ids=run_ids)
             rows.extend(
-                saved.recent_runs([], limit=per_scout_limit, date_from=timezone.now() - timedelta(days=max_age_days))
+                saved.recent_runs(
+                    [],
+                    limit=per_scout_limit,
+                    date_from=timezone.now() - timedelta(days=max_age_days),
+                    skill_name=skill_name,
+                )
             )
             rows.sort(key=lambda row: row.created_at, reverse=True)
-        return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+            return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+        # The inbox polls this every minute. A browser revalidates a `no-cache` body with
+        # If-None-Match by itself, so an unchanged fleet costs the narrow version read, not hydration.
+        etag = f'"{runs_version(team_id=_canonical_team_id(self), run_ids=run_ids)}"'
+        conditional = get_conditional_response(request._request, etag=etag)
+        if conditional is not None:
+            # 304 for a matching If-None-Match, 412 for a failed If-Match.
+            response = Response(status=conditional.status_code)
+        else:
+            rows = runs_by_id(team_id=_canonical_team_id(self), run_ids=run_ids)
+            response = Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+        response["ETag"] = etag
+        response["Cache-Control"] = "private, no-cache"
+        return response
 
     @validated_request(
         query_serializer=FleetFindingsSummaryQuerySerializer,
@@ -2379,12 +2409,15 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         responses={
             200: OpenApiResponse(
                 response=ProjectProfileSerializer,
-                description="The team's current project profile (cached, or freshly built for the internal scout token).",
+                description=(
+                    "The team's current project profile: freshly built for the internal scout token, or the "
+                    "newest stored profile for other callers, with `stale=true` when it is past `expires_at`."
+                ),
             ),
             404: OpenApiResponse(
                 description=(
-                    "No profile has been built for this team yet, and the caller is not the internal scout "
-                    "token (which builds on cache miss). Public read callers never trigger a build."
+                    "The team has no project profile yet, and the caller is not the internal scout token "
+                    "(which builds on cache miss). A background build starts, so retry in a minute."
                 ),
             ),
         },
@@ -2396,9 +2429,11 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             "the gate. Pass `summary_only=true` to omit `payload` entirely. For the internal scout token the "
             "response reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache "
             "miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read "
-            "callers (session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none "
-            "has been built yet — they never trigger a rebuild. Read this at the start of a run to orient on "
-            "the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface."
+            "callers (session auth or a `signal_scout:read` PAK) get the newest stored profile whatever its age, "
+            "with `stale=true` when it is past `expires_at`. They never build inline: when the team has no "
+            "profile, the call starts a background build and returns 404, so retry in a minute. Read this at "
+            "the start of a run to orient on the team's product mix, integrations, warehouse sources, signal "
+            "coverage, and existing inbox surface."
         ),
     )
     @action(
@@ -2424,9 +2459,8 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         # so both are gated to the internal scout token. A session-authenticated GET bypasses
         # CSRF (safe method), so letting it build would make the rebuild CSRF-triggerable; a
         # `signal_scout:read` PAK could likewise spam recomputes. Untrusted read callers get
-        # the newest cached profile, or a 404 if none exists — they never trigger a build. The
-        # scout's sandbox token carries `signal_scout_internal:write`, and the Phase-7 Temporal
-        # workflow builds out-of-band, so the build path stays covered.
+        # the newest stored profile of any age. When the team has none, they queue one deduped
+        # background build per team, which bounds what a forged GET can cost.
         force_refresh = bool(validated.get("force_refresh", False)) and caller_is_internal_scout
         team_id = _canonical_team_id(self)
         profile = get_project_profile(
@@ -2435,7 +2469,10 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             lazy_build=caller_is_internal_scout,
         )
         if profile is None:
-            raise exceptions.NotFound("No project profile has been built for this team yet.")
+            enqueue_project_profile_build(team_id)
+            raise exceptions.NotFound(
+                "No project profile has been built for this team yet. A build has started, so retry in a minute."
+            )
         body = profile.as_dict()
         _overlay_effective_emit_eligibility(
             body,
@@ -3094,7 +3131,8 @@ def _resolve_scout_config_grants(
     config: SignalScoutConfig | None,
     data: dict[str, Any],
 ) -> dict[str, Any]:
-    current_scopes = set(_stored_write_scopes(config.write_scopes)) if config else set()
+    # A new config starts with the default grant, so a create that keeps or narrows it adds nothing.
+    current_scopes = set(_stored_write_scopes(config.write_scopes)) if config else set(SCOUT_DEFAULT_WRITE_SCOPES)
     current_tools = config.allowed_mcp_tools if config else None
     selects_tools = "allowed_mcp_tools" in data or "tool_preset" in data
     resolved = dict(data)
@@ -3151,13 +3189,17 @@ def _resolve_scout_config_grants(
             added_scopes=current_scopes,
         )
     elif "write_scopes" in data and set(data["write_scopes"]) != current_scopes:
-        assert_can_grant_scout_write_scopes(
-            request=request,
-            team=team,
-            skill_name=skill_name,
-            config=config,
-            added_scopes=set(data["write_scopes"]) - current_scopes,
-        )
+        added_scopes = set(data["write_scopes"]) - current_scopes
+        # Narrowing an existing grant is still a change to what the author approved. Narrowing the
+        # default on a new config changes nobody's approval, so only an addition needs the gate.
+        if config is not None or added_scopes:
+            assert_can_grant_scout_write_scopes(
+                request=request,
+                team=team,
+                skill_name=skill_name,
+                config=config,
+                added_scopes=added_scopes,
+            )
     return resolved
 
 

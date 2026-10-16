@@ -394,6 +394,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
+    let max_connection_age = config.grpc_max_connection_age();
     let http2_windows = config.grpc_http2_windows();
     let max_recv = config.grpc_max_recv_message_size;
     let retry_config = config.retry_config();
@@ -418,11 +419,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_recv,
             config.response_size_warn_bytes,
         );
-        let server = Server::builder()
-            .http2_keepalive_interval(keepalive_interval)
-            .http2_keepalive_timeout(keepalive_timeout);
-        let result = http2_windows
-            .apply_to_server(server)
+        let mut server = http2_windows.apply_to_server(
+            Server::builder()
+                .http2_keepalive_interval(keepalive_interval)
+                .http2_keepalive_timeout(keepalive_timeout),
+        );
+        if let Some(age) = max_connection_age {
+            server = server.max_connection_age(age);
+        }
+        let result = server
             .layer(GrpcMetricsLayer::default())
             .add_service(proxy.clone())
             .add_service(IdentityProxyService(proxy.clone()))

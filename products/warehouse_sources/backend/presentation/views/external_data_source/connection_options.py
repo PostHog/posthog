@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import cached_property
 from typing import Any, cast
 
 from django.db.models import Q
@@ -18,6 +19,7 @@ from posthog.api.utils import action
 from posthog.models.user import User
 from posthog.permissions import is_service_auth
 
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.revenue_analytics.backend.facade.api import remove_person_join
@@ -44,7 +46,7 @@ tracer = trace.get_tracer(__name__)
 MAX_EXCLUDED_PRODUCT_IDS = 100
 
 
-class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
+class ExternalDataSourceRevenueAnalyticsConfigSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     excluded_product_ids = serializers.ListField(
         child=serializers.CharField(max_length=255, allow_blank=True),
         required=False,
@@ -106,11 +108,7 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Default database schema used to group tables in the SQL editor.",
     )
-    engine = serializers.ChoiceField(
-        source="connection_metadata.engine",
-        read_only=True,
-        allow_null=True,
-        choices=helpers.DIRECT_CONNECTION_ENGINE_CHOICES,
+    engine = serializers.SerializerMethodField(
         help_text="Backend engine detected for the direct connection.",
     )
     source_type = serializers.ChoiceField(
@@ -134,6 +132,21 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="User-set description of the source, shown as its display name in the connection picker when set.",
     )
+
+    @extend_schema_field(serializers.ChoiceField(choices=helpers.DIRECT_CONNECTION_ENGINE_CHOICES, allow_null=True))
+    def get_engine(self, source: ExternalDataSource) -> str | None:
+        if source.is_dynamic_managed_warehouse and self._managed_trino_enabled:
+            return "trino"
+        metadata = source.connection_metadata
+        return metadata.get("engine") if isinstance(metadata, dict) else None
+
+    @cached_property
+    def _managed_trino_enabled(self) -> bool:
+        from products.managed_warehouse.backend.facade.sql_editor import (
+            managed_warehouse_sql_editor_uses_trino,  # noqa: PLC0415 -- flag evaluation is optional during startup
+        )
+
+        return managed_warehouse_sql_editor_uses_trino(self.context["team"].organization_id)
 
     @extend_schema_field(serializers.BooleanField())
     def get_supports_hogql(self, source: ExternalDataSource) -> bool:
@@ -248,7 +261,10 @@ class ExternalDataSourceConnectionOptionsMixin(base.ExternalDataSourceViewSetBas
         serializer = ExternalDataSourceConnectionOptionSerializer(
             options,
             many=True,
-            context={"builtin_managed_warehouse_source_id": managed_source.pk if managed_source is not None else None},
+            context={
+                "builtin_managed_warehouse_source_id": managed_source.pk if managed_source is not None else None,
+                "team": self.team,
+            },
         )
         return Response(status=status.HTTP_200_OK, data=serializer.data)
 
@@ -339,7 +355,9 @@ class ExternalDataSourceConnectionOptionsMixin(base.ExternalDataSourceViewSetBas
         external_data_source = self.get_object()
         config = external_data_source.revenue_analytics_config_safe
 
-        config_serializer = ExternalDataSourceRevenueAnalyticsConfigSerializer(config, data=request.data, partial=True)
+        config_serializer = ExternalDataSourceRevenueAnalyticsConfigSerializer(
+            config, data=request.data, partial=True, context=self.get_serializer_context()
+        )
         config_serializer.is_valid(raise_exception=True)
         config_serializer.save()
 

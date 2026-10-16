@@ -40,8 +40,9 @@ type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
 type AwaitingResume = NonNullable<NonNullable<HogFlowInvocationContext['currentAction']>['awaitingResume']>
 
-// A template parks the step by returning `{ ..., 'await': { 'max_wait': '190m', 'label': 'task' } }`.
-type AwaitRequest = { maxWait: Duration; label: string }
+// A template parks the step by returning `{ ..., 'await': { 'max_wait': '190m', 'label': 'task' } }`. When the
+// job already finished, `'result': {...}` in the request hands over its answer as a wake would, without parking.
+type AwaitRequest = { maxWait: Duration; label: string; settled: Record<string, unknown> | null }
 
 const AWAIT_DURATION_REGEX = /^(\d*\.?\d+)([dhms])$/
 const SECONDS_PER_UNIT: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 }
@@ -56,7 +57,11 @@ const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
     if (typeof request !== 'object') {
         throw new Error(`await must be an object, got ${typeof request}`)
     }
-    const { max_wait: maxWait, label } = request as { max_wait?: unknown; label?: unknown }
+    const {
+        max_wait: maxWait,
+        label,
+        result: settled,
+    } = request as { max_wait?: unknown; label?: unknown; result?: unknown }
     const match = typeof maxWait === 'string' ? AWAIT_DURATION_REGEX.exec(maxWait) : null
     if (!match) {
         throw new Error(`await.max_wait must be a duration like '190m' or '2h', got ${JSON.stringify(maxWait)}`)
@@ -65,6 +70,10 @@ const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
     return {
         maxWait: requested > AWAIT_MAX_WAIT_CEILING ? AWAIT_MAX_WAIT_CEILING : requested,
         label: typeof label === 'string' && label ? label : 'run',
+        settled:
+            settled && typeof settled === 'object' && !Array.isArray(settled)
+                ? (settled as Record<string, unknown>)
+                : null,
     }
 }
 
@@ -81,6 +90,26 @@ const counterAwaitedStepResumedWithWarnings = new Counter({
     name: 'cdp_hogflow_awaited_step_resumed_with_warnings',
     help: 'A parked step resumed and continued, but the product that ran the job reported a warning.',
 })
+
+// The product that ran the job reports what went wrong short of failing it, such as
+// an agent whose output misses a field. The step continues; the author reads the log.
+const logStepWarnings = (
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+    action: Action,
+    stepResult: unknown
+): void => {
+    const warnings = readWarnings(stepResult)
+    if (warnings.length > 0) {
+        counterAwaitedStepResumedWithWarnings.inc()
+    }
+    for (const warning of warnings) {
+        result.logs.push({
+            level: 'warn',
+            timestamp: DateTime.now(),
+            message: `${actionIdForLogging(action)} ${warning}`,
+        })
+    }
+}
 
 const counterAwaitedStepStaleResume = new Counter({
     name: 'cdp_hogflow_awaited_step_stale_resume',
@@ -226,6 +255,21 @@ export class HogFunctionHandler implements ActionHandler {
                 })
             }
         }
+        if (awaitRequest?.settled) {
+            const { await: _await, ...dispatch } = functionResult.execResult as Record<string, unknown>
+            // Read before sizing, which can drop the warnings themselves.
+            logStepWarnings(result, action, awaitRequest.settled)
+            // Sized like a woken step's answer, so it fits the variables the run already holds.
+            return {
+                nextAction: findContinueAction(invocation),
+                result: capWorkflowStepResult(
+                    { ...dispatch, status: 'completed' },
+                    awaitRequest.settled,
+                    result.invocation.state.variables ?? {},
+                    action.output_variable
+                ),
+            }
+        }
         if (awaitRequest) {
             return this.parkForAwaitedRun(
                 invocation,
@@ -308,19 +352,7 @@ export class HogFunctionHandler implements ActionHandler {
                 timestamp: DateTime.now(),
                 message: `${actionIdForLogging(action)} The ${label} finished`,
             })
-            // The product that ran the job reports what went wrong short of failing it, such as
-            // an agent whose output misses a field. The step continues; the author reads the log.
-            const warnings = readWarnings(resume.result)
-            if (warnings.length > 0) {
-                counterAwaitedStepResumedWithWarnings.inc()
-            }
-            for (const warning of warnings) {
-                result.logs.push({
-                    level: 'warn',
-                    timestamp: DateTime.now(),
-                    message: `${actionIdForLogging(action)} ${warning}`,
-                })
-            }
+            logStepWarnings(result, action, resume.result)
             return {
                 nextAction: findContinueAction(invocation),
                 result: payload,
@@ -377,7 +409,7 @@ export class HogFunctionHandler implements ActionHandler {
                     ? [
                           {
                               team_id: hogFunctionInvocation.teamId,
-                              app_source_id: hogFunctionInvocation.functionId,
+                              app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
                               instance_id: action.id,
                               metric_kind: 'email' as const,
                               metric_name: 'email_suppressed' as const,
@@ -414,7 +446,7 @@ export class HogFunctionHandler implements ActionHandler {
                 metrics: [
                     {
                         team_id: hogFunctionInvocation.teamId,
-                        app_source_id: hogFunctionInvocation.functionId,
+                        app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
                         instance_id: action.id,
                         metric_kind: 'email',
                         metric_name: 'email_bounce_prevented',

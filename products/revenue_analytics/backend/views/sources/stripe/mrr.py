@@ -23,11 +23,15 @@ def build(handle: SourceHandle) -> BuiltQuery:
 
     start_date_expr, end_date_expr = generate_mrr_start_and_end_date_expr()
 
-    revenue_item_table: ast.Expr = ast.Field(chain=[revenue_item_base_query_name])
+    revenue_item_table: ast.Field | ast.SelectQuery | ast.SelectSetQuery = ast.Field(
+        chain=[revenue_item_base_query_name]
+    )
     amount = ast.Call(name="sum", args=[ast.Field(chain=["revenue_item", "amount"])])
     if source.excluded_product_ids:
         # Keep excluded billing periods so argMax cannot fall back to an older product's MRR.
-        revenue_item_table = build_revenue_items(handle, apply_product_exclusions=False).query
+        unfiltered_revenue_items = build_revenue_items(handle, apply_product_exclusions=False).query
+        assert isinstance(unfiltered_revenue_items, ast.SelectQuery | ast.SelectSetQuery)
+        revenue_item_table = unfiltered_revenue_items
         amount = ast.Call(
             name="ifNull",
             args=[

@@ -18,13 +18,15 @@ use super::config::DurabilityConfig;
 /// Short timeout for bucket validation so misconfiguration fails fast.
 const VALIDATION_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Build an S3 client wrapped in a `LimitStore` for bounded concurrency.
+/// Build an S3 client wrapped in a `LimitStore` for bounded concurrency, and check that it can list
+/// `lineage_dir`.
 ///
 /// Credential priority: explicit config (local dev) → IRSA (`AWS_WEB_IDENTITY_TOKEN_FILE` +
 /// `AWS_ROLE_ARN`) → default AWS credential chain.
 pub async fn create_s3_client(
     config: &DurabilityConfig,
     max_concurrent_requests: usize,
+    lineage_dir: &str,
 ) -> Result<Arc<LimitStore<AmazonS3>>> {
     let mut builder = AmazonS3Builder::from_env()
         .with_bucket_name(&config.s3_bucket)
@@ -76,19 +78,22 @@ pub async fn create_s3_client(
 
     let store = Arc::new(LimitStore::new(base_store, max_concurrent_requests));
 
-    validate_bucket_access(&store, &config.s3_bucket, &config.aws_region).await?;
+    validate_bucket_access(&store, &config.s3_bucket, &config.aws_region, lineage_dir).await?;
 
     Ok(store)
 }
 
+/// Lists the lineage's own prefix rather than the bucket root, so the role needs `ListBucket` only
+/// on what the pod reads.
 async fn validate_bucket_access(
     store: &LimitStore<AmazonS3>,
     bucket: &str,
     region: &Option<String>,
+    lineage_dir: &str,
 ) -> Result<()> {
-    info!(bucket = %bucket, "Validating S3 bucket access...");
+    info!(bucket = %bucket, prefix = %lineage_dir, "Validating S3 bucket access...");
 
-    let prefix = ObjectPath::from("");
+    let prefix = ObjectPath::from(lineage_dir);
     let mut stream = store.list(Some(&prefix));
 
     match tokio::time::timeout(VALIDATION_TIMEOUT, stream.next()).await {

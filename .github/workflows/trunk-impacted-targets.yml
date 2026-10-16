@@ -58,22 +58,9 @@ jobs:
             targets: ${{ steps.targets.outputs.targets }}
             telemetry: ${{ steps.telemetry.outputs.properties }}
         steps:
+            # Depth 1: the change set and the merge base come from the GitHub API
+            # below, not from local history.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
-
-            # The default branch, not `base.ref`. A stacked PR's base is the layer
-            # below it, but the queue tests the whole stack merged into master, so
-            # master is the radius Trunk schedules against. Diffing against a stack
-            # parent that has fallen behind master counts every commit the head
-            # picked up in between as this PR's own, and a change set that wide
-            # claims every lane — which serializes the queue behind a PR that
-            # touched none of them.
-            - name: Fetch the merge target for the changed-file diff
-              env:
-                  MERGE_TARGET: ${{ github.event.repository.default_branch }}
-              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$MERGE_TARGET:refs/remotes/origin/$MERGE_TARGET"
 
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
@@ -91,41 +78,105 @@ jobs:
 
             # Split from the computation below so the cargo steps can be skipped
             # on the PRs that do not need them, which is nearly all of them.
+            #
+            # The default branch, not `base.ref`. A stacked PR's base is the layer
+            # below it, but the queue tests the whole stack merged into master, so
+            # master is the radius Trunk schedules against. Diffing against a stack
+            # parent that has fallen behind master counts every commit the head
+            # picked up in between as this PR's own, and a change set that wide
+            # claims every lane — which serializes the queue behind a PR that
+            # touched none of them.
+            #
+            # HEAD is the PR merge commit, so comparing the default branch with
+            # it gives the merge base and the files the PR changes relative to it
+            # in one call.
             - name: Resolve the changed files
               id: changes
               env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
                   MERGE_TARGET: ${{ github.event.repository.default_branch }}
               run: |
                   set -uo pipefail
 
-                  # A missing merge base (branch older than the fetched depth) or
-                  # any diff failure has to widen to ALL rather than upload a
-                  # partial file list, which Trunk cannot distinguish from a
-                  # complete one. The computation step reads `resolved` and
-                  # reports ALL when it is anything but true.
-                  if ! merge_base="$(git merge-base "refs/remotes/origin/$MERGE_TARGET" HEAD 2>/dev/null)"; then
-                      echo "::warning::No merge base against $MERGE_TARGET within the fetched depth; reporting ALL."
+                  # An API failure or a truncated file list has to widen to ALL
+                  # rather than upload a partial file list, which Trunk cannot
+                  # distinguish from a complete one. The computation step reads
+                  # `resolved` and reports ALL when it is anything but true.
+                  unresolved() {
+                      echo "::warning::$1; reporting ALL."
                       echo 'resolved=false' >> "$GITHUB_OUTPUT"
                       exit 0
+                  }
+
+                  # Each attempt overwrites the output file, so a failed attempt
+                  # leaves no partial page behind for the next one to append to.
+                  # A 4xx, rate limits included, would fail again on the same
+                  # token bucket, so only network errors and 5xx are retried.
+                  gh_api_to() {
+                      local out="$1" err="$RUNNER_TEMP/gh-api-error.txt" attempt
+                      shift
+                      for attempt in 1 2 3; do
+                          if gh api "$@" > "$out" 2> "$err"; then
+                              return 0
+                          fi
+                          cat "$err" >&2
+                          grep -qE '\(HTTP 4[0-9]{2}\)' "$err" && return 1
+                          [ "$attempt" -lt 3 ] && sleep $((attempt * 5))
+                      done
+                      return 1
+                  }
+
+                  # A renamed file is listed as its old path and its new one. The
+                  # old path is what the target script reads as deleted, and it
+                  # widens on that: the tach map has no importer edge for it.
+                  file_paths='.filename, (select(.previous_filename) | .previous_filename)'
+
+                  head_sha="$(git rev-parse HEAD)"
+                  compare="$RUNNER_TEMP/compare.json"
+                  gh_api_to "$compare" "repos/$REPOSITORY/compare/$MERGE_TARGET...$head_sha?per_page=1" \
+                      || unresolved "The compare API failed for $MERGE_TARGET...$head_sha"
+
+                  merge_base="$(jq -r '.merge_base_commit.sha // empty' "$compare")"
+                  [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]] || unresolved "The compare API returned no merge base"
+                  jq -e '.files | type == "array"' "$compare" > /dev/null || unresolved "The compare API returned no file list"
+
+                  # The compare API lists at most 300 files. Past that, the merge
+                  # base commit is fetched without blobs and diffed against the
+                  # checked-out merge commit, which needs only their trees. The pull
+                  # request files API is no substitute: it describes the PR head
+                  # against its own base, and reads whatever head the PR has now.
+                  if [ "$(jq '.files | length' "$compare")" -lt 300 ]; then
+                      jq -r ".files[] | $file_paths" "$compare" > "$RUNNER_TEMP/listed-files.txt"
+                  else
+                      git fetch --no-tags --depth=1 --filter=blob:none origin "$merge_base" \
+                          || unresolved "Could not fetch the merge base $merge_base"
+                      git diff --name-only --no-renames "$merge_base" HEAD > "$RUNNER_TEMP/listed-files.txt" \
+                          || unresolved "Could not diff against the merge base"
                   fi
 
-                  # --no-renames lists a renamed file as its old path and its new
-                  # one. The old path is what the target script reads as deleted,
-                  # and it widens on that: the tach map has no importer edge for it.
-                  if ! changed="$(git diff --name-only --no-renames "$merge_base" HEAD)"; then
-                      echo "::warning::Could not diff against the merge base; reporting ALL."
-                      echo 'resolved=false' >> "$GITHUB_OUTPUT"
-                      exit 0
-                  fi
-
-                  echo "$changed" | sed 's/^/  /'
-                  printf '%s\n' "$changed" > "$RUNNER_TEMP/changed-files.txt"
+                  sort -u "$RUNNER_TEMP/listed-files.txt" > "$RUNNER_TEMP/changed-files.txt"
+                  sed 's/^/  /' "$RUNNER_TEMP/changed-files.txt"
+                  changed="$(cat "$RUNNER_TEMP/changed-files.txt")"
 
                   echo 'resolved=true' >> "$GITHUB_OUTPUT"
                   echo "merge_base=$merge_base" >> "$GITHUB_OUTPUT"
                   if printf '%s\n' "$changed" | grep -qE '^(rust|proto)/'; then
                       echo 'rust_affected=true' >> "$GITHUB_OUTPUT"
                   fi
+                  if printf '%s\n' "$changed" | grep -qxF 'pnpm-lock.yaml'; then
+                      echo 'js_lockfile_changed=true' >> "$GITHUB_OUTPUT"
+                  fi
+
+            # The target script reads the base lockfile with `git show` at the
+            # merge base, so that one commit is fetched without its blobs and the
+            # read fetches the two files it needs.
+            - name: Fetch the merge base commit
+              if: steps.changes.outputs.js_lockfile_changed == 'true'
+              continue-on-error: true
+              env:
+                  MERGE_BASE: ${{ steps.changes.outputs.merge_base }}
+              run: git fetch --no-tags --depth=1 --filter=blob:none origin "$MERGE_BASE"
 
             # The determinator that ci-rust.yml selects tests with is the sole
             # authority on which crates a change set affects, because the lane
@@ -151,13 +202,13 @@ jobs:
               uses: ./.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
-                  pr-base-sha: ${{ github.event.pull_request.base.sha }}
-                  # Diff against master rather than the PR base, for the same
-                  # reason the changed-file diff above does: a stacked PR's
-                  # base is the layer below it, and an answer computed against
-                  # a different radius than the file list would read as a
-                  # disagreement and widen to every crate.
-                  base-branch: ${{ github.event.repository.default_branch }}
+                  # Reuse the master merge base the file list came from. A
+                  # stacked PR's base is the layer below it, and a graph diffed
+                  # against another base would drop crates the file list implies.
+                  base-ref: ${{ steps.changes.outputs.merge_base }}
+                  # The checkout is shallow, so the action takes the file list
+                  # resolved above instead of diffing against the merge base.
+                  changed-files: ${{ runner.temp }}/changed-files.txt
 
             - name: Compute impacted targets
               id: targets

@@ -1,1 +1,1 @@
-0059_revenue_config_excluded_product_ids
+0060_revenue_config_excluded_product_ids

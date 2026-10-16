@@ -89,6 +89,35 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             role=None,
         )
 
+    @parameterized.expand(
+        [
+            ("viewer", "enabled", False, status.HTTP_400_BAD_REQUEST),
+            ("viewer", "include_invoiceless_charges", False, status.HTTP_400_BAD_REQUEST),
+            ("viewer", "excluded_product_ids", ["prod_credit"], status.HTTP_400_BAD_REQUEST),
+            ("editor", "excluded_product_ids", ["prod_credit"], status.HTTP_200_OK),
+        ]
+    )
+    def test_revenue_config_requires_editor_access(
+        self, revenue_level: str, field: str, value: bool | list[str], expected_status: int
+    ) -> None:
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(self.editor_user, resource="revenue_analytics", access_level=revenue_level)
+        self.source.revenue_analytics_config.enabled = False
+        self.source.revenue_analytics_config.save()
+        original_value = getattr(self.source.revenue_analytics_config, field)
+        self.client.force_login(self.editor_user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/external_data_sources/{self.source.pk}/revenue_analytics_config/",
+            data={field: value},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        self.source.revenue_analytics_config.refresh_from_db()
+        assert getattr(self.source.revenue_analytics_config, field) == (
+            value if expected_status == status.HTTP_200_OK else original_value
+        )
+
     def _create_managed_source(self, **overrides: object) -> ExternalDataSource:
         source_team = overrides.get("team")
         if not isinstance(source_team, Team):

@@ -48,7 +48,7 @@ class Detection:
     # A host matches itself and its subdomains.
     script_hosts: tuple[str, ...]
     packages: Mapping[Ecosystem, tuple[str, ...]]
-    competes_with: tuple[ProductKey, ...]
+    alternative_to: tuple[ProductKey, ...]
     # Kinds that reach the same data through a more specific connector. When one of them also
     # matches, the wizard drops this one so the data is not imported twice.
     superseded_by: tuple[str, ...]
@@ -76,7 +76,7 @@ class _Signals(TypedDict, total=False):
     pub: tuple[str, ...]
     rubygems: tuple[str, ...]
     swiftpm: tuple[str, ...]
-    competes_with: tuple[ProductKey, ...]
+    alternative_to: tuple[ProductKey, ...]
     superseded_by: tuple[str, ...]
 
 
@@ -87,7 +87,7 @@ def detect(**signals: Unpack[_Signals]) -> Detection:
         env_key_patterns=signals.get("env", ()),
         script_hosts=signals.get("script_hosts", ()),
         packages={ecosystem: by_name[ecosystem.value] for ecosystem in Ecosystem if by_name.get(ecosystem.value)},
-        competes_with=signals.get("competes_with", ()),
+        alternative_to=signals.get("alternative_to", ()),
         superseded_by=signals.get("superseded_by", ()),
     )
 

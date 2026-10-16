@@ -596,7 +596,7 @@ def _duplicate_already_worked_on(*, team_id: int, chain: list[str]) -> str | Non
         status = statuses.get(candidate)
         if status is None:
             continue
-        if candidate in with_work or status == SignalReport.Status.RESOLVED:
+        if candidate in with_work or status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
             return candidate
     return None
 

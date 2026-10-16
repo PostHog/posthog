@@ -261,7 +261,7 @@ class WizardDetectedTool(UUIDModel, TeamScopedRootMixin):
     # Copied from the tool catalog when the row is written, so the row stays readable after the
     # catalog changes. Empty for a kind the catalog does not know.
     warehouse_source_type = models.CharField(max_length=128, null=True, blank=True)
-    competes_with = models.JSONField(default=list)
+    alternative_to = models.JSONField(default=list)
 
     signals = models.JSONField(default=list)
 

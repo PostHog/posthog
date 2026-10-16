@@ -401,6 +401,7 @@ async def test_combined_start_failure_records_step_statuses(mocker, error, expec
 )
 async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, activity, boot_path) -> None:
     context = _context()
+    context.origin_product = "review_hog"
     sandbox = mocker.Mock(id="sandbox-id")
     sandbox.supports_combined_agent_server_start_and_health.return_value = False
     sandbox.read_agent_server_boot_metrics.return_value = (
@@ -437,6 +438,7 @@ async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, act
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.update_state_atomic"
     )
     record_step = mocker.patch("products.tasks.backend.temporal.metrics.record_agent_server_step_ms")
+    metric_meter = mocker.patch("products.tasks.backend.temporal.metrics._metric_meter")
 
     await activity(
         StartAgentServerInput(
@@ -448,13 +450,21 @@ async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, act
         )
     )
 
+    read_labels = next(
+        call.args[0] for call in metric_meter.call_args_list if call.args[0]["step"] == "read_agent_boot_metrics"
+    )
+    assert read_labels["origin_product"] == "review_hog"
+    assert read_labels["runtime"] == "gvisor"
+    assert read_labels["boot_path"] == boot_path
+    assert read_labels["used_snapshot"] == "true"
+
     assert [record.args for record in record_step.call_args_list] == [
         ("agent_server_phase_context_fetch", 40, boot_path),
         ("agent_server_phase_repository_ready", 1200, boot_path),
         ("agent_server_phase_server_total", 1400, boot_path),
     ]
     assert all(
-        record.kwargs == {"used_snapshot": True, "origin_product": None, "runtime": "gvisor"}
+        record.kwargs == {"used_snapshot": True, "origin_product": "review_hog", "runtime": "gvisor"}
         for record in record_step.call_args_list
     )
 

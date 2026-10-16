@@ -114,6 +114,7 @@ import type {
     UserType,
 } from '../../types'
 import {
+    BACK_BUTTON_DEFAULT_TEXT,
     INTRO_SCREEN_DEFAULT_BUTTON_TEXT,
     INTRO_SCREEN_TEXT_FIELDS,
     LOADING_SURVEY_RESULTS_TOAST_ID,
@@ -202,6 +203,7 @@ type SurveyTranslationDraftPayload = {
         introScreenHeader?: string
         introScreenDescription?: string
         introScreenButtonText?: string
+        backButtonText?: string
     }
     questions?: SurveyTranslationDraftQuestion[]
     translations?: Survey['translations']
@@ -258,6 +260,9 @@ export function getSurveyTranslationDraftPayload(survey: Survey | NewSurvey): Su
             introScreenButtonText: survey.appearance?.displayIntroScreen
                 ? survey.appearance.introScreenButtonText || INTRO_SCREEN_DEFAULT_BUTTON_TEXT
                 : survey.appearance?.introScreenButtonText,
+            backButtonText: survey.appearance?.allowGoBack
+                ? survey.appearance.backButtonText || BACK_BUTTON_DEFAULT_TEXT
+                : undefined,
         },
         questions: survey.questions.map((question, index): SurveyTranslationDraftQuestion => {
             const draftQuestion: SurveyTranslationDraftQuestion = {
@@ -820,8 +825,10 @@ export interface surveyLogicActions {
             | 'quick_create'
             | 'template'
             | 'wizard'
-            | undefined
+            | undefined,
+        createdFrom?: SURVEY_CREATED_SOURCE | undefined
     ) => {
+        createdFrom: SURVEY_CREATED_SOURCE | undefined
         creationSource:
             | 'form_builder'
             | 'full_editor'
@@ -3438,6 +3445,14 @@ export const surveyLogic = kea<surveyLogicType>([
                                       ? survey.appearance?.[key] || INTRO_SCREEN_DEFAULT_BUTTON_TEXT
                                       : survey.appearance?.[key],
                           }))
+                        : []),
+                    ...(survey.appearance?.allowGoBack
+                        ? [
+                              {
+                                  key: 'backButtonText' as const,
+                                  defaultValue: survey.appearance.backButtonText || BACK_BUTTON_DEFAULT_TEXT,
+                              },
+                          ]
                         : []),
                 ]
 
