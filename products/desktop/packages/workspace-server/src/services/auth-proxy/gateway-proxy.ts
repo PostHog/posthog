@@ -15,18 +15,11 @@ export async function resolveGatewayProxy(input: {
   awaitRecheck?: boolean;
 }): Promise<ResolvedGatewayProxy> {
   const { authProxy, source, legacyGatewayUrl, projectId, headers } = input;
-  const route =
-    source && projectId !== null
-      ? await source
-          .getRoute(projectId, { awaitRecheck: input.awaitRecheck ?? true })
-          .catch(() => null)
-      : null;
-  // A blocked org still gets a session target, which answers with the
-  // usage-limit refusal until the bucket refills.
-  if (
-    (route?.mode === "go" || route?.mode === "blocked") &&
-    projectId !== null
-  ) {
+  // The session settles each request's route and answers a refusal itself.
+  if (source && projectId !== null) {
+    await source
+      .getRoute(projectId, { awaitRecheck: input.awaitRecheck ?? true })
+      .catch(() => null);
     return {
       proxyUrl: await authProxy.startGatewaySession({
         projectId,

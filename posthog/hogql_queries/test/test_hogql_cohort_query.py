@@ -6,6 +6,8 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
@@ -26,6 +28,37 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
             )
             with self.assertRaises(ValueError):
                 HogQLCohortQuery(cohort=cohort).get_query()
+
+    def test_performed_event_multiple_without_time_range_raises_validation_error(self) -> None:
+        # Recalculation maps a DRF ValidationError to the VALIDATION_ERROR code, not UNKNOWN.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="no time range",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": "performed_event_multiple",
+                                    "event_type": "events",
+                                    "operator": "gte",
+                                    "operator_value": 2,
+                                    "conditionHash": "abc123",
+                                    "bytecode": ["_H", 1, 29],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        with self.assertRaisesMessage(ValidationError, "needs either a valid time range or an explicit_datetime"):
+            HogQLCohortQuery(cohort=cohort).get_query()
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_multiple_person_properties_optimization(self, mock_feature_enabled: MagicMock) -> None:
