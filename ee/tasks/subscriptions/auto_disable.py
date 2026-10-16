@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 
 import structlog
 
-from posthog.email import EmailMessage
+from posthog.email import EmailMessage, is_email_available
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 
@@ -152,11 +152,18 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
 
     creator = _get_notification_creator(subscription)
     if creator and creator.email:
+        if not is_email_available():
+            logger.info(
+                "subscription.send_disabled_notification_skipped_email_unavailable",
+                subscription_id=subscription.id,
+                team_id=subscription.team_id,
+            )
+            return
         try:
             send_notifications_for_disabled_subscription(subscription, reason, [creator.email])
         except Exception as e:
             # Disabling is the durable side effect; email is best-effort. If the email
-            # fails (SMTP outage, ImproperlyConfigured on self-hosted, Customer.io 5xx)
+            # fails (SMTP outage, Customer.io 5xx)
             # the SLO outcome must stay `success` — we successfully prevented the
             # subscription from re-firing, which is the contract this code provides.
             capture_exception(e)

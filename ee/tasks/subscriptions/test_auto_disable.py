@@ -85,12 +85,15 @@ class TestDisableInvalidSubscription(APIBaseTest):
         defaults.update(overrides)
         return Subscription.objects.create(**defaults)
 
-    def test_disables_subscription(self):
+    @parameterized.expand([("email_available", True), ("email_unavailable", False)])
+    def test_disables_subscription(self, _label, email_available):
         sub = self._make_subscription()
 
         with (
+            patch("ee.tasks.subscriptions.auto_disable.is_email_available", return_value=email_available),
             patch("ee.tasks.subscriptions.auto_disable.create_notification") as create_notification_mock,
-            patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+            patch("ee.tasks.subscriptions.auto_disable.EmailMessage") as email_cls,
+            patch("ee.tasks.subscriptions.auto_disable.capture_exception") as capture_mock,
         ):
             disable_invalid_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON)
 
@@ -101,7 +104,12 @@ class TestDisableInvalidSubscription(APIBaseTest):
         assert notification.resource_id == str(sub.id)
         assert notification.title == "t was automatically disabled"
         assert "Slack integration disconnected" in notification.body
-        send_mock.assert_called_once_with(sub, SLACK_DISCONNECTED_DISABLE_REASON, [self.user.email])
+        capture_mock.assert_not_called()
+        if email_available:
+            email_cls.return_value.add_recipient.assert_called_once_with(email=self.user.email)
+            email_cls.return_value.send.assert_called_once_with()
+        else:
+            email_cls.assert_not_called()
 
     def test_compare_and_swap_no_op_when_already_disabled(self):
         # Simulates a cross-workflow race: by the time this caller reaches the UPDATE,
@@ -205,13 +213,13 @@ class TestDisableInvalidSubscription(APIBaseTest):
     def test_disable_persists_when_email_send_fails(self):
         """Disabling is the durable side effect; email is best-effort.
 
-        If the email send raises (SMTP outage, ImproperlyConfigured on self-hosted,
-        Customer.io 5xx) the subscription must still end up disabled and the caller
+        If the email send raises (SMTP outage, Customer.io 5xx) the subscription must still end up disabled and the caller
         must not see an exception — the SLO outcome stays `success`.
         """
         sub = self._make_subscription()
 
         with (
+            patch("ee.tasks.subscriptions.auto_disable.is_email_available", return_value=True),
             patch(
                 "ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription",
                 side_effect=RuntimeError("smtp down"),
