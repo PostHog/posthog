@@ -163,6 +163,20 @@ deny:
                 - '^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\.py$'
                 - '^tools/hogli-commands/hogli_commands/product_structure\.yaml$'
                 - '^tools/hogli-commands/hogli_commands/product/'
+    agent_steering:
+        description: 'The root agent instructions, the PR authoring guidance, and the agent config that runs in every session.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. One edit changes how every agent-written PR reads, and the files are .md, so without this category they ride the allow-list to a T0 auto-approve. A change from outside team-devex now needs a human approval, which is where the owner discussion happens. .claude/settings.json and .mcp.json are .json and ride the same allow-list, but their hooks and MCP servers run commands in every agent session, so they belong here too. Other skills under .agents/skills stay out on purpose, because product teams own several and edit their own. Paths are anchored, so a nested AGENTS.md stays with its folder owner.'
+        match:
+            paths:
+                - '^agents\.md$'
+                - '^claude\.md$'
+                - '^\.github/pull_request_template\.md$'
+                - '^\.agents/skills/writing-pr-descriptions/'
+                - '^\.claude/settings\.json$'
+                - '^\.claude/hooks/'
+                - '^\.mcp\.json$'
+        exempt_author_teams:
+            - 'team-devex'
     workflows_delivery:
         description: 'CDP, Workflows and Messaging code that decides which customer configurations exist and what gets delivered.'
         rationale: "Owner-only: stamphog approves team-workflows' own changes here and refuses everyone else's. Another team's change here breaks a customer silently: the API and models decide which of a tenant's rows get listed and updated, and the plugin-server worker decides what gets delivered. Teams usually edit these paths to carve out an exception for their own rows, their tests still pass, and existing customer configurations stop appearing or stop being delivered. Product frontends stay out, because a mistake there is visible. As in CODEOWNERS, only the API test directories and `*.test.ts` files stay out. Nothing else under the worker does: the template, legacy-plugin, legacy-webhook and segment directories hold live delivery code and mutable registries."

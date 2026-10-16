@@ -72,7 +72,7 @@ class TestTwilioSource:
         mock_validate.assert_called_once_with(("SK123", "secret"), ACCOUNT_SID, "messages")
 
     @pytest.mark.parametrize(
-        "status_code, expected_keys_reason",
+        "status_code, expected_main_key_reason",
         [
             (401, TWILIO_MAIN_KEY_REQUIRED_REASON),
             (403, TWILIO_MAIN_KEY_REQUIRED_REASON),
@@ -82,16 +82,17 @@ class TestTwilioSource:
             (500, None),
         ],
     )
-    def test_get_endpoint_permissions_gates_only_the_keys_table(self, status_code, expected_keys_reason):
+    def test_get_endpoint_permissions_gates_only_the_main_key_tables(self, status_code, expected_main_key_reason):
+        main_key_only = {"keys", "accounts"}
         with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
             result = self.source.get_endpoint_permissions(self.config, self.team_id, list(ENDPOINTS))
 
-        assert result["keys"] == expected_keys_reason
-        assert {name: reason for name, reason in result.items() if name != "keys"} == dict.fromkeys(
-            name for name in ENDPOINTS if name != "keys"
-        )
+        assert result == {name: expected_main_key_reason if name in main_key_only else None for name in ENDPOINTS}
         # Probing every table would add a round-trip per table to an interactive request.
-        assert len({request.path for request in network.requests_log}) == 1
+        assert {request.path for request in network.requests_log} == {
+            f"/2010-04-01/Accounts/{ACCOUNT_SID}/Keys.json",
+            "/2010-04-01/Accounts.json",
+        }
 
     def test_get_endpoint_permissions_survives_missing_secrets(self):
         config = TwilioSourceConfig(account_sid=ACCOUNT_SID, auth_method=TwilioAuthMethodConfig(selection="api_key"))

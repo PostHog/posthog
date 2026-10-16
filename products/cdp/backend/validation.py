@@ -1193,6 +1193,15 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     def canonicalize_event_filters(data: dict[str, JsonValue]) -> dict[str, JsonValue]:
         if data.get("source") == "events":
             data.pop("data_warehouse", None)
+            events = data.get("events")
+            if isinstance(events, list):
+                action_entries = [
+                    event for event in events if isinstance(event, dict) and event.get("type") == "actions"
+                ]
+                if action_entries:
+                    data["events"] = [event for event in events if event not in action_entries]
+                    actions = data.get("actions")
+                    data["actions"] = [*(actions if isinstance(actions, list) else []), *action_entries]
         return data
 
     def to_internal_value(self, data):
