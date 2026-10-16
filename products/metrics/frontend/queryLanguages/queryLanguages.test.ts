@@ -351,6 +351,19 @@ const PROMQL_CASES: [string, BuilderQuery | null, 'lossless' | 'lossy'][] = [
         'lossless',
     ],
     [
+        'sum(rate(http_requests_total{job=~"$job"}[${window}]))',
+        {
+            clauses: [
+                clause({
+                    metricName: 'http_requests_total',
+                    aggregation: 'rate',
+                    filters: [{ key: 'job', op: 'regex', value: '^$job$' }],
+                }),
+            ],
+        },
+        'lossy',
+    ],
+    [
         'sum(increase(jobs_total[1h]))',
         { clauses: [clause({ metricName: 'jobs_total', aggregation: 'increase' })] },
         'lossy',

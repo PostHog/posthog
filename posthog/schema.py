@@ -214,6 +214,7 @@ from posthog.schema_enums import (
     MetricsAggregation as MetricsAggregation,
     MetricsAttributeScope as MetricsAttributeScope,
     MetricsAxisScale as MetricsAxisScale,
+    MetricsDashboardVariableSource as MetricsDashboardVariableSource,
     MetricsDisplayType as MetricsDisplayType,
     MetricsFilterOp as MetricsFilterOp,
     MetricsNullMode as MetricsNullMode,
@@ -2712,6 +2713,19 @@ class MetricsAlertConfig(BaseModel):
         ),
     )
     type: Literal["MetricsAlertConfig"] = "MetricsAlertConfig"
+
+
+class MetricsDashboardVariableSelection(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    all: bool | None = None
+    values: list[str] = Field(
+        ...,
+        description=(
+            "The selected values. When `all` is true, these are the options that were loaded when All was selected."
+        ),
+    )
 
 
 class MetricsQueryFilter(BaseModel):
@@ -6995,6 +7009,44 @@ class MetricPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["metric_attribute"] = "metric_attribute"
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class MetricsDashboardVariable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    allValue: str | None = Field(
+        default=None,
+        description="The text that All puts in a PromQL query. `.*` when it is empty.",
+    )
+    current: MetricsDashboardVariableSelection | None = None
+    customValues: list[str] | None = Field(default=None, description="The options when `source` is `custom`.")
+    includeAll: bool | None = None
+    label: str | None = Field(
+        default=None,
+        description=("Shown in the dashboard filter bar. The name is shown when it is empty."),
+    )
+    multi: bool | None = None
+    name: str = Field(
+        ...,
+        description="Letters, digits and underscores. Tiles refer to it as `$name`.",
+    )
+    query: str | None = Field(
+        default=None,
+        description=(
+            "The options query when `source` is `promql` or `sql`. It can refer to"
+            " other variables. PromQL supports `label_values(label)`,"
+            " `label_values(selector, label)`, `label_names()`, `metrics(regex)` and"
+            " `query_result(expr)`. SQL returns the options in its first column."
+        ),
+    )
+    regex: str | None = Field(
+        default=None,
+        description=(
+            "RE2 pattern that options must match. When it has a capture group, the option is the first group."
+        ),
+    )
+    source: MetricsDashboardVariableSource
 
 
 class MetricsDisplaySettings(BaseModel):
@@ -27657,6 +27709,10 @@ class DashboardFilter(BaseModel):
     metricFilters: list[MetricsQueryFilter] | None = Field(
         default=None,
         description=("Metric label matchers ANDed into every metrics tile. Other tiles ignore them."),
+    )
+    metricVariables: list[MetricsDashboardVariable] | None = Field(
+        default=None,
+        description=("Variables that metrics tiles refer to as `$name`. Other tiles ignore them."),
     )
     properties: list[AnyPropertyFilterDiscriminated] | None = None
 

@@ -242,6 +242,7 @@ class GrafanaDashboardParser:
             date_from=date_from,
             panels=panels,
             variables=self._variables.summary(),
+            metric_variables=[definition.model_dump(exclude_none=True) for definition in self._variables.definitions()],
             notes=notes,
         )
 
@@ -519,9 +520,12 @@ class GrafanaDashboardParser:
                 continue
             language = self._language(datasource, target, expression, grafana_type)
             substituted, unresolved = self._variables.substitute(expression)
+            templated = self._variables.template(expression) if language == "promql" else None
             if language == "promql":
                 rewrite = strip_grafana_ranges(substituted)
                 substituted = drop_match_all_matchers(rewrite.expr)
+                if templated is not None:
+                    templated = drop_match_all_matchers(strip_grafana_ranges(templated).expr)
                 if rewrite.changed_meaning:
                     notes.append("A $__range window shows per-step values, not one total for the dashboard range.")
             notes.extend(f"The variable ${name} has no saved value." for name in unresolved)
@@ -535,6 +539,7 @@ class GrafanaDashboardParser:
                     original_expr=expression,
                     legend=legend if isinstance(legend, str) and legend else None,
                     unresolved_variables=unresolved,
+                    templated_expr=templated,
                 )
             )
         if hidden:

@@ -1,0 +1,137 @@
+import { objectsEqual } from 'lib/utils/objects'
+
+import type { MetricsDashboardVariable, MetricsDashboardVariableSelection } from '~/queries/schema/schema-general'
+
+import type { _MetricVariableSelectionApi } from 'products/metrics/frontend/generated/api.schemas'
+
+/** The select value that stands for All. Grafana uses the same text. */
+export const ALL_OPTION = '$__all'
+export const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+const REFERENCE =
+    /\$\{([A-Za-z0-9_]+)(?::[A-Za-z0-9_]+)?\}|\[\[([A-Za-z0-9_]+)(?::[A-Za-z0-9_]+)?\]\]|\$([A-Za-z0-9_]+)/g
+
+export function referencedNames(text: string | null | undefined): string[] {
+    const names = new Set<string>()
+    for (const match of (text ?? '').matchAll(REFERENCE)) {
+        names.add(match[1] ?? match[2] ?? match[3])
+    }
+    return [...names]
+}
+
+/** The other variables that a variable's options query refers to. */
+export function variableParents(variable: MetricsDashboardVariable, variables: MetricsDashboardVariable[]): string[] {
+    if (variable.source !== 'promql' && variable.source !== 'sql') {
+        return []
+    }
+    const names = new Set(variables.map((other) => other.name))
+    return referencedNames(variable.query).filter((name) => name !== variable.name && names.has(name))
+}
+
+/** The variable names in an order where each variable comes after the variables its query refers to. */
+export function orderVariables(variables: MetricsDashboardVariable[]): { order: string[]; cycle: string[] } {
+    const parents = new Map(variables.map((variable) => [variable.name, variableParents(variable, variables)]))
+    const order: string[] = []
+    const placed = new Set<string>()
+    let progress = true
+    while (progress) {
+        progress = false
+        for (const variable of variables) {
+            if (!placed.has(variable.name) && parents.get(variable.name)!.every((parent) => placed.has(parent))) {
+                order.push(variable.name)
+                placed.add(variable.name)
+                progress = true
+            }
+        }
+    }
+    return { order, cycle: variables.map((variable) => variable.name).filter((name) => !placed.has(name)) }
+}
+
+/** The variables whose options depend on any of `names`, directly or through other variables. */
+export function dependentsOf(variables: MetricsDashboardVariable[], names: string[]): string[] {
+    const found = new Set<string>()
+    const queue = [...names]
+    while (queue.length) {
+        const name = queue.shift()!
+        for (const variable of variables) {
+            if (!found.has(variable.name) && variableParents(variable, variables).includes(name)) {
+                found.add(variable.name)
+                queue.push(variable.name)
+            }
+        }
+    }
+    return [...found]
+}
+
+/** The variables to load again after a change: changed definitions, and everything that depends on a change. */
+export function variablesToReload(previous: MetricsDashboardVariable[], next: MetricsDashboardVariable[]): string[] {
+    const before = new Map(previous.map((variable) => [variable.name, variable]))
+    const redefined: string[] = []
+    const changed: string[] = []
+    for (const variable of next) {
+        const old = before.get(variable.name)
+        const { current, ...definition } = variable
+        if (!old) {
+            redefined.push(variable.name)
+            continue
+        }
+        const { current: oldCurrent, ...oldDefinition } = old
+        if (!objectsEqual(definition, oldDefinition)) {
+            redefined.push(variable.name)
+        } else if (!objectsEqual(current ?? null, oldCurrent ?? null)) {
+            changed.push(variable.name)
+        }
+    }
+    return [...new Set([...redefined, ...dependentsOf(next, [...redefined, ...changed])])]
+}
+
+/** Keeps the options that match the variable's regex. With a capture group, the option is the first group. */
+export function applyVariableRegex(options: string[], regex: string | null | undefined): string[] {
+    if (!regex) {
+        return options
+    }
+    // Grafana writes the pattern as /pattern/flags.
+    const slashed = /^\/(.*)\/([a-z]*)$/s.exec(regex)
+    let pattern: RegExp
+    try {
+        pattern = slashed ? new RegExp(slashed[1], slashed[2].replace('g', '')) : new RegExp(regex)
+    } catch {
+        return options
+    }
+    const matched: string[] = []
+    for (const option of options) {
+        const match = pattern.exec(option)
+        if (match) {
+            matched.push(match[1] ?? option)
+        }
+    }
+    return [...new Set(matched)]
+}
+
+/** The selection after the options change: All follows the options, and a value that is gone is replaced. */
+export function reconcileSelection(
+    variable: MetricsDashboardVariable,
+    options: string[]
+): MetricsDashboardVariableSelection | null {
+    if (variable.source === 'textbox') {
+        return variable.current ?? null
+    }
+    if (variable.current?.all && variable.includeAll) {
+        return { values: options, all: true }
+    }
+    const kept = (variable.current?.values ?? []).filter((value) => options.includes(value))
+    if (kept.length) {
+        return { values: variable.multi ? kept : kept.slice(0, 1) }
+    }
+    return options.length ? { values: [options[0]] } : null
+}
+
+export function selectionsForRequest(variables: MetricsDashboardVariable[]): _MetricVariableSelectionApi[] {
+    return variables
+        .filter((variable) => variable.current && (variable.current.values.length || variable.current.all))
+        .map((variable) => ({
+            name: variable.name,
+            values: variable.current!.values,
+            all: !!(variable.current!.all && variable.includeAll),
+            allValue: variable.allValue ?? null,
+        }))
+}

@@ -90,6 +90,7 @@ import {
     DashboardFilter,
     DataVisualizationNode,
     HogQLVariable,
+    MetricsDashboardVariable,
     MetricsQueryFilter,
     NodeKind,
     RefreshType,
@@ -993,6 +994,9 @@ export interface dashboardLogicActions {
     setMetricFilters: (metricFilters: MetricsQueryFilter[] | null) => {
         metricFilters: MetricsQueryFilter[] | null
     }
+    setMetricVariables: (metricVariables: MetricsDashboardVariable[] | null) => {
+        metricVariables: MetricsDashboardVariable[] | null
+    }
     setPageVisibility: (visible: boolean) => {
         visible: boolean
     }
@@ -1570,6 +1574,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             changeType: DashboardFilterChangeType,
             properties: Record<string, string | number | boolean | null | undefined>
         ) => ({ changeType, properties }),
+        setMetricVariables: (metricVariables: MetricsDashboardVariable[] | null) => ({ metricVariables }),
         setExternalFilters: (filters: DashboardFilter) => ({ filters }),
         setDashboardSettingsDraft: (settings: DashboardSettings | null) => ({ settings }),
         setPreviewedDashboardSettings: (settings: DashboardSettings | null) => ({ settings }),
@@ -2183,6 +2188,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setFilterTestAccounts: () => false,
                 setCompareFilter: () => false,
                 setMetricFilters: () => false,
+                setMetricVariables: () => false,
                 overrideVariableValue: () => false,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
@@ -5303,6 +5309,26 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
+        setMetricVariables: ({ metricVariables }) => {
+            actions.setDashboardSettingsDraft({
+                ...values.currentDashboardSettings,
+                filters: { ...values.currentDashboardSettings.filters, metricVariables },
+            })
+            actions.reportDashboardFilterChange('metric_variables', {
+                metric_variable_count: metricVariables?.length ?? 0,
+                metric_variable_query_count:
+                    metricVariables?.filter((variable) => variable.source === 'promql' || variable.source === 'sql')
+                        .length ?? 0,
+            })
+
+            if (values.canAutoPreview) {
+                actions.refreshDashboardItems({
+                    action: RefreshDashboardItemsAction.Preview,
+                    forceRefresh: false,
+                    previewUnsavedFilters: true,
+                })
+            }
+        },
         setExternalFilters: () => {
             if (values.tiles.length > 0) {
                 actions.refreshDashboardItems({
@@ -5592,6 +5618,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const newUrlFilters: DashboardFilter = {
                 ...urlFilters,
                 metricFilters,
+            }
+
+            return [
+                currentLocation.pathname,
+                searchParamsWithUrlFilters(
+                    currentLocation.searchParams,
+                    newUrlFilters,
+                    combineDashboardFilters(values.dashboard?.persisted_filters || {}, values.externalFilters)
+                ),
+                currentLocation.hashParams,
+            ]
+        },
+        setMetricVariables: ({ metricVariables }) => {
+            const { currentLocation } = router.values
+
+            const urlFilters = parseURLFilters(currentLocation.searchParams)
+            const newUrlFilters: DashboardFilter = {
+                ...urlFilters,
+                metricVariables,
             }
 
             return [

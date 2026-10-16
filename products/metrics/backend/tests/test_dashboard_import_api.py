@@ -33,7 +33,7 @@ CATALOG = [
 ]
 
 
-def _grafana(*exprs: str) -> str:
+def _grafana(*exprs: str, templating: list[dict[str, Any]] | None = None) -> str:
     panels: list[dict[str, Any]] = [
         {"id": 1, "type": "row", "title": "Orders", "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1}}
     ]
@@ -48,7 +48,10 @@ def _grafana(*exprs: str) -> str:
                 "targets": [{"refId": "A", "expr": expr}],
             }
         )
-    return json.dumps({"title": "Orders", "time": {"from": "now-6h"}, "panels": panels})
+    dashboard: dict[str, Any] = {"title": "Orders", "time": {"from": "now-6h"}, "panels": panels}
+    if templating:
+        dashboard["templating"] = {"list": templating}
+    return json.dumps(dashboard)
 
 
 def _png() -> str:
@@ -99,19 +102,48 @@ class TestDashboardImportAPI(APIBaseTest):
             run.save(update_fields=["status", "output"])
         delay.assert_called_once_with(self.team.id, import_id)
 
-    def test_imports_matching_panels_at_once_without_an_agent(self) -> None:
-        body = self._start(source="grafana", grafana_json=_grafana("sum(rate(orders_total[$__rate_interval]))"))
+    @parameterized.expand(
+        [
+            ("no_variables", "sum(rate(orders_total[$__rate_interval]))", None, "sum(rate(orders_total))", {}),
+            (
+                "live_variable",
+                'sum(rate(orders_total{job="$job"}[$__rate_interval]))',
+                [{"name": "job", "type": "custom", "query": "api,web", "current": {"text": "api", "value": "api"}}],
+                'sum(rate(orders_total{job="$job"}))',
+                {
+                    "metricVariables": [
+                        {
+                            "name": "job",
+                            "source": "custom",
+                            "customValues": ["api", "web"],
+                            "current": {"values": ["api"]},
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+    def test_imports_matching_panels_at_once_without_an_agent(
+        self,
+        _name: str,
+        expr: str,
+        templating: list[dict[str, Any]] | None,
+        promql: str,
+        variable_filters: dict[str, Any],
+    ) -> None:
+        body = self._start(source="grafana", grafana_json=_grafana(expr, templating=templating))
 
         assert (body["id"], body["status"], body["error"]) == (None, "completed", None)
         assert body["summary"] == {"total": 2, "imported": 2, "approximated": 0, "failed": 0, "skipped": 0}
+        assert "$job" not in self.smoke_run.call_args.args[1]
         dashboard = Dashboard.objects.get(id=body["dashboard_id"])
-        assert (dashboard.name, dashboard.filters) == ("Orders", {"date_from": "-6h"})
+        assert (dashboard.name, dashboard.filters) == ("Orders", {"date_from": "-6h", **variable_filters})
         tiles = sorted(DashboardTile.objects.filter(dashboard=dashboard), key=lambda tile: tile.layouts["sm"]["y"])
         assert tiles[0].text is not None and tiles[0].text.body == "## Orders"
         assert tiles[1].insight is not None and tiles[1].insight.query == {
             "kind": "MetricsQuery",
             "language": "promql",
-            "promql": "sum(rate(orders_total))",
+            "promql": promql,
             "clauses": [],
             "display": {"type": "line"},
         }

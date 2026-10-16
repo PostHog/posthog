@@ -31,6 +31,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 from posthog.shared_link_user import SharedLinkUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.metrics.backend.dashboard_import.promql_text import drop_match_all_matchers
 from products.metrics.backend.facade.api import run_metric_query
 from products.metrics.backend.facade.contracts import (
     METRICS_FEATURE_FLAG,
@@ -49,6 +50,14 @@ from products.metrics.backend.facade.enums import (
 )
 from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.sql_mode import run_metrics_sql
+from products.metrics.backend.variables import (
+    from_dashboard,
+    referenced_names,
+    substitute_filters,
+    substitute_promql,
+    substitute_sql,
+    unresolved_message,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -182,11 +191,21 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
     def _run(self) -> list[MetricSeries]:
         language = self.query.language or MetricsQueryLanguage.BUILDER
         if language == MetricsQueryLanguage.BUILDER:
+            unresolved = [
+                name
+                for clause in self.query.clauses
+                for metric_filter in clause.filters or []
+                for name in referenced_names(metric_filter.value)
+            ]
+            if unresolved:
+                raise ValueError(unresolved_message(dict.fromkeys(unresolved)))
             return run_metric_query(team=self.team, request=self._to_request())
         date_range = metrics_query_date_range(self.team, self.query.dateRange)
         text = (self.query.promql if language == MetricsQueryLanguage.PROMQL else self.query.sql) or ""
         if not text.strip():
             raise ValueError(f"Write a {'PromQL' if language == MetricsQueryLanguage.PROMQL else 'SQL'} query first.")
+        if language == MetricsQueryLanguage.PROMQL and (unresolved := referenced_names(text)):
+            raise ValueError(unresolved_message(unresolved))
         run = run_promql_range if language == MetricsQueryLanguage.PROMQL else run_metrics_sql
         return run(self.team, text, date_range.date_from(), date_range.date_to(), self.query.interval)
 
@@ -214,15 +233,34 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:
         # Metric label predicates are not PostHog property filters, so the dashboard's
-        # property filters do not apply. Its date range and label filters do. Label filters
-        # reach builder clauses only: PromQL and SQL text is not rewritten.
+        # property filters do not apply. Its date range, variables and label filters do.
+        # Variables reach all three languages. Label filters reach builder clauses only:
+        # PromQL and SQL text is not rewritten for them.
         if dashboard_filter.date_from or dashboard_filter.date_to:
             self.query.dateRange = DateRange(
                 date_from=dashboard_filter.date_from,
                 date_to=dashboard_filter.date_to,
             )
+        if dashboard_filter.metricVariables:
+            self._apply_variables(dashboard_filter)
         if dashboard_filter.metricFilters:
             self.query.clauses = [
                 clause.model_copy(update={"filters": [*(clause.filters or []), *dashboard_filter.metricFilters]})
                 for clause in self.query.clauses
             ]
+
+    def _apply_variables(self, dashboard_filter: DashboardFilter) -> None:
+        # The variable values change the query itself, so each selection has its own cache entry.
+        variables = from_dashboard(dashboard_filter.metricVariables)
+        if self.query.promql:
+            promql, _ = substitute_promql(self.query.promql, variables)
+            # A variable set to All writes `label=~".*"`, which matches every series.
+            self.query.promql = drop_match_all_matchers(promql) if promql != self.query.promql else promql
+        if self.query.sql:
+            self.query.sql = substitute_sql(self.query.sql, variables)
+        self.query.clauses = [
+            clause.model_copy(update={"filters": substitute_filters(clause.filters, variables)[0]})
+            if clause.filters
+            else clause
+            for clause in self.query.clauses
+        ]

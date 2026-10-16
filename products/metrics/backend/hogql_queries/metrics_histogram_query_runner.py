@@ -33,6 +33,7 @@ from products.metrics.backend.facade.enums import AttributeScope, FilterOp
 from products.metrics.backend.hogql_queries.metrics_query_runner import metrics_query_date_range
 from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _QUERY_SETTINGS, _interval_step
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
+from products.metrics.backend.variables import from_dashboard, substitute_filters
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -207,6 +208,10 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             self.query.dateRange = DateRange(
                 date_from=dashboard_filter.date_from,
                 date_to=dashboard_filter.date_to,
+            )
+        if dashboard_filter.metricVariables and self.query.filters:
+            self.query.filters, _ = substitute_filters(
+                self.query.filters, from_dashboard(dashboard_filter.metricVariables)
             )
         if dashboard_filter.metricFilters:
             self.query.filters = [*(self.query.filters or []), *dashboard_filter.metricFilters]

@@ -215,3 +215,17 @@ def run_metrics_sql(
         ],
         fill=0.0 if on_interval_starts else None,
     )
+
+
+def run_metrics_sql_values(team: Team, sql: str, date_from: dt.datetime, date_to: dt.datetime, limit: int) -> list[str]:
+    """The distinct values of the first column, for the options of a dashboard variable."""
+    query = build_metrics_sql_query(team, sql, date_from, date_to, None)
+    response = execute_hogql_query(
+        query_type="MetricsSQLVariableQuery",
+        query=query,
+        team=team,
+        workload=Workload.LOGS,
+        settings=_QUERY_SETTINGS,
+    )
+    values = (str(row[0]) for row in response.results or [] if row and row[0] is not None)
+    return list(dict.fromkeys(values))[:limit]

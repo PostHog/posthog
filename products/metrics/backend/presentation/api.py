@@ -21,6 +21,8 @@ from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSelection, MetricsDashboardVariableSource
+
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -39,6 +41,7 @@ from products.metrics.backend.facade.api import (
     list_metric_event_samples,
     list_metric_names,
     list_metric_picker_names,
+    list_metric_variable_options,
     run_metric_query,
     team_has_metrics,
 )
@@ -692,6 +695,86 @@ class _MetricAttributeValuesResponseSerializer(serializers.Serializer):
     )
 
 
+class MetricVariableSource(models.TextChoices):
+    CUSTOM = "custom", "custom"
+    PROMQL = "promql", "promql"
+    SQL = "sql", "sql"
+    TEXTBOX = "textbox", "textbox"
+
+
+class _MetricVariableSelectionSerializer(serializers.Serializer):
+    name = serializers.RegexField(
+        r"^[A-Za-z_][A-Za-z0-9_]*$",
+        max_length=128,
+        help_text="Variable name. Queries refer to it as `$name`.",
+    )
+    values = serializers.ListField(
+        child=serializers.CharField(max_length=1024, allow_blank=True),
+        max_length=1000,
+        help_text="The selected values. When `all` is true, the options that All stands for.",
+    )
+    all = serializers.BooleanField(required=False, default=False, help_text="True when the variable is set to All.")
+    allValue = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        default=None,
+        max_length=1024,
+        help_text="The text that All puts in a PromQL query. `.*` when it is empty.",
+    )
+
+
+class _MetricVariableOptionsRequestSerializer(serializers.Serializer):
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=MetricVariableSource.choices,
+        help_text="Where the options come from: a static list, a PromQL query, a SQL query, or free text.",
+    )
+    query = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        default=None,
+        max_length=10_000,
+        help_text=(
+            "The options query when `source` is `promql` or `sql`. It can refer to other variables as `$name`. "
+            "PromQL supports label_values(label), label_values(selector, label), label_names(), metrics(regex) "
+            "and query_result(expr). SQL returns the options in its first column."
+        ),
+    )
+    customValues = serializers.ListField(
+        child=serializers.CharField(max_length=1024, allow_blank=True),
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=1000,
+        help_text="The options when `source` is `custom`.",
+    )
+    variables = _MetricVariableSelectionSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="The current selection of the other dashboard variables that the query can refer to.",
+    )
+    dateFrom = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Start of the window that options come from. ISO 8601. Defaults to 24 hours ago.",
+    )
+    dateTo = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="End of the window that options come from. ISO 8601. Defaults to now.",
+    )
+
+
+class _MetricVariableOptionsResponseSerializer(serializers.Serializer):
+    results = serializers.ListField(
+        child=serializers.CharField(), help_text="The options of the variable, at most 1,000."
+    )
+
+
 class _MetricSamplesBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
         required=False,
@@ -1002,6 +1085,52 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
                 limit=params.validated_data["limit"],
+            )
+        except ValueError as exc:
+            raise ParseError(str(exc))
+
+        return Response({"results": results}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=_MetricVariableOptionsRequestSerializer,
+        responses={200: _MetricVariableOptionsResponseSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["POST"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def variable_options(self, request: Request, *args, **kwargs) -> Response:
+        """The options of one dashboard variable. Backs the variable selects on dashboards."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        body = _MetricVariableOptionsRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        data = body.validated_data
+        date_to: dt.datetime = data["dateTo"] or timezone.now()
+        date_from: dt.datetime = data["dateFrom"] or date_to - dt.timedelta(days=1)
+        if date_from >= date_to:
+            raise ParseError("The start of the window must be before its end.")
+        variables = [
+            MetricsDashboardVariable(
+                name=selection["name"],
+                source=MetricsDashboardVariableSource.CUSTOM,
+                includeAll=selection["all"],
+                allValue=selection["allValue"],
+                current=MetricsDashboardVariableSelection(values=selection["values"], all=selection["all"]),
+            )
+            for selection in data["variables"]
+        ]
+        try:
+            results = list_metric_variable_options(
+                team=self.team,
+                source=MetricsDashboardVariableSource(data["source"]),
+                query=data["query"],
+                custom_values=data["customValues"],
+                variables=variables,
+                date_from=date_from,
+                date_to=date_to,
             )
         except ValueError as exc:
             raise ParseError(str(exc))

@@ -206,10 +206,11 @@ function tokenize(input: string): Token[] {
             i = end + 1
             continue
         }
-        const variable = /^\$\{?(__rate_interval|__interval|__range)\}?/.exec(rest)
+        const variable = /^\$(?:\{([A-Za-z0-9_]+)(?::[A-Za-z0-9_]+)?\}|([A-Za-z0-9_]+))/.exec(rest)
         if (variable) {
-            // Grafana fills these in; they read as "the step", which is what an omitted range means.
-            tokens.push({ kind: 'duration', value: `$${variable[1]}`, pos: i })
+            // `$__rate_interval` and the other built-ins read as "the step", which is what an omitted range
+            // means. A dashboard variable gets its value when the query runs.
+            tokens.push({ kind: 'duration', value: `$${variable[1] ?? variable[2]}`, pos: i })
             i += variable[0].length
             continue
         }

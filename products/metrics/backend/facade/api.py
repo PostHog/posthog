@@ -13,6 +13,8 @@ from typing import Any
 
 import structlog
 
+from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSource
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
@@ -63,6 +65,8 @@ from products.metrics.backend.metric_names_query_runner import MetricNamesQueryR
 from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.variable_options import list_variable_options
+from products.metrics.backend.variables import from_dashboard
 
 logger = structlog.get_logger(__name__)
 
@@ -494,6 +498,33 @@ def list_metric_attribute_values(
         team=team, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
     )
     return runner.run()
+
+
+def list_metric_variable_options(
+    *,
+    team: Team,
+    source: MetricsDashboardVariableSource,
+    query: str | None = None,
+    custom_values: list[str] | None = None,
+    variables: Sequence[MetricsDashboardVariable] = (),
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+) -> list[str]:
+    """List the options of one metrics dashboard variable.
+
+    `variables` are the other dashboard variables with their current selection. The query can refer
+    to them as `$name`, which is how one variable depends on another. Returns at most 1,000 options.
+    Raises `ValueError` for a bad query or for a reference to a variable that has no value.
+    """
+    return list_variable_options(
+        team=team,
+        source=source,
+        query=query,
+        custom_values=custom_values,
+        variables=from_dashboard(variables),
+        date_from=date_from,
+        date_to=date_to,
+    )
 
 
 def list_metric_event_samples(

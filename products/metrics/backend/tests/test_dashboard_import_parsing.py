@@ -19,7 +19,12 @@ DASHBOARD: dict[str, Any] = {
     "time": {"from": "now-6h", "to": "now"},
     "templating": {
         "list": [
-            {"name": "job", "type": "query", "current": {"text": "checkout", "value": "checkout"}},
+            {
+                "name": "job",
+                "type": "query",
+                "query": {"query": "label_values(up, job)", "refId": "PrometheusVariableQueryEditor-VariableQuery"},
+                "current": {"text": "checkout", "value": "checkout"},
+            },
             {
                 "name": "instance",
                 "type": "query",
@@ -122,6 +127,17 @@ def test_parses_panels_into_queries_displays_and_a_grid_without_overlaps() -> No
         "p8": "timeseries",
     }
     assert panels["p2"].targets[0].expr == 'sum by (code) (rate(orders_total{job="checkout"}))'
+    assert panels["p2"].targets[0].templated_expr == 'sum by (code) (rate(orders_total{job="$job"}))'
+    assert panels["p3"].targets[0].templated_expr == 'sum(rate(order_errors_total{route=~"$route"}[5m]))'
+    assert spec.metric_variables == [
+        {
+            "name": "job",
+            "source": "promql",
+            "query": "label_values(up, job)",
+            "current": {"values": ["checkout"]},
+        },
+        {"name": "route", "source": "custom", "customValues": ["/a", "/b.c"], "current": {"values": ["/a", "/b.c"]}},
+    ]
     assert (panels["p2"].display.type, panels["p2"].display.unit) == ("area", "{req}/s")
     assert panels["p3"].targets[0].expr == 'sum(rate(order_errors_total{route=~"(/a|/b\\\\.c)"}[5m]))'
     assert (panels["p3"].display.unit, panels["p3"].display.reduce) == ("1", "mean")

@@ -1,11 +1,14 @@
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -32,6 +35,50 @@ class TestMetricsValuesApi(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/metrics/values/", {"limit": limit})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "limit"
+
+
+@override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091")
+class TestMetricsVariableOptionsApi(APIBaseTest):
+    def _post(self, body: dict[str, Any]) -> Any:
+        return self.client.post(f"/api/projects/{self.team.id}/metrics/variable_options/", body, format="json")
+
+    def test_custom_options_drop_duplicates_and_blanks(self) -> None:
+        response = self._post({"source": "custom", "customValues": ["b", "a", "b", ""]})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": ["b", "a"]}
+
+    def test_label_values_resolves_the_parent_variable(self) -> None:
+        upstream = MagicMock(spec=requests.Response, status_code=200, headers={})
+        upstream.json.return_value = {"status": "success", "data": ["i-1", "i-2"]}
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=upstream) as request:
+            response = self._post(
+                {
+                    "source": "promql",
+                    "query": 'label_values(up{job=~"$job"}, instance)',
+                    "variables": [{"name": "job", "values": ["api", "web"]}],
+                }
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": ["i-1", "i-2"]}
+        method, url = request.call_args.args
+        assert (method, url) == ("GET", "http://snuffle.test:9091/api/v1/label/instance/values")
+        assert request.call_args.kwargs["params"]["match[]"] == ['up{job=~"(api|web)"}']
+
+    @parameterized.expand(
+        [
+            ("parent_without_value", {"source": "promql", "query": 'label_values(up{job="$job"}, instance)'}, "$job"),
+            ("unknown_function", {"source": "promql", "query": "sum(up)"}, "label_values"),
+            ("bad_label", {"source": "promql", "query": "label_values(up, 1abc)"}, "not a label name"),
+            ("empty_query", {"source": "sql", "query": " "}, "Write a query"),
+        ]
+    )
+    def test_bad_queries_are_rejected_with_400(self, _name: str, body: dict, message: str) -> None:
+        with patch("posthog.api.snuffle_proxy.internal_requests.request") as request:
+            response = self._post(body)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert message in response.json()["detail"]
+        request.assert_not_called()
 
 
 class TestMetricsErrorSpikesApi(APIBaseTest):
@@ -165,6 +212,7 @@ class TestMetricsAccessControl(APIBaseTest):
             ("samples", "POST", {}),
             ("error_spikes", "GET", {}),
             ("characterize", "POST", {}),
+            ("variable_options", "POST", {}),
         ]
     )
     def test_none_access_blocks_every_metrics_action_before_validation(

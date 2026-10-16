@@ -38,6 +38,8 @@ import type {
     _MetricQueryResponseApi,
     _MetricSamplesRequestApi,
     _MetricSamplesResponseApi,
+    _MetricVariableOptionsRequestApi,
+    _MetricVariableOptionsResponseApi,
     _MetricsOverviewResponseApi,
 } from './api.schemas'
 
@@ -618,5 +620,25 @@ export const metricsValuesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_metricCatalogValuesParamsApi),
+    })
+}
+
+export const getMetricsVariableOptionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/variable_options/`
+}
+
+/**
+ * The options of one dashboard variable. Backs the variable selects on dashboards.
+ */
+export const metricsVariableOptionsCreate = async (
+    projectId: string,
+    _metricVariableOptionsRequestApi: _MetricVariableOptionsRequestApi,
+    options?: RequestInit
+): Promise<_MetricVariableOptionsResponseApi> => {
+    return apiMutator<_MetricVariableOptionsResponseApi>(getMetricsVariableOptionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricVariableOptionsRequestApi),
     })
 }
