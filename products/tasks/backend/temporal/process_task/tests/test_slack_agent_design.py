@@ -148,6 +148,23 @@ class TestSlackAgentDesignStream(TestCase):
 
         assert mock_stop.call_args.args[0].turn_person_message == expected
 
+    @patch("products.tasks.backend.temporal.process_task.utils.get_tasks_cache", side_effect=RuntimeError("redis"))
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.stop_status_stream", autospec=True)
+    def test_a_cache_failure_still_closes_the_stream(self, mock_stop, _mock_cache) -> None:
+        # The lookup only feeds the buttons, so it must not stop the answer and its attachments.
+        stop_slack_agent_design_stream(
+            StopSlackAgentDesignStreamInput(
+                slack_thread_context={"integration_id": self.integration.id, "channel": "C1", "thread_ts": "1.0"},
+                ts="2.0",
+                final_markdown="Should I add the index?",
+                run_id=str(self.task_run.id),
+                message_id="msg-2",
+            )
+        )
+
+        mock_stop.assert_called_once()
+        assert mock_stop.call_args.args[0].turn_person_message is None
+
     @patch("products.tasks.backend.logic.services.living_artifacts.deliver_pending_slack_file_artifacts")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_a_stream_slack_closed_still_delivers_the_turns_attachments(self, mock_get_client, mock_deliver) -> None:
