@@ -16,6 +16,13 @@ pub struct SessionKey {
     pub session_id: String,
 }
 
+/// A topic partition. The recorder reads a fixed set of topics, so the name is static.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Tp {
+    pub topic: &'static str,
+    pub partition: i32,
+}
+
 /// An admitted message, not decoded yet.
 pub struct Raw {
     pub offset: i64,
@@ -23,9 +30,9 @@ pub struct Raw {
     pub content_encoding: Option<String>,
 }
 
-/// One session's messages in the current flush. Capture keys messages by session, so a session has one partition.
+/// One session's messages from one partition in the current flush. Capture keys messages by session, so a session
+/// has one partition per topic.
 pub struct Pending {
-    pub partition: i32,
     pub messages: Vec<Raw>,
 }
 
@@ -40,9 +47,9 @@ pub struct Block {
 }
 
 pub struct Batch {
-    pub sessions: BTreeMap<SessionKey, Pending>,
+    pub sessions: BTreeMap<(SessionKey, Tp), Pending>,
     /// The last offset handled on each partition, recorded or skipped alike.
-    pub offsets: HashMap<i32, i64>,
+    pub offsets: HashMap<Tp, i64>,
     bytes: usize,
     started: Instant,
 }
@@ -60,18 +67,17 @@ impl Default for Batch {
 
 impl Batch {
     /// Marks an offset handled. A skipped message still moves its partition forward.
-    pub fn handled(&mut self, partition: i32, offset: i64) {
-        let last = self.offsets.entry(partition).or_insert(offset);
+    pub fn handled(&mut self, tp: Tp, offset: i64) {
+        let last = self.offsets.entry(tp).or_insert(offset);
         *last = (*last).max(offset);
     }
 
-    pub fn add(&mut self, partition: i32, session: SessionKey, raw: Raw) {
-        self.handled(partition, raw.offset);
+    pub fn add(&mut self, tp: Tp, session: SessionKey, raw: Raw) {
+        self.handled(tp, raw.offset);
         self.bytes += raw.payload.len();
         self.sessions
-            .entry(session)
+            .entry((session, tp))
             .or_insert_with(|| Pending {
-                partition,
                 messages: Vec::new(),
             })
             .messages
@@ -83,11 +89,10 @@ impl Batch {
     }
 
     /// Forgets partitions this process no longer owns. Their messages are not committed, so the new owner reads them.
-    pub fn drop_partitions(&mut self, revoked: &[i32]) {
-        self.sessions
-            .retain(|_, pending| !revoked.contains(&pending.partition));
-        for partition in revoked {
-            self.offsets.remove(partition);
+    pub fn drop_partitions(&mut self, revoked: &[Tp]) {
+        self.sessions.retain(|(_, tp), _| !revoked.contains(tp));
+        for tp in revoked {
+            self.offsets.remove(tp);
         }
         self.bytes = self
             .sessions
@@ -101,23 +106,33 @@ impl Batch {
 /// Session inspectors by session. They keep DOM and click state across flushes.
 #[derive(Default)]
 pub struct Inspectors {
-    sessions: HashMap<SessionKey, (SessionInspector, i32, Instant)>,
+    sessions: HashMap<SessionKey, (SessionInspector, Vec<Tp>, Instant)>,
 }
 
 impl Inspectors {
     /// Decodes every buffered message, runs it through its session's inspector and returns one block per session.
-    pub fn inspect(&mut self, batch: Batch) -> (Vec<Block>, HashMap<i32, i64>) {
+    pub fn inspect(&mut self, batch: Batch) -> (Vec<Block>, HashMap<Tp, i64>) {
         let now = Instant::now();
-        let mut blocks = Vec::with_capacity(batch.sessions.len());
-        for (session, pending) in batch.sessions {
-            let (inspector, partition, last_seen) = self
+        let mut by_session: BTreeMap<SessionKey, (Vec<Tp>, Vec<Raw>)> = BTreeMap::new();
+        for ((session, tp), pending) in batch.sessions {
+            let (tps, raws) = by_session.entry(session).or_default();
+            tps.push(tp);
+            raws.extend(pending.messages);
+        }
+        let mut blocks = Vec::with_capacity(by_session.len());
+        for (session, (tps, raws)) in by_session {
+            let (inspector, partitions, last_seen) = self
                 .sessions
                 .entry(session.clone())
-                .or_insert_with(|| (SessionInspector::default(), pending.partition, now));
-            *partition = pending.partition;
+                .or_insert_with(|| (SessionInspector::default(), Vec::new(), now));
+            for tp in tps {
+                if !partitions.contains(&tp) {
+                    partitions.push(tp);
+                }
+            }
             *last_seen = now;
-            let mut messages = Vec::with_capacity(pending.messages.len());
-            for raw in pending.messages {
+            let mut messages = Vec::with_capacity(raws.len());
+            for raw in raws {
                 let message = read(raw.payload, raw.content_encoding.as_deref())
                     .and_then(|m| check_read(&m, &session.session_id).map(|()| m));
                 match message {
@@ -153,9 +168,9 @@ impl Inspectors {
         (blocks, batch.offsets)
     }
 
-    pub fn drop_partitions(&mut self, revoked: &[i32]) {
+    pub fn drop_partitions(&mut self, revoked: &[Tp]) {
         self.sessions
-            .retain(|_, (_, partition, _)| !revoked.contains(partition));
+            .retain(|_, (_, partitions, _)| !partitions.iter().any(|tp| revoked.contains(tp)));
     }
 
     pub fn evict_idle(&mut self, idle: Duration) {
@@ -182,6 +197,13 @@ mod tests {
         }
     }
 
+    fn tp(partition: i32) -> Tp {
+        Tp {
+            topic: "main",
+            partition,
+        }
+    }
+
     fn key(session: &str) -> SessionKey {
         SessionKey {
             team_id: 7,
@@ -200,12 +222,12 @@ mod tests {
     #[test]
     fn a_revoked_partition_leaves_nothing_behind() {
         let mut batch = Batch::default();
-        batch.add(0, key("a"), raw(10, "a", mouse()));
-        batch.add(1, key("b"), raw(20, "b", mouse()));
-        batch.handled(1, 21);
+        batch.add(tp(0), key("a"), raw(10, "a", mouse()));
+        batch.add(tp(1), key("b"), raw(20, "b", mouse()));
+        batch.handled(tp(1), 21);
         let mut inspectors = Inspectors::default();
-        batch.drop_partitions(&[1]);
-        inspectors.drop_partitions(&[1]);
+        batch.drop_partitions(&[tp(1)]);
+        inspectors.drop_partitions(&[tp(1)]);
 
         let (blocks, offsets) = inspectors.inspect(batch);
         assert_eq!(
@@ -215,20 +237,20 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["a"]
         );
-        assert_eq!(offsets, HashMap::from([(0, 10)]));
+        assert_eq!(offsets, HashMap::from([(tp(0), 10)]));
     }
 
     #[test]
     fn session_state_carries_across_flushes() {
         let mut inspectors = Inspectors::default();
         let mut first = Batch::default();
-        first.add(0, key("a"), raw(1, "a", snapshot()));
-        first.add(0, key("b"), raw(2, "b", mouse()));
+        first.add(tp(0), key("a"), raw(1, "a", snapshot()));
+        first.add(tp(0), key("b"), raw(2, "b", mouse()));
         inspectors.inspect(first);
 
         let mut second = Batch::default();
-        second.add(0, key("a"), raw(3, "a", mouse()));
-        second.add(0, key("b"), raw(4, "b", mouse()));
+        second.add(tp(0), key("a"), raw(3, "a", mouse()));
+        second.add(tp(0), key("b"), raw(4, "b", mouse()));
         let (blocks, _) = inspectors.inspect(second);
         let cold: Vec<_> = blocks
             .iter()

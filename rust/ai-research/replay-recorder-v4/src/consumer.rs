@@ -20,7 +20,7 @@ use replay_core_v4::keys::kms::AwsKms;
 use replay_core_v4::keys::rows::key_day;
 use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
 
-use crate::batch::{Batch, Block, Inspectors, Raw, SessionKey};
+use crate::batch::{Batch, Block, Inspectors, Raw, SessionKey, Tp};
 use crate::limits::{Blocklist, Restrictions};
 use crate::process::{admit, sampled, Admitted, Headers, Skip};
 use crate::store::BlobStore;
@@ -33,7 +33,15 @@ use rdkafka::util::Timeout;
 
 /// Records the partitions each rebalance takes away, so the loop can drop what it buffered for them.
 pub struct RebalanceContext {
-    revoked: Arc<Mutex<Vec<i32>>>,
+    topics: Vec<&'static str>,
+    revoked: Arc<Mutex<Vec<Tp>>>,
+}
+
+impl RebalanceContext {
+    fn tp(&self, topic: &str, partition: i32) -> Option<Tp> {
+        let topic = *self.topics.iter().find(|t| **t == topic)?;
+        Some(Tp { topic, partition })
+    }
 }
 
 impl ClientContext for RebalanceContext {}
@@ -41,27 +49,34 @@ impl ClientContext for RebalanceContext {}
 impl ConsumerContext for RebalanceContext {
     fn pre_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
         if let Rebalance::Revoke(partitions) = rebalance {
-            self.revoked
-                .lock()
-                .unwrap()
-                .extend(partitions.elements().iter().map(|e| e.partition()));
+            let revoked = partitions
+                .elements()
+                .iter()
+                .filter_map(|e| self.tp(e.topic(), e.partition()))
+                .collect::<Vec<_>>();
+            self.revoked.lock().unwrap().extend(revoked);
         }
     }
 }
 
 pub struct RecorderConsumer {
     consumer: StreamConsumer<RebalanceContext>,
-    topic: String,
-    revoked: Arc<Mutex<Vec<i32>>>,
+    revoked: Arc<Mutex<Vec<Tp>>>,
 }
 
 impl RecorderConsumer {
+    /// `topics` are leaked so a partition is a cheap `Copy` key. There are at most two, created once.
     pub fn new(
         kafka: &KafkaConfig,
         group: &str,
         offset_reset: &str,
-        topic: &str,
+        topics: &[String],
     ) -> Result<Self, rdkafka::error::KafkaError> {
+        let topics: Vec<&'static str> = topics
+            .iter()
+            .filter(|t| !t.is_empty())
+            .map(|t| &*Box::leak(t.clone().into_boxed_str()))
+            .collect();
         let mut config = ClientConfig::new();
         config
             .set("bootstrap.servers", &kafka.kafka_hosts)
@@ -82,30 +97,27 @@ impl RecorderConsumer {
         let revoked = Arc::new(Mutex::new(Vec::new()));
         let consumer: StreamConsumer<RebalanceContext> =
             config.create_with_context(RebalanceContext {
+                topics: topics.clone(),
                 revoked: revoked.clone(),
             })?;
-        consumer.subscribe(&[topic])?;
-        Ok(Self {
-            consumer,
-            topic: topic.to_owned(),
-            revoked,
-        })
+        consumer.subscribe(&topics)?;
+        Ok(Self { consumer, revoked })
     }
 
-    fn take_revoked(&self) -> Vec<i32> {
+    fn take_revoked(&self) -> Vec<Tp> {
         std::mem::take(&mut *self.revoked.lock().unwrap())
     }
 
     /// Commits the next offset of every partition this process still owns.
-    fn commit(&self, offsets: &std::collections::HashMap<i32, i64>) {
+    fn commit(&self, offsets: &std::collections::HashMap<Tp, i64>) {
         let assigned = self.consumer.assignment().unwrap_or_default();
         let mut list = TopicPartitionList::new();
-        for (&partition, &offset) in offsets {
-            if assigned.find_partition(&self.topic, partition).is_some() {
+        for (&tp, &offset) in offsets {
+            if assigned.find_partition(tp.topic, tp.partition).is_some() {
                 if let Err(error) =
-                    list.add_partition_offset(&self.topic, partition, Offset::Offset(offset + 1))
+                    list.add_partition_offset(tp.topic, tp.partition, Offset::Offset(offset + 1))
                 {
-                    tracing::warn!(%error, partition, "building the offset commit failed");
+                    tracing::warn!(%error, partition = tp.partition, "building the offset commit failed");
                 }
             }
         }
@@ -225,7 +237,14 @@ async fn handle_message(
     sources: &Sources,
     batch: &mut Batch,
 ) {
-    match admit_message(message, &consumer.topic, settings, sources).await {
+    let Some(tp) = consumer
+        .consumer
+        .context()
+        .tp(message.topic(), message.partition())
+    else {
+        return;
+    };
+    match admit_message(message, tp, settings, sources).await {
         Ok(admitted) => {
             counter!("replay_recorder_v4_messages_total", "outcome" => "admitted").increment(1);
             let session = SessionKey {
@@ -237,11 +256,11 @@ async fn handle_message(
                 payload: message.payload().unwrap_or_default().to_vec(),
                 content_encoding: header(message, "content-encoding").map(str::to_owned),
             };
-            batch.add(message.partition(), session, raw);
+            batch.add(tp, session, raw);
         }
         Err(skip) => {
             counter!("replay_recorder_v4_messages_total", "outcome" => skip.as_str()).increment(1);
-            batch.handled(message.partition(), message.offset());
+            batch.handled(tp, message.offset());
         }
     }
 }
@@ -249,7 +268,7 @@ async fn handle_message(
 /// Everything before the payload: the gate on the Kafka key, then the headers, restrictions and team.
 async fn admit_message(
     message: &BorrowedMessage<'_>,
-    topic: &str,
+    tp: Tp,
     settings: &Settings,
     sources: &Sources,
 ) -> Result<Admitted, Skip> {
@@ -266,7 +285,7 @@ async fn admit_message(
     };
     let restriction = sources.restrictions.get(&headers, now_ms / 1000).await;
     let team = headers.token.and_then(|token| sources.teams.get(token));
-    let redirect_overflow = settings.redirecting_topic.as_deref() == Some(topic);
+    let redirect_overflow = settings.redirecting_topic.as_deref() == Some(tp.topic);
     admit(&headers, restriction, redirect_overflow, team, now_ms)
 }
 
@@ -276,7 +295,7 @@ async fn drop_blocked(batch: &mut Batch, blocklist: &dyn Blocklist) {
     let sessions: Vec<SessionKey> = batch
         .sessions
         .keys()
-        .cloned()
+        .map(|(session, _)| session.clone())
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
@@ -287,14 +306,14 @@ async fn drop_blocked(batch: &mut Batch, blocklist: &dyn Blocklist) {
     let messages: usize = batch
         .sessions
         .iter()
-        .filter(|(session, _)| blocked.contains(session))
+        .filter(|((session, _), _)| blocked.contains(session))
         .map(|(_, pending)| pending.messages.len())
         .sum();
     counter!("replay_recorder_v4_messages_total", "outcome" => Skip::Blocked.as_str())
         .increment(messages as u64);
     batch
         .sessions
-        .retain(|session, _| !blocked.contains(session));
+        .retain(|(session, _), _| !blocked.contains(session));
 }
 
 /// Stores a flush's blocks, or only reports them when the recorder runs dry.
