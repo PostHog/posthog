@@ -13,6 +13,7 @@ from django.db import transaction
 from pydantic import ValidationError as PydanticValidationError
 
 from products.alerts_platform.backend.facade.contracts import (
+    DEFAULT_MAX_INSTANCES,
     MAX_EVALUATION_PERIODS,
     Grouping,
     InvalidPlatformAlertEdit,
@@ -40,7 +41,9 @@ def edit_of(configuration: PlatformAlertConfiguration) -> PlatformAlertConfigura
     )
 
 
-def _validated(source_kind: SourceKind, edit: PlatformAlertConfigurationEdit) -> PlatformAlertConfigurationEdit:
+def _validated(
+    source_kind: SourceKind, current: PlatformAlertConfigurationEdit, edit: PlatformAlertConfigurationEdit
+) -> PlatformAlertConfigurationEdit:
     spec = source_configs.spec(source_kind)
     if spec is None:
         raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be edited through this API.")
@@ -52,23 +55,25 @@ def _validated(source_kind: SourceKind, edit: PlatformAlertConfigurationEdit) ->
             raise InvalidPlatformAlertEdit(name, f"Must be between 1 and {MAX_EVALUATION_PERIODS}.")
     if edit.datapoints_to_alarm > edit.evaluation_periods:
         raise InvalidPlatformAlertEdit("datapoints_to_alarm", "Cannot exceed evaluation_periods.")
+    if edit.grouping.max_instances > DEFAULT_MAX_INSTANCES:
+        raise InvalidPlatformAlertEdit("grouping", f"max_instances must be at most {DEFAULT_MAX_INSTANCES}.")
     if edit.cooldown_minutes < 0:
         raise InvalidPlatformAlertEdit("cooldown_minutes", "Cannot be negative.")
     try:
         schedule_restriction = validate_and_normalize_schedule_restriction(edit.schedule_restriction)
     except ValueError as error:
         raise InvalidPlatformAlertEdit("schedule_restriction", str(error)) from error
-    try:
-        parsed = spec.model.model_validate(edit.source_config)
-    except PydanticValidationError as error:
-        first = error.errors()[0]
-        location = ".".join(str(part) for part in first["loc"])
-        raise InvalidPlatformAlertEdit("source_config", f"Invalid at `{location}`: {first['msg']}") from error
-    validated = replace(
-        edit,
-        source_config=parsed.model_dump(mode="json", exclude_unset=True),
-        schedule_restriction=schedule_restriction,
-    )
+    source_config = edit.source_config
+    # Settings the edit leaves alone may predate the schema, and must not block an unrelated change.
+    if source_config != current.source_config:
+        try:
+            parsed = spec.model.model_validate(source_config)
+        except PydanticValidationError as error:
+            first = error.errors()[0]
+            location = ".".join(str(part) for part in first["loc"])
+            raise InvalidPlatformAlertEdit("source_config", f"Invalid at `{location}`: {first['msg']}") from error
+        source_config = parsed.model_dump(mode="json", exclude_unset=True)
+    validated = replace(edit, source_config=source_config, schedule_restriction=schedule_restriction)
     spec.validate(validated)
     return validated
 
@@ -100,7 +105,7 @@ def update_configuration(
                 f"This alert is managed by the {configuration.source_kind} product. Edit it there."
             )
         current = edit_of(configuration)
-        edit = _validated(SourceKind(configuration.source_kind), change(current))
+        edit = _validated(SourceKind(configuration.source_kind), current, change(current))
 
         if (edit.grouping.mode, edit.grouping.keys) != (current.grouping.mode, current.grouping.keys):
             # The old keys never come back from a check, so each old instance would resolve and

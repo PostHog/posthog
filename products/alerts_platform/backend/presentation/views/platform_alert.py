@@ -337,6 +337,10 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         writable = self._source_kinds_with("editor", "write")
         if current.source_kind not in writable:
             raise PermissionDenied(f"You cannot edit {current.source_kind} alerts.")
+        # Checked again under the row lock. Here it answers before the body is validated, so a caller
+        # never fixes a body for an alert it can never write.
+        if current.owner != PlatformAlertOwner.PLATFORM:
+            raise Conflict(f"This alert is managed by the {current.source_kind} product. Edit it there.")
         edit_serializer = edit_serializers().get(current.source_kind)
         if edit_serializer is None:
             raise Conflict(f"{current.source_kind} alerts cannot be edited through this API.")

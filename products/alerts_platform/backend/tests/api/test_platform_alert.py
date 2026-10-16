@@ -257,7 +257,9 @@ class TestPlatformAlertAPI(APIBaseTest):
         self._set_flag(True)
         configuration = self._create_configuration(self.team, "API errors")
 
-        response = self.client.patch(self._edit_url(configuration), {"name": "Renamed"}, format="json")
+        response = self.client.patch(
+            self._edit_url(configuration), {"name": "Renamed", "evaluation_periods": 0}, format="json"
+        )
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
         configuration.refresh_from_db()
@@ -326,3 +328,15 @@ class TestPlatformAlertAPI(APIBaseTest):
         response = self.client.patch(self._edit_url(configuration), {"name": "Renamed"}, format="json")
 
         assert response.status_code == expected, response.json()
+
+    def test_settings_an_edit_leaves_alone_are_not_revalidated(self) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=configuration.id).update(
+            source_config={"filters": {"serviceNames": ["api"], "retiredKey": True}, "condition": CONDITION}
+        )
+
+        response = self.client.patch(self._edit_url(configuration), {"name": "Renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["name"] == "Renamed"
