@@ -10,12 +10,15 @@ To run one case:
 
 from __future__ import annotations
 
+from products.notebooks.evals.offline import NOTEBOOK_CELLS
 from products.notebooks.evals.scorers import CellRunsCompleted, NotebookCreated, NotebookRunCompleted
 from products.notebooks.evals.seeders import seed_case_team
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
+
+EVAL_ENGINE = "posthog"
 
 
 async def eval_notebook_cells(ctx: EvalContext) -> None:
@@ -86,6 +89,7 @@ async def eval_notebook_cells(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-notebook-cells-cli",
+        offline_suite=NOTEBOOK_CELLS,
         cases=cases,
         scorers=[
             RequiredToolCall({"notebooks-add-cell"}),

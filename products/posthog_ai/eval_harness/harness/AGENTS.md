@@ -15,7 +15,7 @@ If you add an import to one of those modules, check that `--list` still runs.
 
 ## Concurrency
 
-The Braintrust-specific knobs below (`timeout`, `max_concurrency`, `QUIET_REPORTER`, `update`) are applied in one place — `BraintrustEngine.run_experiment` in [`../engines/braintrust.py`](../engines/braintrust.py), the sole `EvalEngine` implementation — and documented as obligations in its docstring. `_BaseEvalRun.run()` only hands the engine the cases, task, scorers, and metadata. A future engine (e.g. a PostHog-native one) owns its own equivalents.
+The Braintrust-specific knobs below (`timeout`, `max_concurrency`, `QUIET_REPORTER`, `update`) are applied in one place — `BraintrustEngine.run_experiment` in [`../engines/braintrust.py`](../engines/braintrust.py), also used locally by `PostHogEngine` — and documented as obligations in its docstring. `_BaseEvalRun.run()` only hands the engine the cases, task, scorers, and metadata. A future engine (e.g. a PostHog-native one) owns its own equivalents.
 
 - **Never give Braintrust a `timeout`.** `EvalAsync`'s timeout wraps the whole task invocation, including time queued on our concurrency semaphores, so it would kill cases that never started. The budget belongs in the `asyncio.wait_for` inside the slot.
 - **Never let Braintrust's `max_concurrency` bind.** It is set to the case count so that the harness's own semaphores are the only limiters.
@@ -28,8 +28,8 @@ The Braintrust-specific knobs below (`timeout`, `max_concurrency`, `QUIET_REPORT
 ## Engines
 
 `_BaseEvalRun.run()` builds an `ExperimentSpec` (cases, task, scorers, flags, metadata) and hands it to `ctx.engine.run_experiment`, which returns an engine-neutral `ExperimentResult` ([`../engines/types.py`](../engines/types.py)).
-The engine is resolved once per run by `engines/registry.resolve_engine()` and shared via `EvalContext.engine`; there is no `--engine` flag until a second engine exists.
-`BraintrustEngine` ([`../engines/braintrust.py`](../engines/braintrust.py)) is the only implementation and the sole runtime module that knows braintrust exists, alongside the deferred autoevals judge substrate in `../scorers/`.
+Each suite receives its module's `EVAL_ENGINE` through `EvalContext.engine`, defaulting to `braintrust`. Preflight validates the union of selected engines' credentials.
+`BraintrustEngine` ([`../engines/braintrust.py`](../engines/braintrust.py)) owns the evaluator integration, alongside the deferred autoevals judge substrate in `../scorers/`.
 
 Every engine owes the run base these obligations, pinned by the conformance suite ([`../test/test_engine_conformance.py`](../test/test_engine_conformance.py)):
 

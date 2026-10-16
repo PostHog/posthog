@@ -1,4 +1,4 @@
-"""The Braintrust engine — the default (and currently only) ``EvalEngine``."""
+"""The default engine, which executes and reports through Braintrust."""
 
 from __future__ import annotations
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ _ONE_SHOT_MODULE = """
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 
 SUITE_KIND = SuiteKind.ONE_SHOT
+EVAL_ENGINE = "posthog"
 
 
 async def eval_alpha(ctx) -> None:
@@ -60,8 +62,12 @@ def _discover(product_roots: tuple[Path, Path]) -> dict[str, SuiteKind]:
 
 
 def test_product_suites_discovered_with_product_scoped_ids(product_roots: tuple[Path, Path]) -> None:
-    ids = _discover(product_roots)
-    assert set(ids) == {"analytics/eval_one::eval_alpha", "core/eval_two::eval_beta"}
+    products_root, builtin_root = product_roots
+    suites = discover_suites(builtin_root=builtin_root, products_root=products_root)
+    assert {suite.id: suite.engine_name for suite in suites} == {
+        "analytics/eval_one::eval_alpha": "posthog",
+        "core/eval_two::eval_beta": "braintrust",
+    }
 
 
 def test_singular_eval_dir_is_ignored(product_roots: tuple[Path, Path]) -> None:
@@ -92,3 +98,14 @@ def test_unmatched_selector_raises(product_roots: tuple[Path, Path]) -> None:
     products_root, builtin_root = product_roots
     with pytest.raises(SuiteDiscoveryError):
         discover_suites(["nonexistent"], builtin_root=builtin_root, products_root=products_root)
+
+
+@pytest.mark.parametrize("engine_name", [None, "unknown-engine"])
+def test_invalid_engine_fails_during_discovery(
+    product_roots: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, engine_name: str | None
+) -> None:
+    module = importlib.import_module("fakeproducts.analytics.evals.eval_one")
+    monkeypatch.setattr(module, "EVAL_ENGINE", engine_name)
+    products_root, builtin_root = product_roots
+    with pytest.raises(SuiteDiscoveryError, match="EVAL_ENGINE"):
+        discover_suites(builtin_root=builtin_root, products_root=products_root)

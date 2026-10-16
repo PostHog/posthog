@@ -26,6 +26,10 @@ Because these cases need a completed Python run, run them on docker:
 
 from __future__ import annotations
 
+from autoevals.oai import LLMClient
+from openai import AsyncOpenAI
+
+from products.notebooks.evals.offline import NOTEBOOK_ANALYSIS
 from products.notebooks.evals.scorers import (
     CellRunsCompleted,
     ChurnCohortSurfaced,
@@ -37,6 +41,8 @@ from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
+
+EVAL_ENGINE = "posthog"
 
 # Both lanes must complete: the SQL cell pulls the behavioural signals, the Python cell does the
 # churn analysis over them. Naming both is what separates "wrote a python cell" from "the kernel
@@ -123,15 +129,19 @@ async def eval_notebook_analysis(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
-        experiment_name="sandboxed-notebook-analysis-cli",
-        cases=cases,
-        scorers=[
-            RequiredToolCall({"notebooks-add-cell"}),
-            NotebookCreated(),
-            CellRunsCompleted(),
-            ChurnCohortSurfaced(),
-            NotebookApproachQuality(),
-        ],
-        ctx=ctx,
-    )
+    async with AsyncOpenAI() as judge_client:
+        await SandboxedPublicEval(
+            experiment_name="sandboxed-notebook-analysis-cli",
+            offline_suite=NOTEBOOK_ANALYSIS,
+            cases=cases,
+            scorers=[
+                RequiredToolCall({"notebooks-add-cell"}),
+                NotebookCreated(),
+                CellRunsCompleted(),
+                ChurnCohortSurfaced(),
+                NotebookApproachQuality(
+                    client=LLMClient(openai=judge_client, complete=judge_client.chat.completions.create, is_async=True)
+                ),
+            ],
+            ctx=ctx,
+        )

@@ -1,6 +1,7 @@
 # Offline evaluation result reporting
 
-The evaluation harness in `products/posthog_ai/eval_harness/` reports public-suite scorer results to Braintrust.
+The evaluation harness in `products/posthog_ai/eval_harness/` reports public-suite scorer results through each suite's selected engine.
+Notebook suites publish exclusively to PostHog; the default engine continues reporting to Braintrust.
 The SQL suite also publishes those results to PostHog's offline experiment API when configured.
 The harness no longer emits legacy `$ai_evaluation` result events. Agent and judge trace capture remains available.
 Reporting does not run the agent or scorers again.
@@ -9,7 +10,8 @@ Use `hogli evals` to run PostHog AI 2.0 suites. See the [eval harness guide](../
 ## Capture settings
 
 Evaluation result uploads to Braintrust and PostHog share the `no_send_logs` setting.
-`SandboxedPublicEval` sets `no_send_logs=False` and uploads to Braintrust, plus PostHog when the suite has offline publishing configured.
+`SandboxedPublicEval` sets `no_send_logs=False` and uploads to the selected destinations.
+The `posthog` engine runs the existing evaluator library locally with Braintrust uploads disabled; the suite's `offline_suite` configuration enables PostHog publishing.
 `SandboxedPrivateEval` sets `no_send_logs=True` and uploads to neither service; local logs are still written.
 
 Offline API uploads run through the Python SDK independently of `TEST` and `OPT_OUT_CAPTURE`.
@@ -32,10 +34,35 @@ The scoring phase includes time waiting for the experiment results, rather than 
 A failed final metadata upload produces a warning and keeps the completed results available locally.
 A scorer failure marks the case as an error. Statistics still include scores from other successful scorers.
 
+## Notebook offline experiments
+
+Both suites under `products/notebooks/evals/` declare `EVAL_ENGINE = "posthog"` and enroll in offline publishing.
+Their experiment names, seven cases, seeders, scorer rubrics, and numeric aggregates are preserved.
+The [notebook suite configuration](../../products/notebooks/evals/offline.py) pins project `2` and immutable scorer version UUIDs.
+
+| Suite                                                      | Cases                                                       | Scorers                                                                                                                                 |
+| ---------------------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `notebooks/eval_notebook_cells::eval_notebook_cells`       | SQL, Python, DuckDB, parameterized run                      | `exit_code_zero`, `required_tool_call`, `notebook_created`, `cell_runs_completed`, `notebook_run_completed`                             |
+| `notebooks/eval_notebook_analysis::eval_notebook_analysis` | File-sharing churn, upload-activity churn, open-ended churn | `exit_code_zero`, `required_tool_call`, `notebook_created`, `cell_runs_completed`, `churn_cohort_surfaced`, `notebook_approach_quality` |
+
+The first five metrics are Boolean. Cohort recall and approach quality are numeric scores between 0 and 1.
+Checks that do not apply to a case remain skipped, rather than becoming zeroes.
+
+Run `hogli evals notebooks --provider docker` with the usual agent and sandbox credentials and `POSTHOG_OFFLINE_EVAL_API_KEY`.
+The key needs `offline_evaluation_ingestion:write` access to project `2`; `POSTHOG_OFFLINE_EVAL_HOST` defaults to `https://us.posthog.com`.
+Notebook-only runs fail preflight if the reporting key is missing and never require `BRAINTRUST_API_KEY`.
+The analysis judge needs `OPENAI_API_KEY` and calls OpenAI directly by default, including when trace capture is disabled.
+`OPENAI_BASE_URL` can select another OpenAI-compatible endpoint.
+Runs selecting other suites using the default engine still need their Braintrust credentials.
+
+Publishing uses the same background delivery and error handling as the SQL pilot below.
+The final summary links successful uploads to PostHog; upload failures warn while retaining local results.
+Historical Braintrust experiments are not imported.
+
 ## SQL offline experiment pilot
 
 The `sql/eval_sql::eval_sql` suite (`sandboxed-sql-cli`) opts into the offline experiment publisher.
-Other public suites continue reporting scores to Braintrust until they opt into offline publishing.
+Public suites using the default engine continue reporting scores to Braintrust.
 After scoring, the harness prepares the completed results in memory and queues delivery through the Python SDK's `AsyncOfflineEvaluations` client. It does not execute another agent run or judge call.
 `no_send_logs=True` suppresses this upload too.
 

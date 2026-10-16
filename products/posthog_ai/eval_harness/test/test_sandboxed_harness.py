@@ -25,7 +25,11 @@ from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.discovery import EvalSuite
 from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness, eval_feature_enabled
 from products.posthog_ai.eval_harness.harness.live_server import EvalLiveServer
-from products.posthog_ai.eval_harness.harness.providers import ModalProviderStrategy, SandboxProviderStrategy
+from products.posthog_ai.eval_harness.harness.providers import (
+    ModalProviderStrategy,
+    PreflightError,
+    SandboxProviderStrategy,
+)
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
 from products.tasks.backend.constants import (
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
@@ -230,6 +234,54 @@ def test_eval_run_exit_status(
     assert SandboxedEvalHarness(parse_args(args)).run() == expected_exit_code
     output = capsys.readouterr().out
     assert f"Status: {'PASS' if expected_exit_code == 0 else 'FAIL'}" in output
+
+
+@pytest.mark.parametrize(
+    "engine_names, braintrust_key, posthog_key, missing",
+    [
+        (["posthog"], False, True, None),
+        (["posthog"], True, False, "POSTHOG_OFFLINE_EVAL_API_KEY"),
+        (["posthog", "braintrust"], False, True, "BRAINTRUST_API_KEY"),
+        (["posthog", "braintrust"], True, True, None),
+    ],
+)
+def test_preflight_and_execution_use_selected_suite_engines(
+    monkeypatch: pytest.MonkeyPatch,
+    engine_names: list[str],
+    braintrust_key: bool,
+    posthog_key: bool,
+    missing: str | None,
+) -> None:
+    observed: list[str] = []
+
+    async def suite(ctx: EvalContext) -> None:
+        observed.append(ctx.engine.name)
+
+    for key, present in [("BRAINTRUST_API_KEY", braintrust_key), ("POSTHOG_OFFLINE_EVAL_API_KEY", posthog_key)]:
+        monkeypatch.delenv(key, raising=False)
+        if present:
+            monkeypatch.setenv(key, "synthetic-test-key")
+    monkeypatch.setenv("LLM_GATEWAY_ANTHROPIC_API_KEY", "synthetic-test-key")
+    monkeypatch.setattr(
+        lifecycle,
+        "discover_suites",
+        lambda _selectors: [
+            EvalSuite(domain="test", module_name=name, fn_name="suite", fn=suite, engine_name=name)
+            for name in engine_names
+        ],
+    )
+    monkeypatch.setattr(lifecycle, "infra_union", lambda _kinds: frozenset())
+    monkeypatch.setenv("SANDBOX_JWT_PRIVATE_KEY", "synthetic-test-key")
+    monkeypatch.setattr(SandboxedEvalHarness, "_bootstrap", lambda *_args: None)
+    harness = SandboxedEvalHarness(parse_args([]))
+
+    if missing:
+        with pytest.raises(PreflightError, match=missing):
+            harness.run()
+        assert observed == []
+    else:
+        assert harness.run() == 0
+        assert observed == engine_names
 
 
 @pytest.mark.asyncio

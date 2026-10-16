@@ -22,11 +22,6 @@ class EvalEngine(Protocol):
     """Runs one experiment over a suite's cases and returns the scored, summarized
     result the reporting path (``_BaseEvalRun._finalize``) consumes.
 
-    ``BraintrustEngine`` is the only implementation today. The seam exists so a
-    future ``PostHogEvalsEngine`` — recording datasets, experiments, and scores
-    into PostHog's own LLM analytics as the system of record — can slot in behind
-    the same interface, without changing the run base or any suite.
-
     Obligations (documented on the implementation and pinned by the conformance
     suite): never throttle or budget the task; persist ``hooks.metadata`` onto
     ``CaseResult.metadata``; a task exception becomes ``CaseResult.error`` and is
