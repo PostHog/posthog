@@ -28,6 +28,8 @@ import { urls } from 'scenes/urls'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb, LinkSurveyQuestion, Survey, SurveyQuestionType, SurveySchedule, SurveyType } from '~/types'
 
+import { reportSurveyEdited } from 'products/surveys/frontend/surveyUsage'
+
 import type { ProductIntentProperties } from '../../../lib/utils/product-intents'
 import type { TeamPublicType, TeamType } from '../../../types'
 import {
@@ -122,9 +124,6 @@ export interface surveyWizardLogicActions {
             | 'wizard'
             | undefined
         isDuplicate: boolean | undefined
-        survey: Survey
-    } // eventUsageLogic
-    reportSurveyEdited: (survey: Survey) => {
         survey: Survey
     } // eventUsageLogic
     reportSurveyTemplateClicked: (
@@ -236,7 +235,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             surveysLogic,
             ['loadSurveys'],
             eventUsageLogic,
-            ['reportSurveyCreated', 'reportSurveyEdited', 'reportSurveyTemplateClicked'],
+            ['reportSurveyCreated', 'reportSurveyTemplateClicked'],
             teamLogic,
             ['addProductIntent'],
         ],
@@ -573,7 +572,7 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
         updateSurveySuccess: ({ survey }) => {
             lemonToast.success(`Survey "${survey.name}" updated`)
             actions.loadSurveys()
-            actions.reportSurveyEdited(survey)
+            reportSurveyEdited(survey)
             router.actions.push(urls.survey(survey.id))
         },
     })),
