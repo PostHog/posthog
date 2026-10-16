@@ -18,29 +18,36 @@ import { OnboardingMcpStep } from './OnboardingMcpStep'
  */
 export const SIMPLE_ONBOARDING_PRODUCT_KEY = ProductKey.PRODUCT_ANALYTICS
 
+/** The posthog-js install step with Wizard up front, booked under the given product. */
+export function buildWizardInstallStep(productKey: ProductKey): OnboardingStepDescriptor {
+    return {
+        id: `${OnboardingStepKey.INSTALL}:${productKey}`,
+        productKey,
+        stepKey: OnboardingStepKey.INSTALL,
+        label: 'Install PostHog',
+        role: 'primary',
+        setupTaskId: SetupTaskId.IngestFirstEvent,
+        dedupKey: INSTALL_DEDUP_KEYS.POSTHOG_JS,
+        render: () => (
+            <OnboardingInstallStep
+                sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                sdkTagOverrides={ProductAnalyticsSDKTagOverrides}
+            />
+        ),
+    }
+}
+
 export function buildSimpleOnboardingFlow(
     billingProduct: BillingProductV2Type | null,
     shouldShowBilling: boolean
 ): OnboardingStepDescriptor[] {
     const steps: OnboardingStepDescriptor[] = [
-        {
-            id: `${OnboardingStepKey.INSTALL}:${SIMPLE_ONBOARDING_PRODUCT_KEY}`,
-            productKey: SIMPLE_ONBOARDING_PRODUCT_KEY,
-            stepKey: OnboardingStepKey.INSTALL,
-            role: 'primary',
-            setupTaskId: SetupTaskId.IngestFirstEvent,
-            dedupKey: INSTALL_DEDUP_KEYS.POSTHOG_JS,
-            render: () => (
-                <OnboardingInstallStep
-                    sdkInstructionMap={ProductAnalyticsSDKInstructions}
-                    sdkTagOverrides={ProductAnalyticsSDKTagOverrides}
-                />
-            ),
-        },
+        buildWizardInstallStep(SIMPLE_ONBOARDING_PRODUCT_KEY),
         {
             id: `${OnboardingStepKey.MCP}:${SIMPLE_ONBOARDING_PRODUCT_KEY}`,
             productKey: SIMPLE_ONBOARDING_PRODUCT_KEY,
             stepKey: OnboardingStepKey.MCP,
+            label: 'Connect your AI agent',
             role: 'primary',
             render: () => <OnboardingMcpStep />,
         },
@@ -50,6 +57,7 @@ export function buildSimpleOnboardingFlow(
             id: `${OnboardingStepKey.PLANS}:${SIMPLE_ONBOARDING_PRODUCT_KEY}`,
             productKey: SIMPLE_ONBOARDING_PRODUCT_KEY,
             stepKey: OnboardingStepKey.PLANS,
+            label: 'Select a plan',
             role: 'primary',
             render: () => <OnboardingUpgradeStep product={billingProduct} />,
         })

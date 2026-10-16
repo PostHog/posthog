@@ -38,7 +38,7 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const NoProductSelected: Story = {
+export const Default: Story = {
     render: () => {
         useDelayedOnMountEffect(() => {
             router.actions.push(urls.onboardingWelcome())
@@ -46,17 +46,18 @@ export const NoProductSelected: Story = {
         return <App />
     },
     parameters: {
-        testOptions: { waitForSelector: '[data-attr="onboarding-project-token"]' },
+        testOptions: { waitForSelector: '[data-attr="sdk-continue"]' },
     },
 }
 
-// A user on the simple onboarding arm with a new project, so the sidebar also links to this page.
+// A user on the simple onboarding arm with a new project, so the sidebar also links to this page. Data
+// warehouse has no install step of its own, so its steps follow the Wizard install.
 export const ProductSelected: Story = {
     render: () => {
         const { loadCurrentTeamSuccess } = useActions(teamLogic)
         useDelayedOnMountEffect(() => {
             loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, created_at: '2023-05-23T00:00:00Z' })
-            router.actions.push(urls.onboardingWelcome(), { product: ProductKey.SESSION_REPLAY })
+            router.actions.push(urls.onboardingWelcome(), { product: ProductKey.DATA_WAREHOUSE })
         })
         return <App />
     },

@@ -2,31 +2,51 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
+
 import { OnboardingFlowHost } from '../OnboardingFlowHost'
+import { stepKeyToTitle } from '../onboardingFlowUtils'
 import { onboardingLogic } from '../onboardingLogic'
+import { OnboardingStepFooterStartContext } from '../OnboardingStepFooterStartContext'
 import { ProjectTokenSnippet } from '../shared/ProjectTokenSnippet'
 
 export function SimpleOnboarding(): JSX.Element {
-    const { isSkippingOnboarding } = useValues(onboardingLogic)
+    const { flow, currentFlowStep, isSkippingOnboarding } = useValues(onboardingLogic)
     const { skipSimpleOnboarding } = useActions(onboardingLogic)
 
     return (
-        <div className="flex flex-col gap-6">
-            <div className="flex flex-wrap items-end justify-between gap-4 pb-6 border-b border-primary">
-                <div className="flex-1 min-w-60 max-w-md">
-                    <ProjectTokenSnippet />
-                </div>
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    onClick={skipSimpleOnboarding}
-                    loading={isSkippingOnboarding}
-                    data-attr="simple-onboarding-skip"
-                >
-                    Skip setup and go to PostHog
-                </LemonButton>
+        <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pb-4 border-b border-primary">
+                {currentFlowStep ? (
+                    <GuidedWizardStepper
+                        steps={flow.map((step) => ({
+                            step: step.id,
+                            label: step.label ?? stepKeyToTitle(step.stepKey) ?? '',
+                        }))}
+                        currentStep={currentFlowStep.id}
+                        className="flex-wrap -ml-2"
+                        aria-label="Setup progress"
+                    />
+                ) : (
+                    <div />
+                )}
+                <ProjectTokenSnippet />
             </div>
-            <OnboardingFlowHost />
+            <OnboardingStepFooterStartContext.Provider
+                value={
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        onClick={skipSimpleOnboarding}
+                        loading={isSkippingOnboarding}
+                        data-attr="simple-onboarding-skip"
+                    >
+                        Skip setup
+                    </LemonButton>
+                }
+            >
+                <OnboardingFlowHost />
+            </OnboardingStepFooterStartContext.Provider>
         </div>
     )
 }

@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -12,6 +12,7 @@ import { OnboardingStepKey } from '~/types'
 
 import { stepKeyToTitle } from './onboardingFlowUtils'
 import { onboardingLogic } from './onboardingLogic'
+import { OnboardingStepFooterStartContext } from './OnboardingStepFooterStartContext'
 
 export const OnboardingStep = ({
     stepKey,
@@ -51,6 +52,7 @@ export const OnboardingStep = ({
 
     const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const footerStart = useContext(OnboardingStepFooterStartContext)
 
     const advance: () => void = !hasNextStep ? completeOnboarding : goToNextStep
 
@@ -105,7 +107,8 @@ export const OnboardingStep = ({
                     </div>
                 )}
                 {children}
-                <div className="mt-8 flex justify-end gap-x-2">
+                <div className="mt-8 flex flex-wrap items-center justify-end gap-2">
+                    {footerStart && <div className="mr-auto">{footerStart}</div>}
                     {showHelpButton && (
                         <LemonButton type="secondary" onClick={() => openSupportForm({ kind: 'support' })}>
                             Need help?

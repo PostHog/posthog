@@ -106,8 +106,10 @@ export const onboardingWelcomeLogic = kea<onboardingWelcomeLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         [urls.onboardingWelcome()]: (_, { product }) => {
-            if (isWelcomeProductKey(product) && product !== values.selectedProductKey) {
-                actions.selectProduct(product, true)
+            // Product analytics is the plain SDK install, so the page opens on the Wizard install step.
+            const productKey = isWelcomeProductKey(product) ? product : ProductKey.PRODUCT_ANALYTICS
+            if (productKey !== values.selectedProductKey) {
+                actions.selectProduct(productKey, true)
             }
         },
     })),

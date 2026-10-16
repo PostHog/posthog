@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 
 import { OnboardingFlowHost } from '../OnboardingFlowHost'
 import { stepKeyToTitle } from '../onboardingFlowUtils'
@@ -13,22 +13,18 @@ export function WelcomeProductSetup(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            {flow.length > 1 && (
-                <div className="flex flex-wrap gap-1" role="tablist" aria-label="Setup steps">
-                    {flow.map((step, index) => (
-                        <LemonButton
-                            key={step.id}
-                            size="small"
-                            role="tab"
-                            aria-selected={step.id === currentFlowStep?.id}
-                            active={step.id === currentFlowStep?.id}
-                            onClick={() => setStepId(step.id)}
-                            data-attr="onboarding-welcome-step"
-                        >
-                            {`${index + 1}. ${step.label ?? stepKeyToTitle(step.stepKey)}`}
-                        </LemonButton>
-                    ))}
-                </div>
+            {flow.length > 1 && currentFlowStep && (
+                <GuidedWizardStepper
+                    steps={flow.map((step) => ({
+                        step: step.id,
+                        label: step.label ?? stepKeyToTitle(step.stepKey) ?? '',
+                        dataAttr: 'onboarding-welcome-step',
+                    }))}
+                    currentStep={currentFlowStep.id}
+                    onStepClick={setStepId}
+                    className="flex-wrap"
+                    aria-label="Setup steps"
+                />
             )}
             <OnboardingFlowHost />
         </div>
