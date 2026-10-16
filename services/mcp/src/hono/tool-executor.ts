@@ -154,7 +154,7 @@ export class ToolExecutor {
     }
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
-        const tools = this.injectAnalyticsParameters(this.buildAdvertisedTools(state))
+        const tools = this.injectAnalyticsParameters(this.buildAdvertisedTools(state), state.intentPrompt)
 
         void trackToolsList(
             tools.map((t) => t.name),
@@ -165,9 +165,9 @@ export class ToolExecutor {
     }
 
     // Guarded because analytics must never break `tools/list`.
-    private injectAnalyticsParameters(tools: ListToolsResult['tools']): ListToolsResult['tools'] {
+    private injectAnalyticsParameters(tools: ListToolsResult['tools'], description?: string): ListToolsResult['tools'] {
         try {
-            return getPostHogClient().prepareToolList(tools)
+            return getPostHogClient().prepareToolList(tools, description ? { context: { description } } : undefined)
         } catch {
             return tools
         }
