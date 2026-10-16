@@ -225,7 +225,7 @@ class TestNotifyFlagsOnDeletedCohorts(BaseTest):
             (
                 "notifications_on",
                 True,
-                "Would deliver to up to 1 people.",
+                "Would deliver to up to 1 person.",
                 ["Feature flag targets a deleted cohort: checkout-redesign"],
                 "Already sent notice",
             ),

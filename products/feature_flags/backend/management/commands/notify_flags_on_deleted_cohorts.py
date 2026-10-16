@@ -11,6 +11,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.utils import timezone
 
 from posthog.models import Team
+from posthog.utils import pluralize
 
 from products.feature_flags.backend.deleted_cohort_notices import (
     AffectedFlag,
@@ -48,7 +49,7 @@ class Command(BaseCommand):
             team = teams[team_id]
             notice = build_notice(team_id, flags)
             self.stdout.write(
-                f"\nTeam {team_id} ({team.name}), organization {team.organization_id}: {len(flags)} flag(s)"
+                f"\nTeam {team_id} ({team.name}), organization {team.organization_id}: {pluralize(len(flags), 'flag')}"
             )
             for flag in flags:
                 self.stdout.write(f"  {_describe_flag(flag)}")
@@ -70,7 +71,9 @@ class Command(BaseCommand):
                     self.stdout.write(f"  Already sent notice {event.id} on {event.created_at.date().isoformat()}.")
                 else:
                     sent += 1
-                    self.stdout.write(f"  Sent notice {event.id} to {len(event.resolved_user_ids)} people.")
+                    self.stdout.write(
+                        f"  Sent notice {event.id} to {pluralize(len(event.resolved_user_ids), 'person', 'people')}."
+                    )
                 continue
             preview = preview_delivery(team, notice)
             if not preview.notifications_enabled:
@@ -79,14 +82,14 @@ class Command(BaseCommand):
                 self.stdout.write("  Would not deliver: nobody in the project can view it.")
             else:
                 deliverable.append(team_id)
-                self.stdout.write(f"  Would deliver to up to {preview.recipient_count} people.")
+                self.stdout.write(f"  Would deliver to up to {pluralize(preview.recipient_count, 'person', 'people')}.")
 
         flag_count = sum(len(flags) for flags in affected.values())
-        self.stdout.write(f"\n{len(affected)} team(s), {flag_count} flag(s).")
+        self.stdout.write(f"\n{pluralize(len(affected), 'team')}, {pluralize(flag_count, 'flag')}.")
         if send:
-            self.stdout.write(f"Sent {sent} notice(s).")
+            self.stdout.write(f"Sent {pluralize(sent, 'notice')}.")
         else:
-            self.stdout.write(f"{len(deliverable)} team(s) would receive the notice.")
+            self.stdout.write(f"{pluralize(len(deliverable), 'team')} would receive the notice.")
             if deliverable:
                 self.stdout.write(f"--team-id {' '.join(str(team_id) for team_id in deliverable)}")
 

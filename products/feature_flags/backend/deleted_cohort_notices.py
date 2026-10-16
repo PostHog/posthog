@@ -267,8 +267,9 @@ def _several_flags_notice(team_id: int, flags: Sequence[AffectedFlag]) -> Notifi
         "Each of these targets a deleted cohort and fails to evaluate until you remove that cohort or choose "
         f"another: {', '.join(items)}."
     )
-    if kinds - {None}:
-        body += " Change a survey or product tour in its own targeting settings."
+    owner_nouns = [kind.replace("_", " ") for kind in ("survey", "product_tour") if kind in kinds]
+    if owner_nouns:
+        body += f" Change a {' or '.join(owner_nouns)} in its own targeting settings."
     return _notice(
         team_id,
         title=f"{len(flags)} {noun} target deleted cohorts",
