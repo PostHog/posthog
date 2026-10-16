@@ -1145,7 +1145,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             const isDateTime = propDef?.property_type === PropertyType.DateTime
             const currentOperator = criteria.operator as PropertyOperator | undefined
 
-            if (isDateTime && (!currentOperator || !isOperatorDate(currentOperator))) {
+            if (
+                isDateTime &&
+                (!currentOperator || !isOperatorDate(currentOperator)) &&
+                newCriteria.operator !== PropertyOperator.IsSet &&
+                newCriteria.operator !== PropertyOperator.IsNotSet
+            ) {
                 actions.setCriteria({ operator: PropertyOperator.IsDateExact }, groupIndex, criteriaIndex)
             } else if (!isDateTime && currentOperator && isOperatorDate(currentOperator)) {
                 actions.setCriteria({ operator: PropertyOperator.Exact }, groupIndex, criteriaIndex)

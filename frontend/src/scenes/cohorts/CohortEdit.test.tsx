@@ -838,8 +838,8 @@ describe('cohortEditLogic', () => {
             propertyFilter: {
                 type: PropertyFilterType.Person,
                 key: '$os',
-                operator: PropertyOperator.StartsWith,
-                value: 'Mac',
+                operator: PropertyOperator.NotIn,
+                value: ['Mac'],
             },
         })
         recentFilters.actions.recordRecentFilter({
@@ -850,8 +850,8 @@ describe('cohortEditLogic', () => {
             propertyFilter: {
                 type: PropertyFilterType.Person,
                 key: 'birth_date',
-                operator: PropertyOperator.IsSet,
-                value: null,
+                operator: PropertyOperator.Regex,
+                value: '^2000',
             },
         })
         recentFilters.actions.recordRecentFilter({
@@ -912,6 +912,85 @@ describe('cohortEditLogic', () => {
         definitions.unmount()
         cleanup()
     })
+
+    it.each([
+        { key: '$browser', operator: PropertyOperator.IContains, value: 'Chrome', label: 'contains' },
+        { key: '$browser', operator: PropertyOperator.StartsWith, value: 'Chr', label: 'starts with' },
+        { key: 'birth_date', operator: PropertyOperator.IsSet, value: null, label: 'is set' },
+        { key: 'birth_date', operator: PropertyOperator.IsNotSet, value: null, label: 'is not set' },
+    ])(
+        'prefills a recent person filter with $operator during cohort creation',
+        async ({ key, operator, value, label }) => {
+            let definitions: ReturnType<typeof propertyDefinitionsModel.build> | undefined
+            if (key === 'birth_date') {
+                definitions = propertyDefinitionsModel.build()
+                definitions.mount()
+                definitions.actions.updatePropertyDefinitions({
+                    'person/birth_date': { id: 'birth_date', name: 'birth_date', property_type: PropertyType.DateTime },
+                })
+            }
+            const recentFilters = recentTaxonomicFiltersLogic.build()
+            recentFilters.mount()
+            recentFilters.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.PersonProperties,
+                groupName: 'Person properties',
+                value: key,
+                item: { name: key },
+                propertyFilter: {
+                    type: PropertyFilterType.Person,
+                    key,
+                    operator,
+                    value,
+                },
+            })
+            logic = cohortEditLogic({ id: 'new' })
+            logic.mount()
+            logic.actions.setCohort({
+                ...NEW_COHORT,
+                filters: {
+                    properties: {
+                        ...NEW_COHORT.filters.properties,
+                        values: [
+                            {
+                                ...NEW_CRITERIA_GROUP,
+                                values: [
+                                    {
+                                        type: BehavioralFilterKey.Person,
+                                        value: BehavioralEventType.HaveProperty,
+                                        event_type: TaxonomicFilterGroupType.PersonProperties,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            })
+
+            render(<CohortEdit id="new" />)
+            await userEvent.click(await screen.findByText('Choose person property'))
+            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
+            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-recent_filters'))
+            await userEvent.click(await screen.findByTestId('prop-filter-recent_filters-1'))
+
+            await waitFor(() => {
+                const group = logic.values.cohort.filters.properties.values[0] as { values: AnyCohortCriteriaType[] }
+                expect(group.values[0]).toEqual(
+                    expect.objectContaining({
+                        key,
+                        operator,
+                        value_property: value ?? undefined,
+                    })
+                )
+                expect(document.querySelector('[data-attr="cohort-selector-field-operator"]')).toHaveTextContent(label)
+                if (value) {
+                    expect(screen.getByText(value)).toBeInTheDocument()
+                }
+            })
+            recentFilters.unmount()
+            cleanup()
+            definitions?.unmount()
+        }
+    )
 
     describe('locked type and populate-from controls on existing cohorts', () => {
         afterEach(() => {
