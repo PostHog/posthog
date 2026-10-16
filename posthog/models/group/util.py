@@ -19,10 +19,6 @@ from posthog.models.group.sql import INSERT_GROUP_SQL
 logger = structlog.get_logger(__name__)
 
 
-class GroupAlreadyExistsError(Exception):
-    pass
-
-
 def raw_create_group_ch(
     team_id: int,
     group_type_index: GroupTypeIndex,
@@ -81,30 +77,22 @@ def create_group(
     from posthog.personhog_client.converters import proto_group_to_model
     from posthog.personhog_client.proto import CreateGroupRequest
 
-    created_at_ms = int(timestamp.timestamp() * 1000)
     client = require_personhog_client()
-    group = personhog_call(
+    return personhog_call(
         "create_group",
-        lambda: (
+        lambda: proto_group_to_model(
             client.create_group(
                 CreateGroupRequest(
                     team_id=team_id,
                     group_type_index=group_type_index,
                     group_key=group_key,
                     group_properties=json.dumps(properties).encode(),
-                    created_at=created_at_ms,
+                    created_at=int(timestamp.timestamp() * 1000),
                 )
             ).group
         ),
         caller_tag="group/create_group",
     )
-    # Personhog returns the stored group when the key already exists. A retry of this call sends the
-    # same created_at. A different created_at means that another request created the group first.
-    if group.created_at != created_at_ms:
-        raise GroupAlreadyExistsError(
-            f"group_key={group_key!r} group_type_index={group_type_index} already exists for team_id={team_id}"
-        )
-    return proto_group_to_model(group)
 
 
 def save_group(group: Group, *, operation: str = "group_save") -> None:

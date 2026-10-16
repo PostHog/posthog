@@ -34,14 +34,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, load_ac
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
-from posthog.models.group.util import (
-    GroupAlreadyExistsError,
-    create_group,
-    get_group_by_key,
-    list_groups,
-    raw_create_group_ch,
-    save_group,
-)
+from posthog.models.group.util import create_group, get_group_by_key, list_groups, raw_create_group_ch, save_group
 from posthog.models.group_type_mapping import (
     GROUP_TYPE_MAPPING_SERIALIZER_FIELDS,
     GroupTypeMapping,
@@ -506,8 +499,8 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         group_key = request_data.validated_data["group_key"]
         group_type_index = request_data.validated_data["group_type_index"]
 
-        # create_group writes ClickHouse before personhog reports a duplicate. Reject a known
-        # duplicate here so that it never reaches that write.
+        # Personhog upserts on duplicate (team, group_type_index, group_key) instead
+        # of raising, so reject duplicates up front to preserve the 400 contract.
         if get_group_by_key(self.team.pk, group_type_index, group_key) is not None:
             raise ValidationError({"detail": "A group with this key already exists"})
 
@@ -519,8 +512,13 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 team_id=self.team.pk,
                 timestamp=timezone.now(),
             )
-        except GroupAlreadyExistsError:
-            raise ValidationError({"detail": "A group with this key already exists"})
+        except IntegrityError as exc:
+            # Check for both constraint names: Django model name and actual database constraint name
+            if "unique team_id/group_key/group_type_index combo" in str(
+                exc
+            ) or "unique_team_group_key_group_type" in str(exc):
+                raise ValidationError({"detail": "A group with this key already exists"})
+            raise
 
         try:
             self.trigger_group_identify(group=group, operation="group create")
