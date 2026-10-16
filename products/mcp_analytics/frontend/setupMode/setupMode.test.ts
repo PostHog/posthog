@@ -1,20 +1,4 @@
-import type { InstallationStep } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
-
-import type { MCPOnboardingState } from '../mcpAnalyticsOnboardingLogic'
-import {
-    type MCPConnectState,
-    type MCPSetupPath,
-    type MCPWizardRun,
-    connectStateFor,
-    parseSetupPath,
-    setupStepFor,
-} from './setupMode'
-
-const TASKS: InstallationStep[] = [
-    { id: 'a', label: 'Find the MCP server entry point', status: 'completed', detail: null },
-    { id: 'b', label: 'Install @posthog/mcp', status: 'in_progress', detail: null },
-]
-const RUN: MCPWizardRun = { tasks: TASKS, pendingInput: null, error: null }
+import { connectStateFor, parseSetupPath, setupStepFor } from './setupMode'
 
 describe('setupMode', () => {
     it.each([
@@ -30,31 +14,14 @@ describe('setupMode', () => {
         }
     )
 
-    const connectCases: {
-        path: MCPSetupPath
-        onboardingState: MCPOnboardingState | null
-        wizardRun: MCPWizardRun | null
-        expected: MCPConnectState
-    }[] = [
-        { path: 'wizard', onboardingState: 'not-instrumented', wizardRun: null, expected: { kind: 'waiting' } },
-        {
-            path: 'wizard',
-            onboardingState: 'not-instrumented',
-            wizardRun: RUN,
-            expected: { kind: 'wizard-running', run: RUN },
-        },
-        { path: 'wizard', onboardingState: 'connected-no-calls', wizardRun: RUN, expected: { kind: 'connected' } },
-        { path: 'agent', onboardingState: 'not-instrumented', wizardRun: RUN, expected: { kind: 'waiting' } },
-        { path: 'agent', onboardingState: 'connected-no-calls', wizardRun: null, expected: { kind: 'connected' } },
-        { path: 'agent', onboardingState: null, wizardRun: null, expected: { kind: 'waiting' } },
-    ]
-
-    it.each(connectCases.map((row) => ({ ...row, hasRun: row.wizardRun !== null })))(
-        '$path path, $onboardingState, with a wizard run: $hasRun, resolves to $expected.kind',
-        ({ path, onboardingState, wizardRun, expected }) => {
-            expect(connectStateFor({ path, onboardingState, wizardRun })).toEqual(expected)
-        }
-    )
+    it.each([
+        { onboardingState: null, expected: 'waiting' },
+        { onboardingState: 'not-instrumented', expected: 'waiting' },
+        { onboardingState: 'connected-no-calls', expected: 'connected' },
+        { onboardingState: 'onboarded', expected: 'connected' },
+    ] as const)('onboarding state $onboardingState resolves to $expected', ({ onboardingState, expected }) => {
+        expect(connectStateFor(onboardingState)).toEqual({ kind: expected })
+    })
 
     it.each([
         { value: 'wizard', expected: 'wizard' },

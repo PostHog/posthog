@@ -6,13 +6,7 @@ import { cn } from 'lib/utils/css-classes'
 import type { MCPActivityRecentCallApi } from '../generated/api.schemas'
 import { SetupConnectStep } from './SetupConnectStep'
 import { SetupFirstCallStep } from './SetupFirstCallStep'
-import {
-    MCP_SETUP_STEPS,
-    type MCPConnectState,
-    type MCPSetupExitReason,
-    type MCPSetupPath,
-    type MCPSetupStep,
-} from './setupMode'
+import { MCP_SETUP_STEPS, type MCPConnectState, type MCPSetupExitReason, type MCPSetupStep } from './setupMode'
 import { SetupUsefulStep } from './SetupUsefulStep'
 
 const COPY = {
@@ -25,7 +19,6 @@ const COPY = {
 }
 
 export interface MCPSetupModeViewProps {
-    path: MCPSetupPath
     /** `null` while the onboarding signals have not answered yet. */
     step: MCPSetupStep | null
     connectState: MCPConnectState
@@ -34,7 +27,6 @@ export interface MCPSetupModeViewProps {
     agentPrompt: string | null
     onExit: (reason: MCPSetupExitReason) => void
     onGoToUseful: () => void
-    onUseWizard: () => void
 }
 
 function StepRail({ current }: { current: MCPSetupStep | null }): JSX.Element {
@@ -70,14 +62,7 @@ function StepRail({ current }: { current: MCPSetupStep | null }): JSX.Element {
 
 function StepBody({ step, ...props }: MCPSetupModeViewProps & { step: MCPSetupStep }): JSX.Element {
     if (step === 'connect') {
-        return (
-            <SetupConnectStep
-                path={props.path}
-                connectState={props.connectState}
-                agentPrompt={props.agentPrompt}
-                onUseWizard={props.onUseWizard}
-            />
-        )
+        return <SetupConnectStep connectState={props.connectState} agentPrompt={props.agentPrompt} />
     }
     if (step === 'first-call') {
         return (
