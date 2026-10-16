@@ -15,7 +15,7 @@ from products.slack_app.backend.temporal import (
     mark_slack_app_message_queued_activity,
     post_posthog_code_internal_error_activity,
 )
-from products.slack_app.backend.temporal.posthog_code_slack_mention import SlackAppMentionProcessingWorkflow
+from products.slack_app.backend.temporal.slack_app_mention_processing import SlackAppMentionProcessingWorkflow
 from products.slack_app.backend.temporal.types import (
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppMentionWorkflowInputs,
