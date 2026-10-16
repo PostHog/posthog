@@ -2416,15 +2416,15 @@ class TestProcessTaskWorkflowUnit:
         update_task_run_status_mock = AsyncMock()
         track_workflow_event_mock = AsyncMock()
         post_slack_update_mock = AsyncMock()
-        complete_run_stream_mock = AsyncMock()
+        execute_activity = AsyncMock()
 
         monkeypatch.setattr(workflow, "_get_task_processing_context", get_task_processing_context_mock)
         monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
         monkeypatch.setattr(workflow, "_track_workflow_event", track_workflow_event_mock)
         monkeypatch.setattr(workflow, "_post_slack_update", post_slack_update_mock)
-        monkeypatch.setattr(workflow, "_complete_run_stream", complete_run_stream_mock)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
 
-        result = await workflow.run(ProcessTaskInput(run_id="run-id"))
+        result = await workflow.run(ProcessTaskInput(run_id="run-id", stream_generation="resumed-generation"))
 
         assert result.success is False
         assert result.error == "database connection closed"
@@ -2437,7 +2437,9 @@ class TestProcessTaskWorkflowUnit:
         )
         track_workflow_event_mock.assert_not_awaited()
         post_slack_update_mock.assert_not_awaited()
-        complete_run_stream_mock.assert_awaited_once_with("run-id")
+        assert execute_activity.call_args.args[1] == CompleteRunStreamInput(
+            run_id="run-id", stream_generation="resumed-generation"
+        )
 
     async def test_run_persists_activity_failure_cause_not_the_wrapper(self, monkeypatch):
         workflow = ProcessTaskWorkflow()

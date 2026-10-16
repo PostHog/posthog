@@ -201,6 +201,7 @@ class ResumedSandboxState:
     connect_token: Optional[str]
     ci_repetitions: int
     jwt_kid: Optional[str] = None
+    stream_generation: str | None = None
     pr_fingerprint: Optional[str]
     pr_progress_emitted: bool
     first_user_message_received: bool
@@ -262,7 +263,7 @@ class SandboxRotation:
     reason: str = "none"
 
 
-@dataclass
+@dataclass(frozen=False)
 class ProcessTaskInput:
     run_id: str
     create_pr: bool = True
@@ -272,6 +273,7 @@ class ProcessTaskInput:
     initial_message: Optional["PendingFollowup"] = None
     # Set only on a continue_as_new continuation, to skip provisioning and re-attach.
     resumed_sandbox: Optional[ResumedSandboxState] = None
+    stream_generation: str | None = None
 
 
 @dataclass
@@ -544,6 +546,7 @@ def _progress_emit_nonblocking() -> bool:
 class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._context: Optional[TaskProcessingContext] = None
+        self._stream_generation: str | None = None
         self._slack_thread_context: Optional[dict[str, Any]] = None
         self._posthog_mcp_scopes: PosthogMcpScopes = "read_only"
         self._sandbox_id_for_cleanup: Optional[str] = None
@@ -1318,6 +1321,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # Handing the live sandbox to the next execution — the finally must not tear it down.
         continuing_as_new = False
         run_id = input.run_id
+        self._stream_generation = (
+            input.resumed_sandbox.stream_generation if input.resumed_sandbox else input.stream_generation
+        )
         self._sandbox_id_for_cleanup = None
         self._slack_thread_context = input.slack_thread_context
         self._prewarmed = input.prewarmed
@@ -1330,6 +1336,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         try:
             self._context = await self._get_task_processing_context(input)
+            if self._stream_generation is not None:
+                self._context.stream_generation = self._stream_generation
             if self._startup_worker_started_at is not None:
                 self._startup_context_loaded_at = workflow.now()
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
@@ -2062,6 +2070,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 sandbox_url=self._sandbox_url or "",
                 connect_token=self._sandbox_connect_token,
                 jwt_kid=self._sandbox_jwt_kid,
+                stream_generation=self.context.stream_generation,
                 ci_repetitions=self._ci_repetitions,
                 ci_idle_skips=self._ci_idle_skips,
                 pr_fingerprint=self._pr_fingerprint,
@@ -2158,6 +2167,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 create_pr=input.create_pr,
                 resumed_sandbox_id=input.resumed_sandbox.sandbox_id if input.resumed_sandbox else None,
                 resumed_sandbox_backend=input.resumed_sandbox.sandbox_backend if input.resumed_sandbox else None,
+                stream_generation=self._stream_generation,
             ),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -2501,6 +2511,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             sandbox_id=sandbox_id,
             run_id=context.run_id if context else None,
             complete_stream_on_cleanup=bool(context and complete_stream),
+            stream_generation=context.stream_generation if context else self._stream_generation,
         )
         try:
             await workflow.execute_activity(
@@ -2517,7 +2528,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _complete_run_stream(self, run_id: str) -> None:
         await workflow.execute_activity(
             complete_run_stream,
-            CompleteRunStreamInput(run_id=run_id),
+            CompleteRunStreamInput(
+                run_id=run_id,
+                stream_generation=self._context.stream_generation if self._context else self._stream_generation,
+            ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
