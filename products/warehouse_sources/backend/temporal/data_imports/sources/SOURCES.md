@@ -576,6 +576,7 @@ the row lists both.
 | mysql                            | DB protocol                 | pymysql                                                         | ➖                          |
 | n8n                              | HTTP                        | requests                                                        | ✅                          |
 | nager_date                       | HTTP                        | requests                                                        | ✅                          |
+| naver_ads                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | nebius_ai                        | HTTP                        | requests                                                        | ✅                          |
 | neo4j                            | HTTP                        | requests                                                        | ✅                          |
 | neon                             | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
