@@ -234,7 +234,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         variablesOverride: props.variablesOverride,
     }
     const { inspect } = useActions(biDrilldownLogic(drilldownProps))
-    const canDrill = query.kind === NodeKind.BIVisualizationNode && !props.inSharedMode
+    const isQuerySnapshot = query.kind === NodeKind.BIVisualizationNode && !!query.config.querySnapshot
+    const canDrill = query.kind === NodeKind.BIVisualizationNode && !isQuerySnapshot && !props.inSharedMode
 
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
@@ -435,6 +436,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             <LemonBanner type="warning">
                 The returned columns do not match this worksheet. Run the query again or check the selected fields.
             </LemonBanner>
+        )
+    } else if (isQuerySnapshot && effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
+        component = (
+            <LemonBanner type="info">Query snapshots do not support pivots. Choose another chart type.</LemonBanner>
         )
     } else if (
         query.kind === NodeKind.BIVisualizationNode &&
@@ -662,6 +667,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             <AddVariableButton buttonProps={{ size: controlSize }} />
 
                             {sourceFeatures.has(QueryFeature.dateRangePicker) &&
+                                !(query.kind === NodeKind.BIVisualizationNode && query.config.querySnapshot) &&
                                 !router.values.location.pathname.includes(urls.sqlEditor()) && ( // decouple this component from insights tab and datawarehouse scene
                                     <DateRange
                                         key="date-range"
@@ -676,7 +682,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                 )}
 
                             <div className={props.context?.chartTypeSelectorClassName}>
-                                <TableDisplay size={controlSize} />
+                                <TableDisplay
+                                    size={controlSize}
+                                    disabledReasonFor={(chartType) =>
+                                        isQuerySnapshot && chartType === ChartDisplayType.TwoDimensionalHeatmap
+                                            ? 'Query snapshots do not support pivots'
+                                            : undefined
+                                    }
+                                />
                             </div>
 
                             <LemonButton
