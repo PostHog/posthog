@@ -61,16 +61,13 @@ export function EvaluationAgentActions(): JSX.Element | null {
                     Connect MCP
                 </LemonButton>
             </LemonDropdown>
-            {/* The shared quill button has a faint outline, so frame it like the Lemon buttons next to it. */}
-            <div className="rounded-md border border-primary border-b-2 bg-surface-primary">
-                <AgentPromptButton
-                    actions={[{ key: 'prompt', label: 'prompt', buildPrompt: () => prompt }]}
-                    labelMode="destination"
-                    variant="outline"
-                    onRun={({ agentKey }) => reportAgentOpened(SURFACE_KEY, 'card', agentKey)}
-                    data-attr="mcp-hint-card-agent-button"
-                />
-            </div>
+            <AgentPromptButton
+                actions={[{ key: 'prompt', label: 'prompt', buildPrompt: () => prompt }]}
+                labelMode="destination"
+                appearance="lemon"
+                onRun={({ agentKey }) => reportAgentOpened(SURFACE_KEY, 'card', agentKey)}
+                data-attr="mcp-hint-card-agent-button"
+            />
         </>
     )
 }

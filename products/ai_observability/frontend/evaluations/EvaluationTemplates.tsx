@@ -138,7 +138,6 @@ function TemplatePicker({ title, showBackButton = false, learnMoreUrl }: Templat
             </div>
 
             <div className="flex flex-col gap-2">
-                <h2 className="m-0 text-sm font-semibold text-secondary">Or choose a template below:</h2>
                 <LemonTabs
                     activeKey={tab}
                     onChange={selectTab}
