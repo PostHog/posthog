@@ -4,6 +4,7 @@
 pub mod batch;
 pub mod config;
 pub mod consumer;
+pub mod index;
 pub mod process;
 pub mod store;
 pub mod teams;
