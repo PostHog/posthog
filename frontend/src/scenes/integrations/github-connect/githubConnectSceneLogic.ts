@@ -40,9 +40,11 @@ export interface githubConnectSceneLogicValues {
     githubDiscoveryFailed: boolean // integrationsLogic
     githubIntegrations: IntegrationType[] // integrationsLogic
     integrations: IntegrationType[] | null // integrationsLogic
+    integrationsLoading: boolean // integrationsLogic
     linkedGithubInstallationLoading: boolean // integrationsLogic
     currentProjectId: number | string // teamLogic
     authorizeUrl: string
+    integrationsLoadFailed: boolean
     redirectingToGithub: boolean
     status: GitHubConnectStatus
 }
@@ -72,6 +74,21 @@ export interface githubConnectSceneLogicActions {
         surface: import('lib/integrations/utils').IntegrationConnectSurface
     } // eventUsageLogic
     linkExistingGithubInstallation: (installationId: string | undefined) => string | undefined // integrationsLogic
+    loadIntegrations: (_?: any) => any // integrationsLogic
+    loadIntegrationsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // integrationsLogic
+    loadIntegrationsSuccess: (
+        integrations: IntegrationType[],
+        payload?: any
+    ) => {
+        integrations: IntegrationType[]
+        payload?: any
+    } // integrationsLogic
     subscribeGithubSuggestions: () => {
         value: true
     } // integrationsLogic
@@ -95,7 +112,8 @@ export interface githubConnectSceneLogicMeta {
         status: (
             integrations: IntegrationType[] | null,
             githubAvailableInstallations: GitHubAvailableInstallationApi[] | null,
-            githubDiscoveryFailed: boolean
+            githubDiscoveryFailed: boolean,
+            integrationsLoadFailed: boolean
         ) => GitHubConnectStatus
         authorizeUrl: (currentProjectId: number | string) => string
     }
@@ -120,13 +138,21 @@ export const githubConnectSceneLogic = kea<githubConnectSceneLogicType>([
                 'githubAvailableInstallationsResponse',
                 'githubDiscoveryFailed',
                 'linkedGithubInstallationLoading',
+                'integrationsLoading',
             ],
             teamLogic,
             ['currentProjectId'],
         ],
         actions: [
             integrationsLogic,
-            ['subscribeGithubSuggestions', 'unsubscribeGithubSuggestions', 'linkExistingGithubInstallation'],
+            [
+                'loadIntegrations',
+                'loadIntegrationsFailure',
+                'loadIntegrationsSuccess',
+                'subscribeGithubSuggestions',
+                'unsubscribeGithubSuggestions',
+                'linkExistingGithubInstallation',
+            ],
             eventUsageLogic,
             ['reportIntegrationConnectClicked', 'reportGithubInstallationSelected'],
         ],
@@ -144,16 +170,30 @@ export const githubConnectSceneLogic = kea<githubConnectSceneLogicType>([
                 githubRedirectInterrupted: () => false,
             },
         ],
+        integrationsLoadFailed: [
+            false,
+            {
+                loadIntegrations: () => false,
+                loadIntegrationsSuccess: () => false,
+                loadIntegrationsFailure: () => true,
+            },
+        ],
     }),
     selectors({
         status: [
-            (s) => [s.integrations, s.githubAvailableInstallations, s.githubDiscoveryFailed],
+            (s) => [s.integrations, s.githubAvailableInstallations, s.githubDiscoveryFailed, s.integrationsLoadFailed],
             (
                 integrations: IntegrationType[] | null,
                 githubAvailableInstallations: GitHubAvailableInstallationApi[] | null,
-                githubDiscoveryFailed: boolean
+                githubDiscoveryFailed: boolean,
+                integrationsLoadFailed: boolean
             ): GitHubConnectStatus =>
-                githubConnectStatus(integrations, githubAvailableInstallations, githubDiscoveryFailed),
+                githubConnectStatus(
+                    integrations,
+                    githubAvailableInstallations,
+                    githubDiscoveryFailed,
+                    integrationsLoadFailed
+                ),
         ],
         authorizeUrl: [
             (s) => [s.currentProjectId],
