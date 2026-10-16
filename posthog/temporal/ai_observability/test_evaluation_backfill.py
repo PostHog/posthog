@@ -605,6 +605,7 @@ class TestEvaluationBackfillActivities:
 
         backfill_data["backfill"].refresh_from_db()
         assert backfill_data["backfill"].status == EvaluationBackfillStatus.INTERRUPTED
+        assert backfill_data["backfill"].status_reason == "execution_failed"
 
     @pytest.mark.parametrize("status", [EvaluationBackfillStatus.COMPLETED, EvaluationBackfillStatus.CANCELLED, None])
     def test_prepare_returns_finished_for_missing_or_terminal_row(self, backfill_data, status) -> None:
@@ -639,6 +640,7 @@ class TestEvaluationBackfillActivities:
         assert result.action == TickAction.FINISHED
         backfill_data["backfill"].refresh_from_db()
         assert backfill_data["backfill"].status == EvaluationBackfillStatus.INTERRUPTED
+        assert backfill_data["backfill"].status_reason == stop_reason
         assert backfill_data["backfill"].finished_at is not None
         assert [(event["status"], event["stop_reason"]) for event in _finished_events(capture)] == [
             ("stopped", stop_reason)

@@ -644,6 +644,12 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                     return
                 }
                 cache.retryingBackfill = id
+                posthog.capture('llma evaluation backfill retry clicked', {
+                    evaluation_id: props.evaluationId,
+                    backfill_id: id,
+                    status: backfill.status,
+                    status_reason: backfill.status_reason,
+                })
                 try {
                     await evaluationsBackfillsCreate(String(teamId), props.evaluationId, {
                         window_start: backfill.window_start,

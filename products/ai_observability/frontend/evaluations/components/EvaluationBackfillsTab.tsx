@@ -96,6 +96,13 @@ interface EvaluationBackfillsTabProps {
     onConfigurationClick: () => void
 }
 
+const INTERRUPTED_REASON_MESSAGES: Record<string, string> = {
+    evaluation_disabled:
+        'The evaluation was disabled. Check its configuration and provider key, then re-enable it and retry remaining.',
+    execution_failed: 'The backfill kept hitting errors, so it stopped. Retry remaining to try again.',
+    workflow_not_running: 'The backfill stopped unexpectedly. Retry remaining to continue where it left off.',
+}
+
 export function EvaluationBackfillsTab({
     evaluationId,
     userAccessLevel,
@@ -529,9 +536,9 @@ export function EvaluationBackfillsTab({
                                 <div className="flex flex-col gap-2 min-w-0">
                                     {backfill.status === 'interrupted' && (
                                         <LemonBanner type="warning">
-                                            {backfill.status_reason === 'evaluation_disabled'
-                                                ? 'The evaluation was disabled. Check its configuration and provider key, then re-enable it and retry remaining.'
-                                                : 'The backfill stopped before finishing. Check the evaluation configuration, then retry remaining.'}
+                                            {(backfill.status_reason &&
+                                                INTERRUPTED_REASON_MESSAGES[backfill.status_reason]) ??
+                                                'The backfill stopped before finishing. Check the evaluation configuration, then retry remaining.'}
                                         </LemonBanner>
                                     )}
                                     {!!backfill.failed_count && (

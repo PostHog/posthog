@@ -298,6 +298,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         stale.refresh_from_db()
         assert stale.status == EvaluationBackfillStatus.INTERRUPTED
+        assert stale.status_reason == "workflow_not_running"
         assert stale.finished_at is not None
         finished = [
             call.kwargs["properties"]

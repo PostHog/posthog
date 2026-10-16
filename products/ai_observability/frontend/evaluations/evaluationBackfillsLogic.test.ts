@@ -655,4 +655,36 @@ describe('evaluationBackfillsLogic', () => {
             expect(logic.values.transitioningIds).toEqual([])
         }
     )
+
+    it('lets a retry run again after a rejected one and reports each click', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        listMock.mockResolvedValue({
+            count: 1,
+            results: [backfill({ status: 'interrupted', status_reason: 'execution_failed' })],
+        })
+        await mountAndSettle()
+        createMock.mockRejectedValueOnce(new Error('nope'))
+
+        logic.actions.retryBackfill('backfill-1')
+        await expectLogic(logic).toDispatchActions(['transitionBackfillDone'])
+        expect(toastError).toHaveBeenCalled()
+        expect(logic.values.transitioningIds).toEqual([])
+
+        createMock.mockResolvedValueOnce(backfill({ status: 'running' }))
+        logic.actions.retryBackfill('backfill-1')
+        await expectLogic(logic).toDispatchActions(['transitionBackfillDone'])
+
+        expect(createMock).toHaveBeenCalledTimes(2)
+        expect(capture.mock.calls.filter(([event]) => event === 'llma evaluation backfill retry clicked')).toEqual(
+            Array(2).fill([
+                'llma evaluation backfill retry clicked',
+                {
+                    evaluation_id: EVALUATION_ID,
+                    backfill_id: 'backfill-1',
+                    status: 'interrupted',
+                    status_reason: 'execution_failed',
+                },
+            ])
+        )
+    })
 })
