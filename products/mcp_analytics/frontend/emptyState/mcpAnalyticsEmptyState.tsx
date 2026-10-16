@@ -3,12 +3,14 @@ import { IconMCP } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import { MCP_ANALYTICS_DOCS_URL, MCPListeningIndicator } from '../onboarding/MCPAnalyticsInstall'
 import { MCPAnalyticsSetupActions } from './MCPAnalyticsSetupActions'
+import { MCPSetupDoorActions } from './MCPSetupDoorActions'
 import { MCPToolCallPreview } from './MCPToolCallPreview'
 
 const HedgehogPuzzle = pngHoggie(puzzlePng)
@@ -41,5 +43,17 @@ export const mcpAnalyticsEmptyState: SceneProductEmptyState = {
         previewLabel: 'Tool calls, once connected',
         Preview: MCPToolCallPreview,
         statusIndicator: <MCPListeningIndicator />,
+        featureFlagOverrides: {
+            [FEATURE_FLAGS.MCP_ANALYTICS_SETUP_MODE]: {
+                text: {
+                    'needs-setup': {
+                        hint: "Run Wizard in your MCP server's repository. The setup agent installs analytics and shows its progress here:",
+                    },
+                },
+                SetupActions: MCPSetupDoorActions,
+                // The door renders the indicator itself, above the demo card.
+                statusIndicator: undefined,
+            },
+        },
     },
 }
