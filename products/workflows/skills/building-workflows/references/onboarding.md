@@ -6,7 +6,10 @@ The goal is the same result as the in-app setup wizard, with as few messages as 
 ## 1. Check the setup, and start the suggestions
 
 Call `workflows-setup-status`.
-It returns every setup step with `done`, a `next_step` and an `app_url`, plus `ready_to_send_email` and `data_suggestions_available`.
+It returns every setup step with `done`, a `next_step` and an `app_url`, plus `ready_to_send_email`, `email_sending_paused` and `data_suggestions_available`.
+
+The email steps only matter for workflows that send email.
+An SMS or push workflow sends through its own channel, so do not ask for the email channel or domain when the workflow has no email step.
 
 If every step is done, skip to the lifecycle in [SKILL.md](../SKILL.md).
 
@@ -51,5 +54,6 @@ When suggestions are not available, ask what the workflow should do and build it
 ## When the user skips the app steps
 
 A draft can exist before the domain is verified.
-If `ready_to_send_email` is false, say clearly that the workflow will not send until the email channel is connected and the domain is verified, and share the `app_url` again.
+If the workflow has an email step and `ready_to_send_email` is false, say clearly that its emails will not send yet, and share the `app_url` again.
+When `email_sending_paused` is true, the domain is fine but sending is paused for the project, so tell the user to contact PostHog support instead.
 Call `workflows-setup-status` again when the user says they finished a step.
