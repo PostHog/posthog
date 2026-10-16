@@ -535,6 +535,23 @@ The agent has encountered an unknown error while creating an insight.
 InsightType = Literal["trends", "funnel", "retention", "sql"]
 
 
+MISSING_QUERY_PATCH_ERROR = (
+    "To update a saved insight, provide query_patch with the requested edits. Read the saved query first. "
+    "To create or revise an unsaved chart instead, omit insight_id."
+)
+
+
+def _describe_query_paths(query: dict[str, Any]) -> str:
+    lines = ["Valid top-level paths in the saved query:"]
+    for key, value in query.items():
+        if key == "response":
+            continue
+        lines.append(f"- /{key}")
+        if key == "source" and isinstance(value, dict):
+            lines.extend(f"- /source/{source_key}" for source_key in value if source_key != "response")
+    return "\n".join(lines)
+
+
 class CreateInsightToolArgs(BaseModel):
     insight_id: str | None = Field(
         default=None,
@@ -596,13 +613,15 @@ class CreateInsightTool(MaxTool):
         if insight_id is None:
             return await super()._check_dangerous_operation(kwargs)
 
+        query_patch = kwargs.get("query_patch")
+        if not query_patch:
+            raise MaxToolRetryableError(MISSING_QUERY_PATCH_ERROR)
         insight = await self._get_insight(insight_id)
         if kwargs.get("expected_query") is None:
             kwargs["expected_query"] = insight.query
+        self._updated_insight_query(insight, query_patch)
         preview = f"Update insight **{insight.name or insight.short_id}**. This changes every dashboard that uses this insight."
-        if query_patch := kwargs.get("query_patch"):
-            self._updated_insight_query(insight, query_patch)
-            preview += f"\n\nRequested query edits:\n```json\n{json.dumps(json.loads(query_patch), indent=2)}\n```"
+        preview += f"\n\nRequested query edits:\n```json\n{json.dumps(json.loads(query_patch), indent=2)}\n```"
         return self._handle_dangerous_operation(kwargs, preview=preview)
 
     @staticmethod
@@ -639,7 +658,8 @@ class CreateInsightTool(MaxTool):
             ValidationError,
         ) as error:
             raise MaxToolRetryableError(
-                f"Could not apply the query edits. Read the saved query and retry: {error}"
+                f"Could not apply the query edits: {error}\n{_describe_query_paths(insight.query or {})}\n"
+                "Paths start at the root of the saved query. Fix the paths and retry."
             ) from error
 
     async def _save_insight_query(self, insight: SavedInsightDefinition, query: dict[str, Any]) -> None:
@@ -678,8 +698,8 @@ class CreateInsightTool(MaxTool):
         expected_query: dict[str, Any] | None = None,
     ) -> tuple[str, ToolMessagesArtifact | None]:
         if insight_id is not None:
-            if query_patch is None:
-                raise MaxToolRetryableError("Read the saved insight and provide query_patch with the requested edits.")
+            if not query_patch:
+                raise MaxToolRetryableError(MISSING_QUERY_PATCH_ERROR)
             insight = await self._get_insight(insight_id)
             if expected_query is not None and insight.query != expected_query:
                 raise MaxToolRetryableError("This insight changed while awaiting approval. Read it again and retry.")

@@ -3097,6 +3097,37 @@ describe('maxThreadLogic', () => {
             expect(enhancedToolCalls?.[0].status).toBe('failed')
         })
 
+        it('auto-rejects every pending parallel approval when the user sends a new message', async () => {
+            const streamSpy = mockStream()
+            for (const proposalId of ['proposal-a', 'proposal-b']) {
+                logic.actions.addPendingApprovalData({
+                    proposal_id: proposalId,
+                    original_tool_call_id: `tool-${proposalId}`,
+                    tool_name: 'create_insight',
+                    decision_status: 'pending',
+                    preview: 'Preview text',
+                    payload: {},
+                })
+            }
+            logic.actions.setPendingApproval('proposal-a')
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('Do something else')
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['askMax', 'completeThreadGeneration'])
+
+            expect(logic.values.resolvedApprovalStatuses).toMatchObject({
+                'proposal-a': { status: 'auto_rejected' },
+                'proposal-b': { status: 'auto_rejected' },
+            })
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    resume_payload: { action: 'reject', proposal_id: 'proposal-a', feedback: 'Do something else' },
+                }),
+                expect.any(Object)
+            )
+        })
+
         it('marks tool call as completed when approval is approved', async () => {
             const toolCallId = 'tool-789'
             const proposalId = 'proposal-789'
