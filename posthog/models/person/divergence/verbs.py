@@ -23,10 +23,22 @@ from posthog.models.person.deletion import (
 from posthog.models.person.util import create_person_distinct_id, get_distinct_id_rows, get_persons_by_uuids
 from posthog.personhog_client.proto import DistinctIdRow
 
-from . import datatypes, lookups, observe, repairs, team_scan
+from . import datatypes, lookups, observe, repairs, restore_verbs, team_scan
 
 # A key whose last recorded outcome is one of these needs nothing more, so a resumed run skips it.
-DONE_OUTCOMES = frozenset({"repaired", "tombstoned", "republished", "buried"})
+DONE_OUTCOMES = frozenset(
+    {
+        "repaired",
+        "tombstoned",
+        "republished",
+        "buried",
+        "restored",
+        "already_restored",
+        "moved",
+        "already_moved",
+        "merged",
+    }
+)
 
 
 class VerbError(Exception):
@@ -72,6 +84,14 @@ class VerbContext:
                 group=row.get("group"),
                 outcome=outcome,
                 detail=detail,
+            )
+        )
+
+    def emit_extra(self, *, kind: str, key: str, group: str | None, outcome: str, **detail: Any) -> None:
+        """Record an action on a key the report has no row for, such as the old person of a merge."""
+        self.emit(
+            VerbAction(
+                verb=self.verb, team_id=self.team_id, kind=kind, key=key, group=group, outcome=outcome, detail=detail
             )
         )
 
@@ -357,4 +377,6 @@ VERBS: dict[str, VerbFn] = {
     "republish": republish,
     "merge_stale": merge_stale,
     "bury": bury,
+    "restore": restore_verbs.restore,
+    "merge": restore_verbs.merge,
 }
