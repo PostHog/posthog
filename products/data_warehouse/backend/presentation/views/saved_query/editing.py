@@ -79,6 +79,14 @@ def _as_uuid(value: object) -> uuid.UUID | None:
         return None
 
 
+def _report_view_types_error(e: Exception, view_name: str) -> None:
+    # A user-safe error is a mistake in the user's own SQL, and the 400 already shows them the message.
+    if isinstance(e, ExposedHogQLError | ExposedCHQueryError):
+        return
+    capture_exception(e)
+    logger.exception("Failed to retrieve types for view %s", view_name)
+
+
 def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
     # Column inference runs the HogQL-to-ClickHouse path, so a raw exception can carry stack
     # traces, internal table or column names, and S3 URIs. Surface only the errors already marked
@@ -366,8 +374,7 @@ class DataWarehouseSavedQuerySerializer(
 
                 view.external_tables = view.get_s3_tables(database=self.context["database"])
             except Exception as e:
-                capture_exception(e)
-                logger.exception("Failed to retrieve types for view %s", view.name)
+                _report_view_types_error(e, view.name)
                 raise _view_types_validation_error(e)
 
         with transaction.atomic():
@@ -499,8 +506,7 @@ class DataWarehouseSavedQuerySerializer(
             except (RecursionError, ResolutionCycleError):
                 raise serializers.ValidationError("Model contains a cycle")
             except Exception as e:
-                capture_exception(e)
-                logger.exception("Failed to retrieve types for view %s", probe.name)
+                _report_view_types_error(e, probe.name)
                 raise _view_types_validation_error(e)
 
         with transaction.atomic():

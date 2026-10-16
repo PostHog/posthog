@@ -18,6 +18,7 @@ from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
+from posthog.errors import CHQueryErrorIllegalTypeOfArgument
 from posthog.models import ActivityLog
 from posthog.models.scoping import team_scope
 
@@ -1953,6 +1954,40 @@ class TestSavedQuery(APIBaseTest):
 
             # Verify get_columns was called
             mock_get_columns.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("create_user_safe", "create", CHQueryErrorIllegalTypeOfArgument("Illegal types", code=43), False),
+            ("update_user_safe", "update", CHQueryErrorIllegalTypeOfArgument("Illegal types", code=43), False),
+            ("create_unexpected", "create", RuntimeError("boom"), True),
+            ("update_unexpected", "update", RuntimeError("boom"), True),
+        ]
+    )
+    def test_column_inference_failure_captures_only_unexpected_errors(
+        self, _name: str, action: str, error: Exception, expect_capture: bool
+    ) -> None:
+        base_url = f"/api/environments/{self.team.id}/warehouse_saved_queries/"
+        query = {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 10"}
+        if action == "update":
+            created = self.client.post(base_url, {"name": "event_view", "query": query}).json()
+
+        with (
+            patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=error),
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.editing.capture_exception"
+            ) as mock_capture,
+        ):
+            if action == "create":
+                response = self.client.post(base_url, {"name": "event_view", "query": query})
+            else:
+                response = self.client.patch(
+                    f"{base_url}{created['id']}",
+                    {"query": query, "edited_history_id": created["latest_history_id"]},
+                )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("Failed to retrieve types for view", response.json()["detail"])
+        self.assertEqual(mock_capture.called, expect_capture)
 
     @parameterized.expand([("direct", False), ("through_another_view", True)])
     def test_update_rejects_query_cycle(self, _name: str, use_intermediate_view: bool) -> None:
