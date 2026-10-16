@@ -17,6 +17,10 @@ class InvalidRepositoryError(Exception):
     pass
 
 
+class InvalidBranchError(Exception):
+    pass
+
+
 class WizardProgramNotAvailableError(Exception):
     pass
 
@@ -62,4 +66,12 @@ class WizardRunHourlyLimitError(Exception):
 
 
 class WizardRunDailyLimitError(Exception):
+    pass
+
+
+class ProjectActiveWizardRunError(Exception):
+    pass
+
+
+class WizardInstallDailyLimitError(Exception):
     pass

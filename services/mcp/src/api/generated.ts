@@ -115254,6 +115254,89 @@ export namespace Schemas {
       started_at?: string | null;
     }
 
+    export interface WizardInstallStart {
+      /** ID of the setup run. Pass it to the status endpoint. */
+      readonly run_id: string;
+      /** Current lifecycle status of the setup run.
+       *
+       * * `created` - created
+       * * `running` - running
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      readonly status: WizardRunStatusEnum;
+      /** PostHog page where the user can follow their setup runs. */
+      readonly url: string;
+    }
+
+    export interface WizardInstallStartRequest {
+      /**
+         * GitHub repository to set up, in owner/name format. The project's GitHub connection must have access to it.
+         * @maxLength 255
+         */
+      repository: string;
+      /**
+         * Branch to start from and to open the pull request against. Defaults to the repository's default branch.
+         * @maxLength 255
+         */
+      branch?: string;
+      /**
+         * Unique key for this request. A retry with the same key returns the same run instead of starting another.
+         * @maxLength 255
+         */
+      idempotency_key?: string;
+    }
+
+    export interface WizardInstallTask {
+      /** Task the setup agent planned. */
+      readonly name: string;
+      /** Current task status reported by the setup agent.
+       *
+       * * `created` - created
+       * * `running` - running
+       * * `completed` - completed
+       * * `failed` - failed */
+      readonly status: WizardTaskStatusEnum;
+    }
+
+    export interface WizardInstallStatus {
+      /** Lifecycle status of the setup run. created and running mean it is still in progress.
+       *
+       * * `created` - created
+       * * `running` - running
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      readonly status: WizardRunStatusEnum;
+      /** Step the setup run is on while it is in progress, or null otherwise.
+       *
+       * * `dispatching` - dispatching
+       * * `provisioning` - provisioning
+       * * `preparing_workspace` - preparing_workspace
+       * * `executing_wizard` - executing_wizard
+       * * `creating_artifacts` - creating_artifacts */
+      readonly stage: WizardRunStageEnum | null;
+      /**
+         * Machine-readable failure reason, or null if the run has not failed.
+         * @nullable
+         */
+      readonly error_code: string | null;
+      /**
+         * Failure explanation, or null if the run has not failed.
+         * @nullable
+         */
+      readonly error_message: string | null;
+      /**
+         * Pull request with the setup changes, or null until the run opens one.
+         * @nullable
+         */
+      readonly pull_request_url: string | null;
+      /** Tasks the setup agent planned, in order. */
+      readonly tasks: readonly WizardInstallTask[];
+      /** What happens next, in a sentence to relay to the user. */
+      readonly next_step: string;
+    }
+
     export interface WizardRunCreateRequest {
       /**
          * Registry program to run.
