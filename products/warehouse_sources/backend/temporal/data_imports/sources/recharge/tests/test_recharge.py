@@ -1,67 +1,35 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-from unittest import mock
-
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recharge import (
+    RechargeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.recharge.recharge import (
     RechargeResumeConfig,
     _build_initial_params,
     _format_incremental_value,
-    recharge_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.recharge.settings import RECHARGE_ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the recharge module.
-RECHARGE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.recharge.recharge.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.recharge.source import RechargeSource
 
 
-def _response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    return resp
+def _page(endpoint: str, items: list[dict[str, Any]], next_cursor: str | None) -> ScriptedResponse:
+    return ScriptedResponse(json={endpoint: items, "next_cursor": next_cursor})
 
 
-def _page(endpoint: str, items: list[dict[str, Any]], next_cursor: str | None) -> Response:
-    return _response({endpoint: items, "next_cursor": next_cursor})
-
-
-def _make_manager(resume_state: RechargeResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
-
-    ``request.params`` is mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _drive(endpoint: str, script: Script, api_key: str = "t", **inputs: Any) -> DriveResult:
+    return SourceDriver(RechargeSource(), RechargeSourceConfig(api_key=api_key)).run(endpoint, script, **inputs)
 
 
 class TestFormatIncrementalValue:
@@ -136,45 +104,39 @@ class TestValidateCredentials:
             ("forbidden", 403, False),
         ]
     )
-    @mock.patch(RECHARGE_SESSION_PATCH)
-    def test_status_mapping(
-        self, _name: str, status_code: int, expected_ok: bool, mock_session: mock.MagicMock
-    ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        ok, error = validate_credentials("token")
+    def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
+            ok, error = validate_credentials("token")
+
         assert ok is expected_ok
         if not expected_ok:
             assert error is not None
+        assert network.requests_log[0].path == "/token_information"
+        assert network.requests_log[0].headers["x-recharge-access-token"] == "token"
 
-    @mock.patch(RECHARGE_SESSION_PATCH)
-    def test_network_error_returns_false(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        ok, error = validate_credentials("token")
+    def test_network_error_returns_false(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            ok, error = validate_credentials("token")
+
         assert ok is False
         assert error is not None
 
-    @mock.patch(RECHARGE_SESSION_PATCH)
-    def test_token_is_redacted_from_captured_samples(self, mock_session: mock.MagicMock) -> None:
+    def test_token_is_redacted_from_captured_samples(self) -> None:
         # The `X-Recharge-Access-Token` header isn't in the shared auth-header
         # denylist, so the token must be passed as a `redact_values` literal to
         # keep it out of captured HTTP samples.
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("secret-token")
-        assert mock_session.call_args.kwargs["redact_values"] == ("secret-token",)
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            validate_credentials("secret-token")
+
+        assert network.session_options[0]["redact_values"] == ("secret-token",)
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_token_is_redacted_from_captured_samples(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page("customers", [{"id": 1}], None)])
+    def test_token_is_redacted_from_captured_samples(self) -> None:
+        result = _drive("customers", [_page("customers", [{"id": 1}], None)], api_key="secret-token")
 
-        _rows(
-            recharge_source(
-                "secret-token", "customers", team_id=1, job_id="j", resumable_source_manager=_make_manager()
-            )
-        )
-        assert MockSession.call_args.kwargs["redact_values"] == ("secret-token",)
+        assert result.session_options
+        assert all(option["redact_values"] == ("secret-token",) for option in result.session_options)
 
     @parameterized.expand(
         [
@@ -182,44 +144,41 @@ class TestPagination:
             ("customers_use_default_limit", "customers", 250),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_cursor_pages_use_per_endpoint_limit_and_drop_filters(
-        self, _name: str, endpoint: str, expected_limit: int, MockSession
+        self, _name: str, endpoint: str, expected_limit: int
     ) -> None:
         # Both the first page and cursor pages carry the per-endpoint limit; the
         # cursor page sends ONLY cursor + limit (Recharge 422s if the original
         # sort/filter params are re-sent alongside a cursor).
-        session = MockSession.return_value
-        params = _wire(session, [_page(endpoint, [{"id": 1}], "cursor-2"), _page(endpoint, [{"id": 2}], None)])
+        result = _drive(endpoint, [_page(endpoint, [{"id": 1}], "cursor-2"), _page(endpoint, [{"id": 2}], None)])
 
-        _rows(recharge_source("t", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()))
+        assert result.requests[0].param("limit") == str(expected_limit)
+        assert result.requests[0].param("sort_by") == "id-asc"
+        assert result.queries[1] == {"cursor": ("cursor-2",), "limit": (str(expected_limit),)}
 
-        assert params[0]["limit"] == expected_limit
-        assert params[0]["sort_by"] == "id-asc"
-        assert params[1] == {"cursor": "cursor-2", "limit": expected_limit}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor_when_endpoint_matches(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page("customers", [{"id": 9}], None)])
-
-        manager = _make_manager(RechargeResumeConfig(endpoint="customers", cursor="saved-cursor"))
-        _rows(recharge_source("t", "customers", team_id=1, job_id="j", resumable_source_manager=manager))
+    def test_resumes_from_saved_cursor_when_endpoint_matches(self) -> None:
+        result = _drive(
+            "customers",
+            [_page("customers", [{"id": 9}], None)],
+            resume_state=RechargeResumeConfig(endpoint="customers", cursor="saved-cursor"),
+        )
 
         # When following a cursor we only send cursor + limit, no sort/filters.
-        assert params[0] == {"cursor": "saved-cursor", "limit": 250}
+        assert result.queries[0] == {"cursor": ("saved-cursor",), "limit": ("250",)}
+
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
+        result = _drive("customers", [_page("customers", [{"id": 9}], None)])
+
+        assert result.params("cursor") == [None]
+        assert result.params("sort_by") == ["id-asc"]
 
 
 class TestRechargeSource:
     @parameterized.expand([(name,) for name in RECHARGE_ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = recharge_source(
-            "token",
-            endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
+        response = _drive(endpoint, [_page(endpoint, [], None)], api_key="token").response
+
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         assert response.sort_mode == "asc"

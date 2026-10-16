@@ -128,7 +128,6 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         exclude_events=exclude_events,
         include_events=include_events,
         run_id=None,
-        batch_export_schema=None,
         batch_export_model=model,
         backfill_details=BackfillDetails(
             backfill_id=None,
@@ -182,7 +181,6 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_sessio
         exclude_events=None,
         include_events=None,
         run_id=None,
-        batch_export_schema=None,
         batch_export_model=model,
         backfill_details=None,
         destination_default_fields=None,
@@ -274,7 +272,6 @@ async def _run_activity(
         exclude_events=exclude_events,
         include_events=None,
         run_id=None,
-        batch_export_schema=None,
         batch_export_model=model,
         backfill_details=None,
         destination_default_fields=None,
@@ -1136,7 +1133,6 @@ async def test_insert_into_stage_activity_writes_dynamic_number_of_files(
         exclude_events=None,
         include_events=None,
         run_id=None,
-        batch_export_schema=None,
         batch_export_model=model,
         backfill_details=None,
         destination_default_fields=None,
@@ -1186,7 +1182,6 @@ async def test_insert_into_stage_activity_uses_static_default_without_previous_r
         exclude_events=None,
         include_events=None,
         run_id=None,
-        batch_export_schema=None,
         batch_export_model=model,
         backfill_details=None,
         destination_default_fields=None,
@@ -1611,6 +1606,7 @@ class TestHogQLModel:
         BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME=900,
         BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE=30_000_000_000,
         BATCH_EXPORT_HOGQL_MAX_BYTES_TO_READ=200_000_000_000,
+        BATCH_EXPORT_ARROW_COMPRESSION_METHOD="zstd",
     )
     async def test_applies_settings_and_log_comment(
         self,
@@ -1632,17 +1628,18 @@ class TestHogQLModel:
         """
         batch_export_id = str(uuid.uuid4())
 
-        await _run_activity(
-            activity_environment=activity_environment,
-            object_storage_client=object_storage_client,
-            team_id=ateam.pk,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-            model=BatchExportModel(
-                name="hogql", schema=None, hogql_query="SELECT event AS event FROM events", user_id=auser.pk
-            ),
-            batch_export_id=batch_export_id,
-        )
+        with override_settings(BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS=[str(ateam.pk)]):
+            await _run_activity(
+                activity_environment=activity_environment,
+                object_storage_client=object_storage_client,
+                team_id=ateam.pk,
+                data_interval_start=data_interval_start,
+                data_interval_end=data_interval_end,
+                model=BatchExportModel(
+                    name="hogql", schema=None, hogql_query="SELECT event AS event FROM events", user_id=auser.pk
+                ),
+                batch_export_id=batch_export_id,
+            )
 
         # `Settings` in `system.query_log` records only settings changed from their default, so the
         # overflow modes are absent here (`throw` is already ClickHouse's default, and we pin it only
@@ -1657,6 +1654,7 @@ class TestHogQLModel:
                 "max_bytes_before_external_sort",
                 "max_bytes_ratio_before_external_sort",
                 "max_bytes_to_read",
+                "output_format_arrow_compression_method",
             ],
         )
-        assert actual_settings == [["900", "30000000000", "15000000000", "0", "200000000000"]]
+        assert actual_settings == [["900", "30000000000", "15000000000", "0", "200000000000", "zstd"]]

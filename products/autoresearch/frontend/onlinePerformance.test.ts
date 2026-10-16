@@ -1,5 +1,12 @@
-import { AutoresearchRunApi, OnlinePerformanceRowApi } from './generated/api.schemas'
-import { calibrationBySegment, realizedAucSeries, validatedPredictionDates } from './onlinePerformance'
+import { AutoresearchRunApi, ConfusionByCutoffApi, OnlinePerformanceRowApi } from './generated/api.schemas'
+import {
+    accuracyStats,
+    accuracySummary,
+    calibrationBySegment,
+    pooledConfusion,
+    realizedAucSeries,
+    validatedPredictionDates,
+} from './onlinePerformance'
 
 function row(overrides: Partial<OnlinePerformanceRowApi>): OnlinePerformanceRowApi {
     return {
@@ -12,13 +19,21 @@ function row(overrides: Partial<OnlinePerformanceRowApi>): OnlinePerformanceRowA
     } as OnlinePerformanceRowApi
 }
 
+function counts(tp: number, fp: number, fn: number, tn: number): ConfusionByCutoffApi {
+    const cutoff = { tp, fp, fn, tn, n_flagged: tp + fp, precision: null, recall: null }
+    return { top_10: cutoff, top_20: cutoff, likely: { ...cutoff, tp: 0, fp: 0, n_flagged: 0, tn: tn + tp + fp } }
+}
+
 describe('onlinePerformance', () => {
     test('calibrationBySegment weights each bin by its people and drops empty segments', () => {
-        const segments = calibrationBySegment([
-            { n: 300, mean_p_y: 0.05, positive_rate: 0.04 },
-            { n: 100, mean_p_y: 0.15, positive_rate: 0.2 },
-            { n: 50, mean_p_y: 0.7, positive_rate: 0.6 },
-        ])
+        const segments = calibrationBySegment(
+            [
+                { n: 300, mean_p_y: 0.05, positive_rate: 0.04 },
+                { n: 100, mean_p_y: 0.15, positive_rate: 0.2 },
+                { n: 50, mean_p_y: 0.7, positive_rate: 0.6 },
+            ],
+            { likely_threshold: 0.6, possible_threshold: 0.2, base_rate: null }
+        )
 
         expect(
             segments.map(({ segment, people, predicted, actual }) => [segment.key, people, predicted, actual])
@@ -40,6 +55,79 @@ describe('onlinePerformance', () => {
             ['2026-02-10', 0.79],
             ['2026-02-12', 0.82],
         ])
+    })
+
+    test('pooledConfusion sums the current champion dates and counts pre-change dates apart', () => {
+        const rows = [
+            row({ prediction_date: '2026-02-13', model_id: 'new', confusion: counts(3, 1, 2, 94) }),
+            row({
+                prediction_date: '2026-02-13',
+                model_id: 'shadow',
+                emitted_role: 'shadow',
+                confusion: counts(9, 0, 0, 91),
+            }),
+            row({ prediction_date: '2026-02-12', model_id: 'new', confusion: counts(1, 3, 2, 94) }),
+            row({ prediction_date: '2026-02-11', model_id: 'new', confusion: null }),
+            row({ prediction_date: '2026-02-10', model_id: 'old', confusion: counts(9, 0, 0, 91) }),
+        ]
+
+        expect(pooledConfusion(rows, 'top_10')).toEqual({
+            tp: 4,
+            fp: 4,
+            fn: 4,
+            tn: 188,
+            flagged: 8,
+            precision: 0.5,
+            recall: 0.5,
+            firstDate: '2026-02-12',
+            lastDate: '2026-02-13',
+            datesWithoutCounts: 1,
+        })
+        expect(pooledConfusion(rows, 'likely')).toMatchObject({ flagged: 0, precision: null, recall: 0 })
+        expect(accuracySummary(pooledConfusion(rows, 'top_10')!, 'top_10', 'File shared')).toEqual(
+            'For people scored from Feb 12 to Feb 13, 50.0% of the top 10% the model flagged did “File shared”, against 4.0% of everyone. They include 50.0% of everyone who did it.'
+        )
+        expect(accuracySummary(pooledConfusion(rows, 'likely')!, 'likely', 'File shared')).toBeNull()
+        expect(pooledConfusion([row({ model_id: 'new', confusion: null })], 'top_10')).toBeNull()
+    })
+
+    test.each([
+        {
+            name: 'a checked date with outcomes',
+            overrides: { lift_at_10: 3.44, mean_p_y: 0.033 },
+            expected: [
+                ['Strong', 'AUC 0.80, scored on Feb 10'],
+                ['3.4×', 'Against everyone, scored on Feb 10'],
+                ['3.0%', 'Predicted 3.3%, scored on Feb 10'],
+                ['47,000', '1,410 did it, scored on Feb 10'],
+            ],
+        },
+        {
+            name: 'a checked date where no one did it',
+            overrides: { realized_auc: null, lift_at_10: 0, mean_p_y: null, n_positive: 0, base_rate: 0 },
+            expected: [
+                ['—', 'No AUC, scored on Feb 10'],
+                ['—', 'No one did it, scored on Feb 10'],
+                ['0.0%', 'scored on Feb 10'],
+                ['47,000', '0 did it, scored on Feb 10'],
+            ],
+        },
+        {
+            name: 'a checked date with outcomes but no lift',
+            overrides: { lift_at_10: null, mean_p_y: 0.033 },
+            expected: [
+                ['Strong', 'AUC 0.80, scored on Feb 10'],
+                ['—', 'Not measured, scored on Feb 10'],
+                ['3.0%', 'Predicted 3.3%, scored on Feb 10'],
+                ['47,000', '1,410 did it, scored on Feb 10'],
+            ],
+        },
+    ])('accuracyStats names the scored date on every stat for $name', ({ overrides, expected }) => {
+        const stats = accuracyStats(
+            row({ n_scored: 47000, n_positive: 1410, base_rate: 0.03, ...overrides }),
+            'File shared'
+        )
+        expect(stats.map(({ value, detail }) => [value, detail])).toEqual(expected)
     })
 
     test('validatedPredictionDates counts only completed validation runs that scored a model', () => {

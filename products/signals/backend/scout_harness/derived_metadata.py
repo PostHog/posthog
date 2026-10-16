@@ -33,6 +33,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
+from products.signals.backend.scout_harness.tools.scratchpad import NOT_IN_USE_WRITES_KEY
 from products.signals.backend.scout_harness.tools.structured_output import STRUCTURED_OUTPUT_COUNT_KEY
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ DERIVED_FLAG_KEYS = (
     "has_chart",
     "has_self_validation",
     "has_structured_output",
+    "has_not_in_use_closeout",
 )
 
 
@@ -60,6 +62,7 @@ def build_derived_flags(*, run: SignalScoutRun, team_id: int) -> dict[str, bool]
     the row so every query here is anchored to the canonical team the caller resolved.
     """
     emitted_ids = run.emitted_report_ids or []
+    metadata = run.metadata or {}
     authored_titles, authored_charts = _authored_report_facts(team_id=team_id, report_ids=emitted_ids)
     return {
         "has_emit_report": bool(emitted_ids),
@@ -80,7 +83,14 @@ def build_derived_flags(*, run: SignalScoutRun, team_id: int) -> dict[str, bool]
         # server-side observation, not a scout self-report. It counts accepted batches —
         # a batch whose event delivery then failed still registers here, which the
         # flood-breaker semantics of the counter accept (see STRUCTURED_OUTPUT_COUNT_KEY).
-        "has_structured_output": bool((run.metadata or {}).get(STRUCTURED_OUTPUT_COUNT_KEY)),
+        "has_structured_output": bool(metadata.get(STRUCTURED_OUTPUT_COUNT_KEY)),
+        # The remember endpoint bumps the counter for the run its sandbox token is bound to, so
+        # the write is attributed when it happens. Any output means the run was not pointless.
+        "has_not_in_use_closeout": bool(metadata.get(NOT_IN_USE_WRITES_KEY))
+        and not emitted_ids
+        and not run.edited_report_ids
+        and not run.emitted_count
+        and not metadata.get(STRUCTURED_OUTPUT_COUNT_KEY),
     }
 
 

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LlamaCloudSource(ResumableSource[LlamaCloudSourceConfig, LlamaCloudResumeConfig]):
+    codebase_detection = detect(
+        env=("^LLAMA_CLOUD_",),
+        npm=("llama-cloud-services", "@llamaindex/llama-cloud"),
+        pypi=("llama-cloud-services", "llama-cloud", "llama-parse"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developers.llamaindex.ai/python/cloud/"
 
@@ -66,7 +73,7 @@ class LlamaCloudSource(ResumableSource[LlamaCloudSourceConfig, LlamaCloudResumeC
             docsUrl="https://posthog.com/docs/cdp/sources/llama-cloud",
             iconPath="/static/services/llama_cloud.svg",
             keywords=["llamaindex", "llamaparse", "document parsing", "rag"],
-            caption="""Enter a LlamaCloud API key to sync your parsing, extraction, and classification jobs, pipelines, projects, files, and usage metrics.
+            caption="""Enter a LlamaCloud API key to sync your parsing, extraction, and classification jobs, extraction agents and runs, pipelines, indexes, projects, files, and usage metrics.
 
 You can create an API key in [LlamaCloud](https://cloud.llamaindex.ai) under **Settings → API Keys**. API keys are project-scoped and region-specific, so pick the region your key was created in.
 """,

@@ -1,8 +1,8 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.source import FlowluSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flowlu import FlowluSourceConfig
@@ -100,7 +100,7 @@ class TestFlowluSource:
         assert kwargs["resumable_source_manager"] is manager
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Flowlu schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Flowlu schema 'not_a_table'" in str(result.raised)

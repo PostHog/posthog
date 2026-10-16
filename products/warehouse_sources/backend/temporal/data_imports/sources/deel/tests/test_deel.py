@@ -1,15 +1,15 @@
-import json
 from typing import Any
 
 import pytest
-from unittest import mock
 
-import requests
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.deel.deel import (
     DeelResumeConfig,
-    deel_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.deel.settings import (
@@ -19,11 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deel.setti
     ENDPOINTS,
     PAGE_SIZE,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the deel module.
-DEEL_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.deel.deel.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.deel.source import DeelSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deel import DeelSourceConfig
 
 # (pin, base URL, version headers): the legacy pin sends no selector, the dated pin sends X-Version.
 VERSION_WIRES = [
@@ -32,73 +29,22 @@ VERSION_WIRES = [
 ]
 
 
-def _response(items: list[dict[str, Any]] | None, *, cursor: str | None = None, drop_data: bool = False) -> Response:
+def _driver() -> SourceDriver:
+    return SourceDriver(DeelSource(), DeelSourceConfig(api_token="token"))
+
+
+def _response(items: list[dict[str, Any]] | None, *, cursor: str | None = None) -> ScriptedResponse:
     page: dict[str, Any] = {"total_rows": len(items or [])}
     if cursor is not None:
         page["cursor"] = cursor
-    body: dict[str, Any] = {"page": page}
-    if not drop_data:
-        body["data"] = items or []
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _wrapped_response(body: dict[str, Any]) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+    return ScriptedResponse(json={"page": page, "data": items or []})
 
 
 def _payroll_response(
     items: list[dict[str, Any]], *, next_cursor: str | None = None, has_more: bool = False
-) -> Response:
+) -> ScriptedResponse:
     # Payroll cycles and gross-to-net put both the cursor and the flag at the top level.
-    return _wrapped_response({"data": items, "has_more": has_more, "next_cursor": next_cursor})
-
-
-def _make_manager(resume_state: DeelResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire_capture(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[str]]:
-    """Wire a mock session and capture each request's params and URL AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy
-    when each request is prepared instead of inspecting the final state.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-    urls: list[str] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        urls.append(request.url)
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots, urls
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    params, _urls = _wire_capture(session, responses)
-    return params
-
-
-def _source(endpoint: str, manager: mock.MagicMock, api_version: str = DEEL_API_VERSION_V2):
-    return deel_source(
-        "token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, api_version=api_version
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+    return ScriptedResponse(json={"data": items, "has_more": has_more, "next_cursor": next_cursor})
 
 
 class TestValidateCredentials:
@@ -111,100 +57,82 @@ class TestValidateCredentials:
             (401, (False, "Invalid Deel API token")),
         ],
     )
-    @mock.patch(DEEL_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
-
-        assert validate_credentials("token", DEEL_API_VERSION_V2) == expected
+    def test_validate_credentials_status_mapping(self, status_code: int, expected: tuple[bool, str | None]) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]):
+            assert validate_credentials("token", DEEL_API_VERSION_V2) == expected
 
     @pytest.mark.parametrize("api_version, base_url, version_headers", VERSION_WIRES)
-    @mock.patch(DEEL_SESSION_PATCH)
     def test_validate_credentials_probes_on_the_pinned_version(
-        self, mock_session, api_version, base_url, version_headers
-    ):
-        response = mock.MagicMock()
-        response.status_code = 200
-        mock_session.return_value.get.return_value = response
+        self, api_version: str, base_url: str, version_headers: dict[str, str]
+    ) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            validate_credentials("token", api_version)
 
-        validate_credentials("token", api_version)
+        request = network.requests_log[0]
+        assert request.url == f"{base_url}/people?limit=1"
+        assert request.headers["authorization"] == "Bearer token"
+        assert {name: value for name, value in request.headers.items() if name == "x-version"} == {
+            name.lower(): value for name, value in version_headers.items()
+        }
 
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == f"{base_url}/people?limit=1"
-        assert call.kwargs["headers"] == {"Authorization": "Bearer token", **version_headers}
-
-    @mock.patch(DEEL_SESSION_PATCH)
-    def test_validate_credentials_reports_network_error_distinctly(self, mock_session):
+    def test_validate_credentials_reports_network_error_distinctly(self) -> None:
         # A transient network failure must not masquerade as a bad token.
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        valid, error = validate_credentials("token", DEEL_API_VERSION_V2)
+        with scripted_network(always(ConnectionError("boom"))):
+            valid, error = validate_credentials("token", DEEL_API_VERSION_V2)
+
         assert valid is False
         assert error is not None and error.startswith("Could not reach Deel")
 
 
 class TestOffsetPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_short_page(self, MockSession):
-        session = MockSession.return_value
+    def test_paginates_until_short_page(self) -> None:
         full_page = [{"id": str(i)} for i in range(PAGE_SIZE)]
-        params = _wire(session, [_response(full_page), _response([{"id": "last"}])])
+        result = _driver().run("people", [_response(full_page), _response([{"id": "last"}])], api_version="v2")
 
-        manager = _make_manager()
-        rows = _rows(_source("people", manager))
-
-        assert [r["id"] for r in rows] == [*(str(i) for i in range(PAGE_SIZE)), "last"]
-        assert params[0]["offset"] == 0
-        assert params[0]["limit"] == PAGE_SIZE
-        assert params[1]["offset"] == PAGE_SIZE
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [*(str(i) for i in range(PAGE_SIZE)), "last"]
+        assert result.params("offset") == ["0", str(PAGE_SIZE)]
+        assert result.params("limit") == [str(PAGE_SIZE), str(PAGE_SIZE)]
         # Checkpoint saved once after the first full page; the short page ends the walk.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == DeelResumeConfig(offset=PAGE_SIZE)
+        assert result.saved_states == [DeelResumeConfig(offset=PAGE_SIZE)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession):
-        session = MockSession.return_value
-        params = _wire(session, [_response([])])
+    def test_resumes_from_saved_offset(self) -> None:
+        result = _driver().run("people", [_response([])], resume_state=DeelResumeConfig(offset=150), api_version="v2")
 
-        manager = _make_manager(DeelResumeConfig(offset=150))
-        _rows(_source("people", manager))
-
-        assert params[0]["offset"] == 150
+        assert result.raised is None
+        assert result.params("offset") == ["150"]
 
 
 class TestCursorPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_after_cursor(self, MockSession):
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "1"}], cursor="cur_abc"), _response([{"id": "2"}])])
+    def test_paginates_via_after_cursor(self) -> None:
+        result = _driver().run(
+            "contracts", [_response([{"id": "1"}], cursor="cur_abc"), _response([{"id": "2"}])], api_version="v2"
+        )
 
-        manager = _make_manager()
-        rows = _rows(_source("contracts", manager))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["1", "2"]
+        assert result.params("limit") == [str(PAGE_SIZE), str(PAGE_SIZE)]
+        assert result.params("after_cursor") == [None, "cur_abc"]
+        assert result.saved_states == [DeelResumeConfig(cursor="cur_abc")]
 
-        assert [r["id"] for r in rows] == ["1", "2"]
-        assert params[0]["limit"] == PAGE_SIZE
-        assert "after_cursor" not in params[0]
-        assert params[1]["after_cursor"] == "cur_abc"
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == DeelResumeConfig(cursor="cur_abc")
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "contracts", [_response([])], resume_state=DeelResumeConfig(cursor="cur_resume"), api_version="v2"
+        )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession):
-        session = MockSession.return_value
-        params = _wire(session, [_response([])])
-
-        manager = _make_manager(DeelResumeConfig(cursor="cur_resume"))
-        _rows(_source("contracts", manager))
-
-        assert params[0]["after_cursor"] == "cur_resume"
+        assert result.raised is None
+        assert result.params("after_cursor") == ["cur_resume"]
 
 
 class TestDeelSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = DEEL_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
+        result = _driver().run(endpoint, [ScriptedResponse(json={"data": []})])
+        response = result.response
 
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == "asc"
@@ -217,98 +145,93 @@ class TestDeelSourceResponse:
 
 
 class TestTimeOffEvents:
-    @mock.patch(DEEL_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_skips_a_person_that_disappeared_between_the_listing_and_the_fetch(
-        self, MockClientSession, MockDeelSession
-    ):
-        _wire(MockClientSession.return_value, [_response([{"id": "prof_1"}, {"id": "prof_2"}])])
-        gone = Response()
-        gone.status_code = 404
-        gone._content = b"{}"
-        MockDeelSession.return_value.get.side_effect = [
-            gone,
-            _wrapped_response({"data": [{"id": "ev_2", "hris_profile_id": "prof_2"}]}),
-        ]
+    def test_skips_a_person_that_disappeared_between_the_listing_and_the_fetch(self) -> None:
+        result = _driver().run(
+            "time_off_events",
+            [
+                _response([{"id": "prof_1"}, {"id": "prof_2"}]),
+                ScriptedResponse(status=404, json={}),
+                ScriptedResponse(json={"data": [{"id": "ev_2", "hris_profile_id": "prof_2"}]}),
+            ],
+            api_version="v2",
+        )
 
-        rows = _rows(_source("time_off_events", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["ev_2"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["ev_2"]
 
 
 class TestPayrollEndpoints:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_payroll_cycles_fan_out_and_carry_their_legal_entity(self, MockSession):
-        session = MockSession.return_value
-        params, urls = _wire_capture(
-            session,
+    def test_payroll_cycles_fan_out_and_carry_their_legal_entity(self) -> None:
+        result = _driver().run(
+            "payroll_cycles",
             [
                 _response([{"id": "le_1"}]),
                 _payroll_response([{"id": "cy_1"}], next_cursor="cur_1", has_more=True),
                 _payroll_response([{"id": "cy_2"}], has_more=False),
             ],
+            api_version="v2",
         )
 
-        rows = _rows(_source("payroll_cycles", _make_manager()))
-
-        assert urls[1:] == ["https://api.letsdeel.com/rest/v2/legal-entities/le_1/payroll-events"] * 2
-        assert params[2]["cursor"] == "cur_1"
-        assert params[1]["limit"] == PAGE_SIZE
-        assert [(r["id"], r["legal_entity_id"]) for r in rows] == [("cy_1", "le_1"), ("cy_2", "le_1")]
+        assert result.raised is None
+        assert result.paths[1:] == ["/rest/v2/legal-entities/le_1/payroll-events"] * 2
+        assert result.requests[2].param("cursor") == "cur_1"
+        assert result.requests[1].param("limit") == str(PAGE_SIZE)
+        assert [(row["id"], row["legal_entity_id"]) for row in result.rows] == [
+            ("cy_1", "le_1"),
+            ("cy_2", "le_1"),
+        ]
 
 
 class TestGrossToNet:
-    @mock.patch(DEEL_SESSION_PATCH)
-    def test_resume_skips_cycles_already_emitted(self, MockSession):
-        session = MockSession.return_value
-        session.get.side_effect = [
-            _response([{"id": "le_1"}]),
-            _payroll_response([{"id": "cy_1", "has_g2n_report": True}, {"id": "cy_2", "has_g2n_report": True}]),
-            _payroll_response([{"contract_oid": "con_2"}]),
-        ]
-
-        manager = _make_manager(DeelResumeConfig(completed=["le_1:cy_1"]))
-        rows = _rows(_source("payroll_gross_to_net", manager))
-
-        assert [call.args[0] for call in session.get.call_args_list][-1] == (
-            "https://api.letsdeel.com/rest/v2/reports/payroll/cycles/cy_2/gross-to-net"
+    def test_resume_skips_cycles_already_emitted(self) -> None:
+        result = _driver().run(
+            "payroll_gross_to_net",
+            [
+                _response([{"id": "le_1"}]),
+                _payroll_response([{"id": "cy_1", "has_g2n_report": True}, {"id": "cy_2", "has_g2n_report": True}]),
+                _payroll_response([{"contract_oid": "con_2"}]),
+            ],
+            resume_state=DeelResumeConfig(completed=["le_1:cy_1"]),
+            api_version="v2",
         )
-        assert [r["cycle_id"] for r in rows] == ["cy_2"]
-        assert manager.save_state.call_args.args[0] == DeelResumeConfig(completed=["le_1:cy_1", "le_1:cy_2"])
 
-    @mock.patch(DEEL_SESSION_PATCH)
-    def test_skips_a_cycle_whose_report_went_away(self, MockSession):
+        assert result.raised is None
+        assert result.paths[-1] == "/rest/v2/reports/payroll/cycles/cy_2/gross-to-net"
+        assert [row["cycle_id"] for row in result.rows] == ["cy_2"]
+        assert result.saved_states == [DeelResumeConfig(completed=["le_1:cy_1", "le_1:cy_2"])]
+
+    def test_skips_a_cycle_whose_report_went_away(self) -> None:
         # A cycle can flag a report that 404s by the time we ask for it; that must not fail
         # the whole sync.
-        gone = Response()
-        gone.status_code = 404
-        gone._content = b"{}"
-        session = MockSession.return_value
-        session.get.side_effect = [
-            _response([{"id": "le_1"}]),
-            _payroll_response([{"id": "cy_1", "has_g2n_report": True}, {"id": "cy_2", "has_g2n_report": True}]),
-            gone,
-            _payroll_response([{"contract_oid": "con_2"}]),
-        ]
+        result = _driver().run(
+            "payroll_gross_to_net",
+            [
+                _response([{"id": "le_1"}]),
+                _payroll_response([{"id": "cy_1", "has_g2n_report": True}, {"id": "cy_2", "has_g2n_report": True}]),
+                ScriptedResponse(status=404, json={}),
+                _payroll_response([{"contract_oid": "con_2"}]),
+            ],
+            api_version="v2",
+        )
 
-        rows = _rows(_source("payroll_gross_to_net", _make_manager()))
+        assert result.raised is None
+        assert [row["contract_oid"] for row in result.rows] == ["con_2"]
 
-        assert [r["contract_oid"] for r in rows] == ["con_2"]
+    def test_stops_a_report_that_keeps_echoing_the_same_cursor(self) -> None:
+        result = _driver().run(
+            "payroll_gross_to_net",
+            [
+                _response([{"id": "le_1"}]),
+                _payroll_response([{"id": "cy_1", "has_g2n_report": True}]),
+                _payroll_response([{"contract_oid": "con_1"}], next_cursor="cur_1", has_more=True),
+                _payroll_response([{"contract_oid": "con_1"}], next_cursor="cur_1", has_more=True),
+            ],
+            api_version="v2",
+        )
 
-    @mock.patch(DEEL_SESSION_PATCH)
-    def test_stops_a_report_that_keeps_echoing_the_same_cursor(self, MockSession):
-        session = MockSession.return_value
-        session.get.side_effect = [
-            _response([{"id": "le_1"}]),
-            _payroll_response([{"id": "cy_1", "has_g2n_report": True}]),
-            _payroll_response([{"contract_oid": "con_1"}], next_cursor="cur_1", has_more=True),
-            _payroll_response([{"contract_oid": "con_1"}], next_cursor="cur_1", has_more=True),
-        ]
-
-        rows = _rows(_source("payroll_gross_to_net", _make_manager()))
-
-        assert [r["contract_oid"] for r in rows] == ["con_1", "con_1"]
-        assert session.get.call_count == 4
+        assert result.raised is None
+        assert [row["contract_oid"] for row in result.rows] == ["con_1", "con_1"]
+        assert len(result.requests) == 4
 
 
 class TestDatedVersionEndpoints:
@@ -339,29 +262,38 @@ class TestDatedVersionEndpoints:
             ("equity_awards", "/equity-awards", "2026-09-09", "next_cursor", "cursor", "limit", PAGE_SIZE, "has_more"),
         ],
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_walks_on_the_endpoints_own_published_version(
-        self, MockSession, endpoint, path, x_version, cursor_key, cursor_param, page_size_param, page_size, has_more_key
-    ):
+        self,
+        endpoint: str,
+        path: str,
+        x_version: str,
+        cursor_key: str,
+        cursor_param: str,
+        page_size_param: str,
+        page_size: int,
+        has_more_key: str,
+    ) -> None:
         # These endpoints were published after the 2026-01-01 baseline, and Deel rejects a date an
         # endpoint was not published under, so each one must send its own date.
-        session = MockSession.return_value
-        params, urls = _wire_capture(
-            session,
+        result = _driver().run(
+            endpoint,
             [
-                _wrapped_response({"data": [{"id": "a"}], has_more_key: True, cursor_key: "cur_1"}),
-                _wrapped_response({"data": [{"id": "b"}], has_more_key: False, cursor_key: None}),
+                ScriptedResponse(json={"data": [{"id": "a"}], has_more_key: True, cursor_key: "cur_1"}),
+                ScriptedResponse(json={"data": [{"id": "b"}], has_more_key: False, cursor_key: None}),
             ],
+            api_version=DEEL_API_VERSION_2026_01_01,
         )
 
-        rows = _rows(_source(endpoint, _make_manager(), DEEL_API_VERSION_2026_01_01))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a", "b"]
+        assert result.paths == [f"/rest{path}"] * 2
+        assert all(request.origin == "https://api.letsdeel.com" for request in result.requests)
+        assert all(request.headers["x-version"] == x_version for request in result.requests)
+        assert result.requests[0].param(page_size_param) == str(page_size)
+        assert result.requests[1].param(cursor_param) == "cur_1"
 
-        assert [r["id"] for r in rows] == ["a", "b"]
-        assert urls == [f"https://api.letsdeel.com/rest{path}"] * 2
-        assert session.headers == {"X-Version": x_version}
-        assert params[0][page_size_param] == page_size
-        assert params[1][cursor_param] == "cur_1"
+    def test_an_undeclared_pin_fails_instead_of_sending_no_version(self) -> None:
+        result = _driver().run("people", [], api_version="2099-01-01")
 
-    def test_an_undeclared_pin_fails_instead_of_sending_no_version(self):
-        with pytest.raises(ValueError, match="Unsupported Deel API version"):
-            _source("people", _make_manager(), "2099-01-01")
+        assert isinstance(result.raised, ValueError)
+        assert "Unsupported Deel API version" in str(result.raised)

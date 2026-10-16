@@ -2,14 +2,23 @@ import re
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-import pytest
 import time_machine
-from unittest import mock
 
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wikipediapageviews import (
+    WikipediaPageviewsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.settings import (
     ARTICLE_PAGEVIEWS_ENDPOINT,
     MAX_ARTICLES,
@@ -17,27 +26,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_
     TOP_ARTICLES_ENDPOINT,
     WIKIPEDIA_PAGEVIEWS_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.source import (
+    WikipediaPageviewsSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.wikipedia_pageviews import (
     NO_ARTICLES_ERROR,
     WikipediaPageviewsResumeConfig,
     _coerce_date,
-    _get_rows,
     _normalize_project,
     _parse_articles,
     validate_project,
-    wikipedia_pageviews_source,
 )
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.wikipedia_pageviews"
 
-
-def _response(status: int = 200, json_body: Any = None, text: str = "") -> mock.MagicMock:
-    response = mock.MagicMock(spec=requests.Response)
-    response.status_code = status
-    response.ok = 200 <= status < 300
-    response.text = text
-    response.json.return_value = json_body if json_body is not None else {}
-    return response
+def _response(status: int = 200, json_body: Any = None) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=json_body if json_body is not None else {})
 
 
 def _aggregate_item(timestamp: str, views: int = 100) -> dict[str, Any]:
@@ -51,43 +54,31 @@ def _aggregate_item(timestamp: str, views: int = 100) -> dict[str, Any]:
     }
 
 
-def _manager(resume_state: Optional[WikipediaPageviewsResumeConfig] = None) -> mock.MagicMock:
-    manager = mock.MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
 def _run(
     endpoint: str,
-    session: mock.MagicMock,
-    manager: Optional[mock.MagicMock] = None,
+    script: Script,
+    resume_state: Optional[WikipediaPageviewsResumeConfig] = None,
     article_names: Optional[str] = None,
     start_date: Optional[str] = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
-) -> list[list[dict[str, Any]]]:
-    with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-        return list(
-            _get_rows(
-                project="en.wikipedia.org",
-                access="all-access",
-                agent="user",
-                article_names=article_names,
-                start_date=start_date,
-                endpoint=endpoint,
-                logger=mock.MagicMock(),
-                resumable_source_manager=manager if manager is not None else _manager(),
-                should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-            )
-        )
+) -> DriveResult:
+    config = WikipediaPageviewsSourceConfig(
+        project="en.wikipedia.org", article_names=article_names, start_date=start_date
+    )
+    return SourceDriver(WikipediaPageviewsSource(), config).run(
+        endpoint,
+        script,
+        resume_state=resume_state,
+        incremental_field="date" if should_use_incremental_field else None,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+    )
 
 
-def _requested_ranges(session: mock.MagicMock) -> list[tuple[str, str]]:
+def _requested_ranges(result: DriveResult) -> list[tuple[str, str]]:
     ranges = []
-    for call in session.get.call_args_list:
-        match = re.search(r"/daily/(\d+)/(\d+)$", call.args[0])
+    for path in result.paths:
+        match = re.search(r"/daily/(\d+)/(\d+)$", path)
         assert match is not None
         ranges.append((match.group(1), match.group(2)))
     return ranges
@@ -135,74 +126,74 @@ class TestHelpers:
 class TestPageviews:
     @time_machine.travel("2026-07-21", tick=False)
     def test_404_window_is_skipped_and_iteration_continues(self):
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.side_effect = [
-            _response(status=404),
-            _response(json_body={"items": [_aggregate_item("2025070200")]}),
-            _response(status=404),
-        ]
+        result = _run(
+            PAGEVIEWS_ENDPOINT,
+            [
+                _response(status=404),
+                _response(json_body={"items": [_aggregate_item("2025070200")]}),
+                _response(status=404),
+            ],
+            start_date="2024-07-01",
+        )
 
-        batches = _run(PAGEVIEWS_ENDPOINT, session, start_date="2024-07-01")
-
-        assert session.get.call_count == 3
-        assert len(batches) == 1
-        assert batches[0][0]["timestamp"] == "2025070200"
+        assert len(result.requests) == 3
+        assert len(result.items) == 1
+        assert result.items[0][0]["timestamp"] == "2025070200"
 
     @time_machine.travel("2026-07-21", tick=False)
     def test_resume_state_takes_precedence_over_incremental_value(self):
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.return_value = _response(json_body={"items": []})
-        manager = _manager(resume_state=WikipediaPageviewsResumeConfig(next_start="2026-07-19"))
-
-        _run(
+        result = _run(
             PAGEVIEWS_ENDPOINT,
-            session,
-            manager,
+            always(_response(json_body={"items": []})),
+            resume_state=WikipediaPageviewsResumeConfig(next_start="2026-07-19"),
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 7, 1, tzinfo=UTC),
         )
 
-        assert _requested_ranges(session) == [("2026071900", "2026072100")]
+        assert _requested_ranges(result) == [("2026071900", "2026072100")]
 
     @time_machine.travel("2026-07-21", tick=False)
     def test_non_ok_status_raises(self):
-        response = _response(status=500, text="server error")
-        response.raise_for_status.side_effect = requests.HTTPError
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.return_value = response
+        result = _run(
+            PAGEVIEWS_ENDPOINT,
+            always(_response(status=500, json_body={"error": "server error"})),
+            start_date="2026-07-18",
+        )
 
-        with pytest.raises(requests.HTTPError):
-            _run(PAGEVIEWS_ENDPOINT, session, start_date="2026-07-18")
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestArticlePageviews:
     @time_machine.travel("2026-07-21", tick=False)
     def test_fans_out_per_article_with_encoded_titles(self):
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.side_effect = [
-            _response(
-                json_body={
-                    "items": [
-                        {"project": "en.wikipedia", "article": "Albert_Einstein", "timestamp": "2026071800", "views": 5}
-                    ]
-                }
-            ),
-            _response(
-                json_body={
-                    "items": [{"project": "en.wikipedia", "article": "AC%2FDC", "timestamp": "2026071800", "views": 7}]
-                }
-            ),
-        ]
-
-        batches = _run(
+        result = _run(
             ARTICLE_PAGEVIEWS_ENDPOINT,
-            session,
+            [
+                _response(
+                    json_body={
+                        "items": [
+                            {
+                                "project": "en.wikipedia",
+                                "article": "Albert_Einstein",
+                                "timestamp": "2026071800",
+                                "views": 5,
+                            }
+                        ]
+                    }
+                ),
+                _response(
+                    json_body={
+                        "items": [
+                            {"project": "en.wikipedia", "article": "AC%2FDC", "timestamp": "2026071800", "views": 7}
+                        ]
+                    }
+                ),
+            ],
             article_names="Albert Einstein, AC/DC",
             start_date="2026-07-18",
         )
 
-        urls = [call.args[0] for call in session.get.call_args_list]
-        assert urls == [
+        assert result.urls == [
             "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia.org"
             "/all-access/user/Albert_Einstein/daily/20260718/20260721",
             "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia.org"
@@ -210,32 +201,37 @@ class TestArticlePageviews:
         ]
         # Both articles' rows land in the same window batch, so the per-batch watermark
         # never advances past a window an article hasn't been fetched for.
-        assert len(batches) == 1
-        assert [row["views"] for row in batches[0]] == [5, 7]
-        assert batches[0][0]["date"] == datetime(2026, 7, 18, tzinfo=UTC)
+        assert len(result.items) == 1
+        assert [row["views"] for row in result.items[0]] == [5, 7]
+        assert result.items[0][0]["date"] == datetime(2026, 7, 18, tzinfo=UTC)
 
     def test_raises_without_configured_articles(self):
-        with pytest.raises(ValueError, match=NO_ARTICLES_ERROR):
-            _run(ARTICLE_PAGEVIEWS_ENDPOINT, mock.MagicMock(spec=requests.Session), article_names="  ,  ")
+        result = _run(ARTICLE_PAGEVIEWS_ENDPOINT, [], article_names="  ,  ")
+
+        assert isinstance(result.raised, ValueError)
+        assert NO_ARTICLES_ERROR in str(result.raised)
 
     @time_machine.travel("2026-07-21", tick=False)
     def test_article_titles_capped_at_max_at_runtime(self):
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.return_value = _response(json_body={"items": []})
         # Single window (start within a year of now), so one request per article — a config
         # stored past the cap must still not fan out beyond MAX_ARTICLES.
         names = ",".join(f"Article_{i}" for i in range(MAX_ARTICLES + 5))
 
-        _run(ARTICLE_PAGEVIEWS_ENDPOINT, session, article_names=names, start_date="2026-07-20")
+        result = _run(
+            ARTICLE_PAGEVIEWS_ENDPOINT,
+            always(_response(json_body={"items": []})),
+            article_names=names,
+            start_date="2026-07-20",
+        )
 
-        assert session.get.call_count == MAX_ARTICLES
+        assert len(result.requests) == MAX_ARTICLES
 
 
 class TestTopArticles:
     @time_machine.travel("2026-07-21", tick=False)
     def test_flattens_daily_rankings_into_rows(self):
-        def day_response(url: str, timeout: int = 0) -> mock.MagicMock:
-            match = re.search(r"/top/en\.wikipedia\.org/all-access/(\d{4})/(\d{2})/(\d{2})$", url)
+        def day_response(request: RecordedRequest) -> ScriptedResponse:
+            match = re.search(r"/top/en\.wikipedia\.org/all-access/(\d{4})/(\d{2})/(\d{2})$", request.path)
             assert match is not None
             year, month, day = match.groups()
             return _response(
@@ -256,18 +252,14 @@ class TestTopArticles:
                 }
             )
 
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.side_effect = day_response
-        manager = _manager()
-
-        batches = _run(TOP_ARTICLES_ENDPOINT, session, manager, start_date="2026-07-19")
+        result = _run(TOP_ARTICLES_ENDPOINT, day_response, start_date="2026-07-19")
 
         # One request per day, all days of the window batched into a single yield.
-        assert session.get.call_count == 3
-        assert len(batches) == 1
-        assert len(batches[0]) == 6
+        assert len(result.requests) == 3
+        assert len(result.items) == 1
+        assert len(result.items[0]) == 6
 
-        first = batches[0][0]
+        first = result.items[0][0]
         assert first == {
             "project": "en.wikipedia",
             "access": "all-access",
@@ -279,8 +271,7 @@ class TestTopArticles:
             "views": 1000,
             "rank": 1,
         }
-        saved = [call.args[0].next_start for call in manager.save_state.call_args_list]
-        assert saved == ["2026-07-22"]
+        assert [state.next_start for state in result.saved_states] == ["2026-07-22"]
 
 
 class TestValidateProject:
@@ -292,8 +283,7 @@ class TestValidateProject:
         ]
     )
     def test_status_mapping(self, _name, status, expected_valid):
-        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
-            make_session.return_value.get.return_value = _response(status=status)
+        with scripted_network(always(_response(status=status))):
             is_valid, message = validate_project("en.wikipedia.org", "all-access", "user")
 
         assert is_valid is expected_valid
@@ -303,16 +293,15 @@ class TestValidateProject:
             assert message is not None
 
     def test_empty_project_is_invalid_without_network(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
+        with scripted_network([]) as network:
             is_valid, message = validate_project("  ", "all-access", "user")
 
         assert is_valid is False
         assert message is not None
-        make_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
     def test_network_error_is_not_valid(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
-            make_session.return_value.get.side_effect = requests.ConnectionError("boom")
+        with scripted_network(always(requests.ConnectionError("boom"))):
             is_valid, message = validate_project("en.wikipedia.org", "all-access", "user")
 
         assert is_valid is False
@@ -321,18 +310,12 @@ class TestValidateProject:
 
 class TestSourceResponseMetadata:
     @parameterized.expand([(name,) for name in WIKIPEDIA_PAGEVIEWS_ENDPOINTS])
+    @time_machine.travel("2026-07-21", tick=False)
     def test_primary_keys_and_partitioning_per_endpoint(self, endpoint):
-        response = wikipedia_pageviews_source(
-            project="en.wikipedia.org",
-            access="all-access",
-            agent="user",
-            article_names=None,
-            start_date=None,
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(spec=ResumableSourceManager),
-        )
+        result = _run(endpoint, always(_response(status=404)), article_names="Cat", start_date="2026-07-20")
 
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == WIKIPEDIA_PAGEVIEWS_ENDPOINTS[endpoint].primary_keys
         assert response.partition_mode == "datetime"

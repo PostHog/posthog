@@ -88,7 +88,12 @@ _RETRYABLE_RPC_STATUSES = frozenset(
 # underlying transport connection is closed mid-request (a known upstream pattern, e.g.
 # temporalio/sdk-core#807) — another connection blip, not an intentional cancellation. Match the
 # phrase, not the whole status, for the same reason as above.
-_RETRYABLE_RPC_MESSAGES = ("h2 protocol error", "Timeout expired", "operation was canceled")
+#
+# tonic's generic fallback for a broken connection (e.g. the TCP connection reset or closed before
+# a response arrived) surfaces as status UNKNOWN with the bare message "transport error" — no more
+# specific h2/cancellation detail available. Like the "h2 protocol error" case above, this is a
+# connection blip rather than the server rejecting the request.
+_RETRYABLE_RPC_MESSAGES = ("h2 protocol error", "Timeout expired", "operation was canceled", "transport error")
 
 
 def _is_retryable_rpc_error(error: RPCError) -> bool:

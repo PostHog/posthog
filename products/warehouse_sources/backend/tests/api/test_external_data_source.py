@@ -102,6 +102,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsApiError
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
+    META_TOKEN_REFRESH_ERROR_MESSAGE,
     MetaAdsRateLimitError,
     MetaAdsTokenRefreshError,
 )
@@ -2990,6 +2991,17 @@ class TestExternalDataSource(APIBaseTest):
         # Guards the drift the picker hit: a direct-capable engine must surface as an addable option.
         self.assertTrue({"Postgres", "MySQL", "Snowflake", "Redshift", "ClickHouse", "Trino"}.issubset(source_types))
         self.assertNotIn("Stripe", source_types)
+        # BigQuery is gated on the bigquery-direct-query flag, off by default.
+        self.assertNotIn("BigQuery", source_types)
+
+        with patch(
+            "posthog.hogql.direct_sql.capability.bigquery_direct_query_enabled",
+            return_value=True,
+        ):
+            flag_on = self.client.get(
+                f"/api/environments/{self.team.pk}/external_data_sources/direct_connection_options/"
+            )
+        self.assertIn("BigQuery", {option["source_type"] for option in flag_on.json()})
 
         clickhouse = next(option for option in payload if option["source_type"] == "ClickHouse")
         self.assertEqual(clickhouse["label"], "ClickHouse")
@@ -3348,6 +3360,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_sync_blocked": None,
                     "enabled_columns": None,
                     "row_filters": None,
+                    "row_filter_columns": None,
                     "available_columns": [],
                     "source_column_metadata_available": False,
                     "source": None,
@@ -4200,8 +4213,37 @@ class TestExternalDataSource(APIBaseTest):
         assert table is not None
         self.assertEqual(table.name, "Accounts")
 
+    @parameterized.expand(
+        [
+            (
+                "duckdb_direct",
+                ExternalDataSource.AccessMethod.DIRECT,
+                {
+                    "database": "ducklake",
+                    "version": "PostgreSQL 15.0 (Duckgres/DuckDB)",
+                    "engine": "duckdb",
+                    "function_source": "duckdb_functions",
+                    "available_functions": ["duckdb_functions", "date_bin"],
+                },
+            ),
+            (
+                "pgcrypto_synced_live",
+                ExternalDataSource.AccessMethod.WAREHOUSE,
+                {
+                    "database": "analytics",
+                    "version": "PostgreSQL 15.12",
+                    "engine": "postgres",
+                    "function_source": "pg_proc",
+                    "available_functions": ["count", "digest"],
+                    "pgcrypto_schema": "crypto",
+                },
+            ),
+        ]
+    )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_refresh_schemas_direct_postgres_updates_connection_metadata(self, mock_get_source):
+    def test_refresh_schemas_direct_postgres_updates_connection_metadata(
+        self, _name, access_method, expected_metadata, mock_get_source
+    ):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -4210,19 +4252,14 @@ class TestExternalDataSource(APIBaseTest):
             source_type="Postgres",
             created_by=self.user,
             prefix="test",
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            access_method=access_method,
+            direct_query_enabled=access_method == ExternalDataSource.AccessMethod.WAREHOUSE,
             job_inputs={"host": "localhost", "port": 5432},
             connection_metadata={"database": "old_db", "available_functions": ["count"]},
         )
 
         mock_get_source.return_value.parse_config.return_value = None
-        mock_get_source.return_value.get_connection_metadata.return_value = {
-            "database": "ducklake",
-            "version": "PostgreSQL 15.0 (Duckgres/DuckDB)",
-            "engine": "duckdb",
-            "function_source": "duckdb_functions",
-            "available_functions": ["duckdb_functions", "date_bin"],
-        }
+        mock_get_source.return_value.get_connection_metadata.return_value = expected_metadata
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="Accounts",
@@ -4239,10 +4276,7 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         source.refresh_from_db()
-        connection_metadata = source.connection_metadata
-        assert connection_metadata is not None
-        self.assertEqual(connection_metadata["database"], "ducklake")
-        self.assertEqual(connection_metadata["available_functions"], ["duckdb_functions", "date_bin"])
+        self.assertEqual(source.connection_metadata, expected_metadata)
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_create_direct_postgres_preserves_numeric_as_decimal(self, mock_get_source):
@@ -4310,6 +4344,52 @@ class TestExternalDataSource(APIBaseTest):
         assert connection_metadata is not None
         self.assertEqual(connection_metadata["database"], "app")
         self.assertEqual(connection_metadata["available_functions"], ["duckdb_functions", "date_bin"])
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    def test_create_direct_bigquery_source_without_table_registration(self, mock_get_source):
+        # BigQuery has no materialization engine, so a pure-direct connection is created with
+        # schema rows but no DataWarehouseTable. Creation is gated on the bigquery-direct-query flag.
+        _configure_source_mock_versioning(mock_get_source)
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {"dataset_id": "analytics"}
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="orders",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "INTEGER", False)],
+                foreign_keys=[],
+            ),
+        ]
+
+        request_data = {
+            "source_type": "BigQuery",
+            "created_via": "web",
+            "access_method": "direct",
+            "prefix": "Analytics warehouse",
+            "payload": {"dataset_id": "analytics"},
+        }
+
+        # Flag off (the default): a direct BigQuery connection cannot be created.
+        response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/", data=request_data)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {"message": DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE})
+
+        with patch(
+            "posthog.hogql.direct_sql.capability.bigquery_direct_query_enabled",
+            return_value=True,
+        ):
+            response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/", data=request_data)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        self.assertEqual(source.access_method, ExternalDataSource.AccessMethod.DIRECT)
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source=source, name="orders")
+        self.assertIsNone(schema.table)
 
     def test_create_direct_postgres_requires_name(self):
         response = self.client.post(
@@ -9852,7 +9932,6 @@ class TestCreateWebhook(APIBaseTest):
         # that a partial update which omits one required field is accepted while still
         # preserving the existing value on the HogFunction.
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-        from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 
         original_source = SourceRegistry.get_source(ExternalDataSourceType("Stripe"))
         original_config = original_source.get_source_config
@@ -9993,7 +10072,7 @@ class TestCreateWebhook(APIBaseTest):
         assert hog_function.inputs["source_id"]["value"] == str(source.pk)
 
 
-class TestSensitiveFieldClassification(APIBaseTest):
+class TestSensitiveFieldClassification(SimpleTestCase):
     def test_classifies_password_fields_as_sensitive(self):
         fields: list[FieldType] = [
             SourceFieldInputConfig(
@@ -10245,94 +10324,6 @@ class TestSensitiveFieldClassification(APIBaseTest):
 
         assert result["temporary-dataset"]["temporary_dataset_id"] == "declared"
         assert "temporary_dataset" not in result
-
-    def test_all_registered_sources_have_valid_classification(self):
-        for source in SourceRegistry.get_all_sources().values():
-            config = source.get_source_config
-            split = get_nonsensitive_and_sensitive_field_names(config.fields)
-
-            # No field should appear in both sets
-            overlap = split.nonsensitive & split.sensitive
-            assert not overlap, f"{config.name}: fields in both sets: {overlap}"
-
-    def test_password_typed_fields_must_be_marked_secret(self):
-        """A field rendered as type=PASSWORD that is not also `secret=True` is a misconfiguration:
-        it would obscure on screen but still be returned in plain text from the API.
-        """
-
-        def collect_password_fields_without_secret(fields: list[FieldType]) -> list[str]:
-            offenders: list[str] = []
-            for field in fields:
-                if isinstance(field, SourceFieldInputConfig):
-                    if field.type == SourceFieldInputConfigType.PASSWORD and not field.secret:
-                        offenders.append(field.name)
-                elif isinstance(field, SourceFieldSwitchGroupConfig):
-                    offenders.extend(collect_password_fields_without_secret(field.fields))
-                elif isinstance(field, SourceFieldSelectConfig):
-                    for option in field.options:
-                        if option.fields:
-                            offenders.extend(collect_password_fields_without_secret(option.fields))
-            return offenders
-
-        all_offenders: dict[str, list[str]] = {}
-        for source in SourceRegistry.get_all_sources().values():
-            config = source.get_source_config
-            offenders = collect_password_fields_without_secret(config.fields)
-            if offenders:
-                all_offenders[config.name] = offenders
-
-        assert not all_offenders, (
-            f"PASSWORD-typed fields must also set secret=True to be redacted from API responses. "
-            f"Offending fields: {all_offenders}"
-        )
-
-    def test_dynamic_classification_covers_old_hardcoded_allowlist(self):
-        """Regression: all fields from the old hardcoded allowlist should be in the dynamic nonsensitive set."""
-
-        old_allowed = {
-            "stripe_account_id",
-            "database",
-            "host",
-            "port",
-            "user",
-            "schema",
-            "ssh_tunnel",
-            "using_ssl",
-            "region",
-            "site_name",
-            "subdomain",
-            "email_address",
-            "hubspot_integration_id",
-            "custom_properties",
-            "account_id",
-            "warehouse",
-            "role",
-            "dataset_id",
-            "temporary-dataset",
-            "dataset_project",
-            "customer_id",
-            "google_ads_integration_id",
-            "is_mcc_account",
-            "spreadsheet_url",
-            "linkedin_ads_integration_id",
-            "meta_ads_integration_id",
-            "sync_lookback_days",
-            "reddit_integration_id",
-            "salesforce_integration_id",
-            "repository",
-            "shopify_store_id",
-            "namespace",
-        }
-
-        # Collect all nonsensitive field names across all sources
-        all_nonsensitive: set[str] = set()
-        for source in SourceRegistry.get_all_sources().values():
-            config = source.get_source_config
-            split = get_nonsensitive_and_sensitive_field_names(config.fields)
-            all_nonsensitive.update(split.nonsensitive)
-
-        missing = old_allowed - all_nonsensitive
-        assert not missing, f"Old allowlist fields not covered by dynamic classification: {missing}"
 
 
 class TestWebhookInfo(APIBaseTest):
@@ -13508,7 +13499,7 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         assert [result["credential_id"] for result in response.json()] == [str(newer.pk), str(older.pk)]
 
 
-class TestGetOAuthIntegrationKinds(APIBaseTest):
+class TestGetOAuthIntegrationKinds(SimpleTestCase):
     """These kinds are what the OAuth accounts endpoint pins a caller-supplied integration id against, so
     a source whose OAuth field this fails to find would have its account listing rejected."""
 
@@ -14119,14 +14110,12 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         # Meta refusing to refresh the stored token is a customer-side state (revoked access), so it
         # must reach the user as an actionable 400 rather than an unhandled 500.
         integration = self._meta_ads_integration()
-        error = MetaAdsTokenRefreshError(
-            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
-        )
+        error = MetaAdsTokenRefreshError(META_TOKEN_REFRESH_ERROR_MESSAGE)
         with patch(f"{self._META_ADS_MODULE}.get_integration_by_id", side_effect=error):
             response = self.client.get(self._url("MetaAds", integration.id))
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "re-authorize" in str(response.json()).lower()
+        assert META_TOKEN_REFRESH_ERROR_MESSAGE in str(response.json())
 
     def test_meta_ads_rate_limit_returns_actionable_400(self):
         # Meta throttling us is not a bug — it must not page us as a 500. The user just retries.

@@ -76,7 +76,6 @@ const meta: Meta = {
                 '/api/environments/:team_id/dashboards/1/': dashboard,
                 ...insightMocks,
                 '/api/environments/:team_id/insights/:id/': insightFetchMock,
-                '/api/environments/:team_id/dashboards/1/collaborators/': [],
                 '/api/environments/:team_id/session_recordings/': EMPTY_PAGINATED_RESPONSE,
                 '/api/environments/:team_id/insights/my_last_viewed/': [],
                 // Add variable data mock to prevent loading issues

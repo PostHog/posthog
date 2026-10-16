@@ -68,7 +68,6 @@ import {
     RefreshType,
     SpanTreeNode,
     TileFilters,
-    UserProductListItem,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -686,11 +685,6 @@ export class ApiRequest {
         return this.fileSystemShortcut(teamId).addPathComponent('reorder')
     }
 
-    // # User product list
-    public userProductList(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('user_product_list')
-    }
-
     // # Plugins
     public plugins(orgId?: OrganizationType['id']): ApiRequest {
         return this.organizationsDetail(orgId).addPathComponent('plugins')
@@ -966,13 +960,6 @@ export class ApiRequest {
         return this.dashboards(teamId).addPathComponent(dashboardId)
     }
 
-    public dashboardCollaborators(
-        dashboardId: DashboardType['id'],
-        projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId() // Collaborators endpoint is project-level, not team-level
-    ): ApiRequest {
-        return this.dashboardsDetail(dashboardId, projectId).addPathComponent('collaborators')
-    }
-
     public dashboardSharing(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dashboardsDetail(dashboardId, teamId).addPathComponent('sharing')
     }
@@ -1003,14 +990,6 @@ export class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.dashboardSharingPasswords(dashboardId, teamId).addPathComponent(passwordId)
-    }
-
-    public dashboardCollaboratorsDetail(
-        dashboardId: DashboardType['id'],
-        userUuid: UserType['uuid'],
-        projectId?: ProjectType['id']
-    ): ApiRequest {
-        return this.dashboardCollaborators(dashboardId, projectId).addPathComponent(userUuid)
     }
 
     // # Dashboard templates
@@ -2491,17 +2470,6 @@ const api = {
         },
     },
 
-    userProductList: {
-        async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
-            return await new ApiRequest().userProductList().get()
-        },
-        async bulkUpdate(
-            items: { product_path: string; enabled: boolean }[]
-        ): Promise<{ results: UserProductListItem[] }> {
-            return await new ApiRequest().userProductList().withAction('bulk_update').update({ data: { items } })
-        },
-    },
-
     organizationFeatureFlags: {
         async get(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
@@ -2840,7 +2808,7 @@ const api = {
         ): Promise<{ results: Record<string, any>[]; hasMore: boolean; nextOffset?: number | null }> {
             return new ApiRequest()
                 .tracingSpans()
-                .withAction(`trace/${traceId}`)
+                .withAction(`trace/${encodeURIComponent(traceId)}`)
                 .create({ signal, data: { ...query } })
         },
         async sparkline(
@@ -4948,6 +4916,8 @@ const api = {
             status?: string
             search?: string
             ordering?: string
+            /** Inbox sort preset, for example `recommended`. The server ignores it when `ordering` is set. */
+            sort?: string
             /** Comma-separated source products. */
             source_product?: string
             /** Comma-separated P0–P4. */

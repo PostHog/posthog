@@ -1,5 +1,11 @@
 # Inbox ranking training examples
 
+Priority edits in the web inbox append a `priority_judgment` artefact instead of changing the original assessment.
+The correction's `adjustment` records `previous_priority`, `previous_judgment_id`, and `source="inbox_sidebar"`.
+The artefact's team/report IDs, creation timestamp, and actor attribution identify the correction and its author; the linked judgment retains the original explanation and dollar estimate.
+Selecting the current priority adds no correction. These records are available for future priority learning; they do not introduce a new ranking label or training head.
+Research already running when a priority is edited preserves that correction; a later research run can reassess it.
+
 The report-embedding and title-embedding ranking families use one example per report per head, from the report's birth-day snapshot.
 This prevents long-lived reports from receiving more weight in training because they appear in more daily snapshots.
 Birth days use the UTC interval returned by `snapshot_bounds`, including the start and excluding the end.
@@ -29,15 +35,15 @@ Each head is graded only on its cohort.
 
 | Head               | Probability                                                 | Horizon |
 | ------------------ | ----------------------------------------------------------- | ------- |
-| `open`             | P(opened) over every report                                 | 3d      |
-| `action`           | P(acted on) over every report                               | 7d      |
+| `open`             | P(opened) over every report                                 | 7d      |
+| `action`           | P(acted on) over every report                               | 14d     |
 | `discuss`          | P(discuss) over every report                                | 7d      |
 | `dismiss_wrong`    | P(dismissed as wrong) over every report                     | 21d     |
 | `reviewer_fix`     | P(reviewers corrected) over every report                    | 14d     |
 | `thumbs_up`        | P(thumbs up) over every report                              | 7d      |
 | `pr_created`       | P(PR created) over every report                             | 7d      |
 | `pr_merged`        | P(PR merged) over every report                              | 14d     |
-| `fixed`            | P(fixed) over every report                                  | 21d     |
+| `fixed`            | P(fixed) over every report                                  | 30d     |
 | `refund`           | P(refund) over every report                                 | 14d     |
 | `dismiss_lowvalue` | P(dismissed as real but not worth fixing) over every report | 21d     |
 

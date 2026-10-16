@@ -94,6 +94,7 @@ export type HogFunctionInvocationGlobals = {
         url: string
     }
     source?: {
+        id?: string
         name: string
         url: string
     }
@@ -260,6 +261,7 @@ export type MinimalAppMetric = {
         | 'email_bounced_transient'
         | 'email_bounced_undetermined'
         | 'email_bounce_prevented'
+        | 'message_frequency_capped'
         | 'email_suppressed'
         | 'email_suspended'
         | 'email_paused'
@@ -573,6 +575,7 @@ export type HogFunctionInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'replay_vision_scan'
         | 'task_skills'
     key: string
     label?: string

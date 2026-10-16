@@ -7,10 +7,15 @@ import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
-import { accuracyHeadline, rankingSentence } from '../onlinePerformance'
+import { accuracyStats, accuracySummary, percent } from '../onlinePerformance'
+import { eventName } from '../pipelineQuestion'
+import { ConfusionMatrixCard } from './ConfusionMatrixCard'
 import { EmptyTab } from './EmptyTab'
+import { LiveModelDrivers } from './LiveModelDrivers'
+import { MetricCard } from './MetricCard'
 import { RealizedAucChart } from './RealizedAucChart'
 import { ScoreNowButton } from './ScoreNowButton'
+import { SectionCard } from './SectionCard'
 import { SegmentCalibrationBars } from './SegmentCalibrationBars'
 
 const MODEL_ROLE: Record<string, { type: 'success' | 'default' | 'highlight'; label: string }> = {
@@ -21,6 +26,10 @@ const MODEL_ROLE: Record<string, { type: 'success' | 'default' | 'highlight'; la
 
 function fmt(value: number | null, decimals = 3): string {
     return value != null ? value.toFixed(decimals) : '—'
+}
+
+function fmtPercent(value: number | null | undefined): string {
+    return value != null ? percent(value) : '—'
 }
 
 function NotCheckedYet(): JSX.Element {
@@ -48,6 +57,8 @@ export function OnlinePerformanceTab(): JSX.Element {
         latestChampionPerformance,
         realizedAucPoints,
         segmentCalibration,
+        accuracyCutoff,
+        championConfusion,
     } = useValues(autoresearchPipelineLogic)
     const { loadOnlinePerformance } = useActions(autoresearchPipelineLogic)
 
@@ -71,41 +82,58 @@ export function OnlinePerformanceTab(): JSX.Element {
     }
 
     if (!latestChampionPerformance || !pipeline) {
-        return <NotCheckedYet />
+        return (
+            <div className="space-y-6">
+                <NotCheckedYet />
+                <LiveModelDrivers />
+            </div>
+        )
     }
 
-    const ranking = rankingSentence(latestChampionPerformance, pipeline.target_event)
+    const target = eventName(pipeline.target_event)
+    const summary = championConfusion ? accuracySummary(championConfusion, accuracyCutoff, pipeline.target_event) : null
     const latestDate = dayjs(latestChampionPerformance.prediction_date).format('MMM D')
 
     return (
         <div className="space-y-6">
-            <div className="space-y-1">
-                <p className="text-base font-semibold mb-0">
-                    {accuracyHeadline(latestChampionPerformance, pipeline.target_event)}
-                </p>
-                {ranking && <p className="text-sm text-muted mb-0">{ranking}</p>}
-            </div>
+            <SectionCard>
+                <div className="@container">
+                    <div className="grid grid-cols-1 @sm:grid-cols-2 @3xl:grid-cols-4 gap-2">
+                        {accuracyStats(latestChampionPerformance, pipeline.target_event).map(({ key, ...stat }) => (
+                            <MetricCard key={key} {...stat} />
+                        ))}
+                    </div>
+                </div>
+                {summary && <p className="text-sm mb-0">{summary}</p>}
+            </SectionCard>
+
+            <ConfusionMatrixCard />
 
             {segmentCalibration.length > 0 && (
-                <section className="space-y-2">
-                    <h3 className="text-sm font-semibold mb-0">Predicted and actual rate by segment, {latestDate}</h3>
+                <SectionCard title={`Predicted and actual rate by segment, ${latestDate}`}>
                     <SegmentCalibrationBars segments={segmentCalibration} />
-                </section>
+                </SectionCard>
             )}
 
             {realizedAucPoints.length > 0 && (
-                <section className="space-y-2">
-                    <h3 className="text-sm font-semibold mb-0">Realized AUC over time</h3>
-                    <p className="text-xs text-muted mb-0">
-                        Realized AUC measures how well the model ranked people who did {pipeline.target_event} above
-                        people who did not. 0.5 is a coin flip and 1 is a perfect ranking. The holdout line is the score
-                        the model got in training.
-                    </p>
+                <SectionCard
+                    title="Realized AUC over time"
+                    description={
+                        <>
+                            Realized AUC measures how well the model ranked people who did {target} above people who did
+                            not. 0.5 is a coin flip and 1 is a perfect ranking. The holdout line is the score the model
+                            got in training.
+                        </>
+                    }
+                >
                     <RealizedAucChart points={realizedAucPoints} holdoutAuc={champion?.holdout_score ?? null} />
-                </section>
+                </SectionCard>
             )}
 
+            <LiveModelDrivers />
+
             <LemonCollapse
+                className="bg-surface-primary"
                 panels={[
                     {
                         key: 'history',
@@ -142,13 +170,24 @@ export function OnlinePerformanceTab(): JSX.Element {
                                         { title: 'Calibration error', render: (_, row) => fmt(row.calibration_error) },
                                         { title: 'Lift at 10%', render: (_, row) => `${fmt(row.lift_at_10, 2)}×` },
                                         { title: 'Lift at 20%', render: (_, row) => `${fmt(row.lift_at_20, 2)}×` },
+                                        {
+                                            title: 'Precision at 10%',
+                                            render: (_, row) => fmtPercent(row.confusion?.top_10.precision),
+                                        },
+                                        {
+                                            title: 'Recall at 10%',
+                                            render: (_, row) => fmtPercent(row.confusion?.top_10.recall),
+                                        },
+                                        { title: 'Average precision', render: (_, row) => fmt(row.average_precision) },
                                     ]}
                                 />
                                 <p className="text-xs text-muted mb-0">
                                     Realized AUC: higher is better. Brier score and calibration error (ECE): lower is
                                     better. ECE measures how far predicted probabilities drift from observed rates. Lift
                                     at k%: ratio of positives in the top k% vs a random sample, so 2× means twice as
-                                    many conversions as random.
+                                    many conversions as random. Precision at 10%: share of the top 10% who did {target}.
+                                    Recall at 10%: share of everyone who did it that the top 10% includes. Average
+                                    precision: precision averaged over every cutoff, higher is better.
                                 </p>
                             </div>
                         ),

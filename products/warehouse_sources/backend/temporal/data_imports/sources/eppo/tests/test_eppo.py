@@ -1,27 +1,22 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
-from unittest import mock
-
 from parameterized import parameterized
-from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.eppo.eppo import (
     BASE_URL,
     _build_params,
     _format_since,
-    eppo_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.eppo.settings import PAGE_LIMIT
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the eppo module.
-EPPO_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.eppo.eppo.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.eppo.source import EppoSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eppo import EppoSourceConfig
 
 
 class TestFormatSince:
@@ -60,76 +55,26 @@ class TestBuildParams:
         assert params == {}
 
 
-def _response(items: list[dict[str, Any]]) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(items).encode()
-    return resp
-
-
-def _redirect_response(location: str) -> Response:
-    resp = Response()
-    resp.status_code = 302
-    resp.headers["Location"] = location
-    resp._content = b""
-    return resp
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list that captures each request AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {}), "auth": request.auth})
-        # Carry the real URL onto the prepared request so the client's host-pinning check
-        # (allowed_hosts) sees the Eppo origin rather than a MagicMock.
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _source(endpoint: str, **kwargs: Any):
-    defaults: dict[str, Any] = {
-        "incremental_field": None,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-    }
-    defaults.update(kwargs)
-    return eppo_source(api_key="key", endpoint=endpoint, team_id=1, job_id="j", **defaults)
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
 class TestEppoSourcePagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginated_endpoint_stops_on_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(EppoSource(), EppoSourceConfig(api_key="key"))
+
+    def test_paginated_endpoint_stops_on_short_page(self) -> None:
+        result = self._driver().run(
+            "Experiments",
             [
-                _response([{"id": i} for i in range(PAGE_LIMIT)]),
-                _response([{"id": PAGE_LIMIT}]),
+                ScriptedResponse(json=[{"id": i} for i in range(PAGE_LIMIT)]),
+                ScriptedResponse(json=[{"id": PAGE_LIMIT}]),
             ],
         )
 
-        rows = _rows(_source("Experiments"))
-
-        assert len(rows) == PAGE_LIMIT + 1
-        assert session.send.call_count == 2
-        assert snapshots[0]["url"] == f"{BASE_URL}/experiments"
-        assert snapshots[0]["params"] == {"limit": PAGE_LIMIT, "offset": 0}
-        assert snapshots[1]["params"] == {"limit": PAGE_LIMIT, "offset": PAGE_LIMIT}
+        assert result.raised is None
+        assert len(result.rows) == PAGE_LIMIT + 1
+        assert len(result.requests) == 2
+        assert result.requests[0].url.startswith(f"{BASE_URL}/experiments?")
+        assert result.params("limit") == [str(PAGE_LIMIT), str(PAGE_LIMIT)]
+        assert result.params("offset") == ["0", str(PAGE_LIMIT)]
 
     @parameterized.expand(
         [
@@ -139,75 +84,58 @@ class TestEppoSourcePagination:
             ("DimensionDefinitions", f"{BASE_URL}/definitions/dimensions"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_unpaginated_endpoint_fetches_single_page_with_no_offset_params(
-        self, endpoint: str, expected_url: str, MockSession
+        self, endpoint: str, expected_url: str
     ) -> None:
-        session = MockSession.return_value
         # A full-limit-sized page would normally imply another page exists, but none of these
         # endpoints document offset/limit — they must not be treated as paginated. Eppo ignores
         # the params, so an offset paginator would re-fetch the same full page forever.
-        snapshots = _wire(session, [_response([{"id": i} for i in range(PAGE_LIMIT)])])
+        result = self._driver().run(endpoint, [ScriptedResponse(json=[{"id": i} for i in range(PAGE_LIMIT)])])
 
-        rows = _rows(_source(endpoint))
+        assert result.raised is None
+        assert len(result.rows) == PAGE_LIMIT
+        assert len(result.requests) == 1
+        assert result.requests[0].url == expected_url
+        assert result.queries == [{}]
 
-        assert len(rows) == PAGE_LIMIT
-        assert session.send.call_count == 1
-        assert snapshots[0]["url"] == expected_url
-        assert snapshots[0]["params"] == {}
+    def test_auth_is_framework_api_key(self) -> None:
+        result = self._driver().run("Environments", [ScriptedResponse(json=[{"id": 1}])])
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_is_framework_api_key(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": 1}])])
+        assert result.raised is None
+        assert result.requests[0].headers["x-eppo-token"] == "key"
 
-        _rows(_source("Environments"))
-
-        auth = snapshots[0]["auth"]
-        assert isinstance(auth, APIKeyAuth)
-        assert auth.api_key == "key"
-        assert auth.name == "X-Eppo-Token"
-        assert auth.location == "header"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sync_client_refuses_off_origin_redirect(self, MockSession) -> None:
+    def test_sync_client_refuses_off_origin_redirect(self) -> None:
         # A 3xx from the Eppo API must not be followed — otherwise the X-Eppo-Token header would be
         # replayed to the redirect target. The client is pinned with allow_redirects=False.
-        session = MockSession.return_value
-        _wire(session, [_redirect_response("https://evil.example/steal")])
-
-        with pytest.raises(ValueError, match="refusing to follow"):
-            _rows(_source("Experiments"))
-
-        assert session.send.call_args.kwargs["allow_redirects"] is False
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_cursor_added_to_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": 1}])])
-
-        _rows(
-            _source(
-                "Experiments",
-                incremental_field="created_date",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            )
+        result = self._driver().run(
+            "Experiments",
+            [ScriptedResponse(status=302, headers={"Location": "https://evil.example/steal"})],
         )
 
-        assert snapshots[0]["params"]["created_since"] == "2026-03-04T02:58:14Z"
+        assert isinstance(result.raised, ValueError)
+        assert "refusing to follow" in str(result.raised)
+        assert len(result.requests) == 1
+        assert result.paths == ["/api/v1/experiments"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_static_params_present_for_feature_flags_and_audiences(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": 1}])])
-        _rows(_source("FeatureFlags"))
-        assert snapshots[0]["params"]["include_archived"] == "true"
+    def test_incremental_cursor_added_to_request(self) -> None:
+        result = self._driver().run(
+            "Experiments",
+            [ScriptedResponse(json=[{"id": 1}])],
+            incremental_field="created_date",
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+        )
 
-        session2 = MockSession.return_value
-        snapshots2 = _wire(session2, [_response([{"id": 1}])])
-        _rows(_source("Audiences"))
-        assert snapshots2[-1]["params"]["status"] == "all"
+        assert result.raised is None
+        assert result.requests[0].param("created_since") == "2026-03-04T02:58:14Z"
+
+    def test_static_params_present_for_feature_flags_and_audiences(self) -> None:
+        flags = self._driver().run("FeatureFlags", [ScriptedResponse(json=[{"id": 1}])])
+        assert flags.raised is None
+        assert flags.requests[0].param("include_archived") == "true"
+
+        audiences = self._driver().run("Audiences", [ScriptedResponse(json=[{"id": 1}])])
+        assert audiences.raised is None
+        assert audiences.requests[0].param("status") == "all"
 
     @parameterized.expand(
         [
@@ -226,14 +154,12 @@ class TestEppoSourcePagination:
             ("DimensionDefinitions", ["id"]),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str], MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}])])
+    def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str]) -> None:
+        result = self._driver().run(endpoint, [ScriptedResponse(json=[{"id": 1}])])
 
-        response = _source(endpoint)
-
-        assert response.primary_keys == expected_keys
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.primary_keys == expected_keys
 
     @parameterized.expand(
         [
@@ -252,39 +178,35 @@ class TestEppoSourcePagination:
             ("DimensionDefinitions", None),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_partition_keys_per_endpoint(self, endpoint: str, expected_partition: str | None, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}])])
+    def test_partition_keys_per_endpoint(self, endpoint: str, expected_partition: str | None) -> None:
+        result = self._driver().run(endpoint, [ScriptedResponse(json=[{"id": 1}])])
 
-        response = _source(endpoint)
+        assert result.raised is None
+        assert result.response is not None
 
         if expected_partition is None:
-            assert response.partition_keys is None
-            assert response.partition_mode is None
+            assert result.response.partition_keys is None
+            assert result.response.partition_mode is None
         else:
-            assert response.partition_keys == [expected_partition]
-            assert response.partition_mode == "datetime"
+            assert result.response.partition_keys == [expected_partition]
+            assert result.response.partition_mode == "datetime"
 
 
 class TestValidateCredentials:
-    @mock.patch(EPPO_SESSION_PATCH)
-    def test_ok(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        assert validate_credentials("key") == (True, 200)
+    def test_ok(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]):
+            assert validate_credentials("key") == (True, 200)
 
-    @mock.patch(EPPO_SESSION_PATCH)
-    def test_probes_experiments_endpoint_with_token_header(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("key")
+    def test_probes_experiments_endpoint_with_token_header(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            validate_credentials("key")
 
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == f"{BASE_URL}/experiments?limit=1"
-        assert call.kwargs["headers"]["X-Eppo-Token"] == "key"
+        assert network.requests_log[0].url == f"{BASE_URL}/experiments?limit=1"
+        assert network.requests_log[0].headers["x-eppo-token"] == "key"
 
-    @mock.patch(EPPO_SESSION_PATCH)
-    def test_probe_session_disables_redirects(self, mock_session) -> None:
+    def test_probe_session_disables_redirects(self) -> None:
         # The probe carries the token; a redirect must not be followed off the validated Eppo host.
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("key")
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            validate_credentials("key")
+
+        assert network.session_options[0]["allow_redirects"] is False

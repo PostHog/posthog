@@ -1,32 +1,5 @@
-import {
-    AccessControlLevel,
-    BaseMathType,
-    ExperimentConclusion,
-    GroupMathType,
-    HogQLMathType,
-    PropertyMathType,
-} from '~/types'
+import { AccessControlLevel, ExperimentConclusion } from '~/types'
 import type { Experiment } from '~/types'
-
-export enum MetricInsightId {
-    Trends = 'new-experiment-trends-metric',
-    TrendsExposure = 'new-experiment-trends-exposure',
-    Funnels = 'new-experiment-funnels-metric',
-    SecondaryTrends = 'new-experiment-secondary-trends',
-    SecondaryFunnels = 'new-experiment-secondary-funnels',
-}
-
-export const LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES = [
-    BaseMathType.TotalCount,
-    BaseMathType.UniqueUsers,
-    BaseMathType.UniqueSessions,
-    BaseMathType.WeeklyActiveUsers,
-    BaseMathType.MonthlyActiveUsers,
-    BaseMathType.FirstTimeForUser,
-    GroupMathType.UniqueGroup,
-    PropertyMathType.Sum,
-    HogQLMathType.HogQL,
-] as const
 
 export const EXPERIMENT_VARIANT_MULTIPLE = '$multiple'
 
@@ -39,7 +12,6 @@ export const CONFIDENCE_LEVEL_OPTIONS = [
 ]
 
 export const EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS = 50
-export const EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS = 10
 
 // CUPED lookback window (days)
 export const DEFAULT_LOOKBACK_DAYS = 14
@@ -47,12 +19,6 @@ export const MIN_LOOKBACK_DAYS = 1
 export const MAX_LOOKBACK_DAYS = 30
 
 export const DEFAULT_MDE = 30
-
-// Autorefresh constants
-// While a launched experiment is still gathering its first exposures, force refresh results on page
-// load (queries are fast with little data and this is better UX to not let users wait until they see
-// the experiment is working).
-export const NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES = 1
 
 // Mirrors EXPERIMENT_RECALCULATION_MAX_AGE_DAYS in posthog/temporal/experiments/activities.py
 export const EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60

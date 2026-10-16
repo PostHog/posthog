@@ -196,19 +196,17 @@ async def test_redshift_export_workflow(
 
     copy_inputs = _build_copy_inputs(mode, aws_credentials, bucket_name, bucket_region, key_prefix)
 
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     inputs = RedshiftBatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(redshift_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         mode=mode,
         copy_inputs=copy_inputs,
@@ -326,7 +324,7 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("mode", ["COPY", "INSERT"], indirect=True)
-@pytest.mark.parametrize("model", [TEST_MODELS[1]])
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
 async def test_redshift_export_workflow_handles_undefined_function_error(
     clickhouse_client,
     redshift_config,

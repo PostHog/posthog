@@ -1,4 +1,4 @@
-import { MOCK_GROUP_TYPES } from '~/lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_GROUP_TYPES } from '~/lib/api.mock'
 
 import '@testing-library/jest-dom'
 
@@ -6,12 +6,16 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { EntityFilterProps, entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
@@ -19,9 +23,10 @@ import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { searchAndSelect, setupInsightMocks } from '~/test/insight-testing'
+import { eventDefinitions, searchAndSelect, setupInsightMocks } from '~/test/insight-testing'
 import {
     AvailableFeature,
+    BaseMathType,
     EntityTypes,
     FilterType,
     HogQLMathType,
@@ -73,13 +78,16 @@ const INLINE_CONTEXT = {
     mathAvailability: MathAvailability.None,
 }
 
-function setup(seriesOverride?: SeriesNode[]): {
+function setup(
+    seriesOverride?: SeriesNode[],
+    logicProps: Partial<EntityFilterProps> = {}
+): {
     logic: ReturnType<typeof entityFilterLogic.build>
     onChange: jest.Mock
 } {
     const series = seriesOverride ?? legacyFiltersToSeries(filtersJson as FilterType)
     const onChange = jest.fn()
-    const logic = entityFilterLogic({ onChange, series, typeKey: 'test-key' })
+    const logic = entityFilterLogic({ onChange, series, typeKey: 'test-key', ...logicProps })
     logic.mount()
     return { logic, onChange }
 }
@@ -299,62 +307,69 @@ describe('ActionFilterRow', () => {
                 expect(screen.getByTestId('box-plot-property-select')).toBeInTheDocument()
             })
 
-            it('offers only numeric warehouse columns in the box plot property selector for data warehouse series', async () => {
-                databaseTableListLogic.mount()
-                databaseTableListLogic.actions.loadDatabaseSuccess({
-                    tables: {
-                        events_table: {
-                            type: 'data_warehouse',
-                            id: 'wh-table-1',
-                            name: 'events_table',
-                            fields: {
-                                duration: {
-                                    name: 'duration',
-                                    hogql_value: 'duration',
-                                    type: 'float',
-                                    schema_valid: true,
-                                },
-                                customer_name: {
-                                    name: 'customer_name',
-                                    hogql_value: 'customer_name',
-                                    type: 'string',
-                                    schema_valid: true,
+            it.each([
+                { tableType: 'data_warehouse', tableName: 'events_table', seriesName: 'events_table' },
+                // A flag calls series reads a PostHog table, which the warehouse table map leaves out.
+                { tableType: 'posthog', tableName: 'posthog.flag_evaluations', seriesName: 'Feature flag called' },
+            ])(
+                'offers only numeric columns of a $tableType table in the box plot property selector',
+                async ({ tableType, tableName, seriesName }) => {
+                    databaseTableListLogic.mount()
+                    databaseTableListLogic.actions.loadDatabaseSuccess({
+                        tables: {
+                            [tableName]: {
+                                type: tableType,
+                                id: 'wh-table-1',
+                                name: tableName,
+                                fields: {
+                                    duration: {
+                                        name: 'duration',
+                                        hogql_value: 'duration',
+                                        type: 'float',
+                                        schema_valid: true,
+                                    },
+                                    customer_name: {
+                                        name: 'customer_name',
+                                        hogql_value: 'customer_name',
+                                        type: 'string',
+                                        schema_valid: true,
+                                    },
                                 },
                             },
                         },
-                    },
-                    joins: [],
-                } as any)
+                        joins: [],
+                    } as any)
 
-                const dataWarehouseNode = {
-                    kind: NodeKind.DataWarehouseNode,
-                    id: 'events_table',
-                    name: 'events_table',
-                    table_name: 'events_table',
-                } as SeriesNode
-                const { logic, onChange } = setup([dataWarehouseNode])
-                renderRow(logic, {
-                    mathAvailability: MathAvailability.BoxPlotOnly,
-                    node: dataWarehouseNode,
-                })
+                    const dataWarehouseNode = {
+                        kind: NodeKind.DataWarehouseNode,
+                        id: tableName,
+                        name: seriesName,
+                        table_name: tableName,
+                    } as SeriesNode
+                    const { logic, onChange } = setup([dataWarehouseNode])
+                    renderRow(logic, {
+                        mathAvailability: MathAvailability.BoxPlotOnly,
+                        node: dataWarehouseNode,
+                    })
 
-                await userEvent.click(screen.getByTestId('box-plot-property-select'))
-                await screen.findByText('duration')
-                // The box plot runner applies toFloat() to the selected column, so non-numeric
-                // columns must not be offered
-                expect(screen.queryByText('customer_name')).not.toBeInTheDocument()
-                await userEvent.click(screen.getByText('duration'))
+                    await userEvent.click(screen.getByTestId('box-plot-property-select'))
+                    await screen.findByText('duration')
+                    // The box plot runner applies toFloat() to the selected column, so non-numeric
+                    // columns must not be offered
+                    expect(screen.queryByText('customer_name')).not.toBeInTheDocument()
+                    await userEvent.click(screen.getByText('duration'))
 
-                await waitFor(() => {
-                    expect(onChange).toHaveBeenCalledWith([
-                        expect.objectContaining({
-                            kind: NodeKind.DataWarehouseNode,
-                            math_property: 'duration',
-                            math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
-                        }),
-                    ])
-                })
-            })
+                    await waitFor(() => {
+                        expect(onChange).toHaveBeenCalledWith([
+                            expect.objectContaining({
+                                kind: NodeKind.DataWarehouseNode,
+                                math_property: 'duration',
+                                math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
+                            }),
+                        ])
+                    })
+                }
+            )
         })
 
         describe('property filters', () => {
@@ -852,6 +867,267 @@ describe('ActionFilterRow', () => {
                 })
             }
         )
+    })
+
+    describe('feature flag calls series', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }: { request: Request }) => {
+                        const search = new URL(request.url).searchParams.get('search') ?? ''
+                        const flagCalled = {
+                            ...eventDefinitions[0],
+                            id: 'flag-called',
+                            name: '$feature_flag_called',
+                            description: '',
+                        }
+                        const results = [...eventDefinitions, flagCalled].filter((d) => d.name.includes(search))
+                        return [200, { results, count: results.length }]
+                    },
+                },
+            })
+        })
+
+        // entityFilterLogic copies only the warehouse fields named in its own popover fields. Each case
+        // passes the editor's fields to the logic as well as to the row.
+        it.each([
+            {
+                insight: 'trends on mode 1',
+                mode: FlagEvaluationsModeEnumApi.Number1,
+                mathAvailability: MathAvailability.None,
+                dataWarehousePopoverFields: undefined,
+                expected: {
+                    kind: NodeKind.DataWarehouseNode,
+                    name: 'Feature flag called',
+                    table_name: 'posthog.flag_evaluations',
+                    timestamp_field: 'timestamp',
+                    id_field: 'uuid',
+                    distinct_id_field: 'distinct_id',
+                },
+                description: /Insights include calls from the last 90 days/,
+            },
+            {
+                insight: 'funnels on mode 2',
+                mode: FlagEvaluationsModeEnumApi.Number2,
+                mathAvailability: MathAvailability.FunnelsOnly,
+                dataWarehousePopoverFields: [
+                    { key: 'id_field', label: 'Unique ID' },
+                    { key: 'timestamp_field', label: 'Timestamp' },
+                    { key: 'aggregation_target_field', label: 'Aggregation target', allowHogQL: true },
+                ],
+                expected: {
+                    table_name: 'posthog.flag_evaluations',
+                    timestamp_field: 'timestamp',
+                    id_field: 'uuid',
+                    aggregation_target_field: 'person_id',
+                },
+                description: /Insights include calls from the last 90 days/,
+            },
+            {
+                insight: 'trends on mode 0',
+                mode: FlagEvaluationsModeEnumApi.Number0,
+                mathAvailability: MathAvailability.None,
+                dataWarehousePopoverFields: undefined,
+                expected: { kind: NodeKind.EventsNode, event: '$feature_flag_called' },
+                description: /queries on this event will stop returning results/,
+            },
+        ])(
+            'describes and picks Feature flag called for $insight',
+            async ({ mode, mathAvailability, dataWarehousePopoverFields, expected, description }) => {
+                featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES]: true })
+                try {
+                    teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+                    const { logic, onChange } = setup(undefined, { dataWarehousePopoverFields })
+                    renderRow(logic, {
+                        ...INLINE_CONTEXT,
+                        mathAvailability,
+                        dataWarehousePopoverFields,
+                        flagCallsFromFlagEvaluations: true,
+                        actionsTaxonomicGroupTypes: [
+                            TaxonomicFilterGroupType.Events,
+                            TaxonomicFilterGroupType.Actions,
+                            TaxonomicFilterGroupType.DataWarehouse,
+                        ],
+                    })
+
+                    await userEvent.click(screen.getByTestId('trend-element-subject-0'))
+                    await userEvent.type(
+                        await screen.findByTestId('taxonomic-filter-searchfield'),
+                        '$feature_flag_called'
+                    )
+                    const [entry] = await screen.findAllByText('Feature flag called')
+                    await userEvent.hover(entry.closest('[data-attr^="prop-filter-"]') as HTMLElement)
+                    expect(await screen.findByText(description)).toBeInTheDocument()
+                    await userEvent.click(entry)
+
+                    await waitFor(() => {
+                        const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
+                        expect(lastCall?.[0]).toEqual(expect.objectContaining(expected))
+                    })
+                } finally {
+                    featureFlagLogic.actions.setFeatureFlags([], {})
+                }
+            }
+        )
+
+        it('carries the flag filters of an event series over when Feature flag called is picked again', async () => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number1,
+            })
+            const infoToast = jest.spyOn(lemonToast, 'info')
+            const eventsNode: SeriesNode = {
+                kind: NodeKind.EventsNode,
+                event: '$feature_flag_called',
+                name: '$feature_flag_called',
+                math: BaseMathType.WeeklyActiveUsers,
+                properties: [
+                    {
+                        key: '$feature_flag',
+                        value: 'probe-flag',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                    {
+                        key: '$feature_flag_response',
+                        value: 'test',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                    { key: '$feature_flag_response', operator: PropertyOperator.IsSet, type: PropertyFilterType.Event },
+                    {
+                        key: '$browser',
+                        value: 'Chrome',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                    { key: "properties.$lib = 'web'", type: PropertyFilterType.HogQL },
+                ],
+            }
+            const { logic, onChange } = setup([eventsNode])
+            renderRow(logic, {
+                ...INLINE_CONTEXT,
+                node: eventsNode,
+                flagCallsFromFlagEvaluations: true,
+                actionsTaxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.DataWarehouse],
+            })
+
+            await userEvent.click(screen.getByTestId('trend-element-subject-0'))
+            await userEvent.type(await screen.findByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
+            await userEvent.click(await screen.findByTestId('prop-filter-events-0'))
+
+            await waitFor(() => {
+                const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
+                expect(lastCall?.[0]).toEqual(
+                    expect.objectContaining({
+                        table_name: 'posthog.flag_evaluations',
+                        math: undefined,
+                        properties: [
+                            {
+                                key: 'flag_key',
+                                value: 'probe-flag',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.DataWarehouse,
+                            },
+                            {
+                                key: 'response',
+                                value: 'test',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.DataWarehouse,
+                            },
+                            {
+                                key: 'response',
+                                value: ['', 'null'],
+                                operator: PropertyOperator.NotIn,
+                                type: PropertyFilterType.DataWarehouse,
+                            },
+                            { key: "properties.$lib = 'web'", type: PropertyFilterType.HogQL },
+                        ],
+                    })
+                )
+            })
+            expect(infoToast.mock.calls.map(([message]) => message)).toEqual([
+                'Feature flag called supports only flag key, response and SQL filters, so 1 other filter was removed.',
+            ])
+            infoToast.mockRestore()
+        })
+
+        it('leaves out math that trends computes from events', async () => {
+            const flagCallsNode: SeriesNode = {
+                kind: NodeKind.DataWarehouseNode,
+                id: 'posthog.flag_evaluations',
+                table_name: 'posthog.flag_evaluations',
+                name: 'Feature flag called',
+                timestamp_field: 'timestamp',
+                id_field: 'uuid',
+                distinct_id_field: 'distinct_id',
+            }
+            const { logic } = setup([flagCallsNode])
+            renderRow(logic, { node: flagCallsNode, mathAvailability: MathAvailability.All })
+
+            await userEvent.click(screen.getByTestId('math-selector-0'))
+
+            expect(await screen.findByText('Unique users')).toBeInTheDocument()
+            for (const label of [
+                'Weekly active users',
+                'Monthly active users',
+                'First-ever occurrence',
+                'First occurrence matching filters',
+            ]) {
+                expect(screen.queryByText(label)).not.toBeInTheDocument()
+            }
+        })
+
+        it('reopens a flag calls series on the event and picks it again in the rebuilt menu', async () => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true })
+            try {
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...MOCK_DEFAULT_TEAM,
+                    flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number1,
+                })
+                const flagCallsNode: SeriesNode = {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'posthog.flag_evaluations',
+                    table_name: 'posthog.flag_evaluations',
+                    name: 'Feature flag called',
+                    timestamp_field: 'timestamp',
+                    id_field: 'uuid',
+                    distinct_id_field: 'distinct_id',
+                }
+                const { logic, onChange } = setup([flagCallsNode])
+                renderRow(logic, {
+                    ...INLINE_CONTEXT,
+                    node: flagCallsNode,
+                    flagCallsFromFlagEvaluations: true,
+                    actionsTaxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.Events,
+                        TaxonomicFilterGroupType.Actions,
+                        TaxonomicFilterGroupType.DataWarehouse,
+                    ],
+                })
+
+                await userEvent.click(screen.getByTestId('taxonomic-popover-menu-trigger'))
+                await userEvent.type(await screen.findByTestId('menu-filter-search'), '$feature_flag_called')
+                const options = await screen.findAllByRole('option')
+                const flagCalledOption = options.find((option) => option.textContent?.includes('Feature flag called'))
+                await userEvent.click(flagCalledOption!)
+
+                await waitFor(() => {
+                    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
+                    expect(lastCall?.[0]).toEqual(
+                        expect.objectContaining({
+                            kind: NodeKind.DataWarehouseNode,
+                            table_name: 'posthog.flag_evaluations',
+                        })
+                    )
+                })
+            } finally {
+                // The flag persists across tests, so the classic-picker tests after this one need it off.
+                featureFlagLogic.actions.setFeatureFlags([], {})
+            }
+        })
     })
 
     describe('all events entity filter', () => {

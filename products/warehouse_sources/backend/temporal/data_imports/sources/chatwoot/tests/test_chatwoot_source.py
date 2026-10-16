@@ -1,7 +1,7 @@
-import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.source import ChatwootSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chatwoot import (
     ChatwootSourceConfig,
 )
@@ -81,8 +81,7 @@ class TestChatwootSource:
         assert kwargs["webhook_source_manager"] is not None
 
     def test_source_for_pipeline_rejects_unknown_schema(self):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not-a-schema"
+        result = SourceDriver(self.source, self.config).run("not-a-schema", [])
 
-        with pytest.raises(ValueError, match="Unknown Chatwoot schema"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Chatwoot schema" in str(result.raised)

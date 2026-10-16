@@ -1,60 +1,26 @@
-import json
-from typing import Any
-
 import pytest
 from unittest import mock
 
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.moxie import MoxieSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.moxie import moxie as moxie_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.moxie.moxie import (
     MoxieHostNotAllowedError,
-    moxie_source,
     normalize_base_url,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the moxie module.
-MOXIE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.moxie.moxie.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.moxie.source import MoxieSource
 
 BASE_URL = "https://pod00.withmoxie.dev/api/public"
 
 
-def _response(body: Any, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and snapshot each request's URL + auth headers at prepare time."""
-    session.headers = {}
-    seen: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        prepared = mock.MagicMock()
-        prepared.headers = {}
-        if request.auth is not None:
-            request.auth(prepared)
-        seen.append({"url": request.url, "auth_headers": dict(prepared.headers)})
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return seen
-
-
-def _source(endpoint: str, base_url: str = BASE_URL, team_id: int = 1) -> Any:
-    return moxie_source(base_url, "test_key", endpoint, team_id=team_id, job_id="j")
-
-
-def _batches(source_response: Any) -> list[list[dict[str, Any]]]:
-    return [list(page) for page in source_response.items()]
+def _driver(base_url: str = BASE_URL) -> SourceDriver:
+    return SourceDriver(MoxieSource(), MoxieSourceConfig(base_url=base_url, api_key="test_key"))
 
 
 class TestNormalizeBaseUrl:
@@ -76,45 +42,33 @@ class TestNormalizeBaseUrl:
 
 class TestMoxieTransport:
     @pytest.mark.parametrize("endpoint", ["email_templates", "invoice_templates", "vendor_names", "form_names"])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_scalar_endpoints_wrap_bare_strings_into_rows(self, MockSession: mock.MagicMock, endpoint: str) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(["Template A", "Template B"])])
+    def test_scalar_endpoints_wrap_bare_strings_into_rows(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=["Template A", "Template B"])])
 
-        batches = _batches(_source(endpoint))
+        assert result.raised is None
+        assert result.items == [[{"name": "Template A"}, {"name": "Template B"}]]
 
-        assert batches == [[{"name": "Template A"}, {"name": "Template B"}]]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_workspace_users_flattens_nested_user_id(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
+    def test_workspace_users_flattens_nested_user_id(self) -> None:
         row = {"userType": "OWNER", "user": {"userId": 42, "firstName": "Alex"}}
-        _wire(session, [_response([row])])
+        result = _driver().run("workspace_users", [ScriptedResponse(json=[row])])
 
-        batches = _batches(_source("workspace_users"))
+        assert result.raised is None
+        assert result.items == [[{**row, "user_id": 42}]]
 
-        assert batches == [[{**row, "user_id": 42}]]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_host_check_blocks_before_any_request(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
+    def test_host_check_blocks_before_any_request(self) -> None:
         with mock.patch.object(moxie_module, "_is_host_safe", return_value=(False, "internal address")):
-            with pytest.raises(MoxieHostNotAllowedError, match="internal address"):
-                _batches(_source("clients"))
+            result = _driver().run("clients", [])
 
-        session.send.assert_not_called()
+        assert isinstance(result.raised, MoxieHostNotAllowedError)
+        assert "internal address" in str(result.raised)
+        assert result.requests == []
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_plaintext_http_is_rejected_before_any_request(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
+    def test_plaintext_http_is_rejected_before_any_request(self) -> None:
+        result = _driver(base_url="http://pod00.withmoxie.dev/api/public").run("clients", [])
 
-        with pytest.raises(MoxieHostNotAllowedError, match="HTTPS"):
-            _batches(_source("clients", base_url="http://pod00.withmoxie.dev/api/public"))
-
-        session.send.assert_not_called()
+        assert isinstance(result.raised, MoxieHostNotAllowedError)
+        assert "HTTPS" in str(result.raised)
+        assert result.requests == []
 
 
 class TestValidateCredentials:
@@ -122,23 +76,22 @@ class TestValidateCredentials:
         "status, expected_valid",
         [(200, True), (401, False), (403, False), (500, False)],
     )
-    @mock.patch(MOXIE_SESSION_PATCH)
-    def test_status_mapping(self, mock_session: mock.MagicMock, status: int, expected_valid: bool) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        is_valid, _message = validate_credentials(BASE_URL, "test_key", team_id=1)
+    def test_status_mapping(self, status: int, expected_valid: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
+            is_valid, _message = validate_credentials(BASE_URL, "test_key", team_id=1)
+
         assert is_valid is expected_valid
+        assert network.requests_log
 
-    @mock.patch(MOXIE_SESSION_PATCH)
-    def test_probes_clients_list_with_api_key_header_and_redaction(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials(BASE_URL, "test_key", team_id=1)
+    def test_probes_clients_list_with_api_key_header_and_redaction(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            validate_credentials(BASE_URL, "test_key", team_id=1)
 
-        call = mock_session.return_value.get.call_args
-        called_url = call.args[0] if call.args else call.kwargs["url"]
-        assert called_url == f"{BASE_URL}/action/clients/list"
-        assert call.kwargs["headers"]["X-API-KEY"] == "test_key"
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].url == f"{BASE_URL}/action/clients/list"
+        assert network.requests_log[0].headers["x-api-key"] == "test_key"
         # The key must be registered for redaction in tracked telemetry.
-        assert mock_session.call_args.kwargs["redact_values"] == ("test_key",)
+        assert network.session_options[0]["redact_values"] == ("test_key",)
 
     def test_blank_base_url_is_rejected(self) -> None:
         is_valid, message = validate_credentials("", "test_key", team_id=1)

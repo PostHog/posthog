@@ -2,6 +2,7 @@ import re
 import time
 import typing
 import datetime as dt
+import importlib
 import collections.abc
 from types import SimpleNamespace
 
@@ -20,6 +21,7 @@ from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.errors.types.authorization_error import AuthorizationErrorEnum
 from google.ads.googleads.v23.errors.types.errors import ErrorCode, GoogleAdsError, GoogleAdsFailure
 from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
+from google.ads.googleads.v23.resources.types.change_event import ChangeEvent
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 
@@ -65,6 +67,38 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
 _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
+
+
+@pytest.mark.parametrize("repeated", [False, True])
+@pytest.mark.parametrize("version", ["v23", "v24", "v25"])
+@pytest.mark.parametrize("as_int", [False, True])
+def test_change_resource_proto_plus_serializes_to_json(repeated, version, as_int):
+    enum_types = importlib.import_module(f"google.ads.googleads.{version}.enums.types")
+    message_type = enum_types.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.MESSAGE
+    value = ChangeEvent.ChangedResource(campaign={"name": "Example campaign"})
+    column = GoogleAdsColumn(
+        qualified_name="change_event.new_resource",
+        data_type=int(message_type) if as_int else message_type,
+        is_repeatable=repeated,
+        type_url="google.ads.googleads.v23.resources.ChangeEvent.ChangedResource",
+    )
+    result = column.resolve_value([value] if repeated else value)
+    assert '"name": "Example campaign"' in (result[0] if repeated else result)
+    assert column.to_arrow_field().type == (pa.list_(pa.string()) if repeated else pa.string())
+
+
+@pytest.mark.parametrize("version", ["v23", "v24", "v25"])
+def test_change_event_date_metadata_preserves_time_in_arrow(version):
+    enum_types = importlib.import_module(f"google.ads.googleads.{version}.enums.types")
+    column = GoogleAdsColumn(
+        qualified_name="change_event.change_date_time",
+        data_type=enum_types.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.DATE,
+        is_repeatable=False,
+        type_url="",
+    )
+    value = column.resolve_value("2026-04-01 12:34:56.123456")
+    arrow = pa.Table.from_pylist([{column.name: value}], schema=pa.schema([column.to_arrow_field()]))
+    assert arrow.to_pylist() == [{column.name: dt.datetime(2026, 4, 1, 12, 34, 56, 123456)}]
 
 
 class TestCleanCustomerId:
@@ -589,7 +623,7 @@ def _google_ads_exception_with_trigger(request_error: int, trigger_value: str) -
 def _string_column(qualified_name: str) -> GoogleAdsColumn:
     return GoogleAdsColumn(
         qualified_name=qualified_name,
-        data_type=ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.STRING,  # type: ignore[arg-type]
+        data_type=ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.STRING,
         is_repeatable=False,
         type_url="",
     )
@@ -2068,9 +2102,10 @@ class TestResourceSchemaInvariants:
     def test_incremental_tables_filter_on_a_selected_segments_date(self, alias):
         # `requires_filter` tables are queried with a `segments.date` window and partitioned on
         # `segments_date`. Declaring a different filter field, or not selecting segments.date, breaks
-        # both the incremental window and the partitioning.
+        # both the incremental window and the partitioning. `change_event` is read by its own
+        # `ChangeEventReader` on `change_event.change_date_time` and is not partitioned.
         contents = RESOURCE_SCHEMAS[alias]
-        if "filter_field_names" not in contents:
+        if "filter_field_names" not in contents or alias == "change_event":
             return
         assert contents["filter_field_names"] == [("segments.date", IncrementalFieldType.Date)]
         assert "segments.date" in contents["field_names"]

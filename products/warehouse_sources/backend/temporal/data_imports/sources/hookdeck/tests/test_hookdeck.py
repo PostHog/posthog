@@ -1,14 +1,19 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest import mock
 
 import requests
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hookdeck import (
+    HookdeckSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.hookdeck import (
     REDACTED,
     HookdeckResumeConfig,
@@ -16,17 +21,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.h
     _redact_secrets,
     base_url,
     build_params,
-    hookdeck_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.settings import (
     HOOKDECK_ENDPOINTS,
     PAGE_SIZE,
 )
-
-HOOKDECK_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.hookdeck.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.source import HookdeckSource
 
 API_VERSION = "2026-09-01"
 SUPPORTED_VERSIONS = ["2025-07-01", "2026-09-01"]
@@ -38,52 +39,16 @@ ENDPOINT_FIELD_PAIRS = sorted(
 )
 
 
-def _response(models: list[dict[str, Any]] | None, next_cursor: str | None, status: int = 200) -> Response:
+def _response(models: list[dict[str, Any]] | None, next_cursor: str | None, status: int = 200) -> ScriptedResponse:
     pagination: dict[str, Any] = {"order_by": "created_at", "dir": "asc", "limit": PAGE_SIZE}
     if next_cursor is not None:
         pagination["next"] = next_cursor
     body = {"pagination": pagination, "count": len(models or []), "models": models or []}
-    response = Response()
-    response.status_code = status
-    response._content = json.dumps(body).encode()
-    return response
+    return ScriptedResponse(status=status, json=body)
 
 
-def _make_manager(resume_state: HookdeckResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    # `request.params` is one dict mutated in place across pages, so snapshot a copy per request.
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, api_version: str = API_VERSION, **kwargs: Any):
-    return hookdeck_source(
-        "hd_key",
-        api_version,
-        endpoint,
-        team_id=1,
-        job_id="job-1",
-        resumable_source_manager=manager,
-        **kwargs,
-    )
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
+def _driver() -> SourceDriver:
+    return SourceDriver(HookdeckSource(), HookdeckSourceConfig(api_key="hd_key"))
 
 
 class TestHookdeckTransport:
@@ -109,14 +74,12 @@ class TestHookdeckTransport:
         assert base_url(api_version) == f"https://api.hookdeck.com/{api_version}"
 
     @pytest.mark.parametrize("api_version", SUPPORTED_VERSIONS)
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_sync_requests_carry_the_pinned_version(self, MockSession, api_version: str) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "des_1"}], None)])
+    def test_sync_requests_carry_the_pinned_version(self, api_version: str) -> None:
+        result = _driver().run("destinations", [_response([{"id": "des_1"}], None)], api_version=api_version)
 
-        _rows(_source("destinations", _make_manager(), api_version=api_version))
-
-        assert session.prepare_request.call_args.args[0].url == f"https://api.hookdeck.com/{api_version}/destinations"
+        assert result.raised is None
+        assert result.requests[0].origin == "https://api.hookdeck.com"
+        assert result.requests[0].path == f"/{api_version}/destinations"
 
     @pytest.mark.parametrize("endpoint", sorted(HOOKDECK_ENDPOINTS))
     def test_every_request_pins_ascending_order(self, endpoint: str) -> None:
@@ -193,106 +156,79 @@ class TestHookdeckTransport:
 class TestHookdeckCredentials:
     @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
     @pytest.mark.parametrize("api_version", SUPPORTED_VERSIONS)
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_status_mapping(self, mock_session_factory, api_version: str, status_code: int, expected: bool) -> None:
-        mock_session_factory.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-
-        is_valid, status = validate_credentials("hd_key", api_version)
+    def test_status_mapping(self, api_version: str, status_code: int, expected: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            is_valid, status = validate_credentials("hd_key", api_version)
 
         assert is_valid is expected
         assert status == status_code
+        assert network.requests_log[0].url == f"https://api.hookdeck.com/{api_version}/sources?limit=1"
+        assert network.requests_log[0].headers["authorization"] == "Bearer hd_key"
 
-        call = mock_session_factory.return_value.get.call_args
-        assert call.args[0] == f"https://api.hookdeck.com/{api_version}/sources?limit=1"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer hd_key"
-
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_transport_error_is_not_valid(self, mock_session_factory) -> None:
-        mock_session_factory.return_value.get.side_effect = requests.ConnectionError("boom")
-
-        assert validate_credentials("hd_key", API_VERSION) == (False, None)
+    def test_transport_error_is_not_valid(self) -> None:
+        with scripted_network(always(requests.ConnectionError("boom"))):
+            assert validate_credentials("hd_key", API_VERSION) == (False, None)
 
 
 class TestHookdeckPagination:
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_follows_next_cursor_until_absent(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
+    def test_follows_next_cursor_until_absent(self) -> None:
+        result = _driver().run(
+            "events",
             [_response([{"id": "evt_1"}, {"id": "evt_2"}], "cur_2"), _response([{"id": "evt_3"}], None)],
         )
 
-        rows = _rows(_source("events", _make_manager()))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["evt_1", "evt_2", "evt_3"]
+        assert len(result.requests) == 2
+        assert result.requests[0].param("next") is None
+        assert result.requests[1].param("next") == "cur_2"
 
-        assert [row["id"] for row in rows] == ["evt_1", "evt_2", "evt_3"]
-        assert session.send.call_count == 2
-        assert "next" not in params[0]
-        assert params[1]["next"] == "cur_2"
+    def test_stops_when_the_cursor_stops_advancing(self) -> None:
+        result = _driver().run("events", [_response([{"id": "evt_1"}], "cur_2"), _response([{"id": "evt_2"}], "cur_2")])
 
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_stops_when_the_cursor_stops_advancing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "evt_1"}], "cur_2"), _response([{"id": "evt_2"}], "cur_2")])
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["evt_1", "evt_2"]
+        assert len(result.requests) == 2
 
-        rows = _rows(_source("events", _make_manager()))
+    def test_stops_on_an_empty_page_even_with_a_cursor(self) -> None:
+        result = _driver().run("events", [_response([], "cur_2")])
 
-        assert [row["id"] for row in rows] == ["evt_1", "evt_2"]
-        assert session.send.call_count == 2
+        assert result.raised is None
+        assert result.rows == []
+        assert len(result.requests) == 1
 
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_stops_on_an_empty_page_even_with_a_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], "cur_2")])
+    def test_saves_resume_state_after_each_page_but_not_the_last(self) -> None:
+        result = _driver().run("events", [_response([{"id": "evt_1"}], "cur_2"), _response([{"id": "evt_2"}], None)])
 
-        assert _rows(_source("events", _make_manager())) == []
-        assert session.send.call_count == 1
+        assert result.raised is None
+        assert result.saved_states == [HookdeckResumeConfig(next_cursor="cur_2")]
 
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_saves_resume_state_after_each_page_but_not_the_last(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "evt_1"}], "cur_2"), _response([{"id": "evt_2"}], None)])
-        manager = _make_manager()
-
-        _rows(_source("events", manager))
-
-        assert manager.save_state.call_count == 1
-        assert manager.save_state.call_args.args[0] == HookdeckResumeConfig(next_cursor="cur_2")
-
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "evt_9"}], None)])
-
-        rows = _rows(_source("events", _make_manager(HookdeckResumeConfig(next_cursor="cur_7"))))
-
-        assert [row["id"] for row in rows] == ["evt_9"]
-        assert params[0]["next"] == "cur_7"
-
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_incremental_filter_rides_the_first_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"id": "iss_1"}], None)])
-
-        _rows(
-            _source(
-                "issues",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-                incremental_field="last_seen_at",
-            )
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "events", [_response([{"id": "evt_9"}], None)], resume_state=HookdeckResumeConfig(next_cursor="cur_7")
         )
 
-        assert params[0]["order_by"] == "last_seen_at"
-        assert params[0]["dir"] == "asc"
-        assert params[0]["last_seen_at[gte]"] == "2026-03-04T02:58:14.000Z"
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["evt_9"]
+        assert result.requests[0].param("next") == "cur_7"
 
-    @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_retries_throttles_and_server_errors(self, MockSession, _mock_sleep) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
+    def test_incremental_filter_rides_the_first_request(self) -> None:
+        result = _driver().run(
+            "issues",
+            [_response([{"id": "iss_1"}], None)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="last_seen_at",
+        )
+
+        assert result.raised is None
+        assert result.requests[0].param("order_by") == "last_seen_at"
+        assert result.requests[0].param("dir") == "asc"
+        assert result.requests[0].param("last_seen_at[gte]") == "2026-03-04T02:58:14.000Z"
+
+    def test_retries_throttles_and_server_errors(self) -> None:
+        result = _driver().run(
+            "events",
             [
                 _response(None, None, status=429),
                 _response(None, None, status=503),
@@ -300,18 +236,14 @@ class TestHookdeckPagination:
             ],
         )
 
-        rows = _rows(_source("events", _make_manager()))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["evt_1"]
+        assert len(result.requests) == 3
 
-        assert [row["id"] for row in rows] == ["evt_1"]
-        assert session.send.call_count == 3
+    def test_client_error_raises(self) -> None:
+        result = _driver().run("events", [_response(None, None, status=404)])
 
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_client_error_raises(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(None, None, status=404)])
-
-        with pytest.raises(requests.HTTPError):
-            _rows(_source("events", _make_manager()))
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestHookdeckRedaction:
@@ -356,54 +288,48 @@ class TestHookdeckRedaction:
     def test_redacts_credential_bearing_fields(self, row: dict[str, Any], expected: dict[str, Any]) -> None:
         assert _redact_secrets(row) == expected
 
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_credential_endpoint_rows_are_redacted_end_to_end(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "des_1", "auth_method": {"config": {"token": "sk_live"}}}], None)])
+    def test_credential_endpoint_rows_are_redacted_end_to_end(self) -> None:
+        result = _driver().run(
+            "destinations", [_response([{"id": "des_1", "auth_method": {"config": {"token": "sk_live"}}}], None)]
+        )
 
-        rows = _rows(_source("destinations", _make_manager()))
+        assert result.raised is None
+        assert result.rows == [{"id": "des_1", "auth_method": REDACTED}]
 
-        assert rows == [{"id": "des_1", "auth_method": REDACTED}]
-
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_non_credential_endpoint_rows_pass_through_untouched(self, MockSession) -> None:
+    def test_non_credential_endpoint_rows_pass_through_untouched(self) -> None:
         # `events` isn't flagged as credential-bearing, so an auth-shaped key must not be masked.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "evt_1", "auth_method": {"config": {"token": "kept"}}}], None)])
+        result = _driver().run(
+            "events", [_response([{"id": "evt_1", "auth_method": {"config": {"token": "kept"}}}], None)]
+        )
 
-        rows = _rows(_source("events", _make_manager()))
-
-        assert rows == [{"id": "evt_1", "auth_method": {"config": {"token": "kept"}}}]
+        assert result.raised is None
+        assert result.rows == [{"id": "evt_1", "auth_method": {"config": {"token": "kept"}}}]
 
 
 class TestHookdeckSampleCapture:
     # Raw responses reach the sampler before `_redact_secrets` runs, and the name-based scrubbers
     # don't recognise Hookdeck's secret containers, so both transports must opt out of sample capture.
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_sync_session_disables_sample_capture(self, MockSession) -> None:
-        MockSession.return_value.headers = {}
+    def test_sync_session_disables_sample_capture(self) -> None:
+        result = _driver().run("events", [_response([], None)])
 
-        _source("events", _make_manager())
+        assert result.raised is None
+        assert result.session_options[0]["capture"] is False
 
-        assert MockSession.call_args.kwargs["capture"] is False
+    def test_probe_disables_sample_capture(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            validate_credentials("hd_key", API_VERSION)
 
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_probe_disables_sample_capture(self, MockSession) -> None:
-        MockSession.return_value.get.return_value = mock.MagicMock(status_code=200)
-
-        validate_credentials("hd_key", API_VERSION)
-
-        assert MockSession.call_args.kwargs["capture"] is False
+        assert network.session_options[0]["capture"] is False
 
 
 class TestHookdeckSourceResponse:
     @pytest.mark.parametrize("endpoint", sorted(HOOKDECK_ENDPOINTS))
-    @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_source_response_shape(self, MockSession, endpoint: str) -> None:
-        MockSession.return_value.headers = {}
+    def test_source_response_shape(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [_response([], None)])
+        response = result.response
 
-        response = _source(endpoint, _make_manager())
-
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         # Hookdeck ids are unique per resource type, and no endpoint fans out from a parent.
         assert response.primary_keys == ["id"]

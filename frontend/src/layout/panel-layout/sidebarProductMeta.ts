@@ -70,6 +70,7 @@ export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
     'Broadcasts',
     'Business intelligence',
     'Business knowledge',
+    'Code review',
     'Engineering analytics',
     'Identity matching',
     'Product tours',

@@ -1,8 +1,7 @@
 import json
 from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional, cast
-from urllib.parse import parse_qs, urlsplit
+from typing import Any, Optional
 
 import pytest
 from unittest import mock
@@ -22,13 +21,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.auth0.auth
     _build_params,
     _format_window_value,
     _reject_redirect_response,
-    auth0_source,
-    get_rows,
     resolve_window_field,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.auth0.settings import AUTH0_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.auth0.source import Auth0Source
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+    source_inputs,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.auth0 import Auth0SourceConfig
 
 DOMAIN = "tenant.us.auth0.com"
 TOKEN_JSON = {"access_token": "tok", "expires_in": 86400, "token_type": "Bearer"}
@@ -58,35 +64,8 @@ def _token_session() -> mock.MagicMock:
     return session
 
 
-def _data_session(get_responses: list[Any]) -> mock.MagicMock:
-    session = mock.MagicMock()
-    session.get.side_effect = get_responses
-    return session
-
-
-def _requested_params(session: mock.MagicMock, index: int) -> dict[str, list[str]]:
-    return parse_qs(urlsplit(session.get.call_args_list[index].args[0]).query)
-
-
 def _user_rows(count: int, updated_at: str, start: int = 0) -> list[dict[str, Any]]:
     return [{"user_id": f"auth0|{start + i}", "updated_at": updated_at} for i in range(count)]
-
-
-class FakeResumeManager(ResumableSourceManager[Auth0ResumeConfig]):
-    """In-memory stand-in for the Redis-backed manager."""
-
-    def __init__(self, state: Optional[Auth0ResumeConfig] = None) -> None:
-        self.state = state
-        self.saved: list[Auth0ResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> Optional[Auth0ResumeConfig]:
-        return self.state
-
-    def save_state(self, data: Auth0ResumeConfig) -> None:
-        self.saved.append(data)
 
 
 class TestFormatWindowValue:
@@ -204,30 +183,20 @@ class TestGetRows:
     def _run(
         self,
         endpoint: str,
-        get_responses: list[Any],
-        manager: Optional[FakeResumeManager] = None,
+        get_responses: list[ScriptedResponse],
+        resume_state: Auth0ResumeConfig | None = None,
+        domain: str = DOMAIN,
         **kwargs: Any,
-    ) -> tuple[list[list[dict[str, Any]]], mock.MagicMock, FakeResumeManager]:
-        manager = manager or FakeResumeManager()
-        data_session = _data_session(get_responses)
-        with (
-            mock.patch.object(auth0_module, "_is_host_safe", return_value=(True, None)),
-            mock.patch.object(auth0_module, "make_tracked_session", side_effect=[_token_session(), data_session]),
-        ):
-            batches = list(
-                get_rows(
-                    domain=DOMAIN,
-                    client_id="cid",
-                    client_secret="secret",
-                    endpoint=endpoint,
-                    api_version="v2",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                    team_id=1,
-                    **kwargs,
-                )
-            )
-        return batches, data_session, manager
+    ) -> DriveResult:
+        driver = SourceDriver(
+            Auth0Source(), Auth0SourceConfig(auth0_domain=domain, client_id="cid", client_secret="secret")
+        )
+        return driver.run(
+            endpoint,
+            [ScriptedResponse(json=TOKEN_JSON), *get_responses],
+            resume_state=resume_state,
+            **kwargs,
+        )
 
     def test_log_streams_omit_sink_credentials(self) -> None:
         rows = [
@@ -241,18 +210,24 @@ class TestGetRows:
                 },
             }
         ]
-        batches, session, manager = self._run("log_streams", [_response(json_data=rows)])
+        result = self._run("log_streams", [ScriptedResponse(json=rows)])
 
-        assert batches == [[{"id": "lst_1", "type": "http"}]]
-        assert session.get.call_count == 1
-        assert manager.saved == []
-        assert session.get.call_args.kwargs["hooks"] == {"response": _reject_redirect_response}
+        assert result.raised is None
+        assert result.items == [[{"id": "lst_1", "type": "http"}]]
+        assert result.paths == ["/oauth/token", "/api/v2/log-streams"]
+        assert result.saved_states == []
+
+        redirect_result = self._run(
+            "log_streams", [ScriptedResponse(status=302, headers={"Location": "https://internal.example.com/"})]
+        )
+        assert isinstance(redirect_result.raised, Auth0HostNotAllowedError)
 
     def test_resource_servers_omit_signing_secret(self) -> None:
         page = {"resource_servers": [{"id": "rs_1", "identifier": "https://api.example.com", "signing_secret": "shh"}]}
-        batches, _, _ = self._run("resource_servers", [_response(json_data=page)])
+        result = self._run("resource_servers", [ScriptedResponse(json=page)])
 
-        assert batches == [[{"id": "rs_1", "identifier": "https://api.example.com"}]]
+        assert result.raised is None
+        assert result.items == [[{"id": "rs_1", "identifier": "https://api.example.com"}]]
 
     def test_users_omit_identity_provider_tokens(self) -> None:
         page = {
@@ -274,9 +249,10 @@ class TestGetRows:
             ],
             "total": 1,
         }
-        batches, _, _ = self._run("users", [_response(json_data=page)])
+        result = self._run("users", [ScriptedResponse(json=page)])
 
-        assert batches == [
+        assert result.raised is None
+        assert result.items == [
             [
                 {
                     "user_id": "auth0|1",
@@ -299,37 +275,38 @@ class TestGetRows:
         page_2 = {"users": _user_rows(3, newest, start=200), "total": 3}
 
         with mock.patch.object(auth0_module, "SEARCH_RESULT_CAP", 200):
-            batches, session, manager = self._run(
+            result = self._run(
                 "users",
-                [_response(json_data=page_0), _response(json_data=page_1), _response(json_data=page_2)],
-                should_use_incremental_field=True,
+                [ScriptedResponse(json=page_0), ScriptedResponse(json=page_1), ScriptedResponse(json=page_2)],
                 incremental_field="updated_at",
             )
 
-        assert [len(batch) for batch in batches] == [100, 100, 3]
+        assert result.raised is None
+        assert [len(batch) for batch in result.items] == [100, 100, 3]
         # The third request restarts at page 0 with the window's lower bound moved to the newest
         # row seen — that is how the collection is walked past Auth0's 1000-result ceiling.
-        third = _requested_params(session, 2)
-        assert third["page"] == ["0"]
-        assert third["q"] == [f'updated_at:["{newest}" TO *]']
-        assert manager.saved == [
+        assert result.requests[3].param("page") == "0"
+        assert result.requests[3].param("q") == f'updated_at:["{newest}" TO *]'
+        assert result.saved_states == [
             Auth0ResumeConfig(page=1, window_start=None),
             Auth0ResumeConfig(page=0, window_start=newest),
         ]
+        assert result.committed_states == result.saved_states
 
     def test_window_that_cannot_advance_fails_loudly(self) -> None:
         stuck = "2024-06-01T00:00:00.000Z"
         page = {"users": _user_rows(100, stuck), "total": 5000}
 
         with mock.patch.object(auth0_module, "SEARCH_RESULT_CAP", 200):
-            with pytest.raises(Auth0PaginationStalledError):
-                self._run(
-                    "users",
-                    [_response(json_data=page), _response(json_data=page)],
-                    should_use_incremental_field=True,
-                    incremental_field="updated_at",
-                    db_incremental_field_last_value=stuck,
-                )
+            result = self._run(
+                "users",
+                [ScriptedResponse(json=page), ScriptedResponse(json=page)],
+                incremental_field="updated_at",
+                db_incremental_field_last_value=stuck,
+            )
+
+        assert isinstance(result.raised, Auth0PaginationStalledError)
+        assert result.final_state == Auth0ResumeConfig(page=1, window_start=stuck)
 
     def test_non_windowed_collection_never_slides(self) -> None:
         page_0 = {"clients": [{"client_id": str(i)} for i in range(100)], "total": 250}
@@ -337,112 +314,111 @@ class TestGetRows:
         page_2 = {"clients": [{"client_id": str(i)} for i in range(200, 250)], "total": 250}
 
         with mock.patch.object(auth0_module, "SEARCH_RESULT_CAP", 100):
-            _, session, manager = self._run(
+            result = self._run(
                 "clients",
-                [_response(json_data=page_0), _response(json_data=page_1), _response(json_data=page_2)],
+                [ScriptedResponse(json=page_0), ScriptedResponse(json=page_1), ScriptedResponse(json=page_2)],
             )
 
-        assert [_requested_params(session, i)["page"] for i in range(3)] == [["0"], ["1"], ["2"]]
-        assert all(state.window_start is None for state in manager.saved)
+        assert result.raised is None
+        assert result.params("page")[1:] == ["0", "1", "2"]
+        assert all(state.window_start is None for state in result.saved_states)
 
     def test_resumes_from_saved_page_and_window(self) -> None:
         resumed_window = "2024-07-01T00:00:00.000Z"
         page = {"users": _user_rows(1, "2024-07-02T00:00:00.000Z"), "total": 1}
-        _, session, _ = self._run(
+        result = self._run(
             "users",
-            [_response(json_data=page)],
-            manager=FakeResumeManager(Auth0ResumeConfig(page=4, window_start=resumed_window)),
-            should_use_incremental_field=True,
+            [ScriptedResponse(json=page)],
+            resume_state=Auth0ResumeConfig(page=4, window_start=resumed_window),
             incremental_field="updated_at",
             db_incremental_field_last_value="2020-01-01T00:00:00.000Z",
         )
 
-        params = _requested_params(session, 0)
+        assert result.raised is None
         # The saved window wins over the (older) database watermark.
-        assert params["page"] == ["4"]
-        assert params["q"] == [f'updated_at:["{resumed_window}" TO *]']
+        assert result.requests[1].param("page") == "4"
+        assert result.requests[1].param("q") == f'updated_at:["{resumed_window}" TO *]'
 
     def test_runaway_pagination_is_bounded(self) -> None:
         page = {"clients": [{"client_id": str(i)} for i in range(100)], "total": 10**9}
 
         with mock.patch.object(auth0_module, "MAX_PAGES", 2):
-            with pytest.raises(Auth0PaginationLimitError):
-                self._run("clients", [_response(json_data=page)] * 3)
+            result = self._run("clients", [ScriptedResponse(json=page)] * 3)
+
+        assert isinstance(result.raised, Auth0PaginationLimitError)
+        assert result.params("page")[1:] == ["0", "1"]
 
     def test_redirected_data_request_is_refused(self) -> None:
-        with pytest.raises(Auth0HostNotAllowedError):
-            self._run("roles", [_response(status_code=302)])
+        result = self._run(
+            "roles", [ScriptedResponse(status=302, headers={"Location": "https://internal.example.com/"})]
+        )
+
+        assert isinstance(result.raised, Auth0HostNotAllowedError)
+
+    def test_redirected_data_request_is_refused_without_the_hook(self) -> None:
+        with mock.patch.object(auth0_module, "_reject_redirect_response", lambda response, *args, **kwargs: response):
+            result = self._run(
+                "roles", [ScriptedResponse(status=302, headers={"Location": "https://internal.example.com/"})]
+            )
+
+        assert isinstance(result.raised, Auth0HostNotAllowedError)
 
     def test_internal_domain_is_blocked_before_any_request(self) -> None:
-        manager = FakeResumeManager()
         with mock.patch.object(auth0_module, "_is_host_safe", return_value=(False, "resolves to a private address")):
-            with pytest.raises(Auth0HostNotAllowedError):
-                list(
-                    get_rows(
-                        domain="internal.auth0.com",
-                        client_id="cid",
-                        client_secret="secret",
-                        endpoint="roles",
-                        api_version="v2",
-                        logger=mock.MagicMock(),
-                        resumable_source_manager=manager,
-                        team_id=1,
-                    )
-                )
+            result = self._run("roles", [], domain="internal.auth0.com")
+
+        assert isinstance(result.raised, Auth0HostNotAllowedError)
+        assert result.requests == []
 
     @pytest.mark.parametrize("status_code", [400, 401, 403, 404])
     def test_client_errors_propagate(self, status_code: int) -> None:
-        with pytest.raises(requests.HTTPError):
-            self._run("roles", [_response(status_code=status_code)])
+        result = self._run("roles", [ScriptedResponse(status=status_code)])
+
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestValidateCredentials:
     def _validate(
         self,
         *,
-        post_response: Any,
-        get_response: Any = None,
+        post_response: ScriptedResponse,
+        get_response: ScriptedResponse | None = None,
         schema_name: Optional[str] = None,
         domain: str = DOMAIN,
         host_safe: bool = True,
     ) -> tuple[bool, str | None]:
-        session = mock.MagicMock()
-        session.post.return_value = post_response
-        if get_response is not None:
-            session.get.return_value = get_response
-        with (
-            mock.patch.object(
-                auth0_module, "_is_host_safe", return_value=(host_safe, None if host_safe else "private address")
-            ),
-            mock.patch.object(auth0_module, "make_tracked_session", return_value=session),
-        ):
+        script = [post_response, *([get_response] if get_response is not None else [])]
+        with scripted_network(script):
+            if not host_safe:
+                with mock.patch.object(auth0_module, "_is_host_safe", return_value=(False, "private address")):
+                    return validate_credentials(domain, "cid", "secret", "v2", schema_name=schema_name, team_id=1)
             return validate_credentials(domain, "cid", "secret", "v2", schema_name=schema_name, team_id=1)
 
     def test_token_exchange_alone_is_enough_at_source_create(self) -> None:
-        assert self._validate(post_response=_response(json_data=TOKEN_JSON)) == (True, None)
+        assert self._validate(post_response=ScriptedResponse(json=TOKEN_JSON)) == (True, None)
 
     @pytest.mark.parametrize("status_code", [401, 403])
     def test_bad_client_credentials_are_rejected(self, status_code: int) -> None:
-        ok, error = self._validate(post_response=_response(status_code=status_code))
+        ok, error = self._validate(post_response=ScriptedResponse(status=status_code))
         assert ok is False
         assert error == "Invalid Auth0 client ID or client secret"
 
     @pytest.mark.parametrize("domain", ["", "   ", "https://", "tenant us auth0 com", "tenant.auth0.com:8080"])
     def test_malformed_domains_are_rejected(self, domain: str) -> None:
-        assert self._validate(post_response=_response(json_data=TOKEN_JSON), domain=domain) == (
+        assert self._validate(post_response=ScriptedResponse(json=TOKEN_JSON), domain=domain) == (
             False,
             "Invalid Auth0 domain",
         )
 
     def test_internal_domain_is_rejected(self) -> None:
-        ok, error = self._validate(post_response=_response(json_data=TOKEN_JSON), host_safe=False)
+        ok, error = self._validate(post_response=ScriptedResponse(json=TOKEN_JSON), host_safe=False)
         assert ok is False
         assert error == "private address"
 
     def test_scoped_probe_accepts_a_reachable_collection(self) -> None:
         result = self._validate(
-            post_response=_response(json_data=TOKEN_JSON),
-            get_response=_response(json_data={"users": [], "total": 0}),
+            post_response=ScriptedResponse(json=TOKEN_JSON),
+            get_response=ScriptedResponse(json={"users": [], "total": 0}),
             schema_name="users",
         )
         assert result == (True, None)
@@ -453,8 +429,8 @@ class TestValidateCredentials:
     )
     def test_scoped_probe_names_the_missing_scope(self, endpoint: str, scope: str) -> None:
         ok, error = self._validate(
-            post_response=_response(json_data=TOKEN_JSON),
-            get_response=_response(status_code=403),
+            post_response=ScriptedResponse(json=TOKEN_JSON),
+            get_response=ScriptedResponse(status=403),
             schema_name=endpoint,
         )
         assert ok is False
@@ -463,19 +439,23 @@ class TestValidateCredentials:
 
     def test_scoped_probe_refuses_a_redirect(self) -> None:
         ok, error = self._validate(
-            post_response=_response(json_data=TOKEN_JSON),
-            get_response=_response(status_code=302),
+            post_response=ScriptedResponse(json=TOKEN_JSON),
+            get_response=ScriptedResponse(status=302, headers={"Location": "https://internal.example.com/"}),
             schema_name="roles",
         )
         assert (ok, error) == (False, auth0_module.HOST_NOT_ALLOWED_ERROR)
 
+    def test_scoped_probe_refuses_a_redirect_without_the_hook(self) -> None:
+        with mock.patch.object(auth0_module, "_reject_redirect_response", lambda response, *args, **kwargs: response):
+            ok, error = self._validate(
+                post_response=ScriptedResponse(json=TOKEN_JSON),
+                get_response=ScriptedResponse(status=302, headers={"Location": "https://internal.example.com/"}),
+                schema_name="roles",
+            )
+        assert (ok, error) == (False, auth0_module.HOST_NOT_ALLOWED_ERROR)
+
     def test_network_failure_surfaces_rather_than_passing(self) -> None:
-        session = mock.MagicMock()
-        session.post.side_effect = requests.ConnectionError("no route to host")
-        with (
-            mock.patch.object(auth0_module, "_is_host_safe", return_value=(True, None)),
-            mock.patch.object(auth0_module, "make_tracked_session", return_value=session),
-        ):
+        with scripted_network(always(requests.ConnectionError("no route to host"))):
             ok, error = validate_credentials(DOMAIN, "cid", "secret", "v2", team_id=1)
         assert ok is False
         assert error is not None
@@ -483,22 +463,17 @@ class TestValidateCredentials:
 
 class TestAuth0Source:
     def test_items_is_lazy(self) -> None:
-        response = auth0_source(
-            domain=DOMAIN,
-            client_id="cid",
-            client_secret="secret",
-            endpoint="roles",
-            api_version="v2",
-            logger=mock.MagicMock(),
-            resumable_source_manager=FakeResumeManager(),
-            team_id=1,
-        )
-
         # Building the response must not touch the network; only iterating does.
-        with mock.patch.object(auth0_module, "_is_host_safe", return_value=(True, None)):
-            with mock.patch.object(
-                auth0_module,
-                "make_tracked_session",
-                side_effect=[_token_session(), _data_session([_response(json_data={"roles": [], "total": 0})])],
-            ):
-                assert list(cast("Iterable[Any]", response.items())) == []
+        source = Auth0Source()
+        inputs = source_inputs("roles")
+        manager = source.get_resumable_source_manager(inputs)
+        config = Auth0SourceConfig(auth0_domain=DOMAIN, client_id="cid", client_secret="secret")
+        with scripted_network(
+            [ScriptedResponse(json=TOKEN_JSON), ScriptedResponse(json={"roles": [], "total": 0})]
+        ) as network:
+            response = source.source_for_pipeline(config, manager, inputs)
+            assert network.requests_log == []
+            items = response.items()
+            assert isinstance(items, Iterable)
+            assert list(items) == []
+            assert [request.path for request in network.requests_log] == ["/oauth/token", "/api/v2/roles"]

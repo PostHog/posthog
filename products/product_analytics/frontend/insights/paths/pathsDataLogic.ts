@@ -32,6 +32,7 @@ import type { PathsV2Query } from '~/queries/schema/schema-general'
 import { isPathsQuery } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { pathNodeKeys } from './pathsChartTransforms'
 import { PathNodeData } from './pathUtils'
 import { Paths, PathsNode } from './types'
 
@@ -171,22 +172,10 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
         ],
         paths: [
             (s) => [s.results],
-            (results: PathsLink[]): Paths => {
-                const nodes: Record<string, PathsNode> = {}
-                for (const path of results) {
-                    if (!nodes[path.source]) {
-                        nodes[path.source] = { name: path.source }
-                    }
-                    if (!nodes[path.target]) {
-                        nodes[path.target] = { name: path.target }
-                    }
-                }
-
-                return {
-                    nodes: Object.values(nodes),
-                    links: results,
-                }
-            },
+            (results: PathsLink[]): Paths => ({
+                nodes: pathNodeKeys(results).map((name): PathsNode => ({ name })),
+                links: results,
+            }),
         ],
         taxonomicGroupTypes: [
             (s) => [s.pathsFilter],

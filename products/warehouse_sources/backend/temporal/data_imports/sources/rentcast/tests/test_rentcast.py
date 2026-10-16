@@ -1,123 +1,155 @@
-import json
 from typing import Any
 
-import pytest
-from unittest import mock
-
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rentcast import (
+    RentCastSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.rentcast import (
+    INVALID_ZIP_CODES_ERROR,
+    MISSING_ZIP_CODES_ERROR,
     PAGE_SIZE,
     RentCastResumeConfig,
-    rentcast_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.settings import (
     ENDPOINTS,
     RENTCAST_ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the rentcast module.
-RENTCAST_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.rentcast.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.rentcast.source import RentCastSource
 
 
-def _response(body: Any) -> Response:
+def _driver(zip_codes: str | None = "10001") -> SourceDriver:
+    return SourceDriver(RentCastSource(), RentCastSourceConfig(api_key="rc-key", zip_codes=zip_codes))
+
+
+def _page(body: Any) -> ScriptedResponse:
     # RentCast list endpoints return a bare JSON array of records.
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    resp.url = "https://api.rentcast.io/v1/properties"
-    return resp
-
-
-def _make_manager(resume_state: RentCastResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[Any]]:
-    """Wire a mock session; capture request params AND the request object AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-    request_snapshots: list[Any] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        request_snapshots.append(request)
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots, request_snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+    return ScriptedResponse(json=body)
 
 
 def _full_page(start_id: int) -> list[dict]:
     return [{"id": start_id + i} for i in range(PAGE_SIZE)]
 
 
+def _market(zip_code: str) -> dict[str, Any]:
+    return {"id": zip_code, "zipCode": zip_code, "rentalData": {"averageRent": 1850, "history": {}}}
+
+
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_and_progresses_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response(_full_page(0)), _response([{"id": 999}])])
+    def test_paginates_and_progresses_offset(self) -> None:
+        result = _driver().run("properties", [_page(_full_page(0)), _page([{"id": 999}])])
 
-        manager = _make_manager()
-        rows = _rows(rentcast_source("rc-key", "properties", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert len(rows) == PAGE_SIZE + 1
-        assert rows[-1] == {"id": 999}
-        assert params[0]["offset"] == 0
-        assert params[0]["limit"] == PAGE_SIZE
-        assert params[1]["offset"] == PAGE_SIZE
+        assert len(result.rows) == PAGE_SIZE + 1
+        assert result.rows[-1] == {"id": 999}
+        assert result.params("offset") == ["0", str(PAGE_SIZE)]
+        assert result.requests[0].param("limit") == str(PAGE_SIZE)
         # Checkpoint saved after the first full page (points at the next page); short page ends it.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == RentCastResumeConfig(offset=PAGE_SIZE)
+        assert result.saved_states == [RentCastResumeConfig(offset=PAGE_SIZE)]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response([{"id": 5}])])
-
-        manager = _make_manager(RentCastResumeConfig(offset=PAGE_SIZE))
-        rows = _rows(rentcast_source("rc-key", "properties", team_id=1, job_id="j", resumable_source_manager=manager))
+    def test_resumes_from_saved_offset(self) -> None:
+        result = _driver().run("properties", [_page([{"id": 5}])], resume_state=RentCastResumeConfig(offset=PAGE_SIZE))
 
         # Offset 0 must never be fetched on resume — the first request starts at the saved offset.
-        assert params[0]["offset"] == PAGE_SIZE
-        assert rows == [{"id": 5}]
+        assert result.params("offset") == [str(PAGE_SIZE)]
+        assert result.rows == [{"id": 5}]
 
     @parameterized.expand([("bare_string", "nope"), ("dict_without_list", {"error": "nope"})])
-    @mock.patch("tenacity.nap.time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_body_is_retryable(self, _name: str, bad_body: Any, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        session.prepare_request.return_value = mock.MagicMock()
-        session.send.return_value = _response(bad_body)
-
+    def test_non_list_body_is_retryable(self, _name: str, bad_body: Any) -> None:
         # A 200 body that isn't a list means an unexpected shape — retry, don't sync garbage.
-        with pytest.raises(RESTClientRetryableError, match="Unexpected 200 response body shape"):
-            _rows(
-                rentcast_source("rc-key", "properties", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-            )
+        result = _driver().run("properties", always(_page(bad_body)))
+
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert "Unexpected 200 response body shape" in str(result.raised)
+
+
+class TestMarkets:
+    def test_requests_each_zip_code_and_skips_zip_codes_without_data(self) -> None:
+        result = _driver(zip_codes=" 10001, 20002\n10001 30003 ").run(
+            "markets",
+            [
+                _page(_market("10001")),
+                ScriptedResponse(status=404, json={"status": 404, "error": "resource/not-found"}),
+                _page(_market("30003")),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/markets"] * 3
+        assert result.params("zipCode") == ["10001", "20002", "30003"]
+        assert [row["id"] for row in result.rows] == ["10001", "30003"]
+        assert result.rows[0]["rentalData"] == {"averageRent": 1850, "history": {}}
+        assert result.saved_states == [
+            RentCastResumeConfig(next_zip_code="20002"),
+            RentCastResumeConfig(next_zip_code="30003"),
+        ]
+        assert result.committed_states[-1] == RentCastResumeConfig(next_zip_code="30003")
+
+    def test_resumes_from_saved_zip_code_position(self) -> None:
+        result = _driver(zip_codes="10001,20002,30003").run(
+            "markets", [_page(_market("30003"))], resume_state=RentCastResumeConfig(next_zip_code="30003")
+        )
+
+        assert result.params("zipCode") == ["30003"]
+        assert [row["id"] for row in result.rows] == ["30003"]
+
+    def test_resume_follows_the_zip_code_when_the_list_was_edited(self) -> None:
+        result = _driver(zip_codes="40004,30003").run(
+            "markets", [_page(_market("30003"))], resume_state=RentCastResumeConfig(next_zip_code="30003")
+        )
+
+        assert result.params("zipCode") == ["30003"]
+
+    def test_resume_restarts_when_the_saved_zip_code_was_removed(self) -> None:
+        result = _driver(zip_codes="10001,20002").run(
+            "markets",
+            [_page(_market("10001")), _page(_market("20002"))],
+            resume_state=RentCastResumeConfig(next_zip_code="30003"),
+        )
+
+        assert result.params("zipCode") == ["10001", "20002"]
+
+    @parameterized.expand(
+        [
+            ("not_set", None, MISSING_ZIP_CODES_ERROR),
+            ("empty", "", MISSING_ZIP_CODES_ERROR),
+            ("only_separators", " , ,", MISSING_ZIP_CODES_ERROR),
+            ("too_short", "10001, 2002", INVALID_ZIP_CODES_ERROR),
+            ("zip_plus_four", "10001-1234", INVALID_ZIP_CODES_ERROR),
+            ("not_digits", "abcde", INVALID_ZIP_CODES_ERROR),
+        ]
+    )
+    def test_bad_zip_codes_fail_before_any_request_with_a_non_retryable_error(
+        self, _name: str, zip_codes: str | None, expected_error: str
+    ) -> None:
+        result = _driver(zip_codes=zip_codes).run("markets", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert expected_error in str(result.raised)
+        assert result.requests == []
+        assert any(key in str(result.raised) for key in RentCastSource().get_non_retryable_errors())
+
+    def test_bad_zip_codes_do_not_block_other_tables(self) -> None:
+        result = _driver(zip_codes="abcde").run("properties", [_page([{"id": 1}])])
+
+        assert result.raised is None
+        assert result.rows == [{"id": 1}]
+
+    @parameterized.expand([(401,), (403,)])
+    def test_auth_failures_map_to_non_retryable_errors(self, status: int) -> None:
+        result = _driver().run("markets", always(ScriptedResponse(status=status, json={"status": status})))
+
+        assert result.raised is not None
+        assert any(key in str(result.raised) for key in RentCastSource().get_non_retryable_errors())
 
 
 class TestValidateCredentials:
@@ -129,29 +161,26 @@ class TestValidateCredentials:
             ("server_error", 500, False, "RentCast returned HTTP 500"),
         ]
     )
-    @mock.patch(RENTCAST_SESSION_PATCH)
-    def test_status_mapping(
-        self, _name: str, status: int, expected_valid: bool, expected_message: str | None, mock_session
-    ) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("rc-key") == (expected_valid, expected_message)
+    def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_message: str | None) -> None:
+        with scripted_network(always(ScriptedResponse(status=status, json={}))):
+            assert validate_credentials("rc-key") == (expected_valid, expected_message)
 
-    @mock.patch(RENTCAST_SESSION_PATCH)
-    def test_connection_error_is_not_validated(self, mock_session) -> None:
+    def test_connection_error_is_not_validated(self) -> None:
         # A transport failure must not raise out of validate_credentials — it maps to "not validated".
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("rc-key") == (False, "Could not validate RentCast API key")
+        with scripted_network(always(ConnectionError("boom"))):
+            assert validate_credentials("rc-key") == (False, "Could not validate RentCast API key")
 
 
 class TestRentCastSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(self, endpoint: str, MockSession) -> None:
-        response = rentcast_source("rc-key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+    def test_source_response_shape(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [_page([])])
+
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == ["id"]
         # No stable creation timestamp is guaranteed across every record, so we don't partition.
-        assert response.partition_mode is None
+        assert result.response.partition_mode is None
 
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in RENTCAST_ENDPOINTS.values())

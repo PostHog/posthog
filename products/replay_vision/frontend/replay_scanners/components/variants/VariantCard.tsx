@@ -96,8 +96,8 @@ export function VariantCard({
                             <li key={line.theme} className="text-sm">
                                 <span>{line.statement}</span>{' '}
                                 <span className="text-muted">
-                                    {variant.analysis_observations != null
-                                        ? `(${line.count} of ${variant.analysis_observations})`
+                                    {(line.read ?? variant.analysis_observations) != null
+                                        ? `(${line.count} of ${line.read ?? variant.analysis_observations})`
                                         : `(${line.count})`}
                                 </span>
                                 {line.example_observation_ids.length > 0 && (

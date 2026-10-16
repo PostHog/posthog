@@ -91,8 +91,11 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         clauses: Optional[list[dict[str, Any]]] = None,
         formula: Optional[str] = None,
         date_range: Optional[dict[str, str]] = None,
+        sql: Optional[str] = None,
     ) -> dict:
-        if clauses is None:
+        if sql is not None:
+            clauses = []
+        elif clauses is None:
             clause: dict[str, Any] = {"name": "a", "metricName": self.metric_name, "aggregation": "avg"}
             if group_by:
                 clause["groupBy"] = [{"key": key} for key in group_by]
@@ -102,6 +105,8 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
             query_dict["formula"] = formula
         if date_range:
             query_dict["dateRange"] = date_range
+        if sql is not None:
+            query_dict.update(language="sql", sql=sql)
         return self.dashboard_api.create_insight(data={"name": "metrics insight", "query": query_dict})[1]
 
     def create_alert(
@@ -206,6 +211,32 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
         assert alert_check.calculated_value == 0
         assert alert_check.error is None
+
+    def test_sql_insight_alert_counts_an_empty_bucket_as_zero(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        # The builder fills empty buckets with 0; a SQL insight leaves them empty. Series b stops
+        # reporting after 06:30, so the 07:30 anchor bucket is empty and must breach a lower bound.
+        stopped_metric = f"{self.metric_name}.stopped"
+        self.seed_gauge({6: 5.0, 7: 5.0, 8: 5.0})
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name=stopped_metric,
+            metric_type="gauge",
+            points=[(dt.datetime(2026, 9, 19, 6, 30, tzinfo=dt.UTC), 5.0)],
+        )
+        sql = (
+            "SELECT toStartOfInterval(timestamp, {interval}) AS time, metric_name AS clause, avg(value) AS value "
+            f"FROM posthog.metrics WHERE metric_name IN ('{self.metric_name}', '{stopped_metric}') "
+            "AND timestamp >= {date_from} AND timestamp < {date_to} GROUP BY time, clause"
+        )
+        alert = self.create_alert(self.create_metrics_insight(sql=sql), lower=1.0)
+
+        run_alert_check(alert["id"])
+
+        assert AlertConfiguration.objects.get(pk=alert["id"]).state == AlertState.FIRING
+        breach_messages = mock_send_breaches.call_args.args[1]
+        assert any(stopped_metric in message for message in breach_messages), breach_messages
 
     def test_group_by_fires_on_any_breaching_series(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock

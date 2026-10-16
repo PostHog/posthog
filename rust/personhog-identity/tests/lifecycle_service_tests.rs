@@ -47,6 +47,7 @@ async fn delete_status(request: DeletePersonsRequest) -> Code {
         tables,
         common::FAN_OUT_CONCURRENCY,
         common::NUM_PARTITIONS,
+        personhog_identity::config::OutboxWrites::Disabled,
     );
     service
         .delete_persons(Request::new(request))

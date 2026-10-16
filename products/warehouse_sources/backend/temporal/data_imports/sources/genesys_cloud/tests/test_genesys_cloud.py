@@ -1,34 +1,41 @@
-from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 import time_machine
-from unittest import mock
 
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     OAuth2AuthRequestError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.genesyscloud import (
+    GenesysCloudSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.genesys_cloud import genesys_cloud
 from products.warehouse_sources.backend.temporal.data_imports.sources.genesys_cloud.genesys_cloud import (
     GenesysCloudResumeConfig,
-    genesys_cloud_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.genesys_cloud.source import GenesysCloudSource
 
-SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.genesys_cloud.genesys_cloud.make_tracked_session"
-)
 NOW = datetime(2026, 3, 10, 12, 0, tzinfo=UTC)
+TOKEN = ScriptedResponse(json={"access_token": "test-token", "expires_in": 3600})
 
 
-def _response(payload: dict[str, Any], status_code: int = 200) -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.status_code = status_code
-    response.json.return_value = payload
-    return response
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        GenesysCloudSource(),
+        GenesysCloudSourceConfig(region="mypurecloud.com", client_id="cid", client_secret="secret"),
+    )
 
 
 def _conversation(conversation_id: str, start: datetime, participants: list[dict[str, Any]] | None = None) -> dict:
@@ -39,31 +46,9 @@ def _conversation(conversation_id: str, start: datetime, participants: list[dict
     }
 
 
-def _manager(resume: GenesysCloudResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
-
-
-def _request_interval(call: Any) -> tuple[datetime, datetime]:
-    start, end = call.kwargs["json"]["interval"].split("/")
+def _request_interval(request: RecordedRequest) -> tuple[datetime, datetime]:
+    start, end = request.json()["interval"].split("/")
     return datetime.fromisoformat(start), datetime.fromisoformat(end)
-
-
-def _run(endpoint: str, session: mock.MagicMock, manager: mock.MagicMock, watermark: Any = None) -> list[dict]:
-    with mock.patch(SESSION_PATCH, return_value=session):
-        response = genesys_cloud_source(
-            region="mypurecloud.com",
-            client_id="cid",
-            client_secret="secret",
-            endpoint=endpoint,
-            resumable_source_manager=manager,
-            db_incremental_field_last_value=watermark,
-        )
-        items = response.items()
-        assert isinstance(items, Iterable)
-        return [row for batch in items for row in batch]
 
 
 class TestAnalyticsEndpoints:
@@ -79,35 +64,41 @@ class TestAnalyticsEndpoints:
             _conversation("c100", start + timedelta(minutes=5)),
             _conversation("from-previous-window", start - timedelta(hours=1)),
         ]
-        session = mock.MagicMock()
-        session.post.side_effect = [
-            _response({"totalHits": 102, "conversations": full_page}),
-            _response({"totalHits": 102, "conversations": last_page}),
-        ]
-        manager = _manager(GenesysCloudResumeConfig(window_start=start.isoformat()))
 
-        rows = _run("conversations", session, manager)
+        result = _driver().run(
+            "conversations",
+            [
+                TOKEN,
+                ScriptedResponse(json={"totalHits": 102, "conversations": full_page}),
+                ScriptedResponse(json={"totalHits": 102, "conversations": last_page}),
+            ],
+            resume_state=GenesysCloudResumeConfig(window_start=start.isoformat()),
+        )
 
-        assert [row["conversationId"] for row in rows] == [f"c{i}" for i in range(101)]
-        assert [c.kwargs["json"]["paging"]["pageNumber"] for c in session.post.call_args_list] == [1, 2]
-        assert _request_interval(session.post.call_args_list[0]) == (start, NOW)
-        manager.save_state.assert_called_once_with(GenesysCloudResumeConfig(window_start="2026-03-10T12:00:00.000Z"))
+        assert result.raised is None
+        assert [row["conversationId"] for row in result.rows] == [f"c{i}" for i in range(101)]
+        assert [request.json()["paging"]["pageNumber"] for request in result.requests[1:]] == [1, 2]
+        assert _request_interval(result.requests[1]) == (start, NOW)
+        assert result.saved_states == [GenesysCloudResumeConfig(window_start="2026-03-10T12:00:00.000Z")]
 
     def test_splits_a_dense_ten_minute_window(self):
         start = NOW - timedelta(minutes=10)
         middle = NOW - timedelta(minutes=5)
-        session = mock.MagicMock()
-        session.post.side_effect = [
-            _response({"totalHits": genesys_cloud.MAX_RESULTS_PER_WINDOW + 1, "conversations": []}),
-            _response({"totalHits": 1, "conversations": [_conversation("early", start)]}),
-            _response({"totalHits": 1, "conversations": [_conversation("late", middle)]}),
-        ]
-        manager = _manager(GenesysCloudResumeConfig(window_start=start.isoformat()))
 
-        rows = _run("conversations", session, manager)
+        result = _driver().run(
+            "conversations",
+            [
+                TOKEN,
+                ScriptedResponse(json={"totalHits": genesys_cloud.MAX_RESULTS_PER_WINDOW + 1, "conversations": []}),
+                ScriptedResponse(json={"totalHits": 1, "conversations": [_conversation("early", start)]}),
+                ScriptedResponse(json={"totalHits": 1, "conversations": [_conversation("late", middle)]}),
+            ],
+            resume_state=GenesysCloudResumeConfig(window_start=start.isoformat()),
+        )
 
-        assert [row["conversationId"] for row in rows] == ["early", "late"]
-        assert [_request_interval(c) for c in session.post.call_args_list[1:]] == [(start, middle), (middle, NOW)]
+        assert result.raised is None
+        assert [row["conversationId"] for row in result.rows] == ["early", "late"]
+        assert [_request_interval(request) for request in result.requests[2:]] == [(start, middle), (middle, NOW)]
 
     @pytest.mark.parametrize(
         "resume,watermark,expected_start",
@@ -122,42 +113,57 @@ class TestAnalyticsEndpoints:
         ],
     )
     def test_first_window_start(self, resume, watermark, expected_start):
-        session = mock.MagicMock()
-        session.post.return_value = _response({"totalHits": 0})
-        manager = _manager(resume)
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return TOKEN
+            return ScriptedResponse(json={"totalHits": 0})
 
-        _run("calls", session, manager, watermark=watermark)
+        result = _driver().run(
+            "calls",
+            respond,
+            resume_state=resume,
+            incremental_field="conversationStart" if watermark is not None else None,
+            db_incremental_field_last_value=watermark,
+        )
 
-        assert _request_interval(session.post.call_args_list[0])[0] == expected_start
-        assert _request_interval(session.post.call_args_list[-1])[1] == NOW
-        manager.safe_point.assert_called()
+        assert result.raised is None
+        assert _request_interval(result.requests[1])[0] == expected_start
+        assert _request_interval(result.requests[-1])[1] == NOW
+        assert result.committed_states
+        assert result.final_state is None
 
     def test_participants_are_flattened_with_conversation_keys(self):
         start = NOW - timedelta(hours=1)
-        session = mock.MagicMock()
-        session.post.return_value = _response(
-            {
-                "totalHits": 1,
-                "conversations": [
-                    _conversation(
-                        "conv-1",
-                        start,
-                        participants=[
-                            {"participantId": "p1", "purpose": "customer"},
-                            {"participantId": "p2", "purpose": "agent"},
+
+        result = _driver().run(
+            "participants",
+            [
+                TOKEN,
+                ScriptedResponse(
+                    json={
+                        "totalHits": 1,
+                        "conversations": [
+                            _conversation(
+                                "conv-1",
+                                start,
+                                participants=[
+                                    {"participantId": "p1", "purpose": "customer"},
+                                    {"participantId": "p2", "purpose": "agent"},
+                                ],
+                            )
                         ],
-                    )
-                ],
-            }
+                    }
+                ),
+            ],
+            resume_state=GenesysCloudResumeConfig(window_start=start.isoformat()),
         )
 
-        rows = _run("participants", session, _manager(GenesysCloudResumeConfig(window_start=start.isoformat())))
-
-        assert [(row["conversationId"], row["participantId"], row["purpose"]) for row in rows] == [
+        assert result.raised is None
+        assert [(row["conversationId"], row["participantId"], row["purpose"]) for row in result.rows] == [
             ("conv-1", "p1", "customer"),
             ("conv-1", "p2", "agent"),
         ]
-        assert all(row["conversationStart"] == "2026-03-10T11:00:00.000Z" for row in rows)
+        assert all(row["conversationStart"] == "2026-03-10T11:00:00.000Z" for row in result.rows)
 
 
 class TestListingEndpoints:
@@ -170,21 +176,22 @@ class TestListingEndpoints:
     )
     def test_pages_until_page_count(self, resume, expected_pages):
         pages = {
-            1: _response({"entities": [{"id": "q1"}], "pageNumber": 1, "pageCount": 2}),
-            2: _response({"entities": [{"id": "q2"}], "pageNumber": 2, "pageCount": 2}),
+            1: ScriptedResponse(json={"entities": [{"id": "q1"}], "pageNumber": 1, "pageCount": 2}),
+            2: ScriptedResponse(json={"entities": [{"id": "q2"}], "pageNumber": 2, "pageCount": 2}),
         }
-        session = mock.MagicMock()
-        session.get.side_effect = lambda url, params, timeout: pages[params["pageNumber"]]
-        manager = _manager(resume)
 
-        rows = _run("queues", session, manager)
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return TOKEN
+            return pages[int(request.param("pageNumber") or 0)]
 
-        requested = [c.kwargs["params"]["pageNumber"] for c in session.get.call_args_list]
-        assert requested == expected_pages
-        assert [row["id"] for row in rows] == [f"q{page}" for page in expected_pages]
-        saved = [c.args[0].page_number for c in manager.save_state.call_args_list]
-        assert saved == ([2] if resume is None else [])
-        manager.clear_state.assert_called_once_with()
+        result = _driver().run("queues", respond, resume_state=resume)
+
+        assert result.raised is None
+        assert result.params("pageNumber")[1:] == [str(page) for page in expected_pages]
+        assert [row["id"] for row in result.rows] == [f"q{page}" for page in expected_pages]
+        assert result.saved_states == ([GenesysCloudResumeConfig(page_number=2)] if resume is None else [])
+        assert result.final_state is None
 
 
 class TestValidateCredentials:
@@ -210,14 +217,25 @@ class TestValidateCredentials:
         ],
     )
     def test_maps_probe_status(self, endpoint, status_code, expected_valid, expected_message):
-        session = mock.MagicMock()
-        session.get.return_value = _response({}, status_code)
-        session.post.return_value = _response({}, status_code)
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return TOKEN
+            return ScriptedResponse(status=status_code, json={})
 
-        with mock.patch(SESSION_PATCH, return_value=session):
+        with scripted_network(respond) as network:
             result = validate_credentials("mypurecloud.com", "cid", "secret", endpoint)
 
         assert result == (expected_valid, expected_message)
+        assert network.requests_log[0].path == "/oauth/token"
+        assert (
+            network.requests_log[1].path
+            == {
+                None: "/api/v2/organizations/me",
+                "conversations": "/api/v2/analytics/conversations/details/query",
+                "users": "/api/v2/users",
+                "queues": "/api/v2/routing/queues",
+            }[endpoint]
+        )
 
     @pytest.mark.parametrize(
         "error,expected_message",
@@ -237,17 +255,26 @@ class TestValidateCredentials:
         ],
     )
     def test_maps_request_errors(self, error, expected_message):
-        session = mock.MagicMock()
-        session.get.side_effect = error
+        script: Script
+        if isinstance(error, OAuth2AuthRequestError):
+            response = ScriptedResponse(
+                status=400 if error.is_permanent else 503,
+                json={"error": "invalid_client"} if error.is_permanent else {},
+            )
+            script = [response]
+        else:
+            script = always(error)
 
-        with mock.patch(SESSION_PATCH, return_value=session):
+        with scripted_network(script) as network:
             result = validate_credentials("mypurecloud.com", "cid", "secret")
 
         assert result == (False, expected_message)
+        assert network.requests_log[0].path == "/oauth/token"
 
     def test_rejects_unknown_region_without_a_request(self):
-        with mock.patch(SESSION_PATCH) as make_session:
+        with scripted_network([]) as network:
             result = validate_credentials("evil.example.com", "cid", "secret")
 
         assert result == (False, "Select the Genesys Cloud region your organization is hosted in.")
-        make_session.assert_not_called()
+        assert network.requests_log == []
+        assert network.session_options == []
