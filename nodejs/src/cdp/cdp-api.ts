@@ -39,6 +39,7 @@ import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
 import { MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
+import { counterBatchResolverParked } from './services/hogflows/batch-resolver-resume'
 import {
     BatchResolverState,
     HOGFLOW_BATCH_RESOLVE_QUEUE,
@@ -128,14 +129,24 @@ function canDedupeByEmail(hogFlow: { actions?: unknown }): boolean {
 export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps
 
-function parseRealtimeCohort(value: unknown): BatchResolverState['realtimeCohort'] {
+// Null means the cohort asks to wait but its deadline is unreadable. Queuing it unparked would send to a
+// cohort that is still calculating, so the caller rejects it.
+function parseRealtimeCohort(value: unknown): BatchResolverState['realtimeCohort'] | null {
     if (typeof value !== 'object' || value === null) {
         return undefined
     }
-    const { id, team_id } = value as { id?: unknown; team_id?: unknown }
-    return Number.isInteger(id) && Number.isInteger(team_id)
-        ? { id: id as number, teamId: team_id as number }
-        : undefined
+    const { id, team_id, wait_until } = value as { id?: unknown; team_id?: unknown; wait_until?: unknown }
+    if (!Number.isInteger(id) || !Number.isInteger(team_id)) {
+        return undefined
+    }
+    if (wait_until === undefined || wait_until === null) {
+        return { id: id as number, teamId: team_id as number }
+    }
+    const waitUntil = typeof wait_until === 'string' ? new Date(wait_until) : null
+    if (!waitUntil || isNaN(waitUntil.getTime())) {
+        return null
+    }
+    return { id: id as number, teamId: team_id as number, waitUntil: waitUntil.toISOString() }
 }
 
 export class CdpApi {
@@ -168,6 +179,7 @@ export class CdpApi {
     private cancelInvocationsJwt: ScopedServiceJwt
     private cancelBatchJwt: ScopedServiceJwt
     private stepResumeJwt: ScopedServiceJwt
+    private resumeBatchJwt: ScopedServiceJwt
 
     constructor(
         private config: PluginsServerConfig,
@@ -233,6 +245,12 @@ export class CdpApi {
         )
         this.stepResumeJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_STEP_RESUME,
+            config.WORKFLOWS_STEP_RESUME_JWT_SECRET || ''
+        )
+        // The same workers that wake parked steps wake parked batch resolvers, so they share the
+        // key. The audience keeps a step-resume token from waking a batch, and the reverse.
+        this.resumeBatchJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_RESUME_BATCH,
             config.WORKFLOWS_STEP_RESUME_JWT_SECRET || ''
         )
     }
@@ -314,6 +332,10 @@ export class CdpApi {
         router.post(
             '/api/projects/:team_id/hog_flows/:id/batch_jobs/:batch_job_id/cancel',
             asyncHandler(this.postHogFlowCancelBatchJob)
+        )
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/batch_jobs/:batch_job_id/resume',
+            asyncHandler(this.postHogFlowResumeBatchJob)
         )
         router.post('/api/projects/:team_id/workflow_steps/resume', asyncHandler(this.postWorkflowStepResume))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
@@ -1191,6 +1213,50 @@ export class CdpApi {
         }
     }
 
+    /**
+     * Wake a batch resolver parked until its realtime cohort finishes calculating. Django calls this
+     * once the cohort is ready. `already_resumed` is a success: a second wake for the same run is a no-op.
+     * Only a running resolver answers 409, so the caller retries. A finished or removed one already ran, so
+     * a wake retried after a lost response gets a 200 and the caller stops.
+     */
+    private postHogFlowResumeBatchJob = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.batchResolverProducer) {
+                return res.status(503).json({
+                    error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                })
+            }
+            if (!this.resumeBatchJwt.enabled) {
+                return res.status(503).json({
+                    error: 'Workflows scoped auth not configured (WORKFLOWS_STEP_RESUME_JWT_SECRET unset)',
+                })
+            }
+            const { team_id, id, batch_job_id } = req.params
+            // batch_job_id is pinned in the claims, so a captured token wakes exactly one run.
+            if (!this.verifyScopedWorkflowJwt(this.resumeBatchJwt, req, res, 'resume', { batch_job_id })) {
+                return
+            }
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+            if (batch_job_id.length > 200) {
+                return res.status(400).json({ error: 'batch_job_id is too long' })
+            }
+            const outcome = await this.batchResolverProducer.resumeParkedBatchResolver({
+                teamId: team.id,
+                functionId: id,
+                batchJobId: batch_job_id,
+            })
+            return res.status(outcome === 'job_running' ? 409 : 200).json({ outcome })
+        } catch (e) {
+            logger.error('Error resuming hog flow batch job', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
     // Wake the parked workflow step that dispatched a task run, with the run's outcome. Django
     // calls this from a retrying Celery task when the run reaches a terminal status. One resume
     // per call; the outcome tells the caller whether to retry (409: the worker still holds the
@@ -1408,6 +1474,11 @@ export class CdpApi {
                 throw new Error('Batch resolver producer is not configured (missing CYCLOTRON_NODE_DATABASE_URL)')
             }
 
+            const realtimeCohort = parseRealtimeCohort(req.body.realtime_cohort)
+            if (realtimeCohort === null) {
+                return res.status(400).json({ error: 'realtime_cohort.wait_until must be an ISO 8601 date' })
+            }
+
             const snapshotFilters: BatchResolverState['filters'] | undefined = req.body.filters
             const audienceType = snapshotFilters?.audience_type ?? hogFlow.trigger.filters.audience_type
             // A snapshot saved before assignment statuses existed carries assignee ids or the legacy
@@ -1445,7 +1516,7 @@ export class CdpApi {
                 // dedupe than dedupe wrongly. Also skip when the flow has no email action at all.
                 // Account audiences carry no person (and external ids are already unique), so never dedupe.
                 dedupeKey: audienceType !== 'accounts' && canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
-                realtimeCohort: parseRealtimeCohort(req.body.realtime_cohort),
+                realtimeCohort,
                 maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
                 cursor: null,
                 totalEnqueued: 0,
@@ -1453,13 +1524,19 @@ export class CdpApi {
                 attempts: 0,
                 startedAt: new Date().toISOString(),
             }
+            const waitUntil = initialState.realtimeCohort?.waitUntil
             await this.batchResolverProducer.createJob({
                 teamId: team.id,
                 queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
                 parentRunId: parent_run_id,
                 functionId: hogFlow.id,
                 state: serializeResolverState(initialState),
+                // A cohort that is still calculating parks the job until Django resumes it.
+                ...(waitUntil ? { scheduled: new Date(waitUntil) } : {}),
             })
+            if (waitUntil) {
+                counterBatchResolverParked.inc()
+            }
 
             res.json({ status: 'queued' })
         } catch (e) {
