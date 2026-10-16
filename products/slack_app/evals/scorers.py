@@ -452,6 +452,8 @@ Each reply has a short button label and the full text the button sends. Every re
 - mean something different from every other reply
 - if the answer offers to check something first and then make a change, such as a pull request, not ask for the check and the change together unless another reply asks for the check alone
 
+One reply is fixed on purpose. When the answer offers to fix a bug or an error, the reply that accepts the fix has the label "Fix it, make no mistakes", or its translation, and its text starts with the same words. "Make no mistakes" is not an extra action. The label stands for the fix and for the step that its text adds, such as opening a pull request.
+
 Answer `yes` if every reply follows all of these rules. Answer `no` if one reply breaks one rule.
 """.strip(),
             choice_scores=BINARY_CHOICE_SCORES,

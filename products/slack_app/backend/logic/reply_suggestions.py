@@ -83,8 +83,9 @@ do not guess it. Offer only the replies that are complete without it, or return 
 - Do not write replies that only say thanks or close the conversation.
 - If the answer offers to fix a bug or an error, the reply that accepts the fix has the label \
 "Fix it, make no mistakes". Its reply starts with "Fix it, make no mistakes." and can add the step that the \
-answer names. Do not also offer a plain "Yes, fix it" reply. If the answer is not in English, translate this \
-reply.
+answer names. Do not also offer a plain "Yes, fix it" reply. If the answer is not in English, translate the \
+label and the reply word for word, such as "Beheb es, ohne Fehler" in German, and do not reword them.
+- Do not use em dashes. Use a comma or a full stop.
 
 Each suggestion has two parts:
 - "label": the button text. Keep it under 30 characters, because Slack cuts longer labels.
