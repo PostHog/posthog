@@ -10,6 +10,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
+from requests.exceptions import ConnectTimeout, ReadTimeout
 from trino.exceptions import HttpError, TrinoConnectionError, TrinoExternalError, TrinoUserError
 from trino.types import NamedRowTuple
 
@@ -27,7 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trin
     TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR,
     TRINO_ACCESS_DENIED_ERROR,
     TRINO_AUTHENTICATION_ERROR,
+    TRINO_CONNECT_TIMEOUT_ERROR,
     TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR,
+    TRINO_DISCOVERY_TIMEOUT_ERROR,
+    TRINO_READ_TIMEOUT_ERROR,
     DiscoveredTrinoTable,
     TrinoColumn,
     TrinoImplementation,
@@ -198,6 +202,23 @@ def test_trino_error_to_message_explains_access_failures(raw_error: str, expecte
     assert trino_error_to_message(RuntimeError(raw_error)) == expected
 
 
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (
+            ConnectTimeout("HTTPSConnectionPool(host='trino.example.com', port=443): Max retries exceeded"),
+            TRINO_CONNECT_TIMEOUT_ERROR,
+        ),
+        (
+            ReadTimeout("HTTPSConnectionPool(host='trino.example.com', port=443): Read timed out."),
+            TRINO_READ_TIMEOUT_ERROR,
+        ),
+    ],
+)
+def test_trino_error_to_message_hides_the_host_on_a_timeout(error: Exception, expected: str) -> None:
+    assert trino_error_to_message(error) == expected
+
+
 def _trino_external_error(message: str) -> TrinoExternalError:
     return TrinoExternalError(
         {
@@ -211,20 +232,29 @@ def _trino_external_error(message: str) -> TrinoExternalError:
     )
 
 
-def test_get_schemas_reports_what_trino_said_without_an_exception_report() -> None:
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (_trino_external_error("Failed to query OPA backend"), TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR),
+        (ReadTimeout("Read timed out. (read timeout=60)"), TRINO_DISCOVERY_TIMEOUT_ERROR),
+        (ConnectTimeout("Max retries exceeded"), TRINO_CONNECT_TIMEOUT_ERROR),
+    ],
+    ids=["access_control", "read_timeout", "connect_timeout"],
+)
+def test_get_schemas_reports_what_trino_said_without_an_exception_report(error: Exception, expected: str) -> None:
     source = TrinoSource()
 
     with (
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.connect_trino",
-            side_effect=_trino_external_error("Failed to query OPA backend"),
+            side_effect=error,
         ),
         pytest.raises(TrinoSchemaDiscoveryError) as raised,
     ):
         source.get_schemas(_config(), team_id=1)
 
     message, is_expected_source_error = _classify_refresh_schemas_error(source, raised.value)
-    assert message == TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR
+    assert message == expected
     assert is_expected_source_error is True
 
 

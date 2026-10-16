@@ -9,7 +9,7 @@ from itertools import batched
 from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
-from requests.exceptions import RequestException
+from requests.exceptions import ConnectTimeout, RequestException, Timeout
 
 from posthog.dataclasses import frozen
 
@@ -75,6 +75,17 @@ TRINO_TLS_CERTIFICATE_ERROR = (
     "Check the certificate or turn off certificate verification."
 )
 TRINO_CONNECTION_ERROR = "PostHog could not connect to Trino."
+TRINO_CONNECT_TIMEOUT_ERROR = (
+    "Connection to Trino timed out. Check the host and port, and that PostHog's egress IP addresses are "
+    "allowed through your firewall."
+)
+TRINO_READ_TIMEOUT_ERROR = (
+    "Trino didn't answer in time. Check that your Trino cluster isn't overloaded, then try again."
+)
+TRINO_DISCOVERY_TIMEOUT_ERROR = (
+    "Trino took too long to list your tables. If you left the schema blank, enter one so PostHog lists "
+    "fewer tables, then try again."
+)
 TRINO_TABLE_NOT_FOUND_ERROR = (
     "Trino could not find this table, or this user can no longer see its columns. "
     "Check that the table still exists and that the user can read it, then resync."
@@ -97,6 +108,9 @@ TRINO_KNOWN_ERROR_MESSAGES = (
     TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR,
     TRINO_TLS_CERTIFICATE_ERROR,
     TRINO_CONNECTION_ERROR,
+    TRINO_CONNECT_TIMEOUT_ERROR,
+    TRINO_READ_TIMEOUT_ERROR,
+    TRINO_DISCOVERY_TIMEOUT_ERROR,
 )
 # The subset of those failures that a retry of an import sync cannot fix. A broken connection, an
 # unreachable access control service and a TLS failure can all clear on their own, so a sync retries them.
@@ -160,6 +174,9 @@ def trino_failures_as_discovery_error() -> Iterator[None]:
     try:
         yield
     except (Error, HttpError, RequestException, TrinoConfigurationError) as exc:
+        # Listing every schema in a large catalog is the slow part of discovery, so a schema narrows it.
+        if isinstance(exc, Timeout) and not isinstance(exc, ConnectTimeout):
+            raise TrinoSchemaDiscoveryError(TRINO_DISCOVERY_TIMEOUT_ERROR) from exc
         raise TrinoSchemaDiscoveryError(trino_error_to_message(exc)) from exc
 
 
@@ -168,6 +185,11 @@ def trino_error_to_message(error: Exception) -> str:
     lowered = message.lower()
     if message == TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR:
         return message
+    # The raw requests text names the host, so it never reaches the user.
+    if isinstance(error, ConnectTimeout):
+        return TRINO_CONNECT_TIMEOUT_ERROR
+    if isinstance(error, Timeout):
+        return TRINO_READ_TIMEOUT_ERROR
     # Match the driver's HTTP 401 form ("error 401: ..."), not a bare "401": a Trino query error's
     # text carries a query ID whose time part can hold "401" and would derail this classification.
     if "authentication" in lowered or "unauthorized" in lowered or "error 401" in lowered:
