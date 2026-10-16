@@ -1,5 +1,6 @@
 import gzip
 import json
+import time
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -855,12 +856,36 @@ class TestVendorReports:
         assert result.raised is None
         assert [request.method for request in result.requests if request.path == REPORTS_PATH] == ["POST", "POST"]
 
-    def test_a_fatal_old_window_is_skipped_and_the_walk_continues(self) -> None:
+    @pytest.mark.parametrize(
+        ("fatal_reports", "expected_starts", "expected_rows"),
+        [
+            (
+                {"r1"},
+                ["2026-09-21T00:00:00Z", "2026-09-21T00:00:00Z", "2026-09-28T00:00:00Z", "2026-10-05T00:00:00Z"],
+                3,
+            ),
+            (
+                {"r1", "r2", "r3"},
+                [
+                    "2026-09-21T00:00:00Z",
+                    "2026-09-21T00:00:00Z",
+                    "2026-09-21T00:00:00Z",
+                    "2026-09-28T00:00:00Z",
+                    "2026-10-05T00:00:00Z",
+                ],
+                2,
+            ),
+        ],
+    )
+    def test_a_fatal_old_window_is_retried_then_skipped(
+        self, fatal_reports: set[str], expected_starts: list[str], expected_rows: int
+    ) -> None:
         vendor = _ReportsVendor(["DONE"], [{"salesByAsin": [{"asin": "B07", "startDate": "2026-10-05"}]}])
 
         def respond(request: RecordedRequest) -> ScriptedResponse:
-            if request.path == f"{REPORTS_PATH}/r1":
-                return ScriptedResponse(json={"reportId": "r1", "processingStatus": "FATAL"})
+            report_id = request.path.rsplit("/", 1)[1]
+            if request.path.startswith(f"{REPORTS_PATH}/") and report_id in fatal_reports:
+                return ScriptedResponse(json={"reportId": report_id, "processingStatus": "FATAL"})
             return vendor(request)
 
         result = _driver("ATVPDKIKX0DER").run(
@@ -868,12 +893,8 @@ class TestVendorReports:
         )
 
         assert result.raised is None
-        assert [body["dataStartTime"] for body in vendor.created] == [
-            "2026-09-21T00:00:00Z",
-            "2026-09-28T00:00:00Z",
-            "2026-10-05T00:00:00Z",
-        ]
-        assert [row["asin"] for row in result.rows] == ["B07", "B07"]
+        assert [body["dataStartTime"] for body in vendor.created] == expected_starts
+        assert [row["asin"] for row in result.rows] == ["B07"] * expected_rows
 
     def test_a_document_url_outside_amazon_is_refused(self) -> None:
         vendor = _ReportsVendor(["DONE"], [])
@@ -986,6 +1007,22 @@ def test_probe_endpoint_permissions(
 
     assert permissions == expected
     assert [request.path for request in network.requests_log if request.path != TOKEN_PATH] == probed_paths
+
+
+def test_probes_past_the_setup_budget_leave_access_unknown() -> None:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == TOKEN_PATH:
+            return TOKEN
+        time.sleep(40)
+        return SP_API_FORBIDDEN
+
+    with scripted_network(respond) as network:
+        permissions = probe_endpoint_permissions(
+            "na", "client", "secret", "Atzr|refresh", ["A"], ["orders", "transactions", "vendor_sales"]
+        )
+
+    assert permissions == {"orders": SELLER_ONLY_MESSAGE, "transactions": None, "vendor_sales": None}
+    assert [request.path for request in network.requests_log if request.path != TOKEN_PATH] == [ORDERS_PATH]
 
 
 def test_a_transient_marketplace_discovery_failure_leaves_inventory_access_unknown() -> None:

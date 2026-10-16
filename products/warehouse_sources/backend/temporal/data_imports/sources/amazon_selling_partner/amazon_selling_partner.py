@@ -1,5 +1,6 @@
 import gzip
 import json
+import time
 import sqlite3
 import tempfile
 from collections.abc import Callable, Iterable, Iterator
@@ -13,6 +14,7 @@ from urllib.parse import parse_qsl, urlsplit
 import requests
 import structlog
 from requests import PreparedRequest
+from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
 
@@ -78,6 +80,9 @@ SELLER_ONLY_MESSAGE = "This table needs a seller account with the role listed in
 VENDOR_ONLY_MESSAGE = "This table needs a vendor account with the Brand Analytics role."
 
 REQUEST_TIMEOUT = (10.0, 30.0)
+# The table picker waits on the probes inside one setup request, so they share a short budget.
+PROBE_TIMEOUT = (5.0, 10.0)
+PROBE_BUDGET_SECONDS = 30.0
 INVENTORY_ROWS_PER_BATCH = 2000
 REPORT_POLL_INTERVAL_SECONDS = 30
 # A report still pending after this long fails the attempt; the next attempt polls the same report.
@@ -88,6 +93,7 @@ REPORT_CREATE_BACKOFF_SECONDS = 60
 REPORT_DOWNLOAD_TIMEOUT = (10.0, 300.0)
 # A FATAL report for a window that ended this recently may only mean Amazon has not published it yet.
 REPORT_PUBLISH_GRACE = timedelta(days=7)
+REPORT_FATAL_ATTEMPTS = 3
 REPORT_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 REPORT_ROWS_PER_BATCH = 2000
 # The document sits on presigned Amazon storage. Pinning the host keeps a tampered `url` from
@@ -399,9 +405,14 @@ def _transactions_resource(
     return Resource(pages, name=TRANSACTIONS, hints=_wrapper_hints(TRANSACTIONS, should_use_incremental_field))
 
 
-def list_marketplace_ids(region: str, auth: LwaAuth) -> list[str]:
-    session = make_tracked_session(redact_values=auth.secret_values())
-    response = session.get(f"{_base_url(region)}{MARKETPLACE_PARTICIPATIONS_PATH}", auth=auth, timeout=REQUEST_TIMEOUT)
+def list_marketplace_ids(
+    region: str,
+    auth: LwaAuth,
+    session: requests.Session | None = None,
+    timeout: tuple[float, float] = REQUEST_TIMEOUT,
+) -> list[str]:
+    session = session or make_tracked_session(redact_values=auth.secret_values())
+    response = session.get(f"{_base_url(region)}{MARKETPLACE_PARTICIPATIONS_PATH}", auth=auth, timeout=timeout)
     response.raise_for_status()
     return [
         entry["marketplace"]["id"]
@@ -730,27 +741,6 @@ def _vendor_report_rows(
             report_id = pending.report_id if pending is not None and resuming else None
             rows_done = pending.rows_done if pending is not None and resuming and report_id else 0
             pending = None
-            if report_id is None:
-                body: dict[str, Any] = {"reportType": report.report_type, "marketplaceIds": [marketplace_id]}
-                options = _report_options(report, marketplace_id)
-                if options:
-                    body["reportOptions"] = options
-                if window is not None:
-                    body["dataStartTime"] = window.data_start_time
-                    body["dataEndTime"] = window.data_end_time
-                report_id = client.create_report(body, manager.safe_point)
-                # Staged, not committed: the pipeline commits it at a safe point once earlier rows are
-                # written, so an attempt that resumes polls this report instead of creating another.
-                manager.save_state(
-                    AmazonSellingPartnerResumeConfig(
-                        completed_marketplaces=completed,
-                        marketplace_id=marketplace_id,
-                        window_start=window_start,
-                        window_end=window_end,
-                        report_id=report_id,
-                    )
-                )
-
             following = windows[index + 1] if index + 1 < len(windows) else None
             next_state = (
                 AmazonSellingPartnerResumeConfig(
@@ -761,28 +751,55 @@ def _vendor_report_rows(
                 if following is not None
                 else AmazonSellingPartnerResumeConfig(completed_marketplaces=[*completed, marketplace_id])
             )
-            try:
-                document = await_report_document(client, report, report_id, manager.safe_point)
-            except VendorReportError as error:
-                if window_end is not None and not _may_be_unpublished(report, window_end, now):
-                    # Amazon fails an old window it has no data for, and asking again fails the same way.
-                    logger.warning(
-                        "amazon_selling_partner_report_window_skipped",
-                        report_type=report.report_type,
-                        window_start=window_start,
-                        error=str(error),
+            recent = window_end is None or _may_be_unpublished(report, window_end, now)
+            document: dict[str, Any] | None = None
+            for attempt in range(1, REPORT_FATAL_ATTEMPTS + 1):
+                if report_id is None:
+                    body: dict[str, Any] = {"reportType": report.report_type, "marketplaceIds": [marketplace_id]}
+                    options = _report_options(report, marketplace_id)
+                    if options:
+                        body["reportOptions"] = options
+                    if window is not None:
+                        body["dataStartTime"] = window.data_start_time
+                        body["dataEndTime"] = window.data_end_time
+                    report_id = client.create_report(body, manager.safe_point)
+                    rows_done = 0
+                    # Staged, not committed: the pipeline commits it at a safe point once earlier rows are
+                    # written, so an attempt that resumes polls this report instead of creating another.
+                    manager.save_state(
+                        AmazonSellingPartnerResumeConfig(
+                            completed_marketplaces=completed,
+                            marketplace_id=marketplace_id,
+                            window_start=window_start,
+                            window_end=window_end,
+                            report_id=report_id,
+                        )
                     )
-                    manager.save_state(next_state)
-                    manager.safe_point()
-                    continue
-                # A failed report stays failed. The retry asks for a new one for the same window.
-                manager.save_state(
-                    AmazonSellingPartnerResumeConfig(
-                        completed_marketplaces=completed, marketplace_id=marketplace_id, window_start=window_start
-                    )
-                )
-                manager.safe_point()
-                raise
+                try:
+                    document = await_report_document(client, report, report_id, manager.safe_point)
+                    break
+                except VendorReportError as error:
+                    # A failed report stays failed, so a retry asks for a new one for the same window.
+                    report_id = None
+                    if recent:
+                        manager.save_state(
+                            AmazonSellingPartnerResumeConfig(
+                                completed_marketplaces=completed,
+                                marketplace_id=marketplace_id,
+                                window_start=window_start,
+                            )
+                        )
+                        manager.safe_point()
+                        raise
+                    if attempt == REPORT_FATAL_ATTEMPTS:
+                        # FATAL can be a passing processing error, so an old window is skipped only
+                        # after several reports for it failed.
+                        logger.warning(
+                            "amazon_selling_partner_report_window_skipped",
+                            report_type=report.report_type,
+                            window_start=window_start,
+                            error=str(error),
+                        )
             all_rows = (document or {}).get(report.rows_key) or []
             if rows_done >= len(all_rows):
                 manager.save_state(next_state)
@@ -907,7 +924,7 @@ def validate_credentials(
 def _probe(session: requests.Session, auth: LwaAuth, url: str, params: dict[str, Any]) -> bool | None:
     """Whether Amazon allows the call. None when the answer says nothing about access."""
     try:
-        response = session.get(url, params=params, auth=auth, timeout=REQUEST_TIMEOUT)
+        response = session.get(url, params=params, auth=auth, timeout=PROBE_TIMEOUT)
     except (OAuth2AuthRequestError, requests.RequestException):
         return None
     if response.status_code in (401, 403):
@@ -924,15 +941,16 @@ def probe_endpoint_permissions(
     endpoints: list[str],
 ) -> dict[str, str | None]:
     auth = LwaAuth(client_id, client_secret, refresh_token)
-    session = make_tracked_session(redact_values=auth.secret_values(), capture=False)
+    session = make_tracked_session(redact_values=auth.secret_values(), capture=False, retry=Retry(total=0))
     base_url = _base_url(region)
     recent = to_iso8601(datetime.now(UTC) - timedelta(days=1))
+    deadline = time.monotonic() + PROBE_BUDGET_SECONDS
 
     def probe_inventory() -> bool | None:
         marketplace_id = marketplace_ids[0] if marketplace_ids else None
         if marketplace_id is None:
             try:
-                discovered = list_marketplace_ids(region, auth)
+                discovered = list_marketplace_ids(region, auth, session=session, timeout=PROBE_TIMEOUT)
             except requests.HTTPError as e:
                 # Only an explicit rejection means the account is not a seller. Other failures stay unknown.
                 status = e.response.status_code if e.response is not None else None
@@ -982,7 +1000,7 @@ def probe_endpoint_permissions(
             continue
         run_probe, message = probes[probe_name]
         if probe_name not in answers:
-            answers[probe_name] = run_probe()
+            answers[probe_name] = run_probe() if time.monotonic() < deadline else None
         if answers[probe_name] is False:
             permissions[endpoint] = message
         elif endpoint in VENDOR_REPORTS and not marketplace_ids:
