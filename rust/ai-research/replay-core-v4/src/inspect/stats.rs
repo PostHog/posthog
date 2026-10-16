@@ -11,6 +11,7 @@ pub struct BlockStats {
     pub byte_size: u64,
     pub host: Option<String>,
 
+    /// Full snapshots that decoded.
     pub full_snapshots: u32,
     /// Events, in any window, before the session's first full snapshot that decoded. A replay shows nothing until then.
     /// Events of a session this process joined midway do not count.

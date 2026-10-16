@@ -56,6 +56,10 @@ pub struct Config {
     #[envconfig(from = "AI_RESEARCH_REPLAY_V4_IMAGES_BUCKET", default = "")]
     pub images_bucket: String,
 
+    /// Where remote image URLs go for the v4 image fetcher.
+    #[envconfig(default = "session_replay_image_fetch_v4")]
+    pub image_fetch_topic: String,
+
     #[envconfig(default = "9104")]
     pub metrics_port: u16,
 }

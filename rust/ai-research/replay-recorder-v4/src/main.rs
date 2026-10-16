@@ -135,6 +135,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .max_capacity(500_000)
                 .time_to_live(Duration::from_secs(26 * 3600))
                 .build(),
+            producer: rdkafka::ClientConfig::new()
+                .set("bootstrap.servers", &config.kafka.kafka_hosts)
+                .set("compression.codec", "lz4")
+                .set("linger.ms", "20")
+                .create()?,
+            image_fetch_topic: config.image_fetch_topic.clone(),
+            sent_urls: moka::sync::Cache::builder()
+                .max_capacity(500_000)
+                .time_to_live(Duration::from_secs(26 * 3600))
+                .build(),
         })
     } else {
         tracing::info!("writes are off: the recorder stores nothing");
