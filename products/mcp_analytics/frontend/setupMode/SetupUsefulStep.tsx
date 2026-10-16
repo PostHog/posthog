@@ -3,7 +3,7 @@ import type { ComponentType, ReactNode } from 'react'
 
 import * as lifeguardPng from '@posthog/brand/hoggies/png/lifeguard'
 import * as mailboxPng from '@posthog/brand/hoggies/png/mailbox'
-import { IconArrowRight } from '@posthog/icons'
+import { IconArrowRight, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonCard, Spinner } from '@posthog/lemon-ui'
 
 import { type HoggiePngProps, pngHoggie } from 'lib/brand/hoggies'
@@ -37,6 +37,14 @@ const COPY = {
         alreadySet: 'You already get an alert when a tool call fails.',
         manage: 'Manage alerts',
     },
+    expect: {
+        title: 'What to expect',
+        detail: 'Every tool call shows up here live from now on. Trends, tool quality and intent clusters fill in once your server has a few hundred calls.',
+    },
+    askAI: 'Ask PostHog AI what you can do',
+    // Sent to PostHog AI as the first message. A question about the product rather than the data, because
+    // a server this new has only a few calls to analyze.
+    aiPrompt: 'What can MCP analytics tell me about my MCP server, and what should I look at as tool calls come in?',
     finish: 'Open MCP analytics',
 }
 
@@ -147,7 +155,13 @@ function FailureAlertOption(): JSX.Element {
     )
 }
 
-export function SetupUsefulStep({ onFinish }: { onFinish: () => void }): JSX.Element {
+export function SetupUsefulStep({
+    onFinish,
+    onAskPostHogAI,
+}: {
+    onFinish: () => void
+    onAskPostHogAI: (prompt: string) => void
+}): JSX.Element {
     const { overview } = useValues(mcpEarlyDataLogic)
     return (
         <SetupStepLayout aside={<SetupCallsPanel calls={overview?.recent_calls ?? null} />}>
@@ -158,15 +172,28 @@ export function SetupUsefulStep({ onFinish }: { onFinish: () => void }): JSX.Ele
                     <FailureAlertOption />
                 </div>
             </div>
-            <div className="flex justify-end">
+            <div className="flex flex-col gap-1">
+                <h3 className="m-0 text-sm font-semibold">{COPY.expect.title}</h3>
+                <p className="m-0 text-sm text-secondary">{COPY.expect.detail}</p>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
                 <LemonButton
-                    type="primary"
+                    type="secondary"
                     size="large"
                     sideIcon={<IconArrowRight />}
                     onClick={onFinish}
                     data-attr="mcp-analytics-setup-mode-finish"
                 >
                     {COPY.finish}
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    size="large"
+                    icon={<IconSparkles />}
+                    onClick={() => onAskPostHogAI(COPY.aiPrompt)}
+                    data-attr="mcp-analytics-setup-mode-ask-ai"
+                >
+                    {COPY.askAI}
                 </LemonButton>
             </div>
         </SetupStepLayout>

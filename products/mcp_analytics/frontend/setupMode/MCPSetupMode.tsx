@@ -10,7 +10,7 @@ import { MCPSetupModeView } from './MCPSetupModeView'
 
 function MCPSetupModeOverlay(): JSX.Element | null {
     const { isOpen, step, connectState, recentCalls, recentCallsFailed, agentPrompt } = useValues(mcpSetupModeLogic)
-    const { exitSetupMode, goToUsefulStep } = useActions(mcpSetupModeLogic)
+    const { exitSetupMode, goToUsefulStep, askPostHogAI } = useActions(mcpSetupModeLogic)
 
     if (!isOpen) {
         return null
@@ -33,6 +33,7 @@ function MCPSetupModeOverlay(): JSX.Element | null {
                 recentCallsFailed={recentCallsFailed}
                 agentPrompt={agentPrompt}
                 onExit={exitSetupMode}
+                onAskPostHogAI={askPostHogAI}
                 onGoToUseful={goToUsefulStep}
             />
         </LemonModal>
