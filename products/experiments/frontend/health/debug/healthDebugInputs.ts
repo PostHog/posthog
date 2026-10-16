@@ -102,6 +102,11 @@ export function buildExperimentFacts(
             help: 'The flag-variants check needs the baseline to be one of the flag variants.',
         },
         {
+            label: 'Excluded from the analysis',
+            value: serverValue(state, (inputs) => inputs.excluded_variant_keys.join(', ') || 'None'),
+            help: 'The forced-variant check ignores pins to these variants.',
+        },
+        {
             label: 'Your access',
             value: serverValue(
                 state,
@@ -229,7 +234,7 @@ export function buildTrafficFacts(state: HealthInputsState): SetupFact[] {
         {
             label: 'Status',
             value: serverValue(state, (inputs) => TRAFFIC_STATUS_LABELS[inputs.condition_set_traffic_status]),
-            help: 'The forced-variant check reads the calls when the experiment is launched and some, but not all, release conditions pin a variant that has a share of the split.',
+            help: 'The forced-variant check reads the calls when the experiment is launched and some, but not all, release conditions pin a variant that has a share of the split and is not excluded from the analysis.',
         },
         ...(traffic
             ? [

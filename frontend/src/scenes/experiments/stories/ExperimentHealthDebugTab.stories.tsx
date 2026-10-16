@@ -53,6 +53,7 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
     is_paused: false,
     archived: false,
     baseline_variant_key: null,
+    excluded_variant_keys: [],
     primary_metric_count: 1,
     secondary_metric_count: 0,
     flag: {
