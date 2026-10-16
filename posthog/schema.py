@@ -122,6 +122,7 @@ from posthog.schema_enums import (
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
     EvaluationRuntime as EvaluationRuntime,
     EventMatchScope as EventMatchScope,
+    ExecutionTarget as ExecutionTarget,
     ExperimentApiBreakdownAttributionType as ExperimentApiBreakdownAttributionType,
     ExperimentApiPropertyBreakdownType as ExperimentApiPropertyBreakdownType,
     ExperimentExposureHealthFindingActionKind as ExperimentExposureHealthFindingActionKind,
@@ -269,6 +270,7 @@ from posthog.schema_enums import (
     RecordingOrder as RecordingOrder,
     RecordingOrderDirection as RecordingOrderDirection,
     RedditAdsDefaultSources as RedditAdsDefaultSources,
+    ReferenceLines as ReferenceLines,
     RefreshType as RefreshType,
     ResultCustomizationBy as ResultCustomizationBy,
     RetentionDashboardDisplayType as RetentionDashboardDisplayType,
@@ -284,7 +286,6 @@ from posthog.schema_enums import (
     SessionsV2JoinMode as SessionsV2JoinMode,
     SessionTableVersion as SessionTableVersion,
     Shelf as Shelf,
-    SidebarDensity as SidebarDensity,
     SlackIntegrationScope as SlackIntegrationScope,
     SlashCommandName as SlashCommandName,
     SliceContent as SliceContent,
@@ -520,10 +521,7 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
     displayType: DisplayType | None = Field(
         default=None,
         description=(
-            "Override how this individual series is rendered, independent of the"
-            " chart-level `display` type. Use this to mix series types — e.g. plot one"
-            " series as `bar` and overlay another as `line`. `auto` follows the"
-            " chart-level display type."
+            "Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type."
         ),
     )
     label: str | None = Field(
@@ -983,6 +981,14 @@ class BIConditionGroup(BaseModel):
     operator: Operator1
 
 
+class Alias(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: str | None = None
+
+
 class BIDataSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1008,6 +1014,7 @@ class BILocalFieldDefinition2(BaseModel):
     groups: list[BICategoryGroup]
     kind: Literal["groups"] = "groups"
     other: str
+    preserveUngrouped: bool | None = None
 
 
 class BILocalFieldDefinition3(BaseModel):
@@ -1018,6 +1025,24 @@ class BILocalFieldDefinition3(BaseModel):
     kind: Literal["bins"] = "bins"
     origin: float
     width: float
+
+
+class BIPaneSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: list[str] = Field(
+        ...,
+        description=("Ordered dimension IDs used to split returned groups into separate charts."),
+    )
+    independentAxes: bool | None = Field(
+        default=None,
+        description=("Use a separate value scale for each pane instead of a shared primary scale."),
+    )
+    referenceLines: ReferenceLines | None = Field(
+        default=None,
+        description=("Calculate reference lines from each pane or from all returned worksheet marks."),
+    )
 
 
 class BITotals(BaseModel):
@@ -2734,7 +2759,11 @@ class MetricsQuerySeries(BaseModel):
     points: list[MetricsQueryPoint]
     unit: str | None = Field(
         default=None,
-        description=('UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one.'),
+        description=(
+            'UCUM unit of the returned values, e.g. "By", "ms", "1/s". It is the'
+            " ingested unit, except that a count of series has no unit and a rate is"
+            " per second. Empty when the values have no unit."
+        ),
     )
 
 
@@ -3477,13 +3506,6 @@ class TrendsFormulaNode(BaseModel):
     formula: str
 
 
-class UIVisibilityConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    visible: bool | None = None
-
-
 class UserBasicType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3499,15 +3521,12 @@ class UserBasicType(BaseModel):
     uuid: str
 
 
-class UserProductListItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
+class UserUIConfiguration(BaseModel):
+    sql_editor: SQLEditorConfiguration | None = None
+    version: int = Field(
+        ...,
+        description=("Schema version of this configuration blob, for future format migrations."),
     )
-    created_at: str
-    enabled: bool
-    id: str
-    product_path: str
-    updated_at: str
 
 
 class VectorSearchResponseItem(BaseModel):
@@ -4060,6 +4079,11 @@ class AssistantElementPropertyFilter5(BaseModel):
             ' Up", operator: "exact" }`'
         ),
     )
+
+
+class AssistantEventsQuery(BaseModel):
+    kind: Literal["EventsQuery"] = "EventsQuery"
+    select: list[str] = Field(..., description="Event columns as HogQL expressions.")
 
 
 class AssistantForm(BaseModel):
@@ -5142,6 +5166,7 @@ class BIField(BaseModel):
     datePart: DatePart | None = None
     expression: str
     id: str
+    label: str | None = None
     localDefinition: BILocalFieldDefinition1 | BILocalFieldDefinition2 | BILocalFieldDefinition3 | None = None
     localFieldId: str | None = None
     name: str
@@ -5156,6 +5181,7 @@ class BIFilter(BaseModel):
     customExpression: str | None = None
     enabled: bool | None = None
     field: BIField
+    label: str | None = None
     operator: BIFilterOperator
     value: str
     valueTo: str | None = None
@@ -5177,6 +5203,7 @@ class BIResultFilter(BaseModel):
     )
     enabled: bool | None = None
     id: str
+    label: str | None = None
     measureIndex: conint(ge=0)
     operator: Operator2
     value: str
@@ -6229,6 +6256,17 @@ class HogQLQueryModifiers(BaseModel):
             " one UNION ALL join, so their scans overlap"
         ),
     )
+    negatedPersonFiltersNotIn: bool | None = Field(
+        default=None,
+        description=(
+            "Replace negated person-property filters in the WHERE of an `events` query"
+            " (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM"
+            " persons WHERE <the filters fail>)`, so the query no longer joins every"
+            " person. Applies only when every filtered person property has a"
+            " materialized column, nothing else in the query reads that persons join,"
+            " and the join would be a LEFT JOIN."
+        ),
+    )
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
     parserMode: ParserMode | None = Field(
@@ -6276,6 +6314,16 @@ class HogQLQueryModifiers(BaseModel):
         ),
     )
     sessionTableVersion: SessionTableVersion | None = None
+    sessionTimestampBufferMinutes: int | None = Field(
+        default=None,
+        description=(
+            "Padding, in minutes, on each side of the event time range when it filters"
+            " the sessions table by session start. Defaults to 3 days. It can only"
+            " narrow the range: values above the default are ignored. Lower it only for"
+            " a query that keeps just the sessions that start inside its own time"
+            " range."
+        ),
+    )
     sessionsV2JoinMode: SessionsV2JoinMode | None = None
     timings: bool | None = None
     typeAwareCastSimplification: bool | None = Field(
@@ -6287,6 +6335,17 @@ class HogQLQueryModifiers(BaseModel):
         ),
     )
     useMaterializedViews: bool | None = None
+    useNewEventsCluster: bool | None = Field(
+        default=None,
+        description=(
+            "Read this query from the native events cluster and native JSON events"
+            " table (`true`), or keep its existing connection (`false` or unset). This"
+            " is an internal rollout switch for eligible projects. PostHog staff manage"
+            " eligibility through instance settings. Each query must opt in; project"
+            " defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons"
+            " are supported."
+        ),
+    )
     useNewEventsSchema: bool | None = Field(
         default=None,
         description=(
@@ -6894,6 +6953,13 @@ class MaxRecordingEventFilter(BaseModel):
     )
     id: str = Field(..., description="Name of the event.")
     name: str | None = Field(default=None, description="Optional display name for this event.")
+    negation: bool | None = Field(
+        default=None,
+        description=(
+            "Set to true to match sessions that did NOT contain this event. Only set it"
+            " when the tool description says excluding sessions by event is supported."
+        ),
+    )
     properties: (
         list[
             AssistantCohortPropertyFilter
@@ -8115,53 +8181,6 @@ class SessionsTimelineQueryResponse(BaseModel):
             " warnings when a system-table query filters out objects the user can't"
             " access."
         ),
-    )
-
-
-class SidebarItemsConfiguration(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    data: UIVisibilityConfig | None = Field(default=None, description='"Data" panel trigger in the Project section.')
-    files: UIVisibilityConfig | None = Field(default=None, description='"Files" panel trigger in the Project section.')
-    help: UIVisibilityConfig | None = Field(default=None, description='"Help" entry in the sidebar footer.')
-    home: UIVisibilityConfig | None = Field(default=None, description='"Home" link in the Project section.')
-    inbox: UIVisibilityConfig | None = Field(
-        default=None,
-        description=('"Inbox" link in the Project section. Only rendered when the inbox feature is available.'),
-    )
-    notifications: UIVisibilityConfig | None = Field(
-        default=None,
-        description=(
-            '"Notifications" entry in the sidebar footer. Only rendered when real-time notifications are available.'
-        ),
-    )
-    starred: UIVisibilityConfig | None = Field(
-        default=None, description='"Starred" panel trigger in the Project section.'
-    )
-    tools: UIVisibilityConfig | None = Field(
-        default=None, description='"Products" panel trigger in the Project section.'
-    )
-
-
-class SidebarSectionsConfiguration(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    my_tools: UIVisibilityConfig | None = Field(
-        default=None,
-        description='The "My products" section, listing the user\'s selected products.',
-    )
-    project: UIVisibilityConfig | None = Field(
-        default=None,
-        description=(
-            'The "Project" section (Home and the Data/Files/Products/Starred panel'
-            " triggers). Activity stays visible even when this section is hidden."
-        ),
-    )
-    recents: UIVisibilityConfig | None = Field(
-        default=None,
-        description='The "Recents" section, listing recently viewed items.',
     )
 
 
@@ -10183,6 +10202,11 @@ class AssistantBehavioralPropertyFilter(BaseModel):
     value: InlineBehavioralType
 
 
+class AssistantDataTableNode(BaseModel):
+    kind: Literal["DataTableNode"] = "DataTableNode"
+    source: AssistantEventsQuery
+
+
 class AssistantDataVisualizationNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10194,18 +10218,13 @@ class AssistantDataVisualizationNode(BaseModel):
     display: AssistantDataVisualizationDisplayType | None = Field(
         default=None,
         description=(
-            "Visualization type. Defaults to `ActionsTable` when"
-            " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
-            " row) → `BoldNumber`.\n- Headline number with its change over time (KPI,"
-            " scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Parts of one whole → `ActionsPie`, `ActionsDonut`"
-            " or `ActionsProportionBar`.\n- Categorical comparison → `ActionsBar` or"
-            " `ActionsStackedBar`.\n- Ranking of categories by one value (top N,"
-            " horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation →"
-            " `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures,"
-            " one point per row → `ScatterPlot`.\n- Distribution summaries from"
-            " pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n-"
-            " Otherwise → `ActionsTable`."
+            "Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` ="
+            " KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie`"
+            " / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` /"
+            " `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal"
+            " rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two"
+            " measures; `BoxPlot` = distribution summaries with"
+            " `chartSettings.boxPlot`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
@@ -11378,6 +11397,24 @@ class AssistantWebVitalsPathBreakdownQuery(BaseModel):
     )
 
 
+class HierarchyDrillPathItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filterIds: list[str]
+    hierarchyId: str
+    nextField: BIField
+    previousField: BIField
+
+
+class MemberAliase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aliases: list[Alias]
+    field: BIField
+
+
 class BIConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11400,13 +11437,19 @@ class BIConfig(BaseModel):
         default=None,
         description=("Named dimension sequences saved with the worksheet; imports are independent copies."),
     )
+    hierarchyDrillPath: list[HierarchyDrillPathItem] | None = None
     limit: BIQueryLimit
     localFields: list[BIField] | None = Field(
         default=None, description="Reusable expressions owned by this worksheet only."
     )
+    memberAliases: list[MemberAliase] | None = None
     missingDates: MissingDates | None = Field(
         default=None,
         description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
+    )
+    panes: BIPaneSettings | None = Field(
+        default=None,
+        description=("Split the returned groups into charts using these ordered dimension IDs."),
     )
     resultFilterGroup: BIConditionGroup | None = None
     resultFilters: list[BIResultFilter] | None = None
@@ -18957,10 +19000,22 @@ class InsightActorsQueryBase(BaseModel):
 
 class InsightQuery(
     RootModel[
-        AssistantInsightVizNode | AssistantDataVisualizationNode | AssistantBareInsightQuery | AssistantBareHogQLQuery
+        AssistantDataTableNode
+        | AssistantInsightVizNode
+        | AssistantDataVisualizationNode
+        | AssistantBareInsightQuery
+        | AssistantBareHogQLQuery
+        | AssistantEventsQuery
     ]
 ):
-    root: AssistantInsightVizNode | AssistantDataVisualizationNode | AssistantBareInsightQuery | AssistantBareHogQLQuery
+    root: (
+        AssistantDataTableNode
+        | AssistantInsightVizNode
+        | AssistantDataVisualizationNode
+        | AssistantBareInsightQuery
+        | AssistantBareHogQLQuery
+        | AssistantEventsQuery
+    )
 
 
 class IsolationForestDetectorConfig(BaseModel):
@@ -25895,19 +25950,6 @@ class SessionsTimelineQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class SidebarConfiguration(BaseModel):
-    density: SidebarDensity | None = Field(default=None, description="Row density of the sidebar.")
-    items: SidebarItemsConfiguration | None = None
-    sections: SidebarSectionsConfiguration | None = None
-    starred_products_setup_completed: bool | None = Field(
-        default=None,
-        description=(
-            "True once the user saved or dismissed the setup that moves their custom"
-            " products to starred products in the simple sidebar."
-        ),
-    )
-
-
 class SurveyCreationSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -26032,15 +26074,6 @@ class UsageMetricsQuery(BaseModel):
     response: UsageMetricsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class UserUIConfiguration(BaseModel):
-    sidebar: SidebarConfiguration | None = None
-    sql_editor: SQLEditorConfiguration | None = None
-    version: int = Field(
-        ...,
-        description=("Schema version of this configuration blob, for future format migrations."),
-    )
 
 
 class VectorSearchQueryResponse(BaseModel):
@@ -30739,6 +30772,10 @@ class HogQLQuery(BaseModel):
             " instead of ClickHouse — a pure-direct source, or a synced source with"
             " direct query enabled."
         ),
+    )
+    executionTarget: ExecutionTarget | None = Field(
+        default=None,
+        description="Compile and run this query against the hosted Trino target.",
     )
     explain: bool | None = None
     filters: HogQLFilters | None = Field(

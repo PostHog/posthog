@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.f
     iter_firestore_documents,
     iter_firestore_documents_incremental,
     iter_realtime_database,
+    iter_tenant_auth_users,
     list_collection_ids,
     mint_access_token,
     resolve_incremental_cursor,
@@ -41,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.f
     validate_realtime_database_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.settings import (
+    AUTH_TENANT_USERS_TABLE,
     AUTH_USERS_TABLE,
     FIRESTORE_CREATE_TIME_COLUMN,
     FIRESTORE_ID_COLUMN,
@@ -674,6 +676,118 @@ class TestAuthUsersPagination:
         assert session.requests[0][1].endswith("/projects/demo-project/accounts:batchGet")
 
 
+def tenant(tenant_id: str) -> dict[str, Any]:
+    return {"name": f"projects/demo-project/tenants/{tenant_id}", "displayName": tenant_id}
+
+
+TENANTS_URL = "https://identitytoolkit.googleapis.com/v2/projects/demo-project/tenants"
+
+
+def tenant_accounts_url(tenant_id: str) -> str:
+    return f"https://identitytoolkit.googleapis.com/v1/projects/demo-project/tenants/{tenant_id}/accounts:batchGet"
+
+
+class TestTenantAuthUsers:
+    def test_walks_every_tenant_in_order_and_stages_the_next_position_before_each_yield(
+        self, logger: FilteringBoundLogger
+    ) -> None:
+        session = FakeSession(
+            request_responses=[
+                # Tenants arrive out of order across two pages.
+                FakeResponse(payload={"tenants": [tenant("tenant-c"), tenant("tenant-a")], "nextPageToken": "t2"}),
+                FakeResponse(payload={"tenants": [tenant("tenant-b"), {"displayName": "no name"}]}),
+                FakeResponse(payload={"users": [{"localId": "u1"}], "nextPageToken": "p2"}),
+                FakeResponse(payload={"users": [{"localId": "u2", "passwordHash": "hash"}]}),
+                # A tenant with no users.
+                FakeResponse(payload={}),
+                FakeResponse(payload={"users": [{"localId": "u1", "tenantId": "tenant-c"}]}),
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+        manager = FakeResumeManager()
+
+        staged_at_each_yield: list[list[tuple[str, Optional[str]]]] = []
+        rows: list[dict[str, Any]] = []
+        for batch in iter_tenant_auth_users(
+            session.as_session(), token_provider(session), credentials(), manager, logger
+        ):
+            staged_at_each_yield.append([(state.cursor, state.tenant_id) for state in manager.saved])
+            rows.extend(batch)
+
+        # The same `localId` in two tenants is two accounts, and each row says which tenant it is in.
+        assert [(row["tenantId"], row["localId"]) for row in rows] == [
+            ("tenant-a", "u1"),
+            ("tenant-a", "u2"),
+            ("tenant-c", "u1"),
+        ]
+        assert all("passwordHash" not in row for row in rows)
+        assert staged_at_each_yield == [
+            [("p2", "tenant-a")],
+            [("p2", "tenant-a"), ("", "tenant-b")],
+            [("p2", "tenant-a"), ("", "tenant-b"), ("", "tenant-c")],
+        ]
+        assert manager.cleared is True
+        assert [(url, kwargs["params"]) for _, url, kwargs in session.requests] == [
+            (TENANTS_URL, {"pageSize": 1000}),
+            (TENANTS_URL, {"pageSize": 1000, "pageToken": "t2"}),
+            (tenant_accounts_url("tenant-a"), {"maxResults": 1000}),
+            (tenant_accounts_url("tenant-a"), {"maxResults": 1000, "nextPageToken": "p2"}),
+            (tenant_accounts_url("tenant-b"), {"maxResults": 1000}),
+            (tenant_accounts_url("tenant-c"), {"maxResults": 1000}),
+        ]
+
+    @pytest.mark.parametrize(
+        "state,expected_requests",
+        [
+            # Mid-tenant: the earlier tenant is skipped and the saved tenant continues from its token.
+            (
+                FirebaseResumeConfig(cursor="p2", tenant_id="tenant-b"),
+                [(tenant_accounts_url("tenant-b"), {"maxResults": 1000, "nextPageToken": "p2"})],
+            ),
+            # At a tenant boundary: the saved tenant starts at its first page.
+            (
+                FirebaseResumeConfig(cursor="", tenant_id="tenant-b"),
+                [(tenant_accounts_url("tenant-b"), {"maxResults": 1000})],
+            ),
+            # The saved tenant was deleted: the read continues at the next tenant, without its token.
+            (
+                FirebaseResumeConfig(cursor="p2", tenant_id="tenant-aa"),
+                [(tenant_accounts_url("tenant-b"), {"maxResults": 1000})],
+            ),
+            # A checkpoint with no tenant did not come from this table, so the read starts over.
+            (
+                FirebaseResumeConfig(cursor="p2"),
+                [
+                    (tenant_accounts_url("tenant-a"), {"maxResults": 1000}),
+                    (tenant_accounts_url("tenant-b"), {"maxResults": 1000}),
+                ],
+            ),
+        ],
+        ids=["mid-tenant", "tenant-boundary", "deleted-tenant", "foreign-checkpoint"],
+    )
+    def test_resumes_from_the_saved_tenant(
+        self,
+        state: FirebaseResumeConfig,
+        expected_requests: list[tuple[str, dict[str, Any]]],
+        logger: FilteringBoundLogger,
+    ) -> None:
+        session = FakeSession(
+            request_responses=[
+                FakeResponse(payload={"tenants": [tenant("tenant-a"), tenant("tenant-b")]}),
+                *[FakeResponse(payload={"users": [{"localId": "u9"}]}) for _ in expected_requests],
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        list(
+            iter_tenant_auth_users(
+                session.as_session(), token_provider(session), credentials(), FakeResumeManager(state), logger
+            )
+        )
+
+        assert [(url, kwargs["params"]) for _, url, kwargs in session.requests[1:]] == expected_requests
+
+
 class TestRealtimeDatabase:
     @pytest.mark.parametrize(
         "url",
@@ -823,6 +937,7 @@ class TestTableDiscovery:
                 FakeResponse(payload={"collectionIds": ["messages"]}),
                 # One collection-group sample for the single `messages` id, then nothing deeper.
                 FakeResponse(payload=[]),
+                FakeResponse(payload={}),
             ],
             post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
         )
@@ -843,6 +958,7 @@ class TestTableDiscovery:
                 FakeResponse(payload={"documents": [firestore_document("room1")]}),
                 FakeResponse(payload={"collectionIds": ["messages"]}),
                 FakeResponse(payload=[]),
+                FakeResponse(payload={}),
             ],
             post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
         )
@@ -865,7 +981,8 @@ class TestTableDiscovery:
                             "message": "The Cloud Firestore API is not available for Firestore in Datastore Mode database.",
                         }
                     },
-                )
+                ),
+                FakeResponse(payload={}),
             ],
             post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
         )
@@ -893,41 +1010,104 @@ class TestTableDiscovery:
                 get_tables(credentials())
 
     def test_discovery_is_cached_and_force_refresh_rewalks(self) -> None:
-        # `rooms` has no documents to probe, so one discovery pass is two requests: the root
-        # `listCollectionIds` and the sample read that finds no subcollections.
+        # `rooms` has no documents to probe, so one Firestore discovery pass is two requests: the
+        # root `listCollectionIds` and the sample read that finds no subcollections. The tenant probe
+        # after it is one request on every lookup.
         session = FakeSession(
             request_responses=[
                 FakeResponse(payload={"collectionIds": ["rooms"]}),
                 FakeResponse(payload={"documents": []}),
+                FakeResponse(payload={}),
+                FakeResponse(payload={}),
             ],
-            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD), FakeResponse(payload=TOKEN_PAYLOAD)],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD) for _ in range(3)],
         )
 
         with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
             first = get_tables(credentials())
             # The second lookup reuses the cached collections instead of walking the project again.
             cached = get_tables(credentials())
-            assert len(session.requests) == 2
+            assert len(session.requests) == 4
 
             # A forced refresh walks again, so it needs a fresh set of discovery responses.
             session.request_queue.extend(
-                [FakeResponse(payload={"collectionIds": ["rooms"]}), FakeResponse(payload={"documents": []})]
+                [
+                    FakeResponse(payload={"collectionIds": ["rooms"]}),
+                    FakeResponse(payload={"documents": []}),
+                    FakeResponse(payload={}),
+                ]
             )
             get_tables(credentials(), force_refresh=True)
 
         assert first == cached == [AUTH_USERS_TABLE, "firestore_rooms"]
-        assert len(session.requests) == 4
+        assert len(session.requests) == 7
 
-
-class TestSampleCapture:
-    def test_auth_user_responses_never_reach_sample_capture(self, logger: FilteringBoundLogger) -> None:
+    @pytest.mark.parametrize(
+        "tenant_response,expected_tables",
+        [
+            (FakeResponse(payload={"tenants": [tenant("tenant-a")]}), [AUTH_USERS_TABLE, AUTH_TENANT_USERS_TABLE]),
+            (FakeResponse(payload={}), [AUTH_USERS_TABLE]),
+            # A project without Identity Platform, or a service account that can't list tenants.
+            (
+                FakeResponse(status_code=400, payload={"error": {"message": "CONFIGURATION_NOT_FOUND"}}),
+                [AUTH_USERS_TABLE],
+            ),
+            (FakeResponse(status_code=403, payload={"error": {"status": "PERMISSION_DENIED"}}), [AUTH_USERS_TABLE]),
+            (FakeResponse(status_code=404, payload={"error": {"status": "NOT_FOUND"}}), [AUTH_USERS_TABLE]),
+        ],
+        ids=["has-tenants", "no-tenants", "no-identity-platform", "forbidden", "not-found"],
+    )
+    def test_tenant_users_table_is_listed_only_when_the_project_has_a_tenant(
+        self, tenant_response: FakeResponse, expected_tables: list[str]
+    ) -> None:
         session = FakeSession(
-            request_responses=[FakeResponse(payload={"users": [{"localId": "u1", "passwordHash": "hash"}]})],
+            request_responses=[FakeResponse(payload={}), tenant_response],
             post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
         )
 
         with mock.patch(_SESSION_FACTORY, return_value=session.as_session()) as factory:
-            batches = list(get_rows(credentials(), AUTH_USERS_TABLE, FakeResumeManager(), logger))
+            tables = get_tables(credentials())
+
+        assert tables == expected_tables
+        assert session.requests[1][1] == TENANTS_URL
+        assert session.requests[1][2]["params"] == {"pageSize": 1}
+        # A tenant listing carries each tenant's password hash signer key, so it is never captured.
+        assert factory.call_args_list[-1].kwargs["capture"] is False
+
+    @pytest.mark.parametrize("status", [429, 500, 503])
+    def test_transient_tenant_listing_errors_propagate(self, status: int) -> None:
+        # Dropping the table on a transient error would make the schema sync treat it as removed.
+        session = FakeSession(
+            request_responses=[FakeResponse(payload={}), FakeResponse(status_code=status)],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            with pytest.raises(requests.HTTPError, match=str(status)):
+                get_tables(credentials())
+
+
+class TestSampleCapture:
+    @pytest.mark.parametrize(
+        "table_name,listing_responses",
+        [
+            (AUTH_USERS_TABLE, []),
+            (AUTH_TENANT_USERS_TABLE, [FakeResponse(payload={"tenants": [tenant("tenant-a")]})]),
+        ],
+    )
+    def test_auth_user_responses_never_reach_sample_capture(
+        self, table_name: str, listing_responses: list[FakeResponse], logger: FilteringBoundLogger
+    ) -> None:
+        session = FakeSession(
+            request_responses=[
+                *listing_responses,
+                FakeResponse(payload={"users": [{"localId": "u1", "passwordHash": "hash"}]}),
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()) as factory:
+            batches = list(get_rows(credentials(), table_name, FakeResumeManager(), logger))
 
         # The raw response carries password material that row-level redaction only removes
         # afterwards, so no session used for this table may capture a sample.
@@ -1045,6 +1225,8 @@ class TestSourceResponseShape:
         "table_name,primary_keys,partitioned",
         [
             (AUTH_USERS_TABLE, ["localId"], False),
+            # A user id is unique only inside its tenant.
+            (AUTH_TENANT_USERS_TABLE, ["tenantId", "localId"], False),
             ("firestore_rooms", [FIRESTORE_ID_COLUMN], True),
             # A subcollection is a collection group, so its unique key is the full document path.
             ("firestore_collection_group/messages", [FIRESTORE_PATH_COLUMN], True),

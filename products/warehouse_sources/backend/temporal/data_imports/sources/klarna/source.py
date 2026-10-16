@@ -2,6 +2,7 @@ from typing import cast
 
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,23 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KlarnaSource(ResumableSource[KlarnaSourceConfig, KlarnaResumeConfig]):
+    codebase_detection = detect(
+        env=("^KLARNA_", "^(NEXT_PUBLIC|VITE|REACT_APP)_KLARNA_"),
+        script_hosts=("js.klarna.com", "x.klarnacdn.net"),
+        npm=(
+            "react-native-klarna-inapp-sdk",
+            "@klarna/react-native-klarna-network-core",
+            "@klarna/react-native-klarna-network-payment",
+            "@klarna/react-native-klarna-network-messaging",
+        ),
+        cocoapods=("KlarnaMobileSDK",),
+        composer=("klarna/checkout", "klarna/kco_rest"),
+        maven=("com.klarna.mobile:sdk", "com.klarna.mobile:sdk-basic"),
+        pub=("klarna_mobile_sdk_flutter",),
+        rubygems=("klarna-checkout",),
+        swiftpm=("github.com/klarna/klarna-mobile-sdk-spm", "github.com/klarna/klarna-mobile-sdk-ios"),
+    )
+
     lists_tables_without_credentials = True
     api_docs_url = API_DOCS_URL
     supported_versions = ("v1",)
