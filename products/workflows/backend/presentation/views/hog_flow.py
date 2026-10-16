@@ -1059,6 +1059,11 @@ class RealtimeCohortStatusSerializer(serializers.Serializer):
     )
 
 
+class RealtimeCohortRefSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the realtime cohort.")
+    name = serializers.CharField(help_text="Name of the realtime cohort.")
+
+
 class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
@@ -1080,6 +1085,14 @@ class BlastRadiusSerializer(serializers.Serializer):
         help_text=(
             "Set when the audience is one realtime cohort. 'affected' is then the cohort's last calculated "
             "size, and a batch run waits until the cohort is ready."
+        ),
+    )
+    realtime_cohort_with_other_conditions = RealtimeCohortRefSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Set when a realtime cohort shares the audience with other conditions. Saving that audience fails: "
+            "a realtime cohort has to be the only condition."
         ),
     )
 
@@ -6073,6 +6086,14 @@ class HogFlowViewSet(
                             "percent_complete": realtime_cohort.percent_complete,
                         }
                         if realtime_cohort
+                        else None
+                    ),
+                    "realtime_cohort_with_other_conditions": (
+                        {
+                            "id": size.realtime_cohort_with_other_conditions.id,
+                            "name": size.realtime_cohort_with_other_conditions.name,
+                        }
+                        if size.realtime_cohort_with_other_conditions
                         else None
                     ),
                 }

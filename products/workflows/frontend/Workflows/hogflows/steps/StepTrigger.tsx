@@ -62,10 +62,11 @@ import {
 } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
 import { createAccountAssignmentFilterUpdate, parseAccountAssignmentFilter } from './accountAssignmentFilter'
-import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
+import { BatchTriggerLogicProps, batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
 import { ConversionGoalEditor } from './components/ConversionGoalEditor'
 import { EmailSendingRateLimitPicker } from './components/EmailSendingRateLimitPicker'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
+import { RealtimeCohortAudienceNotice } from './components/RealtimeCohortAudienceNotice'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
 import { TriggerVolumeEstimate } from './components/TriggerVolumeEstimate'
@@ -562,18 +563,27 @@ function WorkflowRecurringSchedulePicker(): JSX.Element {
     )
 }
 
+function batchTriggerLogicProps(
+    actionId: string,
+    filters: any,
+    workflow: { actions?: HogFlowAction[] } | null
+): BatchTriggerLogicProps {
+    const isAccountAudience = filters?.audience_type === 'accounts'
+    return {
+        id: actionId,
+        filters,
+        // Account audiences carry no person, so email dedup never applies to them.
+        dedupeKey: isAccountAudience ? undefined : getAudienceDedupeKey(workflow),
+        sendsEmail: hogFlowSendsEmail(workflow),
+    }
+}
+
 function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; filters: any }): JSX.Element | null {
     const { workflow } = useValues(workflowLogic)
     const isAccountAudience = filters?.audience_type === 'accounts'
-    // Account audiences carry no person, so email dedup never applies to them.
-    const dedupeKey = isAccountAudience ? undefined : getAudienceDedupeKey(workflow)
-    const logic = batchTriggerLogic({
-        id: actionId,
-        filters,
-        dedupeKey,
-        sendsEmail: hogFlowSendsEmail(workflow),
-    })
-    const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(logic)
+    const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(
+        batchTriggerLogic(batchTriggerLogicProps(actionId, filters, workflow))
+    )
 
     if (blastRadiusLoading) {
         return <Spinner className="mt-1" />
@@ -718,8 +728,10 @@ function StepTriggerConfigurationBatch({
     config: Extract<HogFlowAction['config'], { type: 'batch' }>
 }): JSX.Element {
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
+    const { workflow } = useValues(workflowLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { blastRadius } = useValues(batchTriggerLogic(batchTriggerLogicProps(action.id, config.filters, workflow)))
 
     const accountAudienceAvailable =
         !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] &&
@@ -757,6 +769,7 @@ function StepTriggerConfigurationBatch({
                         pageKey={`workflows-batch-trigger-property-filters-${action.id}`}
                         propertyFilters={config.filters.properties}
                         addText="Add condition"
+                        allowNew={!blastRadius?.realtime_cohort}
                         orFiltering
                         sendAllKeyUpdates
                         allowRelativeDateOptions
@@ -783,6 +796,7 @@ function StepTriggerConfigurationBatch({
                         hasRowOperator={false}
                         operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
                     />
+                    <RealtimeCohortAudienceNotice blastRadius={blastRadius} />
                 </div>
             )}
 

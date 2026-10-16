@@ -18,6 +18,7 @@ import { AnyPersonScopeFilter, PropertyFilterType } from '~/types'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
+import { RealtimeCohortAudienceNotice } from '../../Workflows/hogflows/steps/components/RealtimeCohortAudienceNotice'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceListLogic } from '../audience/broadcastAudienceListLogic'
 import { BroadcastAudienceListModal } from '../audience/BroadcastAudienceListModal'
@@ -145,7 +146,9 @@ function AudienceListModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
 
 export function BroadcastRecipientsStep(): JSX.Element {
     const cohortConditionsEnabled = useFeatureFlag('WORKFLOWS_COHORT_CONDITIONS')
-    const { audienceProperties, linkAudienceRejected } = useValues(broadcastWizardLogic)
+    const { audienceProperties, linkAudienceRejected, blastRadius } = useValues(broadcastWizardLogic)
+    // A realtime cohort has to be the audience's only condition.
+    const realtimeCohortAlone = !!blastRadius?.realtime_cohort
     const { setAudienceProperties, sendToEveryoneAfterRejectedLink } = useActions(broadcastWizardLogic)
     const { props } = useMountedLogic(broadcastWizardLogic)
     const { openListModal } = useActions(broadcastAudienceListLogic(props))
@@ -191,6 +194,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 pageKey="broadcast-wizard-recipients"
                 propertyFilters={audienceProperties}
                 addText="Add condition"
+                allowNew={!realtimeCohortAlone}
                 orFiltering
                 sendAllKeyUpdates
                 allowRelativeDateOptions
@@ -211,17 +215,20 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 hasRowOperator={false}
                 operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
             />
-            <div>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconUpload />}
-                    onClick={openListModal}
-                    data-attr="broadcast-audience-add-list"
-                >
-                    Upload a list
-                </LemonButton>
-            </div>
+            <RealtimeCohortAudienceNotice blastRadius={blastRadius} />
+            {!realtimeCohortAlone && (
+                <div>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconUpload />}
+                        onClick={openListModal}
+                        data-attr="broadcast-audience-add-list"
+                    >
+                        Upload a list
+                    </LemonButton>
+                </div>
+            )}
             <BroadcastAudienceCohorts />
             <BroadcastAudienceListModal />
             <MessageCategoryPicker />
