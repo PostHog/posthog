@@ -16,6 +16,7 @@ import uuid
 import socket
 import asyncio
 import datetime as dt
+import dataclasses
 from typing import Any
 
 from django.db import InterfaceError, InternalError, OperationalError, close_old_connections
@@ -40,6 +41,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     clear_repartition_checkpoint_if_claimed,
+    release_hot_split_if_claimed,
     release_repartition_hold_if_claimed,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import import_replaces_table
@@ -48,6 +50,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hot_partitions import (
+    hot_split_landed,
+    split_hot_partitions_in_place,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionAttemptsExhausted,
     RepartitionBudgetExceededError,
@@ -68,6 +74,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     maybe_flag_for_repartition,
     needs_pre_extraction_detection,
     pre_extraction_measurement_is_redundant,
+    staged_hot_split,
     target_partition_bytes,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
@@ -347,11 +354,15 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
 
     pending = schema.repartition_pending
     swap = schema.repartition_swap
+    # A staged split holds the import until it is saved, so it is resumed before anything else and is
+    # never abandoned, the same as a staged swap.
+    split_staged = staged_hot_split(schema)
+    nothing_staged = pending is None and swap is None and split_staged is None
 
     # Fast no-op path: nothing queued and the gate says no on-disk measurement is needed (CDC).
     # Return here — before fetching the job and reading the delta log — so the common healthy
     # invocation avoids all on-disk I/O. Other tables fall through and measure the live size below.
-    if pending is None and swap is None and not needs_pre_extraction_detection(schema):
+    if nothing_staged and not needs_pre_extraction_detection(schema):
         logger.info("repartition: nothing queued and no detection needed, nothing to do")
         return
 
@@ -390,7 +401,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # renamed during the multi-schema migration keeps its folder pinned to the original path (name
     # `public.users`, folder `users`), and the pipeline writes there too. Deriving the folder from
     # `name` alone probes a path that was never written and the repartition skips as `no_delta_table`.
-    if pending is None and swap is None and _measurement_is_redundant(schema, job, logger):
+    if nothing_staged and _measurement_is_redundant(schema, job, logger):
         logger.info("repartition: no data reached the table since the last healthy measurement, nothing to do")
         return
 
@@ -399,9 +410,9 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         resource_name=resource_name, job=job, logger=logger, expect_missing=schema.table_id is None
     )
 
-    replaces_table = swap is None and _import_replaces_table(schema, job, inputs, logger)
+    replaces_table = swap is None and split_staged is None and _import_replaces_table(schema, job, inputs, logger)
 
-    if pending is None and swap is None:
+    if nothing_staged:
         if replaces_table and not schema.initial_sync_complete:
             # A reset that an earlier run started left a part of the table on disk. A target sized
             # from that part is too small for the full table, and the import deletes the part.
@@ -423,7 +434,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         swap = schema.repartition_swap
         pending = schema.repartition_pending or pending
         # The reset can be cleared in the same window, and the table then needs its rewrite.
-        replaces_table = swap is None and _import_replaces_table(schema, job, inputs, logger)
+        replaces_table = swap is None and split_staged is None and _import_replaces_table(schema, job, inputs, logger)
 
     # A pending marker carrying only bookkeeping (an attempt count written when nothing was queued)
     # has no keys to rebuild a target from, and `from_dict` would raise before the rewrite even
@@ -434,6 +445,8 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         if pending is not None and pending.get("partition_keys") is not None
         else _target_from_schema(schema)
     )
+    if split_staged is not None and swap is None:
+        target = dataclasses.replace(target, hot_split=split_staged)
     trigger_reason = (pending or {}).get("trigger_reason", "resume")
 
     # Never while a swap is staged: live may already be deleted, and temp is then the only intact copy.
@@ -476,13 +489,12 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                     rewrite_rows=_rewrite_rows_written(schema),
                 )
                 pending = _clear_attempts_after_progress(schema, pending, logger)
-            else:
-                _give_up(inputs, schema, table_ref, pending, trigger_reason, logger)
+            elif _give_up(inputs, schema, table_ref, pending, trigger_reason, logger):
                 return
 
     # Never while a swap is staged: that recovery runs no rewrite, so the checkpoint says nothing
     # about it, and temp is the only intact copy until it completes.
-    if swap is None and _retrying_a_killed_attempt(schema, pending, inputs.job_id):
+    if swap is None and split_staged is None and _retrying_a_killed_attempt(schema, pending, inputs.job_id):
         # Stake a fresh claim on the way out, the same way `_give_up` does. A retry also starts when
         # the predecessor is only heartbeat-timed-out, and that one keeps running as a zombie holding
         # the claim it minted; standing down without rotating it would leave the zombie free to swap
@@ -548,15 +560,29 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 attempt=current_activity_attempt(),
             ),
         ):
-            result = async_to_sync(repartition_table_in_place)(
-                table_ref=table_ref,
-                schema=schema,
-                target=target,
-                logger=logger,
-                claim_token=claim_token,
-                deadline=_rewrite_deadline(activity_started),
-                should_stop=lambda: shutdown_monitor.is_worker_shutdown() or _activity_cancelled(),
-            )
+
+            def should_stop() -> bool:
+                return shutdown_monitor.is_worker_shutdown() or _activity_cancelled()
+
+            if target.hot_split is not None and swap is None:
+                result = async_to_sync(split_hot_partitions_in_place)(
+                    table_ref=table_ref,
+                    schema=schema,
+                    target=target,
+                    logger=logger,
+                    claim_token=claim_token,
+                    should_stop=should_stop,
+                )
+            else:
+                result = async_to_sync(repartition_table_in_place)(
+                    table_ref=table_ref,
+                    schema=schema,
+                    target=target,
+                    logger=logger,
+                    claim_token=claim_token,
+                    deadline=_rewrite_deadline(activity_started),
+                    should_stop=should_stop,
+                )
     except RepartitionStoppedError as e:
         # The rewrite stopped at a commit, or the swap between two groups of files. Temp and its
         # checkpoint or swap marker stay, so the next attempt copies only what is left. This is not
@@ -1088,6 +1114,34 @@ def _retrying_a_killed_attempt(schema: ExternalDataSchema, pending: dict[str, An
     return not _rewrite_advanced_past(schema, pending, "attempt_rows", "attempt_rewrite_id")
 
 
+def _staged_split_must_finish(
+    schema: ExternalDataSchema, table_ref: DeltaTableRef, claim_token: str, logger: FilteringBoundLogger
+) -> bool:
+    """Whether a staged hot-partition split has landed and keeps holding the import. Releases one that has not.
+
+    A split that never committed a partition left the table on the saved keys, so dropping its marker is
+    safe. Once a partition landed, the marker is the only record of the keys on disk, like a staged swap.
+    The caller holds a fresh claim, so no predecessor commits while this reads the log.
+    """
+    staged = staged_hot_split(schema)
+    if staged is None:
+        return False
+    try:
+        live = async_to_sync(table_ref.get_delta_table)()
+        landed = live is None or hot_split_landed(live, staged, schema.partition_hot_split)
+    except Exception:
+        logger.warning("repartition: could not tell if the staged hot partition split landed", exc_info=True)
+        landed = True
+    if landed:
+        logger.error(
+            f"repartition: a staged hot partition split is unresolved; imports stay held schema_id={schema.id}",
+            schema_id=str(schema.id),
+        )
+        return True
+    release_hot_split_if_claimed(schema, claim_token=claim_token)
+    return False
+
+
 def _give_up(
     inputs: RepartitionActivityInputs,
     schema: ExternalDataSchema,
@@ -1095,11 +1149,12 @@ def _give_up(
     pending: dict[str, Any] | None,
     trigger_reason: str,
     logger: FilteringBoundLogger,
-) -> None:
+) -> bool:
     """Abandon a rewrite whose attempts are spent, clearing the markers that would re-arm it.
 
     Stamps the cooldown as well, or detection re-flags the table on the next sync and the attempts
-    start over — same reason `_handle_failure` does.
+    start over — same reason `_handle_failure` does. Returns False when a staged hot-partition split
+    has landed and must finish instead, so the caller resumes it.
     """
     # Read before the markers are cleared below. An attempt killed outright leaves the checkpoint as
     # its only trace, so this count is all the terminal record can say about how far the rewrite got.
@@ -1119,12 +1174,14 @@ def _give_up(
         {"token": claim_token, "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
     ):
         logger.info("repartition: give-up superseded by a newer claim")
-        return
+        return True
+    if _staged_split_must_finish(schema, table_ref, claim_token, logger):
+        return False
     # Before the checkpoint goes, because it is the only record of where the temp table is.
     _purge_abandoned_temp(schema, table_ref, claim_token, logger)
     if not schema.abandon_repartition_if_claimed(claim_token):
         logger.info("repartition: give-up superseded by a newer claim")
-        return
+        return True
     error = RepartitionAttemptsExhausted(
         f"repartition gave up after {MAX_REPARTITION_ATTEMPTS} attempts that did not survive to record "
         f"an outcome, with the rewrite stuck at {rewrite_rows} rows (trigger_reason={trigger_reason})"
@@ -1147,6 +1204,7 @@ def _give_up(
     # already bound (bind_job_context) so the issue is attributed to the connector and table.
     capture_exception(error)
     DELTA_REPARTITION_TOTAL.labels(outcome="failed").inc()
+    return True
 
 
 def _charge_attempt(
@@ -1271,6 +1329,8 @@ def _handle_failure(
                 f"schema_id={schema.id}",
                 schema_id=str(schema.id),
             )
+        if table_ref is not None and _staged_split_must_finish(schema, table_ref, claim_token, logger):
+            props["split_unresolved"] = True
         # Drop any partial-rewrite checkpoint too: leaving it set would make the next flag cycle
         # resume the same doomed temp instead of giving up, so the give-up would never take effect.
         if table_ref is not None:

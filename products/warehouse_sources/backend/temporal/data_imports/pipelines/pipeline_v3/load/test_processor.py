@@ -1,3 +1,4 @@
+import datetime as dt
 import tempfile
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
@@ -30,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     DeltaWriter,
     commit_covers_batch,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import HotPartitionSplit
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
     SUMMARY_EVENT,
     post_load_phase,
@@ -97,6 +99,7 @@ def _export_signal(**overrides: Any) -> MagicMock:
     signal.partition_size = overrides.get("partition_size")
     signal.partition_mode = overrides.get("partition_mode")
     signal.partition_format = overrides.get("partition_format")
+    signal.partition_hot_split = overrides.get("partition_hot_split")
     return signal
 
 
@@ -165,6 +168,58 @@ class TestApplyPartitioning:
         else:
             assert PARTITION_KEY not in result.column_names
             assert result.equals(pa_table)
+
+    def test_applies_the_hot_split_the_signal_carries(self):
+        pa_table = pa.table(
+            {"id": ["a1", "b2"], "created_at": pa.array([dt.datetime(2026, 10, 1, 10), dt.datetime(2026, 10, 1, 11)])}
+        )
+        split = HotPartitionSplit(hash_keys=["id"], buckets={"2026-10-01T10": 4})
+
+        result = _apply_partitioning(
+            export_signal=_export_signal(
+                partition_keys=["created_at"],
+                partition_mode="datetime",
+                partition_format="hour",
+                partition_hot_split=split.to_dict(),
+            ),
+            pa_table=pa_table,
+            existing_delta_table=None,
+            schema=_schema(partition_mode="datetime", partition_format="hour", partitioning_keys=["created_at"]),
+        )
+
+        assert result.column(PARTITION_KEY).to_pylist() == [
+            split.key_for("2026-10-01T10", ["a1"]),
+            "2026-10-01T11",
+        ]
+
+    def test_hashes_split_keys_as_the_table_stores_them(self, tmp_path):
+        stored = pa.table(
+            {
+                "id": pa.array([1], type=pa.int64()),
+                "created_at": pa.array([dt.datetime(2026, 10, 1, 10)], type=pa.timestamp("us")),
+                PARTITION_KEY: pa.array(["2026-10-01T10_0"]),
+            }
+        )
+        write_deltalake(str(tmp_path / "t"), stored, partition_by=PARTITION_KEY)
+        incoming = pa.table({"id": pa.array(["7", "8"]), "created_at": pa.array(["2026-10-01T10:00:00"] * 2)})
+        split = HotPartitionSplit(hash_keys=["id", "created_at"], buckets={"2026-10-01T10": 16})
+
+        result = _apply_partitioning(
+            export_signal=_export_signal(
+                partition_keys=["created_at"],
+                partition_mode="datetime",
+                partition_format="hour",
+                partition_hot_split=split.to_dict(),
+            ),
+            pa_table=incoming,
+            existing_delta_table=DeltaTable(str(tmp_path / "t")),
+            schema=_schema(partition_mode="datetime", partition_format="hour", partitioning_keys=["created_at"]),
+        )
+
+        assert result.column(PARTITION_KEY).to_pylist() == [
+            split.key_for("2026-10-01T10", [7, dt.datetime(2026, 10, 1, 10)]),
+            split.key_for("2026-10-01T10", [8, dt.datetime(2026, 10, 1, 10)]),
+        ]
 
     def test_skips_partitioning_when_no_partition_keys(self):
         pa_table = pa.table({"id": [1, 2, 3]})

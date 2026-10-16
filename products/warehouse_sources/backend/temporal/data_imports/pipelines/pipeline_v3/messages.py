@@ -44,6 +44,8 @@ class ExportSignalMessage:
     partition_keys: Optional[list[str]] = None
     partition_format: Optional[PartitionFormat] = None
     partition_mode: Optional[PartitionMode] = None
+    # A `HotPartitionSplit` as a dict, snapshotted when the run started like the settings above.
+    partition_hot_split: Optional[dict[str, Any]] = None
     is_first_ever_sync: bool = False
     cumulative_row_count: int = 0
     cdc_write_mode: Optional[str] = None
@@ -86,6 +88,7 @@ class ExportSignalMessage:
             partition_keys=data.get("partition_keys"),
             partition_format=data.get("partition_format"),
             partition_mode=data.get("partition_mode"),
+            partition_hot_split=data.get("partition_hot_split"),
             is_first_ever_sync=data.get("is_first_ever_sync", False),
             cumulative_row_count=data.get("cumulative_row_count", 0),
             cdc_write_mode=data.get("cdc_write_mode"),

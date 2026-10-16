@@ -36,6 +36,7 @@ from posthog.temporal.common.utils import retry_on_db_connection_drop
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
+    finalize_hot_partition_split,
     finalize_repartition_scheme,
     save_repartition_checkpoint_if_claimed,
     save_repartition_swap_phase_if_claimed,
@@ -51,7 +52,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import _purge_s3_prefix
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     NULL_NUMERICAL_PARTITION,
+    HotPartitionSplit,
     append_partition_key_to_table,
+    next_hot_split,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_stream import (
     PartitionedFileWriter,
@@ -252,6 +255,7 @@ class RepartitionTarget:
     partition_format: PartitionFormat | None = None
     partition_count: int | None = None
     partition_size: int | None = None
+    hot_split: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -266,7 +270,7 @@ class RepartitionTarget:
 _HIVE_NULL_PARTITION = "__HIVE_DEFAULT_PARTITION__"
 
 
-def _partition_key_from_add_path(path: str) -> str | None:
+def partition_key_from_add_path(path: str) -> str | None:
     """Recover the `_ph_partition_key` value from a Hive-style partitioned add-action file path.
 
     Every value this pipeline actually partitions by — an md5 bucket index, a numerical bucket or the
@@ -297,7 +301,7 @@ def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | Non
 
     totals: dict[str | None, int] = defaultdict(int)
     for path, size in delta_table._table.get_add_file_sizes().items():
-        key = _partition_key_from_add_path(path) if partitioned else None
+        key = partition_key_from_add_path(path) if partitioned else None
         totals[key] += size or 0
     return dict(totals)
 
@@ -497,7 +501,7 @@ async def purge_abandoned_rewrite_temp(
             schema_id=str(schema.id),
         )
         return False
-    await _ensure_claim(schema, claim_token)
+    await ensure_repartition_claim(schema, claim_token)
     swap = schema.repartition_swap
     if swap is not None and swap.get("temp_uri") == temp_uri:
         # A staged swap makes temp the only intact copy.
@@ -525,7 +529,7 @@ def _current_claim_token(schema: ExternalDataSchema) -> str | None:
     return claim.get("token") if claim else None
 
 
-async def _ensure_claim(schema: ExternalDataSchema, claim_token: str | None) -> None:
+async def ensure_repartition_claim(schema: ExternalDataSchema, claim_token: str | None) -> None:
     """Raise `RepartitionSupersededError` if a newer attempt has claimed the schema.
 
     Re-reads the schema row (the single, strongly-consistent coordination point — S3 has no locking)
@@ -648,6 +652,8 @@ def select_repartition_target(
     schema: ExternalDataSchema,
     partition_bytes: dict[str | None, int],
     target_partition_bytes: int,
+    *,
+    allow_hot_split: bool = False,
 ) -> tuple[RepartitionTarget | None, str]:
     """Pick the next finer partition scheme, returning (target, reason).
 
@@ -659,6 +665,9 @@ def select_repartition_target(
     `datetime_at_finest_tier` (only when there is no primary key distinct from the partition key to
     hash — otherwise a datetime table out of tiers falls back to md5), `numerical_cannot_shrink`,
     `numerical_no_size`, or `unpartitionable_no_keys`. A chosen target carries reason `selected`.
+
+    With `allow_hot_split`, a datetime table out of tiers splits only its over-budget partitions into
+    md5 sub-buckets (see `next_hot_split`) instead of moving every row to md5.
     """
     if not partition_bytes:
         return None, "no_partitions"
@@ -712,6 +721,21 @@ def select_repartition_target(
             hash_keys = schema.primary_key_columns or []
             if not hash_keys or set(hash_keys) == set(keys):
                 return None, "datetime_at_finest_tier"
+            if allow_hot_split:
+                split = next_hot_split(
+                    HotPartitionSplit.from_dict(schema.partition_hot_split),
+                    partition_bytes,
+                    target_partition_bytes,
+                    hash_keys=hash_keys,
+                )
+                if split is not None:
+                    return RepartitionTarget(
+                        partition_keys=keys,
+                        trigger_reason="",
+                        partition_mode="datetime",
+                        partition_format=current_format,
+                        hot_split=split.to_dict(),
+                    ), "selected"
             return RepartitionTarget(
                 partition_keys=hash_keys,
                 trigger_reason="",
@@ -1354,9 +1378,13 @@ async def defer_repartition_to_full_refresh(
     that sync to write (see `stage_partition_scheme_for_full_refresh`). Temp tables are not swept
     here: a newer claimant can begin a recovery while this activity awaits S3, and wildcard cleanup
     cannot be fenced by the database claim for the duration of that operation.
+
+    A hot-partition split is saved as it is, because the next sync writes every row under it.
     """
 
     def _write() -> bool:
+        if target.hot_split is not None:
+            return finalize_hot_partition_split(schema, split=target.hot_split, claim_token=claim_token)
         return stage_partition_scheme_for_full_refresh(
             schema,
             partitioning_keys=target.partition_keys,
@@ -1419,7 +1447,7 @@ async def repartition_table_in_place(
     storage_options = table_ref.get_storage_options()
 
     async def ensure_claim() -> None:
-        await _ensure_claim(schema, claim_token)
+        await ensure_repartition_claim(schema, claim_token)
 
     # Resume path: a prior attempt already built + validated temp and recorded the swap marker. The
     # marker's temp_uri is authoritative — it may be scoped to the attempt that built it.

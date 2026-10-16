@@ -1250,6 +1250,45 @@ class TestRepartitionActivity:
         # The rewrite runs and resumes the swap, rather than the cap short-circuiting it.
         mocked.assert_awaited_once()
 
+    @pytest.mark.parametrize(
+        "at_cap, landed, resumed",
+        [(False, False, True), (True, True, True), (True, False, False)],
+        ids=["below_cap_resumes", "landed_split_resumes_past_the_cap", "unlanded_split_is_released_at_the_cap"],
+    )
+    def test_a_staged_hot_split_resumes_unless_it_never_landed_and_the_cap_is_spent(
+        self, team, at_cap, landed, resumed
+    ):
+        split = {"hash_keys": ["id"], "buckets": {"2024-01-01T10": 3}}
+        schema = _make_schema(team, {"repartition_hot_split_staged": {"state": "staged", "split": split}})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "datetime",
+                "partition_format": "hour",
+                "partition_keys": ["created_at"],
+                "trigger_reason": "proactive_threshold",
+                "attempts": MAX_REPARTITION_ATTEMPTS if at_cap else 0,
+                "hot_split": split,
+            }
+        )
+
+        split_mock = AsyncMock(return_value={"outcome": "completed"})
+        with (
+            patch.object(repartition_table, "split_hot_partitions_in_place", new=split_mock),
+            patch.object(repartition_table.DeltaTableRef, "get_delta_table", new=AsyncMock(return_value=MagicMock())),
+            patch.object(repartition_table, "hot_split_landed", return_value=landed),
+        ):
+            self._run(self._inputs(team, schema), AsyncMock())
+
+        schema.refresh_from_db()
+        if resumed:
+            split_mock.assert_awaited_once()
+            assert split_mock.await_args is not None
+            assert split_mock.await_args.kwargs["target"].hot_split == split
+        else:
+            split_mock.assert_not_awaited()
+            assert schema.hot_split_staged is None
+            assert schema.repartition_pending is None
+
     def test_a_superseded_attempt_costs_no_attempt(self, team):
         # A zombie displaced by a newer claim is not evidence the rewrite is doomed.
         schema = _make_schema(team, {})

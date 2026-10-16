@@ -660,6 +660,18 @@ class TestResetLoadWritesTheQueuedScheme:
         assert "repartition_pending" not in config
         assert "repartition_rewrite" not in config
 
+    def test_a_reset_writes_and_saves_a_queued_hot_split(self) -> None:
+        split = {"hash_keys": ["id"], "buckets": {"2024-01-01T10": 3}}
+        pending = {**_PENDING_SCHEME, "hot_split": split}
+        schema = self._schema(reset_pipeline=True, repartition_pending=pending)
+
+        kwargs = self._producer_kwargs(schema, reset_pipeline=True)
+        config: dict[str, Any] = {"repartition_pending": pending}
+        schema_models.promote_pending_repartition_for_replaced_table(config)
+
+        assert kwargs["partition_hot_split"] == split
+        assert config[schema_models.PARTITION_HOT_SPLIT_KEY] == split
+
     def test_a_reset_leaves_a_staged_swap_and_its_markers(self) -> None:
         config = {"repartition_pending": _PENDING_SCHEME, "repartition_swap": {"state": "ready", "temp_uri": "x"}}
         before = json.loads(json.dumps(config))

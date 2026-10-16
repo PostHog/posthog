@@ -1628,12 +1628,18 @@ def test_the_customer_facing_message_matches_no_non_retryable_pattern(_name: str
 
 @parameterized.expand(
     [
-        ("swap_staged", {"state": "ready", "temp_uri": "s3://bucket/t__repartitioned"}, True),
-        ("no_swap_staged", None, False),
+        ("swap_staged", {"state": "ready", "temp_uri": "s3://bucket/t__repartitioned"}, None, True),
+        (
+            "hot_split_staged",
+            None,
+            {"state": "staged", "split": {"hash_keys": ["id"], "buckets": {"2026-10-01T10": 3}}},
+            True,
+        ),
+        ("no_swap_staged", None, None, False),
     ]
 )
 def test_a_staged_repartition_swap_holds_the_import_whatever_the_rollout_flag_says(
-    _name: str, swap: dict | None, expected: bool
+    _name: str, swap: dict | None, hot_split_staged: dict | None, expected: bool
 ) -> None:
     # While a swap is staged the table's data may already be re-bucketed under the new scheme while
     # the schema row still holds the old one. The merge derives each row's partition key from that
@@ -1645,6 +1651,7 @@ def test_a_staged_repartition_swap_holds_the_import_whatever_the_rollout_flag_sa
     schema.team_id = 1
     schema.name = "public.usages"
     schema.repartition_swap = swap
+    schema.hot_split_staged = hot_split_staged
     schema.repartition_holds_import = False
 
     with (

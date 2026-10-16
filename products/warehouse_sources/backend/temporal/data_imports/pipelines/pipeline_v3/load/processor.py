@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
     evolve_pyarrow_schema,
+    normalize_column_name,
     pyarrow_schema_from_arrow_exportable,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.auto_widen_resync import (
@@ -63,12 +64,15 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    HotPartitionSplit,
     append_partition_key_to_table,
+    hash_columns_as_stored,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
     post_load_phase,
     record_post_load_phases,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_stream import arrow_schema_of
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     validate_schema_and_update_table,
 )
@@ -308,6 +312,14 @@ def _apply_partitioning(
             logger.debug("Delta table already exists without partitioning, skipping partitioning")
             return pa_table
 
+    hot_split = HotPartitionSplit.from_dict(export_signal.partition_hot_split)
+    if hot_split is not None and existing_delta_table is not None:
+        pa_table = hash_columns_as_stored(
+            pa_table,
+            arrow_schema_of(existing_delta_table.schema()),
+            [normalize_column_name(key) for key in hot_split.hash_keys],
+        )
+
     partition_result = append_partition_key_to_table(
         table=pa_table,
         partition_count=export_signal.partition_count,
@@ -316,6 +328,7 @@ def _apply_partitioning(
         partition_mode=export_signal.partition_mode,
         partition_format=export_signal.partition_format,
         logger=logger,
+        hot_split=hot_split,
     )
 
     if partition_result is not None:
