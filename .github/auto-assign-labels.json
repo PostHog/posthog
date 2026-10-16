@@ -30,8 +30,6 @@
                 ".github/workflows/cd-agent-proxy-image.yml",
                 ".github/workflows/cd-tasks-golden-snapshot.yml",
                 ".github/workflows/ci-agent-proxy.yml",
-                "nodejs/src/ingestion/pipelines/ai/costs/providers/",
-                "nodejs/src/ingestion/pipelines/ai/costs/scripts/",
                 "packages/agent/",
                 "products/tasks/",
                 "services/agent-proxy/",
