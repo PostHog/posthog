@@ -24,6 +24,7 @@ from products.alerts_platform.backend.facade.contracts import (
     HandbackRefusal,
     InstanceCheckState,
     PlatformAlertCheckInput,
+    PlatformAlertConfigurationEdit,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
     PlatformHandback,
@@ -45,7 +46,7 @@ from products.alerts_platform.backend.facade.scheduling import (
     validate_and_normalize_schedule_start_time,
 )
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
 
 
 def due_q(moment: datetime) -> Q:
@@ -630,6 +631,56 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
                 state=PlatformAlert.State.NOT_FIRING.value, firing_started_at=None
             )
     return created
+
+
+def write_edit(
+    configuration: PlatformAlertConfiguration,
+    edit: PlatformAlertConfigurationEdit,
+    *,
+    regrouped: bool,
+    now: datetime,
+) -> None:
+    """Writes an edit made through an API onto a configuration locked by the caller.
+
+    Here rather than with the edit's validation, because it writes `enabled` and the failure state,
+    which only this module changes.
+    """
+    if regrouped:
+        # The old keys never come back from a check, so each old instance would resolve and
+        # announce a recovery that did not happen. They go, threads included, without a message.
+        PlatformAlert.objects.for_team(configuration.team_id, canonical=True).filter(
+            configuration=configuration
+        ).delete()
+        PlatformAlertThread.objects.for_team(configuration.team_id, canonical=True).filter(
+            configuration=configuration
+        ).delete()
+    update_fields = [
+        "name",
+        "enabled",
+        "source_config",
+        "grouping",
+        "schedule_restriction",
+        "evaluation_periods",
+        "datapoints_to_alarm",
+        "cooldown_minutes",
+        "updated_at",
+    ]
+    # An alert turned back on starts clean, as a revived copy does. A BROKEN one would otherwise stay
+    # out of discovery for good.
+    if edit.enabled and not configuration.enabled:
+        configuration.consecutive_failures = 0
+        configuration.check_status = PlatformAlertConfiguration.CheckStatus.OK
+        configuration.next_check_at = now + _REVIVE_FENCE
+        update_fields += ["consecutive_failures", "check_status", "next_check_at"]
+    configuration.name = edit.name
+    configuration.enabled = edit.enabled
+    configuration.source_config = edit.source_config
+    configuration.grouping = edit.grouping.to_stored()
+    configuration.schedule_restriction = edit.schedule_restriction
+    configuration.evaluation_periods = edit.evaluation_periods
+    configuration.datapoints_to_alarm = edit.datapoints_to_alarm
+    configuration.cooldown_minutes = edit.cooldown_minutes
+    configuration.save(update_fields=update_fields)
 
 
 def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:

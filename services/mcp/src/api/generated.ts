@@ -64839,9 +64839,6 @@ export namespace Schemas {
 
     /**
      * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
-     *
-     * * `logs` - Logs
-     * * `insight` - Insight
      */
     export type LogsPlatformAlertConfigurationEditSourceKind = typeof LogsPlatformAlertConfigurationEditSourceKind[keyof typeof LogsPlatformAlertConfigurationEditSourceKind];
 
@@ -64861,10 +64858,7 @@ export namespace Schemas {
      * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
      */
     export interface LogsPlatformAlertConfigurationEdit {
-      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value.
-       *
-       * * `logs` - Logs
-       * * `insight` - Insight */
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
       source_kind: LogsPlatformAlertConfigurationEditSourceKind;
       /**
          * Human-readable name of the alert.
@@ -64894,6 +64888,7 @@ export namespace Schemas {
       /**
          * Minimum minutes between notifications for the same alert.
          * @minimum 0
+         * @maximum 2147483647
          */
       cooldown_minutes: number;
     }
@@ -83586,9 +83581,6 @@ export namespace Schemas {
 
     /**
      * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
-     *
-     * * `logs` - Logs
-     * * `insight` - Insight
      */
     export type PatchedLogsPlatformAlertConfigurationEditSourceKind = typeof PatchedLogsPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedLogsPlatformAlertConfigurationEditSourceKind];
 
@@ -83601,10 +83593,7 @@ export namespace Schemas {
      * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
      */
     export interface PatchedLogsPlatformAlertConfigurationEdit {
-      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value.
-       *
-       * * `logs` - Logs
-       * * `insight` - Insight */
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
       source_kind: PatchedLogsPlatformAlertConfigurationEditSourceKind;
       /**
          * Human-readable name of the alert.
@@ -83634,6 +83623,7 @@ export namespace Schemas {
       /**
          * Minimum minutes between notifications for the same alert.
          * @minimum 0
+         * @maximum 2147483647
          */
       cooldown_minutes?: number;
     }

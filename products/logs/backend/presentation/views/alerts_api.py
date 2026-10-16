@@ -84,14 +84,15 @@ from products.logs.backend.alert_state_machine import (
     evaluate_alert_check,
 )
 from products.logs.backend.facade.api import (
+    ALLOWED_WINDOW_MINUTES,
     close_incident_before_delete,
     close_incident_on_commit,
     follow_logs_alert,
+    has_any_filter,
     logs_state_of_platform,
     next_allowed_check_at,
 )
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
-from products.logs.backend.platform_source_config import ALLOWED_WINDOW_MINUTES, has_any_filter
 
 MAX_ALERTS_PER_TEAM = 20
 # Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via

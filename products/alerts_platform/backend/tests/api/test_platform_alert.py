@@ -294,6 +294,7 @@ class TestPlatformAlertAPI(APIBaseTest):
                 "datapoints_to_alarm",
             ),
             ("source_kind_changed", {"source_kind": "insight"}, "source_kind"),
+            ("cooldown_past_the_column", {"cooldown_minutes": 2_147_483_648}, "cooldown_minutes"),
             ("grouping_without_mode", {"grouping": {"keys": ["service_name"]}}, "grouping__mode"),
             ("enabled_without_filters", {"source_config": {"filters": {}, "condition": CONDITION}}, "source_config"),
             ("grouped_by_an_attribute", {"grouping": {"mode": "by_result_labels", "keys": ["http.route"]}}, "grouping"),
@@ -340,3 +341,18 @@ class TestPlatformAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["name"] == "Renamed"
+
+    def test_turning_a_broken_alert_back_on_schedules_a_clean_check(self) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=configuration.id).update(
+            enabled=False, check_status="broken", consecutive_failures=5, next_check_at=None
+        )
+
+        response = self.client.patch(self._edit_url(configuration), {"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        with team_scope(self.team.id):
+            configuration.refresh_from_db()
+        assert (configuration.check_status, configuration.consecutive_failures) == ("ok", 0)
+        assert configuration.next_check_at is not None
