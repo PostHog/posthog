@@ -32,6 +32,7 @@ export function buildWizardInstallStep(productKey: ProductKey): OnboardingStepDe
             <OnboardingInstallStep
                 sdkInstructionMap={ProductAnalyticsSDKInstructions}
                 sdkTagOverrides={ProductAnalyticsSDKTagOverrides}
+                compact
             />
         ),
     }

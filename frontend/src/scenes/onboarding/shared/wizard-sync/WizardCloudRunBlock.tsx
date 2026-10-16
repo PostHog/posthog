@@ -107,7 +107,7 @@ export function WizardCloudRunBlock({
                     to={connectGitHubUrl}
                     disableClientSideRouting
                     data-attr="wizard-cloud-run-connect-github"
-                    className={hideHog ? 'self-center' : 'self-start'}
+                    className="self-start"
                     onClick={() => reportIntegrationConnectClicked('github', 'github', 'onboarding_wizard')}
                 >
                     Connect GitHub

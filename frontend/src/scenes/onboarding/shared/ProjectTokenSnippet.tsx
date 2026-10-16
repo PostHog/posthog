@@ -17,7 +17,7 @@ export function ProjectTokenSnippet(): JSX.Element | null {
                 description="project token"
                 iconSize="xsmall"
                 tooltipMessage="Your SDKs send events to this project with it. It's safe to use in public apps. Click to copy."
-                className="font-mono text-secondary min-w-0"
+                className="font-mono text-secondary min-w-0 bg-surface-secondary border border-primary rounded px-1.5 py-0.5"
             >
                 {currentTeam.api_token}
             </CopyToClipboardInline>
