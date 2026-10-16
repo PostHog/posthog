@@ -420,6 +420,25 @@ class ExperimentSetupContext:
 SectionObserver = Callable[[str, SetupContextSectionStatus, float], None]
 
 
+@frozen
+class ProjectSetupFacts:
+    """The sections of the setup context that describe the project as it is, without a planned experiment."""
+
+    team_defaults: SetupContextSection[TeamDefaults]
+    sdk_profile: SetupContextSection[SdkProfile]
+
+
+def build_project_setup_facts(team: Team, *, can_query_events: bool) -> ProjectSetupFacts:
+    """The team's experiment defaults and its SDK profile. The SDK profile queries events across the project, so it
+    is skipped for a reader who may not query events."""
+    return ProjectSetupFacts(
+        team_defaults=_run_section("team_defaults", team, lambda: get_team_defaults(team)),
+        sdk_profile=_run_section("sdk_profile", team, lambda: get_sdk_profile(team))
+        if can_query_events
+        else SetupContextSection(status=SetupContextSectionStatus.SKIPPED),
+    )
+
+
 def build_setup_context(
     *,
     team: Team,

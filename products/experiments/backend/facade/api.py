@@ -5,7 +5,6 @@ This module provides the public interface for creating and managing experiments
 using framework-free DTOs, wrapping the existing ExperimentService.
 """
 
-from dataclasses import replace
 from uuid import UUID
 
 from rest_framework.exceptions import ValidationError
@@ -14,9 +13,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
-from products.experiments.backend.health.context import load_health_context
-from products.experiments.backend.health.exposure_gate import load_split_history
+from products.experiments.backend.health.loader import load_experiment_health_context
 from products.experiments.backend.health.registry import (
     EXPERIMENT_HEALTH_CHECKS,
     evaluate as evaluate_health,
@@ -133,16 +130,8 @@ def get_experiment_health_findings(
 ) -> list[ExperimentHealthFinding]:
     """The findings of the health checks that read the experiment, its flag, its linked metrics, and the
     changes of the flag's split since launch and the flag's recent calls, as far as `reader_access` allows."""
-    experiment = (
-        ExperimentModel.objects.filter(team_id=team_id)
-        .select_related("team", "feature_flag")
-        .prefetch_related("experimenttosavedmetric_set")
-        .get(id=experiment_id)
-    )
-    split_history = load_split_history(experiment, reader_access=reader_access)
-    context = load_health_context(experiment, split_history=split_history)
-    traffic = load_condition_set_traffic(experiment, context, reader_access=reader_access)
-    return evaluate_health(replace(context, condition_set_traffic=traffic), EXPERIMENT_HEALTH_CHECKS)
+    context = load_experiment_health_context(team_id=team_id, experiment_id=experiment_id, reader_access=reader_access)
+    return evaluate_health(context, EXPERIMENT_HEALTH_CHECKS)
 
 
 def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:

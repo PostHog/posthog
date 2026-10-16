@@ -33,6 +33,8 @@ class SplitHistory:
 
     launched_at: datetime
     team_timezone: str
+    # Every split change since launch. The counted changes are its tail.
+    changes: tuple[SplitChange, ...]
     # From the first change with an exposure before it, or with an unknown answer, to the last change.
     # Empty when nobody was exposed before any change: those changes moved nobody.
     counted_changes: tuple[SplitChange, ...]

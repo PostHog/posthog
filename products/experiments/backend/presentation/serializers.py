@@ -9,6 +9,7 @@ ViewSet remains in experiments.py.
 from copy import deepcopy
 from typing import Annotated, Any, TypeGuard
 
+from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
@@ -50,6 +51,17 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
+from products.experiments.backend.health.checks.forced_variant import needs_condition_set_traffic
+from products.experiments.backend.health.condition_set_traffic import denied_scanned_properties
+from products.experiments.backend.health.context import (
+    ConditionSetTraffic,
+    FlagState,
+    Split,
+    SplitHistory,
+    SplitHistoryNotChecked,
+)
+from products.experiments.backend.health.exposure_inputs import ExposureInputs, HealthExposureInputsStatus
+from products.experiments.backend.health.loader import HealthInputs
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
@@ -3108,3 +3120,350 @@ class ExperimentSetupContextResponseSerializer(serializers.Serializer):
         help_text="Recent experiments in the project."
     )
     shared_metrics = ExperimentSetupSharedMetricsSectionSerializer(help_text="Most reused shared metrics.")
+
+
+class ExperimentHealthInputsVariantSerializer(serializers.Serializer):
+    key = serializers.CharField(allow_null=True, help_text="The variant key. Null when the flag stores no string key.")
+    rollout_percentage = serializers.FloatField(
+        allow_null=True, help_text="The variant's share of the split, in percent. Null when the flag stores no number."
+    )
+
+
+class ExperimentHealthInputsReleaseConditionSerializer(serializers.Serializer):
+    number = serializers.IntegerField(
+        help_text="The condition's position in the flag, from 1, as the flag page labels it ('Set 2')."
+    )
+    rollout_percentage = serializers.FloatField(
+        allow_null=True, help_text="The condition's rollout, in percent. Null when the flag stores no number."
+    )
+    property_count = serializers.IntegerField(
+        allow_null=True, help_text="The number of property filters. Null when the flag stores no list."
+    )
+    reachable = serializers.BooleanField(
+        help_text="Whether the condition can serve a request. A condition after one that matches everyone never does."
+    )
+    pinned_variant = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The variant that the condition's override serves. Null when the condition is not reachable, has no "
+            "override, or its override names no variant of the flag."
+        ),
+    )
+
+
+class ExperimentHealthInputsFlagSerializer(serializers.Serializer):
+    active = serializers.BooleanField(help_text="Whether the flag is enabled.")
+    deleted = serializers.BooleanField(help_text="Whether the flag is deleted.")
+    release_conditions = ExperimentHealthInputsReleaseConditionSerializer(
+        many=True, help_text="The flag's release conditions, in evaluation order."
+    )
+    variants = ExperimentHealthInputsVariantSerializer(many=True, help_text="The flag's variants and their split.")
+
+
+class ExperimentHealthInputsSplitChangeSerializer(serializers.Serializer):
+    changed_at = serializers.DateTimeField(help_text="When the flag's split changed.")
+    before = ExperimentHealthInputsVariantSerializer(many=True, help_text="The split before the change.")
+    after = ExperimentHealthInputsVariantSerializer(many=True, help_text="The split after the change.")
+    counted = serializers.BooleanField(
+        help_text=(
+            "Whether the split-change check counts this change: it and every later change count from the first "
+            "with an exposure before it, or an unknown answer. False for every change when not checked."
+        )
+    )
+
+
+class ExperimentHealthInputsSplitHistorySerializer(serializers.Serializer):
+    checked = serializers.BooleanField(
+        help_text="Whether the split changes were compared with the exposures. False when not_checked_reason is set."
+    )
+    not_checked_reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why the split changes were not compared with the exposures: 'no_history_access', 'no_query_access', "
+            "'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were."
+        ),
+    )
+    launched_at = serializers.DateTimeField(help_text="When the experiment launched.")
+    team_timezone = serializers.CharField(help_text="The project's time zone, which the finding uses for times.")
+    changes = ExperimentHealthInputsSplitChangeSerializer(
+        many=True,
+        help_text="Every split change since launch. Empty for 'no_history_access', which does not read them.",
+    )
+    exposed_before_first = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether anyone was exposed before the first counted change. Null when unknown or not checked.",
+    )
+    exposed_between = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether anyone was exposed between the first and the last change. Asked only when the last change "
+            "restores the split from before the first. Null when not asked or unknown."
+        ),
+    )
+
+
+class ExperimentHealthInputsConditionSetPeopleSerializer(serializers.Serializer):
+    condition_set = serializers.IntegerField(help_text="The number of the release condition, from 1.")
+    people = serializers.IntegerField(help_text="The people whose latest call this condition served.")
+
+
+class ExperimentHealthInputsConditionSetTrafficSerializer(serializers.Serializer):
+    since = serializers.DateTimeField(
+        help_text="The start of the window: the latest of launch, the flag's last save and 7 days ago."
+    )
+    team_timezone = serializers.CharField(help_text="The project's time zone, which the finding uses for times.")
+    people_by_set = ExperimentHealthInputsConditionSetPeopleSerializer(
+        many=True, help_text="People by the release condition that served their latest call of the flag's version."
+    )
+    calls = serializers.IntegerField(help_text="The flag's calls in the window, of any flag version.")
+    remotely_evaluated_calls = serializers.IntegerField(
+        help_text=(
+            "The calls that the flag service evaluated. Only those name a condition set. Local evaluation in a "
+            "server SDK and a bootstrapped value name none."
+        )
+    )
+
+
+class ExperimentHealthInputsTrafficStatus(models.TextChoices):
+    READ = "read"
+    NOT_NEEDED = "not_needed"
+    NO_QUERY_ACCESS = "no_query_access"
+    # The reader is denied a flag call property that the scan reads.
+    DENIED_PROPERTIES = "denied_properties"
+    NO_FLAG_VERSION = "no_flag_version"
+    # The query failed, or was too expensive. Either is cached, so it is not asked again on every load.
+    UNKNOWN = "unknown"
+
+
+class ExperimentHealthInputsReaderAccessSerializer(serializers.Serializer):
+    can_read_flag_history = serializers.BooleanField(
+        help_text="Whether the reader may read the flag's history, which the split-change check needs."
+    )
+    can_query_events = serializers.BooleanField(
+        help_text="Whether the reader may query events, which the split-change and forced-variant checks need."
+    )
+    denied_event_properties = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Event properties the reader is denied. The forced-variant check skips its scan when one of them is a "
+            "flag call property it reads."
+        ),
+    )
+
+
+class ExperimentHealthInputsExposureTotalsSerializer(serializers.Serializer):
+    total_exposures = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Exposed people by variant. '$multiple' counts the people exposed to more than one variant.",
+    )
+    multiple_variant_handling = serializers.CharField(
+        help_text="How the analysis treats people in several variants: 'exclude' or 'first_seen'."
+    )
+    sample_ratio_mismatch_p_value = serializers.FloatField(
+        allow_null=True, help_text="The p-value of the sample ratio test. Null when there was too little data."
+    )
+    hours_since_launch = serializers.FloatField(
+        allow_null=True, help_text="Hours from launch to the computation of the answer, as the checks read them."
+    )
+
+
+class ExperimentHealthInputsExposuresSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=HealthExposureInputsStatus.choices,
+        help_text=(
+            "Whether a cached answer was read. 'stale' and 'calculating' mean a calculation runs in the "
+            "background, so a later request reads a fresh answer."
+        ),
+    )
+    computed_at = serializers.DateTimeField(allow_null=True, help_text="When the answer was computed.")
+    totals = ExperimentHealthInputsExposureTotalsSerializer(
+        allow_null=True, help_text="What the exposure checks read. Null without an answer."
+    )
+    findings = ExperimentHealthFindingSerializer(
+        many=True, help_text="The findings of the exposure checks on this answer: zero exposures, SRM and bias risk."
+    )
+    error = serializers.CharField(
+        allow_null=True, help_text="Why the query failed. Null unless the status is 'failed'."
+    )
+
+
+class ExperimentHealthInputsProjectSerializer(serializers.Serializer):
+    team_defaults = ExperimentSetupTeamDefaultsSectionSerializer(help_text="The project's experiment defaults.")
+    sdk_profile = ExperimentSetupSdkProfileSectionSerializer(
+        help_text=(
+            "Which SDKs call feature flags and where flags are evaluated, across the whole project. Skipped for a "
+            "reader who may not query events."
+        )
+    )
+
+
+class ExperimentHealthInputsSerializer(serializers.Serializer):
+    is_launched = serializers.BooleanField(help_text="Whether the experiment has a start date.")
+    is_running = serializers.BooleanField(help_text="Whether the experiment is launched and not ended.")
+    has_ended = serializers.BooleanField(help_text="Whether the experiment has an end date.")
+    is_paused = serializers.BooleanField(help_text="Whether the experiment is paused.")
+    archived = serializers.BooleanField(help_text="Whether the experiment is archived.")
+    baseline_variant_key = serializers.CharField(
+        allow_null=True, help_text="The baseline set in the experiment's settings. Null when unset."
+    )
+    primary_metric_count = serializers.IntegerField(
+        help_text="Single-use primary metrics plus shared metrics linked as primary."
+    )
+    secondary_metric_count = serializers.IntegerField(
+        help_text="Single-use secondary metrics plus shared metrics linked as secondary."
+    )
+    flag = ExperimentHealthInputsFlagSerializer(
+        allow_null=True, help_text="The experiment's feature flag. Null when it has none."
+    )
+    split_history = ExperimentHealthInputsSplitHistorySerializer(
+        allow_null=True,
+        help_text=(
+            "The changes of the flag's split since launch. Null when the experiment is not running, is archived, "
+            "its flag is missing or deleted, or the read failed."
+        ),
+    )
+    condition_set_traffic_status = serializers.ChoiceField(
+        choices=ExperimentHealthInputsTrafficStatus.choices,
+        help_text=(
+            "Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the "
+            "experiment is launched and some but not all release conditions pin a variant with a share of the split."
+        ),
+    )
+    condition_set_traffic = ExperimentHealthInputsConditionSetTrafficSerializer(
+        allow_null=True,
+        help_text="The flag's recent calls by condition set. Null unless condition_set_traffic_status is 'read'.",
+    )
+    reader_access = ExperimentHealthInputsReaderAccessSerializer(
+        help_text="What the reader may read, which decides what the checks can load."
+    )
+    exposures = ExperimentHealthInputsExposuresSerializer(
+        help_text="The exposure query's answer that the exposure checks read, from the cache."
+    )
+    project = ExperimentHealthInputsProjectSerializer(
+        help_text="Facts about the project that no check reads yet, from the same providers as the setup context."
+    )
+
+
+def _health_inputs_split(split: Split) -> list[dict[str, Any]]:
+    return [{"key": variant.key, "rollout_percentage": variant.rollout_percentage} for variant in split]
+
+
+def _health_inputs_flag(flag: FlagState) -> dict[str, Any]:
+    reachable = {condition.number: condition for condition in flag.reachable_conditions}
+    return {
+        "active": flag.active,
+        "deleted": flag.deleted,
+        "release_conditions": [
+            {
+                "number": number,
+                "rollout_percentage": group.rollout_percentage,
+                "property_count": group.property_count,
+                "reachable": number in reachable,
+                "pinned_variant": reachable[number].pinned_variant if number in reachable else None,
+            }
+            for number, group in enumerate(flag.release_groups, start=1)
+        ],
+        "variants": _health_inputs_split(flag.variants),
+    }
+
+
+def _health_inputs_split_history(history: SplitHistory | SplitHistoryNotChecked) -> dict[str, Any]:
+    if isinstance(history, SplitHistory):
+        # The counted changes are the tail of every change, so their count marks where counting starts.
+        first_counted = len(history.changes) - len(history.counted_changes)
+        reason, exposed_before_first, exposed_between = None, history.exposed_before_first, history.exposed_between
+    else:
+        first_counted = len(history.changes)
+        reason, exposed_before_first, exposed_between = history.reason.value, None, None
+    return {
+        "checked": reason is None,
+        "not_checked_reason": reason,
+        "launched_at": history.launched_at,
+        "team_timezone": history.team_timezone,
+        "changes": [
+            {
+                "changed_at": change.changed_at,
+                "before": _health_inputs_split(change.before),
+                "after": _health_inputs_split(change.after),
+                "counted": index >= first_counted,
+            }
+            for index, change in enumerate(history.changes)
+        ],
+        "exposed_before_first": exposed_before_first,
+        "exposed_between": exposed_between,
+    }
+
+
+def _health_inputs_traffic(traffic: ConditionSetTraffic) -> dict[str, Any]:
+    return {
+        "since": traffic.since,
+        "team_timezone": traffic.team_timezone,
+        "people_by_set": [
+            {"condition_set": condition_set, "people": people}
+            for condition_set, people in sorted(traffic.people_by_set.items())
+        ],
+        "calls": traffic.calls,
+        "remotely_evaluated_calls": traffic.remotely_evaluated_calls,
+    }
+
+
+def _health_inputs_traffic_status(inputs: HealthInputs) -> ExperimentHealthInputsTrafficStatus:
+    ctx = inputs.context
+    # Mirrors the order of the early returns in `load_condition_set_traffic`.
+    if ctx.condition_set_traffic is not None:
+        return ExperimentHealthInputsTrafficStatus.READ
+    if not needs_condition_set_traffic(ctx):
+        return ExperimentHealthInputsTrafficStatus.NOT_NEEDED
+    if not inputs.reader_access.can_query_events:
+        return ExperimentHealthInputsTrafficStatus.NO_QUERY_ACCESS
+    if denied_scanned_properties(inputs.reader_access):
+        return ExperimentHealthInputsTrafficStatus.DENIED_PROPERTIES
+    if inputs.flag_version is None:
+        return ExperimentHealthInputsTrafficStatus.NO_FLAG_VERSION
+    return ExperimentHealthInputsTrafficStatus.UNKNOWN
+
+
+def _health_inputs_exposures(exposures: ExposureInputs) -> dict[str, Any]:
+    totals = exposures.totals
+    return {
+        "status": exposures.status,
+        "computed_at": exposures.computed_at,
+        "totals": {
+            "total_exposures": dict(totals.total_exposures),
+            "multiple_variant_handling": totals.multiple_variant_handling.value,
+            "sample_ratio_mismatch_p_value": totals.sample_ratio_mismatch_p_value,
+            "hours_since_launch": totals.hours_since_launch,
+        }
+        if totals
+        else None,
+        "findings": [finding.model_dump(mode="json") for finding in exposures.findings],
+        "error": exposures.error,
+    }
+
+
+def health_inputs_data(inputs: HealthInputs) -> dict[str, Any]:
+    """The shape of `ExperimentHealthInputsSerializer`."""
+    ctx, reader_access = inputs.context, inputs.reader_access
+    return {
+        "is_launched": ctx.is_launched,
+        "is_running": ctx.is_running,
+        "has_ended": ctx.has_ended,
+        "is_paused": ctx.is_paused,
+        "archived": ctx.archived,
+        "baseline_variant_key": ctx.baseline_variant_key,
+        "primary_metric_count": ctx.primary_metric_count,
+        "secondary_metric_count": ctx.secondary_metric_count,
+        "flag": _health_inputs_flag(ctx.flag) if ctx.flag else None,
+        "split_history": _health_inputs_split_history(ctx.split_history) if ctx.split_history else None,
+        "condition_set_traffic_status": _health_inputs_traffic_status(inputs),
+        "condition_set_traffic": _health_inputs_traffic(ctx.condition_set_traffic)
+        if ctx.condition_set_traffic
+        else None,
+        "reader_access": {
+            "can_read_flag_history": reader_access.can_read_flag_history,
+            "can_query_events": reader_access.can_query_events,
+            "denied_event_properties": sorted(reader_access.denied_event_properties),
+        },
+        "exposures": _health_inputs_exposures(inputs.exposures),
+        "project": inputs.project,
+    }
