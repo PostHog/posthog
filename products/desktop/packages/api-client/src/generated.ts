@@ -4794,6 +4794,7 @@ export namespace Schemas {
         tableCalculation?: (BITableCalculation | null) | undefined;
     };
     export type BIConfig = {
+        catalogMetric?: (string | null) | undefined;
         chartType: ChartDisplayType;
         colorBy?: (string | null) | undefined;
         columns: Array<BIField>;
@@ -4809,6 +4810,7 @@ export namespace Schemas {
         memberAliases?: (Array<MemberAliase> | null) | undefined;
         missingDates?: (MissingDates | null) | undefined;
         panes?: (BIPaneSettings | null) | undefined;
+        querySnapshot?: (HogQLQuery | null) | undefined;
         resultFilterGroup?: (BIConditionGroup | null) | undefined;
         resultFilters?: (Array<BIResultFilter> | null) | undefined;
         rowFilterGroup?: (BIConditionGroup | null) | undefined;
@@ -6524,6 +6526,13 @@ export namespace Schemas {
         eventName: string | null;
         properties: Array<ActivityEventsPropertyFilter> | null;
     }>;
+    export type ErrorTrackingOrderBy =
+        | "last_seen"
+        | "first_seen"
+        | "occurrences"
+        | "users"
+        | "sessions"
+        | "severity";
     export type WidgetAssigneeFilter = {
         id: string | number;
         type: "user" | "role";
@@ -6533,12 +6542,7 @@ export namespace Schemas {
         filterTestAccounts: boolean | null;
         widgetFilters: Record<string, WidgetFilterEntry> | null;
         limit: number;
-        orderBy:
-            | "last_seen"
-            | "first_seen"
-            | "occurrences"
-            | "users"
-            | "sessions";
+        orderBy: ErrorTrackingOrderBy;
         orderDirection: "ASC" | "DESC";
         status:
             | "archived"
@@ -8444,13 +8448,6 @@ export namespace Schemas {
         useSessionsTable?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
-    export type ErrorTrackingOrderBy =
-        | "last_seen"
-        | "first_seen"
-        | "occurrences"
-        | "users"
-        | "sessions"
-        | "severity";
     export type OrderDirection2 = "ASC" | "DESC";
     export type ErrorTrackingPendingFingerprintIssueStateUpdate = {
         assigned_role_id?: (string | null) | undefined;
@@ -10980,6 +10977,7 @@ export namespace Schemas {
      * * `Gong` - Gong
      * * `Calendly` - Calendly
      * * `Typeform` - Typeform
+     * * `UnityAds` - UnityAds
      * * `Iterable` - Iterable
      * * `ZohoCRM` - ZohoCRM
      * * `Close` - Close
@@ -11849,6 +11847,7 @@ export namespace Schemas {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -12278,7 +12277,7 @@ export namespace Schemas {
      * * `Wise` - Wise
      * * `LaravelCloud` - LaravelCloud
      * * `Northbeam` - Northbeam
-     * * `ChannelIO` - ChannelIO
+     * * `NaverAds` - NaverAds
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -12365,6 +12364,7 @@ export namespace Schemas {
         | "Gong"
         | "Calendly"
         | "Typeform"
+        | "UnityAds"
         | "Iterable"
         | "ZohoCRM"
         | "Close"
@@ -13234,6 +13234,7 @@ export namespace Schemas {
         | "BlackboardLearn"
         | "Bling"
         | "Bloomerang"
+        | "Blueshift"
         | "Bluesky"
         | "BolRetailer"
         | "Boulevard"
@@ -13663,7 +13664,7 @@ export namespace Schemas {
         | "Wise"
         | "LaravelCloud"
         | "Northbeam"
-        | "ChannelIO";
+        | "NaverAds";
     /**
      * * `web` - web
      * * `api` - api
@@ -13758,6 +13759,7 @@ export namespace Schemas {
          * * `Gong` - Gong
          * * `Calendly` - Calendly
          * * `Typeform` - Typeform
+         * * `UnityAds` - UnityAds
          * * `Iterable` - Iterable
          * * `ZohoCRM` - ZohoCRM
          * * `Close` - Close
@@ -14627,6 +14629,7 @@ export namespace Schemas {
          * * `BlackboardLearn` - BlackboardLearn
          * * `Bling` - Bling
          * * `Bloomerang` - Bloomerang
+         * * `Blueshift` - Blueshift
          * * `Bluesky` - Bluesky
          * * `BolRetailer` - BolRetailer
          * * `Boulevard` - Boulevard
@@ -15056,7 +15059,7 @@ export namespace Schemas {
          * * `Wise` - Wise
          * * `LaravelCloud` - LaravelCloud
          * * `Northbeam` - Northbeam
-         * * `ChannelIO` - ChannelIO
+         * * `NaverAds` - NaverAds
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -15404,8 +15407,12 @@ export namespace Schemas {
     /**
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails
      */
-    export type HogFlowOriginProductEnum = "loops" | "broadcasts";
+    export type HogFlowOriginProductEnum =
+        | "loops"
+        | "broadcasts"
+        | "transactional_emails";
     export type HogFlowMasking = {
         ttl?: (number | null) | undefined;
         threshold?: (number | null) | undefined;
@@ -15828,6 +15835,7 @@ export namespace Schemas {
          *
          * * `loops` - Loops
          * * `broadcasts` - Broadcasts
+         * * `transactional_emails` - Transactional emails
          */
         origin_product: HogFlowOriginProductEnum | NullEnum;
         created_at: string;
@@ -22306,7 +22314,7 @@ export namespace Endpoints {
                 limit: number;
                 offset: number;
                 optimization_enabled: boolean;
-                origin_product: "broadcasts" | "loops";
+                origin_product: "broadcasts" | "loops" | "transactional_emails";
                 search: string;
                 status: "active" | "archived" | "draft";
                 trigger: string;

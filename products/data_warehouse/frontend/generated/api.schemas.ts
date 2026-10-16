@@ -2437,6 +2437,7 @@ export interface CredentialApi {
  * * `Gong` - Gong
  * * `Calendly` - Calendly
  * * `Typeform` - Typeform
+ * * `UnityAds` - UnityAds
  * * `Iterable` - Iterable
  * * `ZohoCRM` - ZohoCRM
  * * `Close` - Close
@@ -3306,6 +3307,7 @@ export interface CredentialApi {
  * * `BlackboardLearn` - BlackboardLearn
  * * `Bling` - Bling
  * * `Bloomerang` - Bloomerang
+ * * `Blueshift` - Blueshift
  * * `Bluesky` - Bluesky
  * * `BolRetailer` - BolRetailer
  * * `Boulevard` - Boulevard
@@ -3735,7 +3737,7 @@ export interface CredentialApi {
  * * `Wise` - Wise
  * * `LaravelCloud` - LaravelCloud
  * * `Northbeam` - Northbeam
- * * `ChannelIO` - ChannelIO
+ * * `NaverAds` - NaverAds
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3825,6 +3827,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Gong: 'Gong',
     Calendly: 'Calendly',
     Typeform: 'Typeform',
+    UnityAds: 'UnityAds',
     Iterable: 'Iterable',
     ZohoCRM: 'ZohoCRM',
     Close: 'Close',
@@ -4694,6 +4697,7 @@ export const ExternalDataSourceTypeEnumApi = {
     BlackboardLearn: 'BlackboardLearn',
     Bling: 'Bling',
     Bloomerang: 'Bloomerang',
+    Blueshift: 'Blueshift',
     Bluesky: 'Bluesky',
     BolRetailer: 'BolRetailer',
     Boulevard: 'Boulevard',
@@ -5123,7 +5127,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Wise: 'Wise',
     LaravelCloud: 'LaravelCloud',
     Northbeam: 'Northbeam',
-    ChannelIO: 'ChannelIO',
+    NaverAds: 'NaverAds',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
