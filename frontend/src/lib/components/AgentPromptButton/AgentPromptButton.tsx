@@ -6,6 +6,7 @@ import { IconChevronDown, IconCopy, IconLogomark, IconSparkles } from '@posthog/
 import { MCP_INSTALL_COMMAND } from 'lib/components/MCPHint/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { useKeyboardNavigation } from 'lib/lemon-ui/LemonMenu/useKeyboardNavigation'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -310,6 +311,10 @@ export function AgentPromptButton({
     const { currentProjectId } = useValues(projectLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const availableAgents = AGENTS.filter((agent) => !(todayRailEnabled && agent.key === 'posthog-ai'))
+    // The Lemon menu renders its overlay directly, so it wires LemonMenu's arrow-key focus handling itself.
+    const lemonKeyboard = useKeyboardNavigation<HTMLButtonElement>(
+        (actions.length > 1 ? actions.length : 0) + availableAgents.length
+    )
 
     if (actions.length === 0 || availableAgents.length === 0) {
         return null
@@ -350,46 +355,53 @@ export function AgentPromptButton({
 
     if (appearance === 'lemon') {
         return (
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<AgentLogo logo={activeAgent.logo} logoClassName={activeAgent.logoClassName} />}
-                onClick={handleMainClick}
-                data-attr={dataAttr}
-                title={`Run: ${buttonLabel}`}
-                sideAction={{
-                    'aria-label': actions.length > 1 ? 'Choose prompt and agent' : 'Open prompt in an agent',
-                    dropdown: {
-                        placement: 'bottom-end',
-                        onVisibilityChange: onOpenChange,
-                        overlay: (
-                            <LemonMenuOverlay
-                                items={[
-                                    actions.length > 1 && {
-                                        title: 'Content',
-                                        items: actions.map((action) => ({
-                                            label: action.label,
-                                            icon: action.icon,
-                                            active: action.key === activeAction.key,
-                                            onClick: () => selectAction(action.key),
-                                        })),
-                                    },
-                                    {
-                                        title: 'Open in',
-                                        items: availableAgents.map((agent) => ({
-                                            label: agent.name,
-                                            icon: <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />,
-                                            onClick: () => selectAgent(agent.key),
-                                        })),
-                                    },
-                                ]}
-                            />
-                        ),
-                    },
-                }}
-            >
-                <span className="truncate max-w-64">{buttonLabel}</span>
-            </LemonButton>
+            // Focus and key events bubble up from the side action, which takes no handlers of its own.
+            <div className="contents" onFocus={lemonKeyboard.onTriggerFocus} onKeyDown={lemonKeyboard.onTriggerKeyDown}>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<AgentLogo logo={activeAgent.logo} logoClassName={activeAgent.logoClassName} />}
+                    onClick={handleMainClick}
+                    data-attr={dataAttr}
+                    title={`Run: ${buttonLabel}`}
+                    sideAction={{
+                        'aria-label': actions.length > 1 ? 'Choose prompt and agent' : 'Open prompt in an agent',
+                        dropdown: {
+                            placement: 'bottom-end',
+                            onVisibilityChange: onOpenChange,
+                            overlay: (
+                                <LemonMenuOverlay
+                                    itemsRef={lemonKeyboard.itemsRef}
+                                    onKeyDown={lemonKeyboard.onItemsKeyDown}
+                                    items={[
+                                        actions.length > 1 && {
+                                            title: 'Content',
+                                            items: actions.map((action) => ({
+                                                label: action.label,
+                                                icon: action.icon,
+                                                active: action.key === activeAction.key,
+                                                onClick: () => selectAction(action.key),
+                                            })),
+                                        },
+                                        {
+                                            title: 'Open in',
+                                            items: availableAgents.map((agent) => ({
+                                                label: agent.name,
+                                                icon: (
+                                                    <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
+                                                ),
+                                                onClick: () => selectAgent(agent.key),
+                                            })),
+                                        },
+                                    ]}
+                                />
+                            ),
+                        },
+                    }}
+                >
+                    <span className="truncate max-w-64">{buttonLabel}</span>
+                </LemonButton>
+            </div>
         )
     }
 

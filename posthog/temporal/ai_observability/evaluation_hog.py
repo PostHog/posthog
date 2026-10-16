@@ -115,16 +115,30 @@ def _extract_hog_output_text(output: Any) -> str:
     return _extract_hog_message_text(messages)
 
 
-# Content blocks that hold a model's reasoning rather than its reply, as the SDKs record them:
-# Anthropic `thinking` and `redacted_thinking`, OpenAI Responses `reasoning`, and Gemini parts
-# flagged with `thought`.
-_REASONING_BLOCK_TYPES = frozenset({"thinking", "redacted_thinking", "reasoning"})
+# Content block types that hold the reply's text. Everything else, such as reasoning, tool calls,
+# images, or audio, is left out of `reply_text`.
+_TEXT_BLOCK_TYPES = frozenset({"text", "output_text"})
 # Roles of OTel follow-up messages that carry reasoning or tool results, not the reply.
 _NON_REPLY_ROLES = frozenset({"thinking", "tool"})
 
 
-def _is_reasoning_block(value: Any) -> bool:
-    return isinstance(value, dict) and (value.get("type") in _REASONING_BLOCK_TYPES or value.get("thought") is True)
+def _reply_text_from_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        content = [content]
+    if not isinstance(content, list):
+        return ""
+    texts: list[str] = []
+    for block in content:
+        if isinstance(block, str):
+            texts.append(block)
+        # Gemini marks its reasoning as a text part with `thought` set.
+        elif isinstance(block, dict) and block.get("type", "text") in _TEXT_BLOCK_TYPES and not block.get("thought"):
+            text = block.get("text", block.get("content"))
+            if isinstance(text, str):
+                texts.append(text)
+    return " ".join(text for text in texts if text)
 
 
 def _extract_hog_reply_text(output: Any) -> str:
@@ -147,21 +161,23 @@ def _extract_hog_reply_text(output: Any) -> str:
         message = choice.get("message")
         if isinstance(message, dict):
             choice = message
-        if _is_reasoning_block(choice) or choice.get("role") in _NON_REPLY_ROLES:
+        if choice.get("role") in _NON_REPLY_ROLES:
             continue
         if isinstance(choice.get("parts"), list):
-            # OTel messages keep their text in `parts` next to reasoning and tool-call parts.
-            content: Any = [part for part in choice["parts"] if isinstance(part, dict) and part.get("type") == "text"]
-        elif any(key in choice for key in ("content", "refusal", "text", "tool_calls", "role")):
-            content = _get_hog_output_choice_content(choice)
-        else:
+            # OTel keeps text parts next to reasoning and tool-call parts, with the text under `content`.
+            replies.append(
+                " ".join(
+                    part["content"]
+                    for part in choice["parts"]
+                    if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("content"), str)
+                )
+            )
+        elif any(key in choice for key in ("content", "refusal", "text", "role")):
+            replies.append(_reply_text_from_content(_get_hog_output_choice_content(choice)))
+        elif "type" not in choice:
             # A structured-output payload such as `{"entities": [...]}` is the reply itself.
             replies.append(json.dumps(choice, default=str))
-            continue
-        if isinstance(content, list):
-            content = [block for block in content if not _is_reasoning_block(block)]
-        if content:
-            replies.append(extract_text_from_messages([{"content": content}]))
+        # Any other typed item, such as a Responses `reasoning` or `function_call`, is not reply text.
     return "\n".join(reply for reply in replies if reply.strip())
 
 

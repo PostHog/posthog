@@ -302,6 +302,45 @@ class TestHogEvalExamplesBehavior:
             ("empty_openai", "Empty or failed output", [{"message": {"role": "assistant", "content": ""}}], False),
             ("empty_otel_parts", "Empty or failed output", [{"role": "assistant", "parts": []}], False),
             (
+                "json_with_tool_call_block",
+                "Valid JSON output",
+                [
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "text", "text": '{"ok": true}'},
+                            {"type": "function", "id": "call_1", "function": {"name": "save", "arguments": "{}"}},
+                        ],
+                    }
+                ],
+                True,
+            ),
+            (
+                "json_responses_function_call_item",
+                "Valid JSON output",
+                [
+                    {"type": "function_call", "call_id": "call_1", "name": "save", "arguments": "{}"},
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": '{"ok": true}'}],
+                    },
+                ],
+                True,
+            ),
+            (
+                "json_empty_text_block",
+                "Valid JSON output",
+                [{"role": "assistant", "content": [{"type": "text", "text": ""}]}],
+                False,
+            ),
+            (
+                "empty_anthropic_empty_text_block",
+                "Empty or failed output",
+                [{"role": "assistant", "content": [{"type": "text", "text": ""}]}],
+                False,
+            ),
+            (
                 "json_anthropic_thinking",
                 "Valid JSON output",
                 [
@@ -402,8 +441,9 @@ class TestHogEvalExamplesBehavior:
         assert result["error"] is None
         assert result["verdict"] is expected
 
-    def test_failed_output_passes_a_reply_that_only_calls_tools(self) -> None:
-        bytecode = compile_hog(_get_source("Empty or failed output"), "destination")
+    @parameterized.expand([("Empty or failed output",), ("Valid JSON output",)])
+    def test_output_body_checks_pass_a_step_that_only_calls_tools(self, label: str) -> None:
+        bytecode = compile_hog(_get_source(label), "destination")
         event = _make_event(
             ai_output_choices=[
                 {
