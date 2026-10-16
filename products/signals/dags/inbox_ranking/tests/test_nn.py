@@ -48,11 +48,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
 )
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
 from products.signals.dags.inbox_ranking.training.train import HeadMetrics
-from products.signals.dags.inbox_ranking.training.unseen import (
-    NN_MODEL_NAME,
-    REPORT_EMBEDDINGS_MODEL_NAME,
-    TITLE_EMBEDDINGS_MODEL_NAME,
-)
+from products.signals.dags.inbox_ranking.training.unseen import NN_MODEL_NAME, REPORT_EMBEDDINGS_MODEL_NAME
 
 PREFIX = settings.INBOX_RANKING_DATASET_S3_PREFIX
 PARTITION = "2026-08-19"
@@ -146,7 +142,7 @@ def test_the_main_location_never_fits_or_promotes_nn(monkeypatch, no_side_effect
             model_object_key(PREFIX, name, PARTITION, METADATA_FILE): json.dumps(
                 _xgboost_metadata(name, PARTITION)
             ).encode()
-            for name in (REPORT_EMBEDDINGS_MODEL_NAME, TITLE_EMBEDDINGS_MODEL_NAME, NN_MODEL_NAME)
+            for name in (REPORT_EMBEDDINGS_MODEL_NAME, NN_MODEL_NAME)
         }
     )
     monkeypatch.setattr("products.signals.dags.inbox_ranking.training.dag.s3_client", lambda: client)
@@ -156,7 +152,7 @@ def test_the_main_location_never_fits_or_promotes_nn(monkeypatch, no_side_effect
         inbox_ranking_model_champion(context)
 
     champions = {key.split("/")[-2] for key in client.objects if key.endswith(CHAMPION_FILE)}
-    assert champions == {REPORT_EMBEDDINGS_MODEL_NAME, TITLE_EMBEDDINGS_MODEL_NAME}
+    assert champions == {REPORT_EMBEDDINGS_MODEL_NAME}
     assert not [key for key in client.objects if f"/{NN_MODEL_NAME}/" in key and not key.endswith(METADATA_FILE)]
 
 

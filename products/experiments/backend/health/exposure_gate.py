@@ -263,6 +263,7 @@ def _load_split_history(
         return SplitHistory(
             launched_at=launched_at,
             team_timezone=team_timezone,
+            changes=(),
             counted_changes=(),
             exposed_before_first=False,
             exposed_between=None,
@@ -293,6 +294,7 @@ def _load_split_history(
     return SplitHistory(
         launched_at=launched_at,
         team_timezone=team_timezone,
+        changes=changes,
         counted_changes=counted,
         exposed_before_first=exposed_before_first,
         exposed_between=exposed_between,
