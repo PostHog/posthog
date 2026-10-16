@@ -433,9 +433,8 @@ async fn process_events_inner(
     // pipelines its host capture deployment serves; the pipeline argument
     // selects which slice of restrictions applies to each event. A DropEvent
     // tagged only for `analytics` will never silently drop an exception event
-    // on the way to the error tracking topic, and vice versa. Data types
-    // without a pipeline (heatmaps, ingestion warnings, snapshots) flow
-    // through unrestricted. `AiEvents` looks up the `ai` pipeline: a diverted
+    // on the way to the error tracking topic, and vice versa. Snapshots have
+    // no pipeline here and flow through unrestricted. `AiEvents` looks up the `ai` pipeline: a diverted
     // AI event is governed by ai-scoped restrictions (drop/DLQ/redirect still
     // win over the lane, redirect_to_topic beats the AI topic in the sink,
     // force_overflow keeps it on the AI lane) -- mirroring v1.
@@ -490,23 +489,7 @@ async fn process_events_inner(
     drop_ai_byte_limited(&mut events, ai_byte_rate_limiter.as_ref()).await;
 
     // Per-(token, distinct_id) global rate limiting: skip person processing for
-    // hot distinct_ids and reroute AnalyticsMain events to overflow. Import mode
-    // opts out entirely — historical backfills must never be throttled — so the
-    // limiter is skipped even if one were wired.
-    //
-    // DIVERGENCE from v1 (`v1::analytics::process`), intentional and out of scope
-    // to reconcile here — a future routing refactor must not assume parity:
-    //   1. Ordering: legacy runs this GRL step BEFORE burst overflow stamping
-    //      (`stamp_overflow_reason` below); v1 runs the GRL AFTER its overflow
-    //      stamping. Both set overflow_reason on AnalyticsMain only, so the
-    //      end state matches, but the pass order differs.
-    //   2. Lane assignment is a single `DataType::from_event_name` match in
-    //      legacy versus assign-then-reroute in v1.
-    // Both paths charge the same shared limiter for every non-dropped event,
-    // including events whose person processing is already off, so per-key counts
-    // are identical regardless of which pipeline serves the key.
-    // Import is unaffected by both: the GRL never runs (guard below) and no
-    // overflowable lane is reachable, so behavior is identical across paths.
+    // hot distinct_ids and reroute AnalyticsMain events to overflow.
     if context.capture_mode.applies_global_rate_limit() {
         if let Some(ref limiter) = global_rate_limiter {
             let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
@@ -1972,7 +1955,7 @@ mod tests {
     /// An ai-scoped RedirectToTopic applies to a diverted AI event: the
     /// event keeps its AI lane, but the stamped redirect beats the data type
     /// in the sink so operators can reroute an AI token's traffic ad hoc,
-    /// matching v1 where the restriction overwrites `Destination::AiEvents`
+    /// matching v1 where the restriction overwrites `Destination::AiMain`
     /// with `Destination::Custom`.
     #[tokio::test]
     async fn test_process_events_restriction_redirect_applies_to_ai_events() {
@@ -3500,7 +3483,7 @@ mod tests {
 
     /// A `$cookieless_mode` event with heatmap data must produce a redirect
     /// that carries every property the cookieless identity hash reads in
-    /// `nodejs/src/ingestion/cookieless/cookieless-manager.ts`. Without
+    /// `nodejs/src/ingestion/common/cookieless/cookieless-manager.ts`. Without
     /// these, the ingestion pipeline emits `cookieless_missing_user_agent`
     /// against the redirect and silently drops every heatmap/scroll-depth
     /// data point from cookieless-mode customers.

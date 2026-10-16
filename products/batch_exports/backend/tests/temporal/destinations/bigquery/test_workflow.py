@@ -113,7 +113,6 @@ async def test_bigquery_export_workflow(
     if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     sort_key = "event"
 
@@ -125,7 +124,7 @@ async def test_bigquery_export_workflow(
             sort_key = "session_id"
 
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     workflow_id = str(uuid.uuid4())
     inputs = BigQueryBatchExportInputs(
@@ -133,7 +132,6 @@ async def test_bigquery_export_workflow(
         batch_export_id=str(bigquery_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         **bigquery_batch_export.destination.config,
     )
@@ -211,12 +209,11 @@ async def test_bigquery_export_workflow_without_events(
     if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     workflow_id = str(uuid.uuid4())
     inputs = BigQueryBatchExportInputs(
@@ -224,7 +221,6 @@ async def test_bigquery_export_workflow_without_events(
         batch_export_id=str(bigquery_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         **bigquery_batch_export.destination.config,
     )

@@ -566,15 +566,17 @@ tools:
         description: >
             Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and
             model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a
-            boolean or finite number). For 'hog' and 'llm_judge', choose output_type='boolean' or 'numeric'; numeric
-            output_config accepts min, max, step, allows_na, and passing_rule. 'sentiment': output_type='sentiment',
-            omit model_configuration, optional evaluation_config.source='user_messages'. `target` accepts 'generation'
-            (default), 'trace', or 'session'. A session target runs once per `$ai_session_id` and defaults to the
-            'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events
-            immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by
-            llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are
-            '$ai_evaluation' events. An evaluation only scores data that arrives after it is enabled, so once it is
-            enabled, offer the user a backfill over past data with llma-evaluation-backfill-estimate.
+            boolean, a finite number, or category keys). For 'hog' and 'llm_judge', choose output_type='boolean',
+            'numeric', or 'categorical'; numeric output_config accepts min, max, step, allows_na, and passing_rule;
+            categorical output_config accepts options, selection_mode, allows_na, and passing_rule. 'sentiment':
+            output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'.
+            `target` accepts 'generation' (default), 'trace', or 'session'. A session target runs once per
+            `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass `enabled` as a boolean (true to
+            start scoring new $ai_generation events immediately, false to create it paused). To organize the evaluation,
+            pass a `directory_id` returned by llma-evaluation-directory-list. Omit `directory_id` or pass null to keep
+            it at the top level. Results are '$ai_evaluation' events. An evaluation only scores data that arrives after
+            it is enabled, so once it is enabled, offer the user a backfill over past data with
+            llma-evaluation-backfill-estimate.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true
@@ -691,8 +693,10 @@ tools:
             together_ai, minimax, zeabur, openai_compatible. Optional `key_id` scopes to a key's reachable deployments
             or models (mainly azure_openai and openai_compatible) and implies that key's provider. The `providers` list
             in the response flags providers whose models only appear once you pass `key_id` for one of the team's keys;
-            those return no models otherwise. Call this before creating an llm_judge eval to pick a valid combo, and
-            prefer a provider the team already has a key for (see llma-provider-key-list).
+            those return no models otherwise. Listing models needs no key, but running any llm_judge evaluation needs
+            one of the team's own provider keys, so enabling fails without a usable key. Call this before creating an
+            llm_judge eval to pick a valid combo, and prefer a provider the team already has a key for (see
+            llma-provider-key-list).
     llma-evaluation-list:
         operation: evaluations_list
         enabled: true
@@ -855,8 +859,9 @@ tools:
             runs against trace-level globals, 'session' samples whole sessions that have gone quiet and runs against
             session-level globals. For trace previews, pass target_config.window_seconds to match the saved evaluation's
             aggregation window; for session previews, pass target_config.quiet_period_seconds to match its quiet period.
-            Returns per-sample raw boolean or numeric results, N/A when allowed, errors, reasoning, and input/output
-            previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.
+            For numeric or categorical evaluations, pass the saved output_type and output_config. Returns per-sample raw
+            boolean, numeric, or categorical results, N/A when allowed, errors, reasoning, and input/output previews.
+            Use this to validate Hog code before creating or updating a 'hog' type evaluation.
     llma-evaluation-update:
         operation: evaluations_partial_update
         enabled: true
@@ -869,17 +874,18 @@ tools:
         title: Update evaluation
         description: >
             Partially update an AI observability evaluation. Requires the evaluation `id` (UUID). If you don't have it,
-            call llma-evaluation-list first to look it up by name. Changing to or from numeric output requires a new
-            evaluation; for numeric evaluations, update output_config to change bounds, N/A handling, or passing_rule. A
-            passing rule has operator 'gte' or 'lte' and a finite threshold. Rule edits reinterpret historical scores;
-            saved reports stay unchanged. Toggle enabled, change its runtime type or evaluation config, or change the
-            model for an llm_judge. When switching to llm_judge, include model_configuration with provider and model.
-            When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or provide both
-            fields to replace it; null is rejected for configured judges. When switching an llm_judge to hog or
-            sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable.
-            provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or 'session'.
-            Pass a `directory_id` returned by llma-evaluation-directory-list to move the evaluation into a directory, or
-            pass null to move it to the top level. After you enable an evaluation for the first time, offer the user a
+            call llma-evaluation-list first to look it up by name. Changing to or from numeric or categorical output
+            requires a new evaluation; for these evaluations, update output_config to change bounds, categories, N/A
+            handling, or passing_rule. A numeric passing rule has operator 'gte' or 'lte' and a finite threshold; a
+            categorical passing rule lists the passing category keys. Rule edits reinterpret historical results; saved
+            reports stay unchanged. Toggle enabled, change its runtime type or evaluation config, or change the model
+            for an llm_judge. When switching to llm_judge, include model_configuration with provider and model. When an
+            llm_judge remains an llm_judge, omit model_configuration to keep its current model or provide both fields to
+            replace it; null is rejected for configured judges. When switching an llm_judge to hog or sentiment, set
+            model_configuration to null. Legacy llm_judge evaluations without a model remain editable. provider_key_id
+            may be null when no key is pinned. `target` accepts 'generation', 'trace', or 'session'. Pass a
+            `directory_id` returned by llma-evaluation-directory-list to move the evaluation into a directory, or pass
+            null to move it to the top level. After you enable an evaluation for the first time, offer the user a
             backfill over past data with llma-evaluation-backfill-estimate.
         param_overrides:
             id:
@@ -1696,6 +1702,7 @@ tools:
             description); optionally set min_tags and max_tags. For tagger_type "hog", provide tagger_config.source Hog
             code that returns a tag name string, a list of tag name strings, or null; optionally provide
             tagger_config.tags as a whitelist. Use enabled=false while drafting, then update the tagger from the UI.
+        feature_flag: llm-analytics-tags
         url_prefix: /ai-evals/taggers
     llma-tagger-list:
         operation: taggers_list
@@ -1713,6 +1720,7 @@ tools:
             List AI observability taggers for the current project. Supports filtering by enabled status, id__in, search,
             and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model
             configuration, creator, and timestamps.
+        feature_flag: llm-analytics-tags
         url_prefix: /ai-evals/taggers
     llma-tagger-test-hog:
         operation: taggers_test_hog_create
@@ -1729,6 +1737,7 @@ tools:
             return a tag name string, a list of tag name strings, or null. Optionally pass tags as a whitelist; returned
             tags outside the whitelist are filtered out. Results include input/output previews, selected tags, stdout
             reasoning, and any execution error for each sampled event.
+        feature_flag: llm-analytics-tags
     llma-trace-review-create:
         operation: llm_analytics_trace_reviews_create
         enabled: true

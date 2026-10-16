@@ -10,7 +10,19 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+    source_inputs,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualtrics import (
+    QualtricsAuthMethodConfig,
+    QualtricsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics import qualtrics as qualtrics_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics.qualtrics import (
     EXPORT_FAILED_ERROR,
@@ -28,34 +40,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics.
     _iter_export_file,
     _read_capped,
     format_incremental_value,
-    get_rows,
-    qualtrics_source,
     validate_credentials,
     validate_host,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.qualtrics.source import QualtricsSource
 
 HOST = "iad1.qualtrics.com"
 BASE = f"https://{HOST}/API/v3"
 API_TOKEN_CREDENTIALS = QualtricsCredentials(method="api_token", api_token="tok-123")
 OAUTH_CREDENTIALS = QualtricsCredentials(method="oauth_client_credentials", client_id="client", client_secret="shhh")
-
-
-class FakeResumeManager(ResumableSourceManager[QualtricsResumeConfig]):
-    def __init__(self, state: QualtricsResumeConfig | None = None) -> None:
-        self.state = state
-        self.saved: list[QualtricsResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> QualtricsResumeConfig | None:
-        return self.state
-
-    def save_state(self, data: QualtricsResumeConfig) -> None:
-        self.saved.append(data)
-
-    def clear_state(self) -> None:
-        self.state = None
 
 
 def _response(*, status_code: int = 200, json_data: Any = None, body: bytes | None = None) -> mock.MagicMock:
@@ -117,28 +110,19 @@ def _zip_with_spoofed_low_member_count(members: dict[str, str]) -> bytes:
     return raw + bytes(spoofed)
 
 
-def _run_get_rows(
-    endpoint: str,
-    session: mock.MagicMock,
-    manager: FakeResumeManager,
-    **kwargs: Any,
-) -> list[list[dict[str, Any]]]:
-    with (
-        mock.patch.object(qualtrics_module, "make_tracked_session", return_value=session),
-        mock.patch.object(qualtrics_module, "_is_host_safe", return_value=(True, None)),
-    ):
-        return list(
-            get_rows(
-                host=HOST,
-                credentials=API_TOKEN_CREDENTIALS,
-                endpoint=endpoint,
-                api_version="v3",
-                logger=mock.MagicMock(),
-                resumable_source_manager=manager,
-                team_id=1,
-                **kwargs,
-            )
-        )
+def _config() -> QualtricsSourceConfig:
+    return QualtricsSourceConfig(
+        datacenter_id="iad1",
+        auth_method=QualtricsAuthMethodConfig(selection="api_token", api_token="tok-123"),
+    )
+
+
+def _drive(endpoint: str, script: Script, **inputs: Any) -> DriveResult:
+    return SourceDriver(QualtricsSource(), _config()).run(endpoint, script, **inputs)
+
+
+def _json(payload: Any, status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=payload)
 
 
 class TestQualtricsTransport:
@@ -206,79 +190,78 @@ class TestQualtricsTransport:
         ],
     )
     def test_client_refuses_urls_off_the_configured_host(self, url: str) -> None:
-        with mock.patch.object(qualtrics_module, "make_tracked_session", return_value=_session()):
+        with scripted_network([]) as network:
             client = QualtricsClient(HOST, API_TOKEN_CREDENTIALS, "v3")
-        with pytest.raises(QualtricsHostNotAllowedError):
-            client.get_json(url)
+            with pytest.raises(QualtricsHostNotAllowedError):
+                client.get_json(url)
+
+        assert network.requests_log == []
 
 
 class TestCollectionPagination:
     def test_empty_collection_yields_nothing(self) -> None:
-        session = _session(get_responses=[_response(json_data=_collection([]))])
+        result = _drive("groups", [_json(_collection([]))])
 
-        assert _run_get_rows("groups", session, FakeResumeManager()) == []
+        assert result.raised is None
+        assert result.items == []
 
     def test_pagination_that_never_terminates_is_capped(self) -> None:
-        session = _session()
-        session.get.return_value = _response(json_data=_collection([{"id": "UR_1"}], next_page=f"{BASE}/users?p=1"))
+        script = always(_json(_collection([{"id": "UR_1"}], next_page=f"{BASE}/users?p=1")))
 
-        with mock.patch.object(qualtrics_module, "MAX_PAGES", 3), pytest.raises(QualtricsPaginationLimitError):
-            _run_get_rows("users", session, FakeResumeManager())
+        with mock.patch.object(qualtrics_module, "MAX_PAGES", 3):
+            result = _drive("users", script)
+
+        assert isinstance(result.raised, QualtricsPaginationLimitError)
 
 
 class TestSurveyFanout:
     def test_query_fanout_stamps_the_parent_survey_id(self) -> None:
-        session = _session(
-            get_responses=[
-                _response(json_data=_collection([{"id": "SV_1"}, {"id": "SV_2"}])),
-                _response(json_data=_collection([{"id": "EMD_1"}])),
-                _response(json_data=_collection([{"id": "EMD_2"}])),
-            ]
+        result = _drive(
+            "distributions",
+            [
+                _json(_collection([{"id": "SV_1"}, {"id": "SV_2"}])),
+                _json(_collection([{"id": "EMD_1"}])),
+                _json(_collection([{"id": "EMD_2"}])),
+            ],
         )
-        manager = FakeResumeManager()
 
-        batches = _run_get_rows("distributions", session, manager)
-
-        assert batches == [
+        assert result.items == [
             [{"id": "EMD_1", "surveyId": "SV_1"}],
             [{"id": "EMD_2", "surveyId": "SV_2"}],
         ]
-        assert manager.saved == [QualtricsResumeConfig(parent_index=1), QualtricsResumeConfig(parent_index=2)]
+        assert result.saved_states == [QualtricsResumeConfig(parent_index=1), QualtricsResumeConfig(parent_index=2)]
 
     def test_over_length_survey_ids_are_dropped(self) -> None:
-        session = _session(
-            get_responses=[
-                _response(json_data=_collection([{"id": "SV_toolong"}, {"id": "SV_ok"}])),
-                _response(json_data=_collection([{"QuestionID": "QID1"}])),
-            ]
-        )
-
         with mock.patch.object(qualtrics_module, "MAX_SURVEY_ID_LENGTH", 5):
-            batches = _run_get_rows("survey_questions", session, FakeResumeManager())
+            result = _drive(
+                "survey_questions",
+                [
+                    _json(_collection([{"id": "SV_toolong"}, {"id": "SV_ok"}])),
+                    _json(_collection([{"QuestionID": "QID1"}])),
+                ],
+            )
 
-        assert batches == [[{"QuestionID": "QID1", "surveyId": "SV_ok"}]]
+        assert result.items == [[{"QuestionID": "QID1", "surveyId": "SV_ok"}]]
 
     def test_too_many_surveys_is_refused(self) -> None:
-        session = _session(get_responses=[_response(json_data=_collection([{"id": "SV_1"}, {"id": "SV_2"}]))])
-
         with mock.patch.object(qualtrics_module, "MAX_SURVEY_COUNT", 1):
-            with pytest.raises(QualtricsResponseTooLargeError):
-                _run_get_rows("survey_questions", session, FakeResumeManager())
+            result = _drive("survey_questions", [_json(_collection([{"id": "SV_1"}, {"id": "SV_2"}]))])
+
+        assert isinstance(result.raised, QualtricsResponseTooLargeError)
 
     def test_resumes_after_the_last_completed_survey(self) -> None:
-        session = _session(
-            get_responses=[
-                _response(json_data=_collection([{"id": "SV_1"}, {"id": "SV_2"}, {"id": "SV_3"}])),
-                _response(json_data=_collection([{"QuestionID": "QID9"}])),
-            ]
+        result = _drive(
+            "survey_questions",
+            [
+                _json(_collection([{"id": "SV_1"}, {"id": "SV_2"}, {"id": "SV_3"}])),
+                _json(_collection([{"QuestionID": "QID9"}])),
+            ],
+            resume_state=QualtricsResumeConfig(parent_index=2),
         )
-        manager = FakeResumeManager(QualtricsResumeConfig(parent_index=2))
 
-        batches = _run_get_rows("survey_questions", session, manager)
-
-        assert batches == [[{"QuestionID": "QID9", "surveyId": "SV_3"}]]
-        assert session.get.call_args_list[1].args[0] == f"{BASE}/survey-definitions/SV_3/questions"
-        assert manager.saved == [QualtricsResumeConfig(parent_index=3)]
+        assert result.items == [[{"QuestionID": "QID9", "surveyId": "SV_3"}]]
+        assert result.paths[1] == "/API/v3/survey-definitions/SV_3/questions"
+        assert result.saved_states == [QualtricsResumeConfig(parent_index=3)]
 
 
 class TestResponseExport:
@@ -297,41 +280,31 @@ class TestResponseExport:
         ]
     )
 
-    def _export_session(self, file_body: bytes, start_date_capture: list[Any] | None = None) -> mock.MagicMock:
-        session = _session(
-            get_responses=[
-                _response(json_data=_collection([{"id": "SV_1"}])),
-                _response(json_data={"result": {"status": "inProgress", "percentComplete": 12.5}}),
-                _response(json_data={"result": {"status": "complete", "fileId": "FID_1"}}),
-                _response(body=file_body),
-            ],
-            post_responses=[_response(json_data={"result": {"progressId": "PID_1"}})],
-        )
-        if start_date_capture is not None:
-            original = session.post.side_effect
+    def _export_script(self, file_body: bytes) -> list[ScriptedResponse | BaseException]:
+        return [
+            _json(_collection([{"id": "SV_1"}])),
+            _json({"result": {"progressId": "PID_1"}}),
+            _json({"result": {"status": "inProgress", "percentComplete": 12.5}}),
+            _json({"result": {"status": "complete", "fileId": "FID_1"}}),
+            ScriptedResponse(body=file_body),
+        ]
 
-            def _capture(url: str, **kwargs: Any) -> Any:
-                start_date_capture.append(kwargs.get("json"))
-                return next(iter(original))
-
-            session.post.side_effect = _capture
-        return session
-
-    def _run(self, session: mock.MagicMock, **kwargs: Any) -> list[list[dict[str, Any]]]:
-        with mock.patch.object(qualtrics_module, "EXPORT_POLL_INTERVAL_SECONDS", 0):
-            return _run_get_rows("survey_responses", session, FakeResumeManager(), **kwargs)
+    def _run(self, script: Script, **inputs: Any) -> DriveResult:
+        return _drive("survey_responses", script, **inputs)
 
     def test_incremental_runs_send_the_watermark_as_start_date(self) -> None:
-        captured: list[Any] = []
-        session = self._export_session(_zip_bytes("responses.ndjson", self.NDJSON), start_date_capture=captured)
-
-        self._run(
-            session,
-            should_use_incremental_field=True,
+        result = self._run(
+            self._export_script(_zip_bytes("responses.ndjson", self.NDJSON)),
+            incremental_field="recordedDate",
             db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        assert captured == [{"format": "ndjson", "compress": True, "startDate": "2026-01-01T00:00:00Z"}]
+        assert result.raised is None
+        created = [request for request in result.requests if request.method == "POST"]
+        assert [request.json() for request in created] == [
+            {"format": "ndjson", "compress": True, "startDate": "2026-01-01T00:00:00Z"}
+        ]
+        assert [row["responseId"] for row in result.rows] == ["R_1", "R_2"]
 
     @pytest.mark.parametrize(
         "progress_payload",
@@ -341,25 +314,22 @@ class TestResponseExport:
         ],
     )
     def test_a_broken_export_job_fails_permanently(self, progress_payload: dict[str, Any]) -> None:
-        session = _session(
-            get_responses=[
-                _response(json_data=_collection([{"id": "SV_1"}])),
-                _response(json_data=progress_payload),
-            ],
-            post_responses=[_response(json_data={"result": {"progressId": "PID_1"}})],
+        result = self._run(
+            [
+                _json(_collection([{"id": "SV_1"}])),
+                _json({"result": {"progressId": "PID_1"}}),
+                _json(progress_payload),
+            ]
         )
 
-        with pytest.raises(QualtricsExportFailedError, match=EXPORT_FAILED_ERROR):
-            self._run(session)
+        assert isinstance(result.raised, QualtricsExportFailedError)
+        assert EXPORT_FAILED_ERROR in str(result.raised)
 
     def test_a_missing_progress_id_fails_permanently(self) -> None:
-        session = _session(
-            get_responses=[_response(json_data=_collection([{"id": "SV_1"}]))],
-            post_responses=[_response(json_data={"result": {}})],
-        )
+        result = self._run([_json(_collection([{"id": "SV_1"}])), _json({"result": {}})])
 
-        with pytest.raises(QualtricsExportFailedError, match=EXPORT_FAILED_ERROR):
-            self._run(session)
+        assert isinstance(result.raised, QualtricsExportFailedError)
+        assert EXPORT_FAILED_ERROR in str(result.raised)
 
     def test_blank_lines_in_the_export_are_skipped(self) -> None:
         body = f"\n{self.NDJSON}\n\n"
@@ -398,49 +368,47 @@ class TestResponseExport:
 
     def test_export_batches_flush_on_accumulated_bytes(self) -> None:
         rows = "\n".join(json.dumps({"responseId": f"R_{i}", "values": {"blob": "x" * 500}}) for i in range(3))
-        session = self._export_session(_zip_bytes("responses.ndjson", rows))
+        script = self._export_script(_zip_bytes("responses.ndjson", rows))
 
         with mock.patch.object(qualtrics_module, "MAX_EXPORT_BATCH_BYTES", 400):
-            batches = self._run(session)
+            result = self._run(script)
 
         # Each row's blob column alone exceeds the byte cap, so batches flush per row despite the
         # far larger row-count batch size.
-        assert [len(batch) for batch in batches] == [1, 1, 1]
+        assert [len(batch) for batch in result.items] == [1, 1, 1]
 
 
 class TestValidateCredentials:
-    def _validate(self, response: mock.MagicMock, schema_name: str | None = None) -> tuple[bool, str | None]:
-        with (
-            mock.patch.object(qualtrics_module, "make_tracked_session", return_value=_session([response])),
-            mock.patch.object(qualtrics_module, "_is_host_safe", return_value=(True, None)),
-        ):
+    def _validate(self, response: ScriptedResponse, schema_name: str | None = None) -> tuple[bool, str | None]:
+        with scripted_network([response]):
             return validate_credentials("iad1", API_TOKEN_CREDENTIALS, "v3", schema_name, team_id=1)
 
     def test_a_working_token_validates(self) -> None:
-        assert self._validate(_response(json_data={"result": {"brandId": "acme"}})) == (True, None)
+        assert self._validate(_json({"result": {"brandId": "acme"}})) == (True, None)
 
     def test_an_invalid_token_is_rejected(self) -> None:
-        valid, error = self._validate(_response(status_code=401))
+        valid, error = self._validate(_json({}, status=401))
         assert valid is False
         assert error == "Invalid Qualtrics credentials"
 
     def test_a_403_at_source_create_still_validates(self) -> None:
         # Qualtrics grants permissions per resource, so a user who can't read one endpoint
         # must still be able to connect and sync the ones they can.
-        assert self._validate(_response(status_code=403)) == (True, None)
+        assert self._validate(_json({}, status=403)) == (True, None)
 
     def test_a_403_on_a_scoped_probe_is_rejected(self) -> None:
-        valid, error = self._validate(_response(status_code=403), schema_name="users")
+        valid, error = self._validate(_json({}, status=403), schema_name="users")
         assert valid is False
         assert error is not None and "users" in error
 
     @pytest.mark.parametrize("datacenter_id", ["", "   ", "not a host", "iad1.qualtrics.com:8080", "iad1@evil"])
     def test_an_invalid_datacenter_id_is_rejected_before_any_request(self, datacenter_id: str) -> None:
-        with mock.patch.object(qualtrics_module, "make_tracked_session") as session_factory:
+        with scripted_network([]) as network:
             valid, error = validate_credentials(datacenter_id, API_TOKEN_CREDENTIALS, "v3", None, team_id=1)
 
         assert (valid, error) == (False, "Invalid Qualtrics datacenter ID")
-        assert session_factory.call_count == 0
+        assert network.requests_log == []
+        assert network.session_options == []
 
     def test_a_blocked_host_is_rejected(self) -> None:
         with mock.patch.object(qualtrics_module, "_is_host_safe", return_value=(False, "nope")):
@@ -450,37 +418,20 @@ class TestValidateCredentials:
 
 class TestSourceResponse:
     def test_items_are_lazy_so_no_request_happens_until_iterated(self) -> None:
-        session = _session(get_responses=[_response(json_data=_collection([{"id": "UR_1"}]))])
-        response = qualtrics_source(
-            datacenter_id="iad1",
-            credentials=API_TOKEN_CREDENTIALS,
-            endpoint="users",
-            api_version="v3",
-            logger=mock.MagicMock(),
-            resumable_source_manager=FakeResumeManager(),
-            team_id=1,
-        )
+        source = QualtricsSource()
+        inputs = source_inputs("users")
+        with scripted_network([_json(_collection([{"id": "UR_1"}]))]) as network:
+            response = source.source_for_pipeline(_config(), source.get_resumable_source_manager(inputs), inputs)
 
-        assert session.get.call_count == 0
+            assert network.requests_log == []
 
-        with (
-            mock.patch.object(qualtrics_module, "make_tracked_session", return_value=session),
-            mock.patch.object(qualtrics_module, "_is_host_safe", return_value=(True, None)),
-        ):
             items: Iterator[Any] = iter(cast("Iterable[Any]", response.items()))
             assert next(items) == [{"id": "UR_1"}]
+            assert len(network.requests_log) == 1
 
     def test_an_unsafe_host_stops_the_sync(self) -> None:
-        response = qualtrics_source(
-            datacenter_id="iad1",
-            credentials=API_TOKEN_CREDENTIALS,
-            endpoint="users",
-            api_version="v3",
-            logger=mock.MagicMock(),
-            resumable_source_manager=FakeResumeManager(),
-            team_id=1,
-        )
-
         with mock.patch.object(qualtrics_module, "_is_host_safe", return_value=(False, "blocked")):
-            with pytest.raises(QualtricsHostNotAllowedError):
-                list(cast("Iterable[Any]", response.items()))
+            result = _drive("users", [])
+
+        assert isinstance(result.raised, QualtricsHostNotAllowedError)
+        assert result.requests == []

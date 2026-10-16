@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,6 +48,68 @@ _DATA_CENTER_LABELS = {
 
 @SourceRegistry.register
 class MoEngageSource(ResumableSource[MoEngageSourceConfig, MoEngageResumeConfig]):
+    codebase_detection = detect(
+        env=("^(MO_ENGAGE|MOENGAGE)_",),
+        script_hosts=("cdn.moengage.com",),
+        npm=("@moengage/web-sdk", "react-native-moengage"),
+        cocoapods=(
+            "MoEngage-iOS-SDK",
+            "MoEngageSDK",
+            "MoEngage-iOS-SDK-Beta",
+            "MoEngageAnalytics",
+            "MoEngageCampaignsCore",
+            "MoEngageCards",
+            "MoEngageCore",
+            "MoEngageExtensionsIntegration",
+            "MoEngageGeofence",
+            "MoEngageInApp",
+            "MoEngageInApps",
+            "MoEngageInbox",
+            "MoEngageKMMConditionEvaluator",
+            "MoEngageLiveActivity",
+            "MoEngageMessaging",
+            "MoEngageObjCUtils",
+            "MoEngagePersonalization",
+            "MoEngagePluginBase",
+            "MoEngagePluginBase-Beta",
+            "MoEngagePluginCards",
+            "MoEngagePluginGeofence",
+            "MoEngagePluginInbox",
+            "MoEngagePluginPersonalize",
+            "MoEngageRealTimeTrigger",
+            "MoEngageRecommendations",
+            "MoEngageRichNotification",
+            "MoEngageRichNotification-Beta",
+            "MoEngageSecurity",
+            "MoEngageSegmentPluginBase",
+            "MoEngageTelemetry",
+            "MoEngageTriggerEvaluator",
+            "Segment-MoEngage",
+            "mParticle-MoEngage",
+        ),
+        maven=(
+            "com.moengage:moe-android-sdk",
+            "com.moengage:moengage-integration",
+            "com.moengage:moengage-segment-integration",
+            "com.moengage:moengage-segment-kotlin-destination",
+            "com.moengage:mparticle-android-integration-moengage",
+        ),
+        pub=("moengage_flutter",),
+        swiftpm=(
+            "github.com/moengage/apple-sdk",
+            "github.com/moengage/moengage-ios-cards",
+            "github.com/moengage/moengage-ios-geofence",
+            "github.com/moengage/moengage-ios-inapps",
+            "github.com/moengage/moengage-ios-inbox",
+            "github.com/moengage/moengage-ios-realtimetrigger",
+            "github.com/moengage/moengage-ios-richnotification",
+            "github.com/moengage/moengage-ios-sdk",
+            "github.com/moengage/moengage-segment-ios",
+            "github.com/moengage/moengage-segment-swift",
+            "github.com/moengage/mparticle-apple-integration-moengage",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # MoEngage versions per endpoint family through the URL path (the V5 campaign search, the
     # core-services/v1 stats API) rather than one account-wide version token, so the paths pinned in

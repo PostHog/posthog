@@ -138,6 +138,7 @@ def check_trace_settled_activity(inputs: CheckTraceSettledInputs) -> str:
         },
         team=team,
         query_type="TraceSettlePoll",
+        posthog_tables_only=True,
         fall_back_to_events=False,
         workload=Workload.OFFLINE,
     )
@@ -218,6 +219,7 @@ def check_session_settled_activity(inputs: CheckSessionSettledInputs) -> str:
             },
             team=team,
             query_type="SessionSettlePoll",
+            posthog_tables_only=True,
             fall_back_to_events=False,
             workload=Workload.OFFLINE,
         )
@@ -321,6 +323,7 @@ def find_evaluation_quiet_point_activity(inputs: FindQuietPointInputs) -> str:
             },
             team=team,
             query_type="EvaluationBackfillQuietPoint",
+            posthog_tables_only=True,
             fall_back_to_events=False,
             workload=Workload.OFFLINE,
         )

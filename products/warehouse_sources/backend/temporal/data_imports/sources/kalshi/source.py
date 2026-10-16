@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KalshiSource(ResumableSource[KalshiSourceConfig, KalshiResumeConfig]):
+    codebase_detection = detect(
+        env=("^KALSHI_",),
+        npm=("kalshi-typescript",),
+        pypi=("kalshi-python", "kalshi-python-sync", "kalshi-python-async"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -49,7 +56,7 @@ class KalshiSource(ResumableSource[KalshiSourceConfig, KalshiResumeConfig]):
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Kalshi's market data endpoints are public, so this source needs no API key.
 
-It syncs markets, events, series, trades, and milestones. Portfolio data (your own orders, fills, and positions) needs a signed API key and is not supported yet.""",
+It syncs markets, events, series, trades, milestones, and daily market candlesticks. It also syncs the historical archive of markets and trades. Portfolio data (your own orders, fills, and positions) needs a signed API key and is not supported yet.""",
             iconPath="/static/services/kalshi.png",
             docsUrl="https://posthog.com/docs/cdp/sources/kalshi",
             keywords=["prediction market", "event contracts", "trading"],
@@ -79,8 +86,8 @@ It syncs markets, events, series, trades, and milestones. Portfolio data (your o
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only `trades` carries incremental fields, so build_endpoint_schemas marks it (and only it)
-        # incremental and leaves the rest full-refresh.
+        # Only the trade and candlestick endpoints carry incremental fields, so build_endpoint_schemas
+        # marks them incremental and leaves the rest full-refresh.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(

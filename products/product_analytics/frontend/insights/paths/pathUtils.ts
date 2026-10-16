@@ -5,9 +5,13 @@ import { tryDecodeURIComponent } from 'lib/utils/url'
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 import { FunnelPathType } from '~/types'
 
-import { PATH_NODE_CARD_HEIGHT, PATH_NODE_CARD_OVERLAP_GAP, PATH_NODE_CARD_TOP_OFFSET } from './constants'
-// eslint-disable-next-line import/no-cycle
-import { HIDE_PATH_CARD_HEIGHT } from './Paths'
+import {
+    HIDE_PATH_CARD_HEIGHT,
+    PATH_NODE_CARD_HEIGHT,
+    PATH_NODE_CARD_OVERLAP_GAP,
+    PATH_NODE_CARD_TOP_OFFSET,
+} from './constants'
+import { parsePathNodeKey, pathOrigins, pathUrlLabel } from './pathsChartTransforms'
 
 const PATH_NODE_CARD_TOP_ADJUSTMENTS = 33
 
@@ -19,7 +23,7 @@ export interface PathTargetLink {
     value: number
     width: number
     y0: number
-    color: RGBColor
+    color?: RGBColor
 }
 
 export interface PathNodeData {
@@ -36,12 +40,16 @@ export interface PathNodeData {
     y0: number
     y1: number
     layer: number
-    source: PathNodeData
-    target: PathNodeData
+    /** Set by the SVG renderer, which types its link data as nodes. */
+    source?: PathNodeData
+    target?: PathNodeData
     visible?: boolean
     active?: boolean
     resolvedTop?: number
 }
+
+/** Path result keys carry the step as a `N_` prefix; the rest is the event or URL. */
+export const stripStepPrefix = (name: string): string => parsePathNodeKey(name).name
 
 export function getForwardConnectedIndices(startNode: PathNodeData): {
     nodeIndices: Set<number>
@@ -97,13 +105,19 @@ const findClosestAvailableCardTop = (
     const minimumDistance = PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_OVERLAP_GAP
     const maximumTop = Math.max(0, canvasHeight - PATH_NODE_CARD_HEIGHT)
     const clamp = (top: number): number => Math.min(Math.max(top, 0), maximumTop)
+    // A candidate sits within MAXIMUM_CARD_NUDGE of naturalTop, and only a card within
+    // minimumDistance of a candidate can block it, so cards further away cannot change the result.
+    // Skipping them stops a dense layer from checking every card against every candidate.
+    const nearbyTops = occupiedTops.filter(
+        (occupiedTop) => Math.abs(occupiedTop - naturalTop) <= MAXIMUM_CARD_NUDGE + minimumDistance
+    )
     const candidateTops = [
         clamp(naturalTop),
-        ...occupiedTops.flatMap((occupiedTop) => [occupiedTop - minimumDistance, occupiedTop + minimumDistance]),
+        ...nearbyTops.flatMap((occupiedTop) => [occupiedTop - minimumDistance, occupiedTop + minimumDistance]),
     ].filter((top) => top >= 0 && top <= maximumTop && Math.abs(top - naturalTop) <= MAXIMUM_CARD_NUDGE)
 
     const freeTop = candidateTops
-        .filter((top) => occupiedTops.every((occupiedTop) => Math.abs(top - occupiedTop) >= minimumDistance))
+        .filter((top) => nearbyTops.every((occupiedTop) => Math.abs(top - occupiedTop) >= minimumDistance))
         .sort((a, b) => Math.abs(a - naturalTop) - Math.abs(b - naturalTop) || a - b)[0]
 
     return freeTop === undefined ? { top: clamp(naturalTop), foundGap: false } : { top: freeTop, foundGap: true }
@@ -203,35 +217,18 @@ export function roundedRect(
 }
 
 export function pageUrl(d: PathNodeData, display?: boolean, showFullUrls?: boolean): string {
-    const incomingUrls = d.targetLinks
-        .map((l) => l?.source?.name?.replace(/(^[0-9]+_)/, ''))
-        .filter((a) => {
-            try {
-                new URL(a)
-            } catch {
-                return false
-            }
-            return a
-        })
-        .map((a) => new URL(a))
-    const incomingDomains = Array.from(new Set(incomingUrls.map((url) => url.origin)))
+    const incomingOrigins = pathOrigins(d.targetLinks.map((l) => stripStepPrefix(l?.source?.name ?? '')))
 
-    let name = d.name.replace(/(^[0-9]+_)/, '')
+    let name = stripStepPrefix(d.name)
 
     if (!display) {
         return name
     }
 
-    try {
-        const url = new URL(name)
-        name = incomingDomains.length !== 1 ? url.href.replace(/(^\w+:|^)\/\//, '') : url.pathname + url.search
-        if (url.hash?.includes('/')) {
-            name += url.hash
-        }
+    const label = pathUrlLabel(name, incomingOrigins.size === 1)
+    if (label !== name) {
         // Decode URL-encoded characters (e.g., %3C becomes <) to display path cleaning aliases correctly
-        name = tryDecodeURIComponent(name)
-    } catch {
-        // discard if invalid url
+        name = tryDecodeURIComponent(label)
     }
 
     if (showFullUrls) {
@@ -240,29 +237,45 @@ export function pageUrl(d: PathNodeData, display?: boolean, showFullUrls?: boole
     return name.length > 15
         ? name.substring(0, 6) + '...' + name.slice(-8)
         : name.length < 4 && d.name.length < 25
-          ? d.name.replace(/(^[0-9]+_)/, '')
+          ? stripStepPrefix(d.name)
           : name
+}
+
+export interface PathEndpoint {
+    /** The node name without its step prefix. */
+    name: string
+    isPathStart: boolean
+    isPathEnd: boolean
+}
+
+/** Whether the node is the start or end point the filter selected, so it draws in the accent color. */
+export const isSelectedPathEndpoint = (
+    pathsFilter: PathsFilter,
+    funnelPathsFilter: FunnelPathsFilter | undefined,
+    { name, isPathStart, isPathEnd }: PathEndpoint
+): boolean => {
+    const { startPoint, endPoint } = pathsFilter
+    const { funnelPathType, funnelSource, funnelStep } = funnelPathsFilter || {}
+
+    return (
+        (startPoint === name && isPathStart) ||
+        (endPoint === name && isPathEnd) ||
+        (funnelPathType === FunnelPathType.between &&
+            ((name === funnelSource?.series[funnelStep! - 1].name && isPathEnd) ||
+                (name === funnelSource?.series[funnelStep! - 2].name && isPathStart)))
+    )
 }
 
 export const isSelectedPathStartOrEnd = (
     pathsFilter: PathsFilter,
     funnelPathsFilter: FunnelPathsFilter,
     pathItemCard: PathNodeData
-): boolean => {
-    const cardName = pageUrl(pathItemCard)
-    const isPathStart = pathItemCard.targetLinks.length === 0
-    const isPathEnd = pathItemCard.sourceLinks.length === 0
-    const { startPoint, endPoint } = pathsFilter
-    const { funnelPathType, funnelSource, funnelStep } = funnelPathsFilter || {}
-
-    return (
-        (startPoint === cardName && isPathStart) ||
-        (endPoint === cardName && isPathEnd) ||
-        (funnelPathType === FunnelPathType.between &&
-            ((cardName === funnelSource?.series[funnelStep! - 1].name && isPathEnd) ||
-                (cardName === funnelSource?.series[funnelStep! - 2].name && isPathStart)))
-    )
-}
+): boolean =>
+    isSelectedPathEndpoint(pathsFilter, funnelPathsFilter, {
+        name: pageUrl(pathItemCard),
+        isPathStart: pathItemCard.targetLinks.length === 0,
+        isPathEnd: pathItemCard.sourceLinks.length === 0,
+    })
 
 export const calculatePathNodeCardTop = (node: PathNodeData, canvasHeight: number): number => {
     const isNodeCutoff = node.y1 - node.y0 < HIDE_PATH_CARD_HEIGHT && node.y1 > canvasHeight - HIDE_PATH_CARD_HEIGHT

@@ -67,16 +67,24 @@ import {
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SurveyPublicContentNotice } from './components/SurveyPublicContentNotice'
 import { SurveyUrlAudienceEstimate } from './components/SurveyUrlAudienceEstimate'
-import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
+import {
+    BACK_BUTTON_DEFAULT_TEXT,
+    INTRO_SCREEN_PAGE_INDEX,
+    SURVEY_TYPE_LABEL_MAP,
+    SurveyMatchTypeLabels,
+    defaultSurveyFieldValues,
+} from './constants'
 import { COMMON_LANGUAGES, getBaseLanguage, getSurveyLanguageName } from './language'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
+import { SurveyEditIntroScreenContent } from './SurveyEditIntroScreenContent'
+import { SurveyEditIntroScreenHeader } from './SurveyEditIntroScreenHeader'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
-import { canUseSurveyWizard } from './utils'
+import { canUseSurveyWizard, withIntroScreenEnabled } from './utils'
 
 function SurveyCompletionConditions(): JSX.Element {
     const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
@@ -244,6 +252,10 @@ function formatFieldName(field: string): string {
         thankYouMessageHeader: 'Thank you message header',
         thankYouMessageDescription: 'Thank you message description',
         thankYouMessageCloseButtonText: 'Thank you close button text',
+        introScreenHeader: 'Intro screen header',
+        introScreenDescription: 'Intro screen description',
+        introScreenButtonText: 'Intro screen button text',
+        backButtonText: 'Back button text',
         question: 'Question text',
         buttonText: 'Button text',
         lowerBoundLabel: 'Lower bound label',
@@ -268,7 +280,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         hasTargetingSet,
         selectedPageIndex,
         selectedSection,
-        isEditingSurvey,
         targetingFlagFilters,
         hasBranchingLogic,
         deviceTypesMatchTypeValidationError,
@@ -618,7 +629,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                         return null
                     })()}
                 </div>
-                <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
+                <div className="flex flex-col @min-[60rem]/main-content:grid @min-[60rem]/main-content:grid-cols-[1fr_400px] gap-x-4 gap-y-8 h-full">
                     <div className="flex flex-col gap-2 flex-1 SurveyForm">
                         <LemonCollapse
                             activeKey={selectedSection || undefined}
@@ -635,7 +646,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                             {({ onChange, value }) => {
                                                 return (
                                                     <div className="flex flex-col gap-2">
-                                                        <div className="grid grid-cols-2 2xl:grid-cols-4 gap-4">
+                                                        <div className="grid grid-cols-2 @min-[80rem]/main-content:grid-cols-4 gap-4">
                                                             <PresentationTypeCard
                                                                 active={value === SurveyType.Popover}
                                                                 onClick={() => {
@@ -789,6 +800,22 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                             setSelectedPageIndex(index)
                                                         }}
                                                         panels={[
+                                                            ...(survey.appearance?.displayIntroScreen
+                                                                ? [
+                                                                      {
+                                                                          key: INTRO_SCREEN_PAGE_INDEX,
+                                                                          dataAttr: 'survey-intro-screen-panel',
+                                                                          header: <SurveyEditIntroScreenHeader />,
+                                                                          content: (
+                                                                              <SurveyEditIntroScreenContent
+                                                                                  activeEditingLanguage={
+                                                                                      activeEditingLanguage
+                                                                                  }
+                                                                              />
+                                                                          ),
+                                                                      },
+                                                                  ]
+                                                                : []),
                                                             ...survey.questions.map(
                                                                 (
                                                                     question:
@@ -1236,6 +1263,35 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                     />
                                                 </SortableContext>
                                             </DndContext>
+                                            {activeEditingLanguage && survey.appearance?.allowGoBack ? (
+                                                <LemonField.Pure
+                                                    label={getFieldLabel('Back button text', 'backButtonText')}
+                                                    className="mt-2 max-w-xs"
+                                                >
+                                                    <LemonInput
+                                                        value={
+                                                            surveyTranslations[activeEditingLanguage]?.backButtonText ??
+                                                            ''
+                                                        }
+                                                        placeholder={
+                                                            survey.appearance.backButtonText || BACK_BUTTON_DEFAULT_TEXT
+                                                        }
+                                                        onChange={(backButtonText) => {
+                                                            clearAiGeneratedTranslationField(
+                                                                `translations.${activeEditingLanguage}.backButtonText`
+                                                            )
+                                                            setSurveyValue('translations', {
+                                                                ...surveyTranslations,
+                                                                [activeEditingLanguage]: {
+                                                                    ...surveyTranslations[activeEditingLanguage],
+                                                                    backButtonText: backButtonText || undefined,
+                                                                },
+                                                            })
+                                                        }}
+                                                        className={getFieldErrorClass('backButtonText')}
+                                                    />
+                                                </LemonField.Pure>
+                                            ) : null}
                                             <div className="flex gap-2">
                                                 <div className="flex items-center gap-2 mt-2">
                                                     <LemonButton
@@ -1290,6 +1346,23 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                         </LemonButton>
                                                     )}
                                                 </div>
+                                                {!survey.appearance?.displayIntroScreen && (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        className="w-max mt-2"
+                                                        icon={<IconPlus />}
+                                                        data-attr="add-intro-screen"
+                                                        onClick={() => {
+                                                            setSurveyValue(
+                                                                'appearance',
+                                                                withIntroScreenEnabled(survey.appearance)
+                                                            )
+                                                            setSelectedPageIndex(INTRO_SCREEN_PAGE_INDEX)
+                                                        }}
+                                                    >
+                                                        Add intro screen
+                                                    </LemonButton>
+                                                )}
                                                 {!survey.appearance?.displayThankYouMessage && (
                                                     <LemonButton
                                                         type="secondary"
@@ -1322,9 +1395,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                               survey={survey}
                                                               hasBranchingLogic={hasBranchingLogic}
                                                               deleteBranchingLogic={deleteBranchingLogic}
-                                                              onTranslationsChange={(translations) =>
-                                                                  setSurveyValue('translations', translations)
-                                                              }
                                                               hasRatingButtons={survey.questions.some(
                                                                   (question) =>
                                                                       question.type === SurveyQuestionType.Rating
@@ -1878,7 +1948,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                 previewPageIndex={selectedPageIndex || 0}
                                 survey={previewSurvey}
                                 handleSetSelectedPageIndex={(pageIndex) => setSelectedPageIndex(pageIndex)}
-                                isEditingSurvey={isEditingSurvey}
                             />
                         </div>
                     </div>

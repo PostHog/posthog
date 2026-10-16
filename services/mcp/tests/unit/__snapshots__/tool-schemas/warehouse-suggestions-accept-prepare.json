@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "type": "string"
+        },
+        "refresh_interval_seconds": {
+            "description": "Materialize only: refresh interval to use instead of the proposed one, in seconds.",
+            "maximum": 2592000,
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

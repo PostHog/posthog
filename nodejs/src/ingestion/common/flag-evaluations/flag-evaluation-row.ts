@@ -1,5 +1,25 @@
+import { pick } from 'lodash'
+
 import { serializeEvent } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { ProcessedEvent, RawKafkaEvent } from '~/types'
+
+// Never add `flag_key`, `response`, `session_id`, `request_id` or `$group_0..4`.
+// The Kafka table does not declare them, and the shard computes them from
+// `properties` as DEFAULT columns. A DEFAULT fills only a column the insert
+// omits. A sent value is stored even where it contradicts `properties`.
+const FLAG_EVALUATION_COLUMNS = [
+    'uuid',
+    'event',
+    'properties',
+    'timestamp',
+    'team_id',
+    'distinct_id',
+    'created_at',
+    'person_id',
+    'person_properties',
+    'person_created_at',
+    'person_mode',
+] as const
 
 /**
  * One row for the kafka_flag_evaluations ClickHouse table (JSONEachRow).
@@ -10,35 +30,9 @@ import { ProcessedEvent, RawKafkaEvent } from '~/types'
  * through serializeEvent keeps every shared field byte-identical to what the
  * events table receives for the same event, rather than a second hand-rolled
  * mapping that could drift from it.
- *
- * Deliberately not sent:
- * - `person_properties`: flag evaluations omit person properties, so ClickHouse
- *   fills the column with an empty string.
- * - `inserted_at`: omitted keys zero-fill in ClickHouse, and the MV treats the
- *   epoch sentinel as "absent" and stamps the Kafka message timestamp instead.
- * - `group0..group4_properties`: serializeEvent omits them, so they zero-fill
- *   empty in both tables.
- * - `flag_key`, `response`, `session_id`, `request_id`, `$group_0..4`: the Kafka
- *   table does not declare these, and the shard computes them from `properties`
- *   as DEFAULT columns. A DEFAULT only fills when the insert omits the column,
- *   so naming one here would store the sent value even where it contradicts
- *   `properties`. This row type must never grow them.
  */
-export type FlagEvaluationRow = Pick<
-    RawKafkaEvent,
-    'uuid' | 'event' | 'properties' | 'timestamp' | 'team_id' | 'distinct_id' | 'created_at' | 'person_id'
->
+export type FlagEvaluationRow = Pick<RawKafkaEvent, (typeof FLAG_EVALUATION_COLUMNS)[number]>
 
 export function mapProcessedEventToFlagEvaluationRow(event: ProcessedEvent): FlagEvaluationRow {
-    const serialized = serializeEvent(event)
-    return {
-        uuid: serialized.uuid,
-        event: serialized.event,
-        properties: serialized.properties,
-        timestamp: serialized.timestamp,
-        team_id: serialized.team_id,
-        distinct_id: serialized.distinct_id,
-        created_at: serialized.created_at,
-        person_id: serialized.person_id,
-    }
+    return pick(serializeEvent(event), FLAG_EVALUATION_COLUMNS)
 }

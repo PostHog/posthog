@@ -94,7 +94,7 @@ export function QuillAttachedContextPicker(): JSX.Element {
                                     data-attr="posthog-ai-context-picker"
                                 >
                                     <IconAtSign />
-                                    <span>Add context</span>
+                                    <span className="@max-[480px]/composer:hidden">Add context</span>
                                 </Button>
                             }
                         />

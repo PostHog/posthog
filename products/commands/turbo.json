@@ -1,0 +1,15 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        "backend:contract-check": {
+            "inputs": [
+                "backend/facade/**",
+                "backend/webhook_consumers.py",
+                "backend/tasks/**",
+                "backend/migrations/**"
+            ],
+            "outputs": [],
+            "cache": true
+        }
+    }
+}

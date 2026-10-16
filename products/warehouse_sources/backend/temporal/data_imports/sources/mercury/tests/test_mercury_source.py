@@ -4,6 +4,12 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mercury import (
     MercurySourceConfig,
@@ -54,21 +60,19 @@ class TestMercurySource:
     def test_validate_credentials_status_mapping(
         self, status: int, schema_name: Optional[str], expected_valid: bool
     ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mercury.source.check_credentials",
-            return_value=status,
-        ):
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             valid, error = self.source.validate_credentials(self.config, team_id=1, schema_name=schema_name)
 
         assert valid is expected_valid
         if not expected_valid:
             assert error
+        assert {request.path for request in network.requests_log} == {"/api/v1/accounts"}
+        assert {request.param("limit") for request in network.requests_log} == {"1"}
+        assert {request.headers["authorization"] for request in network.requests_log} == {"Bearer test-token"}
+        assert network.session_options[0]["redact_values"] == ("test-token",)
 
     def test_validate_credentials_handles_network_error(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mercury.source.check_credentials",
-            side_effect=ConnectionError("connection refused"),
-        ):
+        with scripted_network(always(ConnectionError("connection refused"))):
             valid, error = self.source.validate_credentials(self.config, team_id=1)
 
         assert valid is False
@@ -118,7 +122,13 @@ class TestMercurySourceForPipeline:
     def test_partitioning_uses_stable_datetime_fields(
         self, endpoint: str, expected_partition_key: Optional[str]
     ) -> None:
-        _, response = self._run(_make_inputs(endpoint))
+        result = SourceDriver(self.source, self.config).run(
+            endpoint,
+            [ScriptedResponse(json={endpoint.lower(): [], "page": {"nextPage": None}})],
+        )
+        assert result.raised is None
+        response = result.response
+        assert response is not None
 
         if expected_partition_key is None:
             assert response.partition_keys is None

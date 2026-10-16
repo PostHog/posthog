@@ -305,7 +305,7 @@ describe('Pipeline Fundamentals', () => {
     })
 
     /**
-     * Non-OK results (DLQ, DROP, REDIRECT) short-circuit the pipeline - they
+     * Non-OK results (DLQ, DROP, REDIRECT, TIMEOUT) short-circuit the pipeline - they
      * skip all remaining steps. OK results continue to propagate through
      * subsequent steps.
      */

@@ -1,5 +1,4 @@
 import json
-import logging
 from typing import Any
 
 from rest_framework.request import Request
@@ -9,21 +8,19 @@ from rest_framework.views import APIView
 from posthog.auth import WebhookSignatureAuthentication
 from posthog.models.integration import Integration
 
-from products.messaging.backend.models.message_category import MessageCategory
-from products.messaging.backend.models.message_preferences import (
-    ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
-    MessageRecipientPreference,
-    PreferenceStatus,
+from products.messaging.backend.facade.customerio import (
+    record_global_resubscribe,
+    record_global_unsubscribe,
+    record_topic_preferences,
+    webhook_signing_secret,
 )
-from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
-
-logger = logging.getLogger(__name__)
 
 
 class CustomerIOWebhookAuthentication(WebhookSignatureAuthentication):
     """Customer.io HMAC-SHA256 webhook verification."""
 
-    _integration: Integration | None = None
+    _team_id: int | None = None
+    _integration_id: int | None = None
 
     def get_signature_header(self) -> str:
         return "x-cio-signature"
@@ -38,17 +35,17 @@ class CustomerIOWebhookAuthentication(WebhookSignatureAuthentication):
         team_id = self._get_team_id(request)
         if not team_id:
             return None
-        try:
-            config = OptOutSyncConfig.objects.select_related("webhook_integration").get(team_id=team_id)
-        except OptOutSyncConfig.DoesNotExist:
+        found = webhook_signing_secret(team_id)
+        if found is None:
             return None
-        if not config.webhook_enabled or not config.webhook_integration:
-            return None
-        self._integration = config.webhook_integration
-        return self._integration.sensitive_config.get("webhook_signing_secret")
+        self._team_id = team_id
+        self._integration_id = found.integration_id
+        return found.secret
 
     def get_auth_context(self, request: Request) -> Any:
-        return self._integration
+        if self._team_id is None or self._integration_id is None:
+            return None
+        return Integration.objects.filter(team_id=self._team_id, pk=self._integration_id).first()
 
 
 class CustomerIOWebhookView(APIView):
@@ -82,17 +79,10 @@ class CustomerIOWebhookView(APIView):
         return Response(status=200)
 
     def _handle_global_unsubscribe(self, team_id: int, email: str) -> None:
-        recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=email)
-        if recipient.preferences.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT.value:
-            return
-        recipient.preferences[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
-        recipient.save(update_fields=["preferences", "updated_at"])
+        record_global_unsubscribe(team_id, email)
 
     def _handle_global_resubscribe(self, team_id: int, email: str) -> None:
-        recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=email)
-        if ALL_MESSAGE_PREFERENCE_CATEGORY_ID in recipient.preferences:
-            del recipient.preferences[ALL_MESSAGE_PREFERENCE_CATEGORY_ID]
-            recipient.save(update_fields=["preferences", "updated_at"])
+        record_global_resubscribe(team_id, email)
 
     def _handle_preferences_changed(self, team_id: int, email: str, data: dict) -> None:
         content_str = data.get("content", "")
@@ -105,28 +95,4 @@ class CustomerIOWebhookView(APIView):
         if not topics:
             return
 
-        topic_key_to_category: dict[str, str] = {}
-        categories = MessageCategory.objects.filter(team_id=team_id, key__startswith="customerio_", deleted=False)
-        for cat in categories:
-            topic_key = cat.key.removeprefix("customerio_")
-            topic_key_to_category[topic_key] = str(cat.id)
-
-        if not topic_key_to_category:
-            return
-
-        recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=email)
-
-        changed = False
-        for topic_key, is_subscribed in topics.items():
-            category_id = topic_key_to_category.get(topic_key)
-            if not category_id:
-                logger.warning("customerio_webhook: unknown topic %s for team %s", topic_key, team_id)
-                continue
-
-            new_status = PreferenceStatus.OPTED_IN.value if is_subscribed else PreferenceStatus.OPTED_OUT.value
-            if recipient.preferences.get(category_id) != new_status:
-                recipient.preferences[category_id] = new_status
-                changed = True
-
-        if changed:
-            recipient.save(update_fields=["preferences", "updated_at"])
+        record_topic_preferences(team_id, email, topics)

@@ -136,6 +136,8 @@ jobs:
                         - 'packages/agent/packages/agent-contracts/src/model-catalog.generated.ts'
                         - 'services/mcp/src/lib/oauth-scopes.generated.ts'
                         - 'frontend/src/lib/oauthScopes.generated.ts'
+                        - 'products/commands/commands.generated.json'
+                        - 'products/commands/COMMANDS.generated.md'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
@@ -155,17 +157,35 @@ jobs:
                         # Stamphog policy files validated by the pr-approval-agent suite
                         - '.stamphog/**'
                         - '**/AGENT_APPROVALS.md'
-                      # Per-tool groups below gate the pytest steps in code-quality. Each of
-                      # these trees imports only stdlib and its own package — none of them
-                      # imports posthog — so a change under posthog/ cannot affect them and
-                      # they do not need to run on every Python PR. Verify that before adding
-                      # a tree here: a path filter that skips tests is a claim about the
-                      # import graph (see ci-things-already-tried.md, #50137).
+                        # Real repo files the hogli suite reads, listed under hogli below
+                        - 'devenv/**'
+                        - 'products/model_crossing_uses_baseline.txt'
+                        - .github/workflows/ci-security.yaml
+                      # Per-tool groups below gate the pytest steps in code-quality, so these
+                      # suites skip Python PRs that cannot affect them. A path filter that skips
+                      # tests is a claim about everything the suite reads (see
+                      # ci-things-already-tried.md, #50137): the modules it imports and the real
+                      # repo files its tests open. Each group lists both. A test that only needs
+                      # a file to exist builds it under tmp_path instead, so the group stays small.
+                      # The hourly run skips this filter, so a missed input turns master red there.
                       # Dependency and workflow changes run all of them.
                       hogli:
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/**'
                         - 'hogli.yaml'
+                        # Imported by hogli_commands
+                        - 'posthog/dataclasses.py'
+                        - 'common/migration_utils/**'
+                        - 'packages/owners-yaml/**'
+                        - 'tools/owners/**'
+                        # Real repo files that hogli tests check on purpose
+                        - 'bin/lint-complexity.limits.json'
+                        - 'bin/mprocs.yaml'
+                        - 'bin/mprocs-e2e.yaml'
+                        - 'devenv/**'
+                        - 'products/model_crossing_uses_baseline.txt'
+                        - '.stamphog/policy.yml'
+                        - .github/workflows/ci-security.yaml
                         - 'pyproject.toml'
                         - 'uv.lock'
                         - .github/workflows/ci-python.yml
@@ -187,11 +207,19 @@ jobs:
                         - 'products/stamphog/packages/pr-approval-agent/**'
                         - '.stamphog/**'
                         - '**/AGENT_APPROVALS.md'
+                        # The ownership gate runs the real resolver
+                        - 'packages/owners-yaml/**'
+                        - 'tools/owners/**'
                         - 'pyproject.toml'
                         - 'uv.lock'
                         - .github/workflows/ci-python.yml
                       bin_scripts:
                         - 'bin/**'
+                        # test_package_exists checks that each LOCAL_PACKAGES root is a package
+                        - 'posthog/__init__.py'
+                        - 'ee/__init__.py'
+                        - 'products/__init__.py'
+                        - 'common/__init__.py'
                         - 'pyproject.toml'
                         - 'uv.lock'
                         - .github/workflows/ci-python.yml

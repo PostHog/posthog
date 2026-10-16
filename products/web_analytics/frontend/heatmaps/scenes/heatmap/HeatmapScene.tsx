@@ -25,6 +25,10 @@ import { FilterPanel } from '../../components/FilterPanel'
 import { HeatmapHeader } from '../../components/HeatmapHeader'
 import { HeatmapRecordingFallback } from '../../components/HeatmapRecordingFallback'
 import { HeatmapsPricingNotice } from '../../components/HeatmapsPricingNotice'
+import { PageHistoryDateControls } from '../../history/PageHistoryDateControls'
+import { pageHistoryLogic } from '../../history/pageHistoryLogic'
+import { PageHistoryStrip } from '../../history/PageHistoryStrip'
+import { formatCaptureDay } from '../../history/pageHistoryUtils'
 import { heatmapLogic } from './heatmapLogic'
 
 const HedgehogDirector = pngHoggie(directorPng)
@@ -65,12 +69,26 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         regenerateDisabledReason,
         switchToScreenshotDisabledReason,
         displayUrlIsPattern,
+        source,
+        heatmapId,
+        historyView,
     } = useValues(logic)
+    const {
+        pageHistoryEnabled,
+        isSelectionActive: historySelectionActive,
+        selectedBackground,
+    } = useValues(pageHistoryLogic(logicProps))
+    const {
+        clearSelection: clearHistorySelection,
+        setHistoryExpanded,
+        loadHistory,
+    } = useActions(pageHistoryLogic(logicProps))
     const {
         setName,
         onIframeLoad,
         setScreenshotLoaded,
         setScreenshotError,
+        setHistoryScreenshotStatus,
         exportHeatmap,
         setContainerWidth,
         discardChanges,
@@ -183,10 +201,12 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                 tooltip="Export heatmap as PNG"
                                 tooltipPlacement="bottom"
                                 disabledReason={
-                                    previewType === 'screenshot' &&
-                                    (!screenshotUrl || !screenshotLoaded || generatingScreenshot)
-                                        ? 'Screenshot is not ready'
-                                        : undefined
+                                    historySelectionActive
+                                        ? 'Exit history to export your current view.'
+                                        : previewType === 'screenshot' &&
+                                            (!screenshotUrl || !screenshotLoaded || generatingScreenshot)
+                                          ? 'Screenshot is not ready'
+                                          : undefined
                                 }
                             >
                                 Export
@@ -196,7 +216,11 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                 />
                 <HeatmapsPricingNotice />
                 <HeatmapHeader />
-                <FilterPanel lockedWidth={lockedWidth ?? undefined} previewUnavailable={previewUnavailable} />
+                <FilterPanel
+                    lockedWidth={lockedWidth ?? undefined}
+                    previewUnavailable={previewUnavailable}
+                    dateControl={historySelectionActive ? <PageHistoryDateControls id={id} /> : undefined}
+                />
                 {isHeightCapped && (
                     <LemonBanner type="info" className="mb-2">
                         This heatmap is capped at {MAX_HEATMAP_HEIGHT.toLocaleString()}px tall to keep rendering fast,
@@ -205,9 +229,12 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                 )}
                 <div ref={measureRef} className="w-full">
                     <div
-                        className="border mx-auto bg-surface-primary rounded-lg"
+                        className="relative border mx-auto bg-surface-primary rounded-lg"
                         style={{ width: effectiveWidth ?? '100%' }}
                     >
+                        {pageHistoryEnabled && heatmapId && previewType === 'screenshot' && source === 'server' ? (
+                            <PageHistoryStrip id={id} />
+                        ) : null}
                         <div className="p-2 border-b text-muted-foreground gap-2 flex flex-wrap items-center">
                             <IconBrowser />{' '}
                             <span className="min-w-0 flex-1 truncate" title={displayUrl ?? undefined}>
@@ -227,22 +254,42 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                 data-attr="heatmap-preview-error"
                             >
                                 <IconBrowser className="text-3xl text-muted" />
-                                <h3 className="mb-0">{previewRecovery.title}</h3>
-                                <p className="text-muted max-w-lg mb-0">{previewError}</p>
+                                <h3 className="mb-0">
+                                    {historySelectionActive
+                                        ? 'Historical screenshot unavailable'
+                                        : previewRecovery.title}
+                                </h3>
+                                <p className="text-muted max-w-lg mb-0">
+                                    {historySelectionActive
+                                        ? 'This screenshot may have expired or become unavailable. Choose another saved date, or return to your current view.'
+                                        : previewError}
+                                </p>
                                 <LemonButton
                                     type="primary"
-                                    onClick={previewRecovery.onClick}
-                                    loading={generatingScreenshot || saving}
-                                    disabledReason={previewRecovery.disabledReason}
+                                    onClick={
+                                        historySelectionActive
+                                            ? () => {
+                                                  setHistoryExpanded(true)
+                                                  loadHistory()
+                                              }
+                                            : previewRecovery.onClick
+                                    }
+                                    loading={(!historySelectionActive && generatingScreenshot) || saving}
+                                    disabledReason={historySelectionActive ? undefined : previewRecovery.disabledReason}
                                     data-attr="heatmap-preview-recovery"
                                 >
-                                    {previewRecovery.label}
+                                    {historySelectionActive ? 'Choose another date' : previewRecovery.label}
                                 </LemonButton>
+                                {historySelectionActive ? (
+                                    <LemonButton type="secondary" size="small" onClick={clearHistorySelection}>
+                                        Current view
+                                    </LemonButton>
+                                ) : null}
                                 {displayUrl && !displayUrlIsPattern && <HeatmapRecordingFallback url={displayUrl} />}
                             </div>
                         ) : previewType === 'screenshot' ? (
                             <div className="relative flex w-full justify-center flex-1" style={{ width: '100%' }}>
-                                {generatingScreenshot ? (
+                                {generatingScreenshot && !historySelectionActive ? (
                                     <div
                                         className="flex-1 flex items-center justify-center min-h-96"
                                         data-attr="heatmap-generating-screenshot"
@@ -276,20 +323,32 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                         <img
                                             id="heatmap-screenshot"
                                             src={screenshotUrl}
-                                            alt="Website screenshot for heatmap analysis"
+                                            alt={
+                                                selectedBackground
+                                                    ? `Website screenshot from ${formatCaptureDay(selectedBackground.captured_on, 'long')}`
+                                                    : 'Website screenshot for heatmap analysis'
+                                            }
                                             style={{
                                                 width: '100%',
                                                 height: 'auto',
                                                 display: 'block',
                                             }}
                                             onLoad={() => {
-                                                setScreenshotLoaded(true)
-                                                setScreenshotError(null)
+                                                if (historyView) {
+                                                    setHistoryScreenshotStatus(historyView.imageUrl, true)
+                                                } else {
+                                                    setScreenshotLoaded(true)
+                                                    setScreenshotError(null)
+                                                }
                                             }}
                                             className="rounded-b-lg border-l border-r border-b"
                                             onError={() => {
-                                                setScreenshotLoaded(false)
-                                                setScreenshotError('The screenshot failed to load.')
+                                                if (historyView) {
+                                                    setHistoryScreenshotStatus(historyView.imageUrl, false)
+                                                } else {
+                                                    setScreenshotLoaded(false)
+                                                    setScreenshotError('The screenshot failed to load.')
+                                                }
                                             }}
                                         />
                                     </>
