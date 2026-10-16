@@ -1046,11 +1046,13 @@ export const notebookLogic = kea<notebookLogicType>([
                             })
                         } catch (e: any) {
                             if (e.status === 403 && e.code === 'permission_denied') {
+                                retainedNotebooks.delete(props.shortId)
                                 actions.setAccessDeniedToNotebook()
                             } else if (e.status === 304) {
                                 // Indicates nothing has changed
                                 return values.notebook
                             } else if (e.status === 404) {
+                                retainedNotebooks.delete(props.shortId)
                                 return null
                             }
                             throw e
@@ -1249,6 +1251,8 @@ export const notebookLogic = kea<notebookLogicType>([
         // Extends the loader reducer: canonical remote states (streamed diffs, 409 replays)
         // land in `notebook` without a refetch.
         notebook: {
+            // A retained copy can render before the server denies access, so it must not stay on screen.
+            setAccessDeniedToNotebook: () => null,
             loadNotebookSuccess: (state, { notebook }) => keepNewestNotebookResponse(state, notebook),
             saveNotebookSuccess: (state, { notebook }) => keepNewestNotebookResponse(state, notebook),
             applyRemoteNotebookContent: (state, { content, version }) =>

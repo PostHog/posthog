@@ -1,6 +1,6 @@
 import { getContext } from 'kea'
 
-import { RetainedValues } from 'lib/utils/retainedValues'
+import { RetainedValues, setBackgroundTimeout } from 'lib/utils/retainedValues'
 
 import { AnyResponseType } from '~/queries/schema/schema-general'
 
@@ -22,22 +22,40 @@ const retainedResponses = new RetainedValues<AnyResponseType>({
 
 export type InflightQuery = {
     promise: Promise<AnyResponseType | null>
+    /** The id the request was submitted with, which a node that adopts it shows and cancels by. */
+    queryId: string
     /** Stops the query for a node that loads again. Forgets it at once, so the next load can't rejoin it. */
     abort: () => void
     /** Starts the grace period. A query nobody adopts in time is abandoned. */
     release: () => void
     adopt: () => void
 }
-const inflightQueries = new WeakMap<ReturnType<typeof getContext>, Map<string, InflightQuery>>()
+type InflightQueries = {
+    byKey: Map<string, InflightQuery>
+    /** Queries waiting out their grace period, oldest first, with the function that abandons each one. */
+    released: Map<InflightQuery, () => void>
+}
+const inflightQueries = new WeakMap<ReturnType<typeof getContext>, InflightQueries>()
 
-function getInflightQueries(): Map<string, InflightQuery> {
+function getInflightQueries(): InflightQueries {
     const context = getContext()
     let queries = inflightQueries.get(context)
     if (!queries) {
-        queries = new Map()
+        queries = { byKey: new Map(), released: new Map() }
         inflightQueries.set(context, queries)
     }
     return queries
+}
+
+/** Abandons the oldest query that no node uses, so a query someone is waiting for can take its slot. */
+export function reclaimReleasedQuery(): boolean {
+    const { released } = getInflightQueries()
+    const oldest = released.entries().next().value
+    if (!oldest) {
+        return false
+    }
+    oldest[1]()
+    return true
 }
 
 export function responseCacheKey(
@@ -98,7 +116,7 @@ function retainWith(
 }
 
 export function getInflightResponse(key: string | null): InflightQuery | null {
-    return key ? (getInflightQueries().get(key) ?? null) : null
+    return key ? (getInflightQueries().byKey.get(key) ?? null) : null
 }
 
 /**
@@ -108,9 +126,9 @@ export function getInflightResponse(key: string | null): InflightQuery | null {
 export function trackInflightResponse(
     key: string,
     promise: Promise<AnyResponseType | null>,
-    { abort, abandon }: { abort: () => void; abandon: () => void }
+    { queryId, abort, abandon }: { queryId: string; abort: () => void; abandon: () => void }
 ): InflightQuery {
-    const queries = getInflightQueries()
+    const { byKey, released } = getInflightQueries()
     const retain = retainedResponses.bindSet()
     let settled = false
     let graceTimer: ReturnType<typeof setTimeout> | null = null
@@ -119,15 +137,21 @@ export function trackInflightResponse(
             clearTimeout(graceTimer)
             graceTimer = null
         }
+        released.delete(query)
     }
     const forget = (): void => {
         stopGraceTimer()
-        if (queries.get(key) === query) {
-            queries.delete(key)
+        if (byKey.get(key) === query) {
+            byKey.delete(key)
         }
+    }
+    const abandonNow = (): void => {
+        forget()
+        abandon()
     }
     const query: InflightQuery = {
         promise,
+        queryId,
         abort: () => {
             forget()
             abort()
@@ -137,14 +161,12 @@ export function trackInflightResponse(
                 return
             }
             stopGraceTimer()
-            graceTimer = setTimeout(() => {
-                forget()
-                abandon()
-            }, ABANDONED_QUERY_GRACE_PERIOD)
+            released.set(query, abandonNow)
+            graceTimer = setBackgroundTimeout(abandonNow, ABANDONED_QUERY_GRACE_PERIOD)
         },
         adopt: stopGraceTimer,
     }
-    queries.set(key, query)
+    byKey.set(key, query)
     promise
         .then((response) => retainWith(retain, key, response))
         .catch(() => {})

@@ -115,6 +115,7 @@ import {
     getInflightResponse,
     getRetainedResponse,
     isCompleteResponse,
+    reclaimReleasedQuery,
     responseCacheKey,
     retainResponse,
     trackInflightResponse,
@@ -653,6 +654,9 @@ export interface dataNodeLogicActions {
     setPollResponse: (status: QueryStatus | null) => {
         status: QueryStatus | null
     }
+    setQueryId: (queryId: string) => {
+        queryId: string
+    }
     setQueryLogQueryId: (queryId: string) => {
         queryId: string
     }
@@ -1064,6 +1068,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             overrideQuery,
         }),
         abortAnyRunningQuery: true,
+        setQueryId: (queryId: string) => ({ queryId }),
         abortQuery: (payload: { queryId: string }) => payload,
         cancelQuery: true,
         setResponse: (response: Exclude<AnyResponseType, undefined>) => response,
@@ -1108,15 +1113,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (inflightResponse) {
                         inflightResponse.adopt()
                         cache.inflightQuery = inflightResponse
+                        actions.setQueryId(inflightResponse.queryId)
                         let data: AnyResponseType | null | undefined
                         try {
                             data = await inflightResponse.promise
                         } catch (error: any) {
                             // A query that never started because its node unmounted while queued is run again below.
                             if (!isBreakpoint(error)) {
-                                error.queryId = queryId
+                                error.queryId = inflightResponse.queryId
                                 if (shouldCancelQuery(error)) {
-                                    actions.abortQuery({ queryId })
+                                    actions.abortQuery({ queryId: inflightResponse.queryId })
                                 }
                                 breakpoint()
                                 throw error
@@ -1195,6 +1201,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             query,
                             values.currentTeam as TeamType
                         )
+                        if (
+                            queryConcurrencyController === notebookConcurrencyController &&
+                            queryConcurrencyController._current.length >= queryConcurrencyController._concurrencyLimit
+                        ) {
+                            reclaimReleasedQuery()
+                        }
                         const responsePromise = queryConcurrencyController.run({
                             debugTag: query.kind,
                             abortController,
@@ -1230,10 +1242,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         })
                         if (key && keepRunningOnUnmount) {
                             const teamId = values.currentTeamId
+                            // The in-flight entry retains the result, so `loadDataSuccess` skips its copy.
+                            cache.responseCacheKey = null
                             cache.inflightQuery = trackInflightResponse(
                                 key,
                                 responsePromise.then(({ data }) => data as AnyResponseType | null),
                                 {
+                                    queryId,
                                     abort: () => abortController.abort(),
                                     abandon: () => {
                                         abortController.abort()
@@ -1431,6 +1446,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             null as null | string,
             {
                 loadData: (_, { queryId }) => queryId,
+                setQueryId: (_, { queryId }) => queryId,
             },
         ],
         newDataLoading: [

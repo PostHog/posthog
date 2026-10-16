@@ -13,6 +13,13 @@ export type RetainedValuesOptions<T> = {
     scopeToProject?: boolean
 }
 
+/** A timer for cleanup work that must not keep a Node process alive, such as a test worker. */
+export function setBackgroundTimeout(callback: () => void, ms: number): ReturnType<typeof setTimeout> {
+    const timer = setTimeout(callback, ms)
+    ;(timer as { unref?: () => void }).unref?.()
+    return timer
+}
+
 type Entry<T> = { value: T; expiresAt: number; size: number }
 type Store<T> = { entries: Map<string, Entry<T>>; totalSize: number; sweepTimer: ReturnType<typeof setTimeout> | null }
 
@@ -91,7 +98,7 @@ export class RetainedValues<T> {
         if (nextExpiry === Infinity || nextExpiry <= after) {
             return
         }
-        store.sweepTimer = setTimeout(
+        store.sweepTimer = setBackgroundTimeout(
             () => {
                 store.sweepTimer = null
                 const now = Date.now()

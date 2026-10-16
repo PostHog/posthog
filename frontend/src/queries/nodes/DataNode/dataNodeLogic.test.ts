@@ -119,6 +119,7 @@ describe('dataNodeLogic', () => {
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadData'])
         expect(mockedQuery).toHaveBeenCalledTimes(1)
+        const queryId = logic.values.queryId
 
         logic.unmount()
         expect(mockedQuery.mock.calls[0][1]?.signal?.aborted).toBe(false)
@@ -126,6 +127,7 @@ describe('dataNodeLogic', () => {
         logic = dataNodeLogic(props)
         logic.mount()
         expect(logic.values.dataLoading).toBe(true)
+        expect(logic.values.queryId).toBe(queryId)
         pending.resolve(response)
         await expectLogic(logic).toDispatchActions(['loadDataSuccess']).toMatchValues({ response })
         expect(mockedQuery).toHaveBeenCalledTimes(1)
