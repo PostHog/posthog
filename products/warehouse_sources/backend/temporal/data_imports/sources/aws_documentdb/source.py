@@ -20,8 +20,9 @@ _AWS_CA_BUNDLE = str(Path(__file__).with_name("global-bundle.crt"))
 _CONNECTION_STRING_CAPTION = (
     "In the Amazon DocumentDB console, open your cluster and copy the connection string under "
     "**Connectivity & security**, then replace `<insertYourPassword>` with your password. "
-    "PostHog already trusts the AWS certificate bundle. If you connect through a load balancer, "
-    "add `directConnection=true&tlsAllowInvalidHostnames=true`."
+    "The cluster endpoint only resolves inside your VPC, so replace the host with your load balancer's "
+    "address and add `directConnection=true&tlsAllowInvalidHostnames=true`. PostHog already trusts "
+    "the AWS certificate bundle."
 )
 
 

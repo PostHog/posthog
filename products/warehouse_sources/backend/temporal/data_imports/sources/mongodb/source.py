@@ -75,7 +75,8 @@ _MONGO_ATLAS_SQL_MESSAGE = (
 
 _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE = (
     "Your connection string sets tlsCertificateKeyFile or tlsCRLFile. These name files on your own "
-    "machine, which PostHog can't read. Remove them from the connection string and try again."
+    "machine, which PostHog can't read, so client certificate sign-in isn't supported. Remove them, "
+    "sign in with a username and password, and try again."
 )
 
 _MONGO_HOST_UNRESOLVED_MESSAGE = (

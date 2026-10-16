@@ -332,11 +332,17 @@ def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription
     return selector
 
 
+def _options(connection_string: str) -> list[str]:
+    return re.split(r"[&;]", connection_string.partition("?")[2])
+
+
+def _option_key(option: str) -> str:
+    return option.partition("=")[0].lower()
+
+
 def connection_timeouts(connection_string: str) -> dict[str, int]:
     """The connect and socket timeouts to pass to `MongoClient`, less those the connection string sets."""
-    option_keys = {
-        option.partition("=")[0].lower() for option in re.split(r"[&;]", connection_string.partition("?")[2])
-    }
+    option_keys = {_option_key(option) for option in _options(connection_string)}
     return {name: value for name, value in _CONNECTION_TIMEOUT_DEFAULTS.items() if name.lower() not in option_keys}
 
 
@@ -353,14 +359,15 @@ class UnsupportedConnectionOptionError(ValueError):
     pass
 
 
-def without_ca_file_option(connection_string: str) -> str:
-    base, _, query = connection_string.partition("?")
-    options = re.split(r"[&;]", query)
-    if any(option.partition("=")[0].lower() in _UNSUPPORTED_FILE_OPTIONS for option in options):
+def _checked_connection_string(connection_string: str) -> str:
+    """The string without `tlsCAFile`. Raises when it names a file that has no replacement."""
+    options = _options(connection_string)
+    if any(_option_key(option) in _UNSUPPORTED_FILE_OPTIONS for option in options):
         raise UnsupportedConnectionOptionError(UNSUPPORTED_FILE_OPTION_ERROR)
-    kept = [option for option in options if option.partition("=")[0].lower() != _CA_FILE_OPTION]
+    kept = [option for option in options if _option_key(option) != _CA_FILE_OPTION]
     if len(kept) == len(options):
         return connection_string
+    base = connection_string.partition("?")[0]
     return f"{base}?{'&'.join(kept)}" if kept else base
 
 
@@ -388,7 +395,7 @@ def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None =
         # to None in _process_nested_value so a single bad row doesn't fail the sync.
         "datetime_conversion": DatetimeConversion.DATETIME_AUTO,
     }
-    client: MongoClient = MongoClient(without_ca_file_option(connection_string), **kwargs)
+    client: MongoClient = MongoClient(_checked_connection_string(connection_string), **kwargs)
     try:
         yield client
     finally:
