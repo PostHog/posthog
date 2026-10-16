@@ -925,16 +925,18 @@ describe('cohortEditLogic', () => {
     ])(
         'prefills a recent person filter with $operator during cohort creation',
         async ({ key, operator, value, label }) => {
-            let definitions: ReturnType<typeof propertyDefinitionsModel.build> | undefined
-            if (key === 'birth_date') {
-                definitions = propertyDefinitionsModel.build()
-                definitions.mount()
-                definitions.actions.updatePropertyDefinitions({
-                    'person/birth_date': { id: 'birth_date', name: 'birth_date', property_type: PropertyType.DateTime },
-                })
-            }
+            const definitions = propertyDefinitionsModel.build()
+            definitions.mount()
+            definitions.actions.updatePropertyDefinitions({
+                [`person/${key}`]: {
+                    id: key,
+                    name: key,
+                    property_type: key === 'birth_date' ? PropertyType.DateTime : PropertyType.String,
+                },
+            })
             const recentFilters = recentTaxonomicFiltersLogic.build()
             recentFilters.mount()
+            recentFilters.actions.clearRecentFilters()
             recentFilters.actions.recordRecentFilter({
                 groupType: TaxonomicFilterGroupType.PersonProperties,
                 groupName: 'Person properties',
@@ -992,7 +994,7 @@ describe('cohortEditLogic', () => {
             })
             recentFilters.unmount()
             cleanup()
-            definitions?.unmount()
+            definitions.unmount()
         }
     )
 
