@@ -4794,6 +4794,7 @@ export namespace Schemas {
         tableCalculation?: (BITableCalculation | null) | undefined;
     };
     export type BIConfig = {
+        catalogMetric?: (string | null) | undefined;
         chartType: ChartDisplayType;
         colorBy?: (string | null) | undefined;
         columns: Array<BIField>;
@@ -4809,6 +4810,7 @@ export namespace Schemas {
         memberAliases?: (Array<MemberAliase> | null) | undefined;
         missingDates?: (MissingDates | null) | undefined;
         panes?: (BIPaneSettings | null) | undefined;
+        querySnapshot?: (HogQLQuery | null) | undefined;
         resultFilterGroup?: (BIConditionGroup | null) | undefined;
         resultFilters?: (Array<BIResultFilter> | null) | undefined;
         rowFilterGroup?: (BIConditionGroup | null) | undefined;
@@ -11845,6 +11847,7 @@ export namespace Schemas {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -13230,6 +13233,7 @@ export namespace Schemas {
         | "BlackboardLearn"
         | "Bling"
         | "Bloomerang"
+        | "Blueshift"
         | "Bluesky"
         | "BolRetailer"
         | "Boulevard"
@@ -14623,6 +14627,7 @@ export namespace Schemas {
          * * `BlackboardLearn` - BlackboardLearn
          * * `Bling` - Bling
          * * `Bloomerang` - Bloomerang
+         * * `Blueshift` - Blueshift
          * * `Bluesky` - Bluesky
          * * `BolRetailer` - BolRetailer
          * * `Boulevard` - Boulevard
