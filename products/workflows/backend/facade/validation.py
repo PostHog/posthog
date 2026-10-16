@@ -4,6 +4,7 @@ from products.workflows.backend.services.batch_audience_cohorts import (
     find_behavioral_cohort_name,
     find_realtime_behavioral_cohort,
     realtime_audience_cohort,
+    realtime_cohort_is_ready,
 )
 from products.workflows.backend.services.wait_clock_conditions import find_clock_function
 from products.workflows.backend.utils.durations import (
@@ -24,4 +25,5 @@ __all__ = [
     "is_duration",
     "is_signed_duration",
     "realtime_audience_cohort",
+    "realtime_cohort_is_ready",
 ]
