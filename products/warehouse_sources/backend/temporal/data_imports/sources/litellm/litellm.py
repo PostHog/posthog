@@ -133,6 +133,19 @@ def _request_ids_at(rows: list[dict[str, Any]], times: list[datetime | None], se
     )
 
 
+def _first_log_time(session: requests.Session, base_url: str, start: datetime, end: datetime) -> datetime | None:
+    """The time of the first log in `[start, end]`, or None when there is none.
+
+    Two logs are read, so a proxy that ignores `sort_order` shows itself before its newest log is
+    taken for the oldest.
+    """
+    body = _fetch_spend_logs(session, base_url, start, end, page=1, page_size=2)
+    times = [_as_utc(row.get(SPEND_LOGS_FIELD)) for row in body.get("data") or []]
+    if len(times) == 2 and times[0] and times[1] and times[1] < times[0]:
+        raise LiteLLMSpendLogsUnavailableError(SPEND_LOGS_UNAVAILABLE_MESSAGE)
+    return times[0] if times else None
+
+
 def spend_log_pages(
     session: requests.Session,
     base_url: str,
@@ -155,12 +168,11 @@ def spend_log_pages(
         run_end = datetime.now(UTC).replace(microsecond=0)
         page = 1
         seen = set()
-        start = _as_utc(db_incremental_field_last_value)
+        start = _as_utc(db_incremental_field_last_value) or _first_log_time(
+            session, base_url, SPEND_LOGS_EARLIEST, run_end
+        )
         if start is None:
-            oldest = _fetch_spend_logs(session, base_url, SPEND_LOGS_EARLIEST, run_end, page=1, page_size=1)
-            start = _as_utc(oldest["data"][0].get(SPEND_LOGS_FIELD)) if oldest.get("data") else None
-            if start is None:
-                return
+            return
         cursor = start.replace(microsecond=0)
 
     while True:
@@ -191,13 +203,20 @@ def spend_log_pages(
                     page=1,
                     seen_request_ids=_request_ids_at(page_rows, times, last_second),
                 )
-        elif end < run_end:
+        elif end < run_end and page_rows:
             next_state = LiteLLMResumeConfig(
                 cursor=end.isoformat(),
                 run_end=run_end.isoformat(),
                 page=1,
                 seen_request_ids=_request_ids_at(page_rows, times, end),
             )
+        elif end < run_end:
+            # An empty day: jump to the next log instead of walking an idle proxy one day at a time.
+            next_log = _first_log_time(session, base_url, end, run_end)
+            if next_log is not None:
+                next_state = LiteLLMResumeConfig(
+                    cursor=next_log.replace(microsecond=0).isoformat(), run_end=run_end.isoformat(), page=1
+                )
 
         if next_state is not None:
             resumable_source_manager.save_state(next_state)

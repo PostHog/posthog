@@ -73,7 +73,7 @@ class TestSpendLogs:
             ("2026-01-01 10:01:39", "2026-01-02 10:01:39", "1"),
             ("2026-01-02 10:01:39", RUN_END, "1"),
         ]
-        assert result.params("page_size") == ["1", "100", "100", "100"]
+        assert result.params("page_size") == ["2", "100", "100", "100"]
         assert {(r.param("sort_by"), r.param("sort_order")) for r in result.requests} == {("startTime", "asc")}
         assert result.requests[0].headers["authorization"] == "Bearer sk-master"
         assert [row["request_id"] for row in result.rows] == [f"r{i}" for i in range(100)] + ["next"]
@@ -97,6 +97,34 @@ class TestSpendLogs:
 
         assert result.raised is None
         assert [_request(request) for request in result.requests] == [("2026-01-02 18:30:15", RUN_END, "1")]
+
+    @pytest.mark.parametrize(("next_log", "expected_requests"), [(True, 3), (False, 2)])
+    def test_empty_day_jumps_to_the_next_log(self, next_log: bool, expected_requests: int) -> None:
+        later = datetime(2026, 1, 2, 12, 0, 0, 500000, tzinfo=UTC)
+        result = _run(
+            "spend_logs",
+            [_logs([]), _logs([_log("late", later)] if next_log else []), _logs([_log("late", later)])],
+            incremental_field="startTime",
+            db_incremental_field_last_value="2025-06-01T00:00:00Z",
+        )
+
+        assert result.raised is None
+        assert [_request(request) for request in result.requests] == [
+            ("2025-06-01 00:00:00", "2025-06-02 00:00:00", "1"),
+            ("2025-06-02 00:00:00", RUN_END, "1"),
+            ("2026-01-02 12:00:00", RUN_END, "1"),
+        ][:expected_requests]
+        assert [row["request_id"] for row in result.rows] == (["late"] if next_log else [])
+
+    def test_newest_first_proxy_is_caught_before_a_full_refresh_starts(self) -> None:
+        result = _run(
+            "spend_logs",
+            [_logs([_log("newer", FIRST + timedelta(minutes=1)), _log("older", FIRST)])],
+            should_use_incremental_field=False,
+        )
+
+        assert isinstance(result.raised, LiteLLMSpendLogsUnavailableError)
+        assert len(result.requests) == 1
 
     def test_full_page_inside_one_second_steps_by_page(self) -> None:
         same_second = [_log(f"s{i}", FIRST) for i in range(100)]
