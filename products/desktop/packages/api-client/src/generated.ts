@@ -15088,6 +15088,9 @@ export namespace Schemas {
         | "mcp"
         | "wizard"
         | "self_driving";
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export type ExternalDataSourceRevenueAnalyticsConfig = Partial<{
         enabled: boolean;
         include_invoiceless_charges: boolean;
