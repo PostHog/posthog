@@ -164,6 +164,9 @@ export function QuestionInput({ streamKey, request, disabled = false }: Question
                 onChange={handleMultiSelectChange}
                 onSubmit={handleMultiSelectSubmit}
                 submitLabel={isLast ? 'Submit' : 'Next'}
+                customPlaceholder={question.placeholder}
+                initialCustomValue={question.defaultAnswer}
+                multiline={question.multiline}
             />
         </div>
     )

@@ -179,6 +179,10 @@
     color: var(--muted-foreground);
 }
 
+[data-quill] .text-subtle-foreground {
+    color: var(--subtle-foreground);
+}
+
 [data-quill] .text-card-foreground {
     color: var(--card-foreground);
 }

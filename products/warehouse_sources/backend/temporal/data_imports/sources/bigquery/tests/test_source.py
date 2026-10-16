@@ -1,5 +1,10 @@
+import re
+import threading
+import contextlib
+import concurrent.futures
+from collections.abc import Iterable
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 import time_machine
@@ -11,23 +16,28 @@ from google.api_core.exceptions import (
     DeadlineExceeded,
     Forbidden,
     InternalServerError,
+    InvalidArgument,
     NotFound,
     PermissionDenied,
     ServiceUnavailable,
 )
 from google.auth.credentials import Credentials as GoogleAuthCredentials
 from google.auth.exceptions import RefreshError
+from google.cloud.bigquery import SchemaField
 from requests.adapters import HTTPAdapter
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
 from products.batch_exports.backend.facade.destinations.bigquery import ServiceAccountOwnershipError
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_COPY_JOB_TIMEOUT_SECONDS,
     BIGQUERY_CREATE_READ_SESSION_RETRY,
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
+    BIGQUERY_HTTP_TIMEOUT_SECONDS,
     BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
     BIGQUERY_INTEGRATION_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
@@ -38,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_QUERY_CREATE_RETRY,
     BIGQUERY_QUERY_JOB_RETRY,
     BIGQUERY_READ_ROWS_RETRY,
+    BIGQUERY_ROW_COUNT_JOB_TIMEOUT_SECONDS,
     BIGQUERY_TOKEN_REFRESH_RETRY,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BIGQUERY_VALIDATION_GENERIC_ERROR,
@@ -48,12 +59,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BigQueryImplementation,
     BigQueryInvalidIdentifierError,
     BigQueryInvalidTokenUriError,
+    BigQueryJobTimeoutError,
+    BigQueryReadTimeoutError,
     BigQueryTokenRefreshError,
     _bq_select_clause,
     _get_primary_keys_for_table,
     _get_query,
     _get_rows_to_sync,
     _has_duplicate_primary_keys,
+    _pages_with_idle_timeout,
     _resolve_region,
     _run_destination_query_with_job_retry,
     delete_all_temp_destination_tables,
@@ -61,6 +75,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     validate_bigquery_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source import BigQuerySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.identifiers import (
     InvalidIdentifierError,
 )
@@ -77,7 +92,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     BigQueryTemporaryDatasetConfig,
     BigQueryUseCustomRegionConfig,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType
 
 
 @pytest.fixture(autouse=True)
@@ -1110,6 +1125,28 @@ def test_non_retryable_errors_match_federated_upstream_permission_denied(observe
 @pytest.mark.parametrize(
     "observed_error",
     [
+        # The Storage Read API's gRPC auth plugin raises this `ServiceUnavailable` when it can't
+        # mint a fresh token for an impersonated service account — a denial of
+        # `iam.serviceAccounts.getAccessToken`, distinct from the `iam.serviceAccounts.get` the
+        # ownership check already covers via `BIGQUERY_IMPERSONATION_PERMISSION_ERROR`.
+        str(
+            ServiceUnavailable(
+                "Getting metadata from plugin failed with error: ('Unable to acquire impersonated "
+                'credentials\', \'{"error": {"code": 403, "message": "Permission '
+                "\\'iam.serviceAccounts.getAccessToken\\' denied on resource (or it may not exist).\", "
+                '"status": "PERMISSION_DENIED"}}\')'
+            )
+        ),
+    ],
+)
+def test_non_retryable_errors_match_impersonation_token_denied(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
         # Administrator-set custom cost control on the customer's BigQuery project — surfaced as a
         # `Forbidden` whose str() is "403 Custom quota exceeded: ...".
         str(
@@ -1208,6 +1245,121 @@ def test_has_duplicate_primary_keys_captures_unexpected_errors():
 
     assert result is False
     mock_capture.assert_called_once()
+
+
+def _probe_group_by(query: str) -> str | None:
+    match = re.search(r"GROUP BY (.+)\n", query)
+    return match.group(1) if match else None
+
+
+def _run_pipeline_against_fake_client(
+    *,
+    sync_type: ExternalDataSchemaSyncType,
+    stored_primary_keys: list[str] | None,
+    duplicated_key: str | None,
+    enabled_columns: list[str] | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
+):
+    queries: list[str] = []
+    probe_parameter_names: list[set[str]] = []
+
+    def fake_query(query, job_config=None, **_kwargs):
+        queries.append(query)
+        group_by = _probe_group_by(query)
+        if group_by is not None:
+            probe_parameter_names.append({parameter.name for parameter in job_config.query_parameters})
+        job = mock.MagicMock()
+        job.result.return_value = iter([("duplicated",)] if group_by is not None and group_by == duplicated_key else [])
+        return job
+
+    table = mock.MagicMock(
+        dataset_id="dataset-id", table_id="events", project="project-id", num_rows=None, num_bytes=None
+    )
+    table.schema = [
+        SchemaField("id", "STRING"),
+        SchemaField("_id", "STRING"),
+        SchemaField("orderId", "STRING"),
+        SchemaField("order_id", "STRING"),
+        SchemaField("seq", "INT64"),
+    ]
+    table.to_bqstorage.return_value = "projects/project-id/datasets/dataset-id/tables/events"
+    client = mock.MagicMock()
+    client.get_table.return_value = table
+    client.query.side_effect = fake_query
+    storage = mock.MagicMock()
+    storage.create_read_session.return_value.streams = []
+
+    inputs = _make_inputs(
+        sync_type=sync_type,
+        primary_keys=stored_primary_keys,
+        should_use_incremental_field=True,
+        incremental_field="seq",
+        incremental_field_type=IncrementalFieldType.Integer,
+        enabled_columns=enabled_columns,
+        row_filters=row_filters,
+    )
+    with (
+        mock.patch.object(bq_module, "bigquery_client", return_value=contextlib.nullcontext(client)),
+        mock.patch.object(bq_module, "bigquery_storage_read_client", return_value=contextlib.nullcontext(storage)),
+        mock.patch.object(bq_module, "delete_all_temp_destination_tables"),
+        mock.patch.object(bq_module, "delete_table"),
+    ):
+        response = BigQuerySource().source_for_pipeline(_make_config(), inputs)
+        list(cast(Iterable[Any], response.items()))
+    return response, queries, probe_parameter_names
+
+
+_SEQ_ABOVE_FIVE = ValidatedRowFilter(column="seq", operator=">", value=5, category=ColumnTypeCategory.INTEGER)
+_INCREMENTAL = ExternalDataSchemaSyncType.INCREMENTAL
+
+
+@pytest.mark.parametrize(
+    "sync_type,stored_primary_keys,enabled_columns,row_filters,duplicated_key,expected_group_by,expected_blocked",
+    [
+        (_INCREMENTAL, ["_id"], None, None, "`id`", "`_id`", False),
+        (_INCREMENTAL, ["_id"], None, None, "`_id`", "`_id`", True),
+        (_INCREMENTAL, None, None, None, "`id`", "`id`", True),
+        (_INCREMENTAL, ["_id"], None, [_SEQ_ABOVE_FIVE], None, "`_id`", False),
+        (_INCREMENTAL, ["_id", "dropped_column"], None, None, None, "`_id`", False),
+        (_INCREMENTAL, ["orderId"], None, None, None, "`order_id`", False),
+        (_INCREMENTAL, ["orderId"], ["orderId", "seq"], None, None, "`orderId`", False),
+        (_INCREMENTAL, ["_id"], ["seq"], None, "`id`", None, False),
+        (ExternalDataSchemaSyncType.APPEND, ["_id"], None, None, "`_id`", None, False),
+    ],
+    ids=[
+        "unique_stored_key_passes_when_id_repeats",
+        "stored_key_duplicates_block",
+        "detected_key_without_stored_key",
+        "row_filters_bound_the_probe",
+        "stored_key_column_missing_from_table",
+        "stored_key_renamed_like_the_writer",
+        "camel_case_stored_key_with_column_selection",
+        "stored_key_not_in_the_read",
+        "append",
+    ],
+)
+def test_duplicate_probe_checks_the_merge_key(
+    sync_type, stored_primary_keys, enabled_columns, row_filters, duplicated_key, expected_group_by, expected_blocked
+):
+    response, queries, probe_parameter_names = _run_pipeline_against_fake_client(
+        sync_type=sync_type,
+        stored_primary_keys=stored_primary_keys,
+        duplicated_key=duplicated_key,
+        enabled_columns=enabled_columns,
+        row_filters=row_filters,
+    )
+
+    probe_queries = [query for query in queries if _probe_group_by(query) is not None]
+    if expected_group_by is None:
+        assert probe_queries == []
+    else:
+        assert [_probe_group_by(query) for query in probe_queries] == [expected_group_by]
+        assert ("WHERE" in probe_queries[0]) == bool(row_filters)
+        assert set(re.findall(r"@(\w+)", probe_queries[0])) == probe_parameter_names[0]
+    assert response.has_duplicate_primary_keys is expected_blocked
+    read_queries = [query for query in queries if query.startswith("SELECT ") and "COUNT(*)" not in query]
+    unselected_keys = [key for key in stored_primary_keys or [] if key not in (enabled_columns or [])]
+    assert all(f"`{key}`" not in query for key in unselected_keys for query in read_queries)
 
 
 def test_bigquery_query_create_retry_retries_queued_jobs_quota():
@@ -1552,3 +1704,122 @@ def test_bigquery_validate_config_reads_a_bare_selection_from_the_flat_payload(j
     assert not any("Required field" in error for error in errors)
     if not expected_valid:
         assert any("Google Cloud service account" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "caller_timeout, sent_timeout",
+    [(None, BIGQUERY_HTTP_TIMEOUT_SECONDS), (5.0, 5.0)],
+    ids=["client_default_of_none", "explicit_timeout_is_kept"],
+)
+def test_bigquery_rest_requests_always_have_a_timeout(caller_timeout, sent_timeout):
+    # The BigQuery client passes `timeout=None` for each call without one, and `requests` then
+    # waits on a silent server without limit.
+    with (
+        bq_module.bigquery_client(
+            project_id="project-id", location=None, credentials=mock.Mock(spec=GoogleAuthCredentials)
+        ) as client,
+        mock.patch.object(bq_module.AuthorizedSession, "request") as request,
+    ):
+        client._http.request("GET", "https://bigquery.googleapis.com/x", timeout=caller_timeout)
+
+    assert request.call_args.kwargs["timeout"] == sent_timeout
+
+
+@pytest.mark.parametrize("cancel_error", [None, RuntimeError("cancel refused")], ids=["cancelled", "cancel_fails"])
+def test_copy_job_past_its_limit_is_cancelled_and_raises_a_retryable_error(cancel_error):
+    client = mock.MagicMock()
+    job = client.query.return_value
+    job.result.side_effect = concurrent.futures.TimeoutError()
+    job.cancel.side_effect = cancel_error
+
+    with pytest.raises(BigQueryJobTimeoutError) as error:
+        _run_destination_query_with_job_retry(
+            client, "SELECT 1", destination_table=mock.MagicMock(), query_parameters=[], project="prj"
+        )
+
+    assert job.result.call_args.kwargs["timeout"] == BIGQUERY_COPY_JOB_TIMEOUT_SECONDS
+    job.cancel.assert_called_once()
+    _assert_retryable(str(error.value))
+
+
+def test_bigquery_get_rows_to_sync_gives_zero_when_the_count_is_past_its_limit():
+    table = mock.MagicMock(project="proj", dataset_id="ds", table_id="t")
+    table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
+    client = mock.MagicMock()
+    job = client.query.return_value
+    job.result.side_effect = concurrent.futures.TimeoutError()
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.capture_exception"
+    ) as mock_capture:
+        result = _get_rows_to_sync(
+            table=table,
+            client=client,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            logger=mock.MagicMock(),
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+
+    assert result == 0
+    assert job.result.call_args.kwargs["timeout"] == BIGQUERY_ROW_COUNT_JOB_TIMEOUT_SECONDS
+    # A slow count is expected on a large filtered table, so it is not an error to track.
+    mock_capture.assert_not_called()
+
+
+def _assert_retryable(message: str) -> None:
+    source = BigQuerySource()
+    assert error_message_matches(message, source.get_retryable_errors())
+    assert not error_message_matches(message, {**Any_Source_Errors, **source.get_non_retryable_errors()})
+
+
+def test_row_pages_that_keep_coming_never_end_the_read():
+    end_read = mock.Mock()
+
+    pages = list(_pages_with_idle_timeout(iter([1, 2, 3]), timeout_seconds=30, end_read=end_read))
+
+    assert pages == [1, 2, 3]
+    end_read.assert_not_called()
+
+
+def test_each_row_page_gets_its_own_wait_limit(monkeypatch):
+    # A limit on the stream as a whole would end a long read that is in good health.
+    timers: list[mock.Mock] = []
+
+    def fake_timer(interval, function):
+        timers.append(mock.Mock(interval=interval))
+        return timers[-1]
+
+    monkeypatch.setattr(bq_module.threading, "Timer", fake_timer)
+
+    list(_pages_with_idle_timeout(iter([1, 2]), timeout_seconds=600, end_read=mock.Mock()))
+
+    # One wait for each page, and one for the end of the stream.
+    assert [timer.interval for timer in timers] == [600, 600, 600]
+    assert all(timer.start.called and timer.cancel.called for timer in timers)
+
+
+def test_row_page_that_does_not_come_ends_the_read_with_a_retryable_error():
+    ended = threading.Event()
+
+    def silent_stream():
+        yield "first page"
+        assert ended.wait(5)
+        raise ValueError("Cannot invoke RPC on closed channel!")
+
+    taken = []
+    with pytest.raises(BigQueryReadTimeoutError) as error:
+        for page in _pages_with_idle_timeout(silent_stream(), timeout_seconds=0.05, end_read=ended.set):
+            taken.append(page)
+
+    assert taken == ["first page"]
+    _assert_retryable(str(error.value))
+
+
+def test_row_page_error_before_the_limit_keeps_its_own_class():
+    broken_stream = iter(mock.Mock(side_effect=InvalidArgument("the read session is not valid")), None)
+
+    with pytest.raises(InvalidArgument):
+        list(_pages_with_idle_timeout(broken_stream, timeout_seconds=30, end_read=mock.Mock()))

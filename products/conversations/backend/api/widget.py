@@ -17,6 +17,7 @@ import logging
 from dataclasses import field as dataclass_field
 from typing import Literal
 
+from django.conf import settings
 from django.db.models import F, Q
 
 from prometheus_client import Counter
@@ -55,7 +56,7 @@ from products.conversations.backend.cache import (
     set_cached_tickets,
 )
 from products.conversations.backend.models import SigningSecret, Ticket
-from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE, ChannelDetail
+from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE, Channel, ChannelDetail
 from products.conversations.backend.services.identity import (
     canonicalize_claim_value,
     identity_claim_has_expired,
@@ -131,6 +132,10 @@ def _identity_secrets(team: Team) -> list[_IdentitySecret]:
             SIGNING_SECRET_STALE_COUNTER.inc()
             logger.warning("Conversations signing secret is stale, skipping it", extra={"team_id": team.id})
 
+    # Kill switch (#66179): legacy tokens stop being verification candidates, but the
+    # staleness guard above already ran, so a row holding a retired key stays excluded.
+    if not settings.ACCEPT_TEAM_SECRET_TOKENS:
+        return secrets
     return secrets + legacy_secrets
 
 
@@ -392,8 +397,9 @@ class WidgetMessageView(APIView):
                 if ownership_match == "distinct_id" and ticket.distinct_id != distinct_id:
                     ticket.distinct_id = distinct_id
 
-                # Update traits if provided
-                if traits:
+                # Other channels set traits from the attested sender, and the email bridge lets a
+                # viewer post to those tickets, so only a widget ticket takes traits from the request.
+                if traits and ticket.channel_source == Channel.WIDGET:
                     ticket.anonymous_traits.update(traits)
 
                 # Update session data if provided
@@ -402,8 +408,9 @@ class WidgetMessageView(APIView):
                 if session_context:
                     ticket.session_context.update(session_context)
 
-                # HMAC-verified requests are server-attested — mark the identity trusted.
-                if ownership_match == "distinct_id":
+                # The HMAC attests only the distinct ID. On other channels identity_verified attests the
+                # sender's address or platform account, and this request proves neither.
+                if ownership_match == "distinct_id" and ticket.channel_source == Channel.WIDGET:
                     ticket.identity_verified = True
 
                 # Increment unread count for team (customer sent a message)

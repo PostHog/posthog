@@ -1,56 +1,27 @@
-import json
-from collections.abc import Iterable, Iterator
-from http import HTTPStatus
-from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
 
-from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kapaai import KapaAISourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kapa_ai.kapa_ai import (
-    kapa_ai_source,
+    KapaResumeConfig,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.kapa_ai.source import KapaAISource
 
 PROJECT_ID = "00000000-0000-4000-8000-000000000001"
 API_KEY = "test-kapa-key"
-BASE_URL = "https://api.kapa.ai"
 
 
-def response(body: object, status: int = 200) -> Response:
-    result = Response()
-    result.status_code = status
-    result.reason = HTTPStatus(status).phrase
-    result.url = BASE_URL
-    result._content = json.dumps(body).encode()
-    result.headers["Content-Type"] = "application/json"
-    return result
-
-
-@pytest.fixture
-def http() -> Iterator[MagicMock]:
-    with patch("requests.sessions.Session.send") as send:
-        yield send
-
-
-@pytest.fixture
-def manager() -> MagicMock:
-    result = MagicMock(spec=ResumableSourceManager)
-    result.can_resume.return_value = False
-    return result
-
-
-def source(endpoint: str, manager: MagicMock) -> SourceResponse:
-    return kapa_ai_source(API_KEY, PROJECT_ID, endpoint, 1, "test-job", manager)
-
-
-def pages(result: SourceResponse) -> list[list[dict[str, Any]]]:
-    return list(cast(Iterable[list[dict[str, Any]]], result.items()))
+def driver() -> SourceDriver:
+    return SourceDriver(KapaAISource(), KapaAISourceConfig(api_key=API_KEY, project_id=PROJECT_ID))
 
 
 @pytest.mark.parametrize(
@@ -71,61 +42,69 @@ def pages(result: SourceResponse) -> list[list[dict[str, Any]]]:
         ),
     ],
 )
-def test_unpaginated_responses_keep_their_shape(
-    http: MagicMock, manager: MagicMock, endpoint: str, body: object, expected: list[dict[str, Any]]
-) -> None:
-    http.return_value = response(body)
-    result = source(endpoint, manager)
-    assert pages(result) == ([expected] if expected else [])
-    assert http.call_count == 1
-    assert not urlsplit(http.call_args.args[0].url).query
-    assert all(key in row for row in expected for key in result.primary_keys or [])
+def test_unpaginated_responses_keep_their_shape(endpoint: str, body: object, expected: list[dict[str, Any]]) -> None:
+    result = driver().run(endpoint, [ScriptedResponse(json=body)])
+
+    assert result.raised is None
+    assert result.items == ([expected] if expected else [])
+    assert len(result.requests) == 1
+    assert result.requests[0].query == {}
+    assert result.response is not None
+    assert all(key in row for row in expected for key in result.response.primary_keys or [])
 
 
 @pytest.mark.parametrize("endpoint,api_path", [("top_questions", "top-questions"), ("coverage_gaps", "coverage-gaps")])
-def test_period_fanout_paginates_both_levels_and_resumes_children(
-    http: MagicMock, manager: MagicMock, endpoint: str, api_path: str
-) -> None:
+def test_period_fanout_paginates_both_levels_and_resumes_children(endpoint: str, api_path: str) -> None:
     period1 = {"id": "period-1", "start_date": "2025-01-01", "end_date": "2025-02-01", "interval": "monthly"}
     period2 = {**period1, "id": "period-2", "start_date": "2025-02-01"}
-    parent_page1 = response({"periods": [period1], "next_cursor": "period-page-2"})
-    parent_page2 = response({"periods": [period2], "next_cursor": None})
-    http.side_effect = [
-        parent_page1,
-        response(
-            {"clusters": [{"id": "cluster-1", "thread_count": 123, "threads": []}], "next_cursor": "cluster-page-2"}
-        ),
-        response({"clusters": [{"id": "cluster-2"}], "next_cursor": None}),
-        parent_page2,
-        response({"clusters": [{"id": "cluster-1"}], "next_cursor": None}),
-    ]
-    result = source(endpoint, manager)
-    rows = [row for page in pages(result) for row in page]
-    assert [(row["period_id"], row["id"]) for row in rows] == [
+    parent_page1 = ScriptedResponse(json={"periods": [period1], "next_cursor": "period-page-2"})
+    parent_page2 = ScriptedResponse(json={"periods": [period2], "next_cursor": None})
+    result = driver().run(
+        endpoint,
+        [
+            parent_page1,
+            ScriptedResponse(
+                json={
+                    "clusters": [{"id": "cluster-1", "thread_count": 123, "threads": []}],
+                    "next_cursor": "cluster-page-2",
+                }
+            ),
+            ScriptedResponse(json={"clusters": [{"id": "cluster-2"}], "next_cursor": None}),
+            parent_page2,
+            ScriptedResponse(json={"clusters": [{"id": "cluster-1"}], "next_cursor": None}),
+        ],
+    )
+
+    assert result.raised is None
+    assert [(row["period_id"], row["id"]) for row in result.rows] == [
         ("period-1", "cluster-1"),
         ("period-1", "cluster-2"),
         ("period-2", "cluster-1"),
     ]
-    assert rows[0]["period_start_date"] == "2025-01-01"
-    assert rows[0]["thread_count"] == 123
-    assert rows[0]["threads"] == []
-    assert result.primary_keys == ["period_id", "id"]
-    assert result.partition_keys == ["period_start_date"]
-    urls = [call.args[0].url for call in http.call_args_list]
-    assert urlsplit(urls[1]).path == f"/query/v1/{api_path}/periods/period-1/"
-    assert parse_qs(urlsplit(urls[2]).query)["cursor"] == ["cluster-page-2"]
-    assert parse_qs(urlsplit(urls[3]).query)["cursor"] == ["period-page-2"]
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = manager.save_state.call_args_list[0].args[0]
-    http.reset_mock(side_effect=True)
-    http.side_effect = [
-        parent_page1,
-        response({"clusters": [{"id": "cluster-2"}], "next_cursor": None}),
-        parent_page2,
-        response({"clusters": [], "next_cursor": None}),
-    ]
-    assert [row["id"] for page in pages(source(endpoint, manager)) for row in page] == ["cluster-2"]
-    assert parse_qs(urlsplit(http.call_args_list[1].args[0].url).query)["cursor"] == ["cluster-page-2"]
+    assert result.rows[0]["period_start_date"] == "2025-01-01"
+    assert result.rows[0]["thread_count"] == 123
+    assert result.rows[0]["threads"] == []
+    assert result.response is not None
+    assert result.response.primary_keys == ["period_id", "id"]
+    assert result.response.partition_keys == ["period_start_date"]
+    assert result.paths[1] == f"/query/v1/{api_path}/periods/period-1/"
+    assert result.requests[2].param("cursor") == "cluster-page-2"
+    assert result.requests[3].param("cursor") == "period-page-2"
+
+    resumed = driver().run(
+        endpoint,
+        [
+            parent_page1,
+            ScriptedResponse(json={"clusters": [{"id": "cluster-2"}], "next_cursor": None}),
+            parent_page2,
+            ScriptedResponse(json={"clusters": [], "next_cursor": None}),
+        ],
+        resume_state=result.saved_states[0],
+    )
+
+    assert resumed.raised is None
+    assert [row["id"] for row in resumed.rows] == ["cluster-2"]
+    assert resumed.requests[1].param("cursor") == "cluster-page-2"
 
 
 @pytest.mark.parametrize(
@@ -148,13 +127,12 @@ def test_period_fanout_paginates_both_levels_and_resumes_children(
         (404, None, False, "The kapa.ai project was not found. Check your project ID and the key's project access."),
     ],
 )
-def test_credential_probe_status_mapping(
-    http: MagicMock, status: int, schema: str | None, valid: bool, message: str | None
-) -> None:
-    http.return_value = response({"results": [], "next_cursor": None}, status)
-    assert validate_credentials(API_KEY, PROJECT_ID, 1, schema) == (valid, message)
-    assert http.call_count == 1
-    assert parse_qs(urlsplit(http.call_args.args[0].url).query)["page_size"] == ["1"]
+def test_credential_probe_status_mapping(status: int, schema: str | None, valid: bool, message: str | None) -> None:
+    with scripted_network([ScriptedResponse(status=status, json={"results": [], "next_cursor": None})]) as network:
+        assert validate_credentials(API_KEY, PROJECT_ID, 1, schema) == (valid, message)
+
+    assert len(network.requests_log) == 1
+    assert network.requests_log[0].param("page_size") == "1"
 
 
 @pytest.mark.parametrize(
@@ -167,28 +145,33 @@ def test_credential_probe_status_mapping(
     ],
 )
 def test_invalid_configuration_never_sends_a_request(
-    http: MagicMock, project_id: str, key: str, schema: str | None, message: str
+    project_id: str, key: str, schema: str | None, message: str
 ) -> None:
-    assert validate_credentials(key, project_id, 1, schema) == (False, message)
-    http.assert_not_called()
+    with scripted_network([]) as network:
+        assert validate_credentials(key, project_id, 1, schema) == (False, message)
+
+    assert network.requests_log == []
 
 
-def test_unexpected_probe_error_is_not_reported_as_bad_credentials(http: MagicMock) -> None:
-    http.return_value = response({}, 400)
-    with pytest.raises(HTTPError):
-        validate_credentials(API_KEY, PROJECT_ID, 1)
+def test_unexpected_probe_error_is_not_reported_as_bad_credentials() -> None:
+    with scripted_network([ScriptedResponse(status=400, json={})]):
+        with pytest.raises(HTTPError):
+            validate_credentials(API_KEY, PROJECT_ID, 1)
 
 
-def test_missing_response_collection_fails_instead_of_erasing_the_table(http: MagicMock, manager: MagicMock) -> None:
-    http.return_value = response({"unexpected": []})
-    with pytest.raises(ValueError, match="results"):
-        pages(source("threads", manager))
-    manager.clear_state.assert_not_called()
+def test_missing_response_collection_fails_instead_of_erasing_the_table() -> None:
+    previous_state = KapaResumeConfig(paginator_state=None)
+    result = driver().run("threads", [ScriptedResponse(json={"unexpected": []})], resume_state=previous_state)
+
+    assert isinstance(result.raised, ValueError)
+    assert "results" in str(result.raised)
+    assert result.final_state == previous_state
 
 
 @pytest.mark.parametrize("next_url", ["https://example.com/collect", "http://api.kapa.ai/query/v1/threads/"])
-def test_pagination_cannot_send_the_key_to_another_origin(http: MagicMock, manager: MagicMock, next_url: str) -> None:
-    http.return_value = response({"results": [{"id": "user-1"}], "next": next_url})
-    with pytest.raises(ValueError, match="Refusing to send request"):
-        pages(source("end_users", manager))
-    assert http.call_count == 1
+def test_pagination_cannot_send_the_key_to_another_origin(next_url: str) -> None:
+    result = driver().run("end_users", [ScriptedResponse(json={"results": [{"id": "user-1"}], "next": next_url})])
+
+    assert isinstance(result.raised, ValueError)
+    assert "Refusing to send request" in str(result.raised)
+    assert len(result.requests) == 1

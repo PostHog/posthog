@@ -57,8 +57,6 @@ class SweepScannerWorkflow(PostHogWorkflow):
     async def run(self, inputs: SweepScannerInputs) -> None:
         # A capped scanner scans no sessions this tick. Fails open because admissions stay gated at the
         # persistence boundary.
-        wf.deprecate_patch("drop-prompt-suggestion-refresh-2026-10")
-        wf.deprecate_patch("replay-vision-scanner-credit-limit")
         try:
             budget = await wf.execute_activity(
                 check_scanner_budget_activity,
@@ -77,7 +75,6 @@ class SweepScannerWorkflow(PostHogWorkflow):
         # min of the two headrooms. Skip entirely when saturated. Keeps any single tenant from flooding the
         # shared rasterizer + provider concurrency. A DB error fails the count (single attempt), so the sweep
         # skips this tick rather than dispatching against an unknown load; the next tick retries in 5 minutes.
-        wf.deprecate_patch("replay-vision-team-in-flight-caps")
         in_flight = await wf.execute_activity(
             count_in_flight_by_team_activity,
             CountInFlightAppliesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
@@ -85,7 +82,6 @@ class SweepScannerWorkflow(PostHogWorkflow):
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         )
         scanner_in_flight, team_in_flight = in_flight.scanner, in_flight.team
-        wf.deprecate_patch("replay-vision-on-demand-reserved-headroom")
         headroom = in_flight_headroom(scanner_in_flight, team_in_flight)
         if headroom <= 0:
             # At a cap — drain before fetching more. Don't advance the watermark; resume next tick.
@@ -99,19 +95,22 @@ class SweepScannerWorkflow(PostHogWorkflow):
             )
             return
 
-        # Retries target fast ClickHouse admission rejections (code 202); schedule_to_close deliberately
-        # cuts slow timeout-bound attempts off after two rounds so the tick fails with ~10 minutes of the
-        # 15-minute workflow budget left, instead of burning it on a query that keeps timing out.
+        # Retries target fast ClickHouse admission rejections (code 202). The waits are long enough for a
+        # burst to drain, so retries do not take the slots that free up first from API queries. The next
+        # tick starts in 5 minutes and the watermark stays put, so a failed tick loses nothing.
+        # schedule_to_close deliberately cuts slow timeout-bound attempts off after two rounds so the tick
+        # fails with ~10 minutes of the 15-minute workflow budget left, instead of burning it on a query
+        # that keeps timing out.
         find_result = await wf.execute_activity(
             find_scanner_candidates_activity,
             FindScannerCandidatesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id, candidate_limit=headroom),
             start_to_close_timeout=FIND_SCANNER_CANDIDATES_TIMEOUT,
             schedule_to_close_timeout=dt.timedelta(seconds=450),
             retry_policy=common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=5),
+                initial_interval=dt.timedelta(seconds=30),
                 backoff_coefficient=2.0,
-                maximum_interval=dt.timedelta(seconds=30),
-                maximum_attempts=4,
+                maximum_interval=dt.timedelta(seconds=120),
+                maximum_attempts=3,
             ),
         )
         # A no-op when both lists are empty. First failure aborts the gather and skips the advance;

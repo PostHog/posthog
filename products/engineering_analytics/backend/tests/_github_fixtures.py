@@ -66,7 +66,11 @@ def create_github_source(
 
 
 def create_trunk_source(
-    team: Team, *, prefix: str = "trunkprefix_", source_id: str = "trunk-source"
+    team: Team,
+    *,
+    prefix: str = "trunkprefix_",
+    source_id: str = "trunk-source",
+    job_inputs: dict[str, Any] | None = None,
 ) -> ExternalDataSource:
     return ExternalDataSource.objects.create(
         team=team,
@@ -75,7 +79,7 @@ def create_trunk_source(
         status=ExternalDataSource.Status.COMPLETED,
         source_type=ExternalDataSourceType.TRUNKIO,
         prefix=prefix,
-        job_inputs={},
+        job_inputs=job_inputs or {},
     )
 
 
@@ -296,10 +300,14 @@ def _run_row(
     head_branch: str = "main",
     commit_message: str | None = None,
     actor: str = "alice",
+    workflow_id: int | None = None,
+    event: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": run_id,
         "name": name,
+        "workflow_id": workflow_id,
+        "event": event,
         "head_sha": head_sha,
         "head_branch": head_branch,
         "status": status,

@@ -1,25 +1,15 @@
-from typing import Any
-
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.source import FlutterwaveSource
-
-SOURCE_MODULE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.source.flutterwave_source"
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
 )
-
-
-def _source_inputs(**overrides: Any) -> MagicMock:
-    inputs = MagicMock()
-    inputs.schema_name = overrides.get("schema_name", "transactions")
-    inputs.team_id = overrides.get("team_id", 1)
-    inputs.job_id = overrides.get("job_id", "job-1")
-    inputs.api_version = overrides.get("api_version", None)
-    inputs.should_use_incremental_field = overrides.get("should_use_incremental_field", True)
-    inputs.db_incremental_field_last_value = overrides.get("db_incremental_field_last_value", "2024-01-15 00:00:00")
-    return inputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.source import FlutterwaveSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flutterwave import (
+    FlutterwaveSourceConfig,
+)
 
 
 class TestGetSchemas:
@@ -74,14 +64,14 @@ class TestNonRetryableErrors:
 
 class TestSourceForPipeline:
     def test_threads_credentials_endpoint_and_api_version(self) -> None:
-        with patch(SOURCE_MODULE_PATCH) as mock_source:
-            FlutterwaveSource().source_for_pipeline(
-                config=MagicMock(secret_key="FLWSECK-test"),
-                resumable_source_manager=MagicMock(),
-                inputs=_source_inputs(schema_name="transactions", should_use_incremental_field=False),
-            )
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["secret_key"] == "FLWSECK-test"
-        assert kwargs["endpoint"] == "transactions"
+        result = SourceDriver(FlutterwaveSource(), FlutterwaveSourceConfig(secret_key="FLWSECK-test")).run(
+            "transactions",
+            [ScriptedResponse(json={"status": "success", "meta": {"page_info": {"total_pages": 1}}, "data": []})],
+            should_use_incremental_field=False,
+        )
+
+        assert result.raised is None
+        assert result.requests[0].headers["authorization"] == "Bearer FLWSECK-test"
+        assert result.requests[0].path == "/v3/transactions"
         # An unset pin must resolve to default_version, not fall through as None and break the URL.
-        assert kwargs["api_version"] == "v3"
+        assert result.requests[0].url.startswith("https://api.flutterwave.com/v3/transactions")

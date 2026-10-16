@@ -24,7 +24,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -32,7 +31,9 @@ import { CrossProjectDashboardsList } from 'products/cross_project_dashboards/fr
 import { NewCrossProjectDashboardButton } from 'products/cross_project_dashboards/frontend/NewCrossProjectDashboardButton'
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
 
+import { DashboardsSceneMenuBar } from './DashboardsSceneMenuBar'
 import { DashboardsTableContainer } from './DashboardsTable'
+import { NewDashboardMenu } from './NewDashboardMenu'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -43,9 +44,8 @@ export const scene: SceneExport = {
 
 export function Dashboards(): JSX.Element {
     const { searchParams } = useValues(router)
-    const { dashboardsLoading } = useValues(dashboardsModel)
     const { setCurrentTab } = useActions(dashboardsLogic)
-    const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
+    const { currentTab } = useValues(dashboardsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const crossProjectEnabled = !!featureFlags[FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS]
     const crossProjectTabOpen = crossProjectEnabled && currentTab === DashboardsTab.CrossProject
@@ -66,7 +66,7 @@ export function Dashboards(): JSX.Element {
             <DuplicateDashboardModal />
             <DeleteDashboardModal />
             <LemonModal
-                title="Dashboard templates"
+                title="Manage templates"
                 isOpen={templatesModalOpen}
                 onClose={() =>
                     router.actions.push(urls.dashboards(), {
@@ -83,6 +83,7 @@ export function Dashboards(): JSX.Element {
             <DashboardTemplateEditor />
             <DashboardTemplateModal />
 
+            <DashboardsSceneMenuBar />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Dashboards].name}
                 description={sceneConfigurations[Scene.Dashboards].description}
@@ -111,11 +112,12 @@ export function Dashboards(): JSX.Element {
                                     type="primary"
                                     sideAction={{
                                         icon: <IconChevronDown />,
-                                        tooltip: 'View dashboard templates',
-                                        'aria-label': 'View dashboard templates',
-                                        'data-attr': 'view-dashboard-templates',
-                                        onClick: () =>
-                                            router.actions.push(urls.dashboards(), { ...searchParams, templates: '1' }),
+                                        'aria-label': 'More dashboard options',
+                                        'data-attr': 'new-dashboard-dropdown',
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            overlay: <NewDashboardMenu />,
+                                        },
                                     }}
                                 >
                                     New dashboard
@@ -134,13 +136,7 @@ export function Dashboards(): JSX.Element {
                 sceneInset
             />
 
-            {crossProjectTabOpen ? (
-                <CrossProjectDashboardsList />
-            ) : (
-                <div>
-                    {dashboardsLoading || dashboards.length > 0 || isFiltering ? <DashboardsTableContainer /> : null}
-                </div>
-            )}
+            {crossProjectTabOpen ? <CrossProjectDashboardsList /> : <DashboardsTableContainer />}
         </SceneContent>
     )
 }

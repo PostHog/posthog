@@ -83,6 +83,7 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.account_audits",
     "products.alerts_platform",
     "products.ai_training",
     "products.autoresearch",
@@ -143,6 +144,7 @@ depends_on = [
     "products.today",
     "products.tracing",
     "products.visual_review",
+    "products.warehouse_suggestions",
     "products.mcp_analytics",
     "products.mcp_registry",
     "products.web_analytics",
@@ -243,6 +245,8 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.notifications",
+    # Batch export runs emit internal events through products.cdp.backend.internal_events.
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -272,6 +276,9 @@ path = "products.conversations"
 depends_on = [
     "ee",
     "posthog", "products.tasks", "products.business_knowledge", "products.warehouse_sources", "products.customer_analytics", "products.access_control",
+    # Facade-only: the deleted-ticket purge retracts the ticket's signal embeddings. products.signals
+    # depends on products.conversations in turn, so keep this direction on the facade.
+    "products.signals",
 ]
 layer = "modules"
 
@@ -297,6 +304,11 @@ depends_on = [
     "products.product_analytics",
     "products.conversations",
     "products.surveys", "products.access_control",
+    # The canvas_app widget resolves its canvas through the canvas facade as the viewer.
+    "products.canvas",
+    # Facade-only: the dashboard filter access check asks the exports facade whether a
+    # subscription delivers the dashboard.
+    "products.exports",
 ]
 layer = "modules"
 
@@ -323,7 +335,13 @@ layer = "modules"
 
 [[modules]]
 path = "products.groups"
-depends_on = []
+depends_on = [
+    "posthog",
+    "products.access_control",
+    "products.event_definitions",
+    "products.notebooks",
+    "products.warehouse_sources",
+]
 layer = "modules"
 
 [[modules]]
@@ -423,6 +441,8 @@ depends_on = [
     "posthog",
     "ee",
     "products.feature_flags", "products.access_control",
+    # Enrollment changes emit internal events through products.cdp.backend.internal_events.
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -508,6 +528,7 @@ depends_on = [
     "ee",
     "posthog", "products.access_control",
     "products.signals", "products.tasks",
+    "products.warehouse_sources", "products.wizard",
 ]
 layer = "modules"
 
@@ -534,6 +555,8 @@ depends_on = [
     "products.dashboards",
     "products.exports",
     "products.workflows", "products.access_control",
+    # Evaluations and taggers compile Hog through products.cdp.backend.validation and filters.
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -555,6 +578,7 @@ depends_on = [
     "products.apm",
     "products.cdp",
     "products.exports",
+    "products.ml_inference",
     "products.signals", "products.access_control",
 ]
 layer = "modules"
@@ -620,6 +644,9 @@ path = "products.mcp_store"
 depends_on = [
     "ee",
     "posthog", "products.access_control",
+    # Presentation-only: the server icon endpoint serves through
+    # products.cdp.backend.presentation.icons.
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -630,12 +657,26 @@ depends_on = [
     # Facade-only: template writes publish the realtime edited-elsewhere event through
     # products.notifications.backend.facade.api.
     "products.notifications",
+    # Facade-only: the recipient preferences page reads EmailTrackingConsentMode through
+    # products.workflows.backend.facade.enums.
+    "products.workflows",
+    # Presentation-only: the template design action wraps HTML through
+    # products.cdp.backend.presentation.hog_functions.
+    "products.cdp",
 ]
 layer = "modules"
 
 [[modules]]
 path = "products.metrics"
-depends_on = ["posthog", "products.access_control", "products.error_tracking"]
+depends_on = [
+    "ee",
+    "posthog",
+    "products.access_control",
+    "products.dashboards",
+    "products.error_tracking",
+    "products.exports",
+    "products.tasks",
+]
 layer = "modules"
 
 [[interfaces]]
@@ -796,6 +837,8 @@ depends_on = [
     "products.alerts",
     "products.cdp",
     "products.cohorts",
+    # Facade-only: scanner dashboards are created and looked up through the dashboards facade.
+    "products.dashboards",
     "products.event_definitions",
     "products.experiments",
     "products.exports",
@@ -895,11 +938,26 @@ path = "products.slack_app"
 depends_on = [
     "posthog",
     "products.alerts",
+    "products.canvas",
+    "products.cohorts",
     "products.conversations",
     "products.dashboards",
+    "products.error_tracking",
+    "products.experiments",
+    "products.feature_flags",
+    "products.notebooks",
     "products.product_analytics",
     "products.signals",
+    "products.surveys",
     "products.tasks", "products.access_control",
+    # Slack triggers emit internal events through products.cdp.backend.internal_events.
+    "products.cdp",
+    # Mentions that name a pull request and a command run through the commands facade.
+    "products.commands",
+    # Link unfurls render insight charts through the exports facade.
+    "products.exports",
+    # Mention workflows check billing quota limits before they start a task.
+    "ee",
 ]
 layer = "modules"
 
@@ -922,6 +980,7 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.cdp",
     "products.conversations",
     "products.data_modeling",
@@ -993,6 +1052,8 @@ depends_on = [
     "products.annotations",
     # MCP connector calls made with the viewer's own installation (via the mcp_store facade).
     "products.mcp_store",
+    # Object access checks on canvases served as contracts (via the access_control facade).
+    "products.access_control",
 ]
 layer = "modules"
 
@@ -1050,7 +1111,10 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.cdp",
+    "products.early_access_features",
+    "products.error_tracking",
     "products.feature_flags",
+    "products.surveys",
     "products.messaging",
     "products.notifications",
     # Facade-only: the Run scout action's endpoint starts a scout run through
@@ -1059,6 +1123,12 @@ depends_on = [
     # Facade-only: the AI task action's endpoint creates tasks through
     # products.tasks.backend.facade.workflow_tasks.
     "products.tasks", "products.access_control",
+    # Facade-only: the Classify with AI action's endpoint asks the model through
+    # products.ml_inference.backend.facade.api.
+    "products.ml_inference",
+    # Facade-only: the Replay Vision step's endpoint starts a scan through
+    # products.replay_vision.backend.facade.api.
+    "products.replay_vision",
 ]
 layer = "modules"
 
@@ -1074,7 +1144,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|visual_review|warehouse_sources|workflows)",
+    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|visual_review|warehouse_sources|workflows)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -1179,7 +1249,7 @@ from = [
 expose = [
     "backend\\.models.*",
     "backend\\.temporal\\.data_imports\\.sources\\.common.*",
-    "backend\\.temporal\\.data_imports\\.sources\\.generated_configs.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.generated_configs\\.postgres.*",
     "backend\\.temporal\\.data_imports\\.sources\\.google_search_console.*",
     "backend\\.temporal\\.data_imports\\.sources\\.mysql.*",
     "backend\\.temporal\\.data_imports\\.sources\\.postgres.*",
@@ -1380,6 +1450,7 @@ from = [
 
 [[interfaces]]
 expose = [
+    "backend\\.facade.*",
     "backend\\.routes.*",
 ]
 from = [
@@ -1388,11 +1459,12 @@ from = [
 
 [[modules]]
 path = "products.wizard"
-depends_on = ["posthog", "products.event_definitions", "products.security", "products.tasks"]
+depends_on = ["posthog", "products.event_definitions", "products.security", "products.tasks", "products.warehouse_sources"]
 layer = "modules"
 
 [[interfaces]]
 expose = [
+    "backend\\.logic\\.event_property_purge.*",
     "backend\\.logic\\.placeholder.*",
     "backend\\.models.*",
     "backend\\.property_type.*",
@@ -1434,7 +1506,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.annotations"
-depends_on = ["posthog", "products.product_analytics", "products.dashboards"]
+depends_on = ["posthog", "products.product_analytics", "products.dashboards", "products.error_tracking"]
 layer = "modules"
 
 [[modules]]
@@ -1572,14 +1644,24 @@ path = "products.today"
 depends_on = [
     "ee",
     "posthog",
+    "products.access_control",
+    "products.alerts",
+    "products.conversations",
+    "products.customer_analytics",
+    "products.dashboards",
+    "products.data_catalog",
+    "products.error_tracking",
+    "products.product_analytics",
     "products.signals",
     "products.tasks",
+    "products.web_analytics",
+    "products.workflows",
 ]
 layer = "modules"
 
 [[modules]]
 path = "products.alerts_platform"
-depends_on = ["posthog", "products.access_control"]
+depends_on = ["posthog", "products.access_control", "products.notifications"]
 layer = "modules"
 
 [[interfaces]]
@@ -1657,6 +1739,7 @@ path = "products.warehouse_suggestions"
 depends_on = [
     "posthog",
     "products.access_control",
+    "products.data_catalog",
     "products.data_modeling",
     "products.warehouse_sources",
 ]
@@ -1669,4 +1752,40 @@ expose = [
 ]
 from = [
     "products.warehouse_suggestions",
+]
+
+[[modules]]
+path = "products.commands"
+# Facade-only (enforced by each product's [[interfaces]] block): commands dispatch into these
+# products.
+depends_on = [
+    "posthog",
+    "products.error_tracking",
+    "products.review_hog",
+    "products.security",
+    "products.stamphog",
+    "products.tasks",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.commands",
+]
+
+[[modules]]
+path = "products.account_audits"
+depends_on = ["posthog", "products.notebooks", "products.signals", "products.skills", "products.tasks"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.account_audits",
 ]

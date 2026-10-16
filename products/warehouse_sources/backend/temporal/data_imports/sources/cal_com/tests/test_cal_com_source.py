@@ -1,12 +1,26 @@
+from collections.abc import Iterator
+from datetime import timedelta
+
 import pytest
-from unittest import mock
+import time_machine
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.settings import BOOKINGS_WINDOW_ORIGIN
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.source import CalComSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calcom import CalComSourceConfig
 
-SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.source"
+
+@pytest.fixture(autouse=True)
+def _clock_before_the_window_origin() -> Iterator[None]:
+    with time_machine.travel(BOOKINGS_WINDOW_ORIGIN - timedelta(days=200), tick=False):
+        yield
 
 
 class TestCalComSource:
@@ -37,23 +51,23 @@ class TestCalComSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @mock.patch(f"{SOURCE_MODULE}.cal_com_source")
-    def test_source_for_pipeline_drops_incremental_value_when_disabled(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "bookings"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
+    def test_source_for_pipeline_drops_incremental_value_when_disabled(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "bookings",
+            [ScriptedResponse(json={"data": [], "pagination": {"nextCursor": None}})],
+            db_incremental_field_last_value="2026-01-01T00:00:00Z",
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[0].param("afterUpdatedAt") is None
+        assert result.requests[0].param("afterCreatedAt") == "1970-01-01T00:00:00.000Z"
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Cal.com schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Unknown Cal.com schema 'not_a_table'"
+        assert result.requests == []
 
     @parameterized.expand(
         [
@@ -62,19 +76,20 @@ class TestCalComSource:
             ("bookings", False),
         ]
     )
-    @mock.patch(f"{SOURCE_MODULE}.cal_com_source")
-    @mock.patch(f"{SOURCE_MODULE}.resolve_organization_id", return_value=77)
     def test_source_for_pipeline_resolves_the_org_only_where_a_path_needs_it(
-        self, schema_name: str, needs_org: bool, mock_resolve: mock.MagicMock, mock_source: mock.MagicMock
+        self, schema_name: str, needs_org: bool
     ) -> None:
         # An org lookup is an extra request per sync; a path with no {orgId} must not pay it.
-        inputs = mock.MagicMock()
-        inputs.schema_name = schema_name
+        answers = [ScriptedResponse(json={"data": {"organizationId": 77}})] if needs_org else []
+        answers.append(ScriptedResponse(json={"data": [], "pagination": {"nextCursor": None}}))
+        result = SourceDriver(self.source, self.config).run(schema_name, answers)
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_source.call_args.kwargs["organization_id"] == (77 if needs_org else None)
-        assert mock_resolve.called is needs_org
+        assert result.raised is None
+        assert (result.paths[0] == "/v2/me") is needs_org
+        if needs_org:
+            assert "/organizations/77/" in result.paths[1]
+        else:
+            assert result.paths == ["/v2/bookings"]
 
 
 class TestCalComEndpointPermissions:
@@ -83,33 +98,33 @@ class TestCalComEndpointPermissions:
         self.config = CalComSourceConfig(api_key="cal_live_key", region="us")
         self.endpoints = ["bookings", "organization_users", "routing_form_responses"]
 
-    @mock.patch(f"{SOURCE_MODULE}.resolve_organization_id", return_value=None)
-    def test_org_tables_are_flagged_for_a_personal_account(self, _mock_resolve: mock.MagicMock) -> None:
-        permissions = self.source.get_endpoint_permissions(self.config, 1, self.endpoints)
+    def test_org_tables_are_flagged_for_a_personal_account(self) -> None:
+        with scripted_network([ScriptedResponse(json={"data": {"id": 1}})]) as network:
+            permissions = self.source.get_endpoint_permissions(self.config, 1, self.endpoints)
 
         assert permissions["bookings"] is None
         assert "not in a Cal.com organization" in (permissions["organization_users"] or "")
         assert "not in a Cal.com organization" in (permissions["routing_form_responses"] or "")
+        assert [request.path for request in network.requests_log] == ["/v2/me"]
 
-    @mock.patch(f"{SOURCE_MODULE}.check_organization_access", return_value="needs an admin key")
-    @mock.patch(f"{SOURCE_MODULE}.resolve_organization_id", return_value=77)
-    def test_org_tables_are_flagged_for_a_non_admin_member(
-        self, _mock_resolve: mock.MagicMock, _mock_access: mock.MagicMock
-    ) -> None:
-        permissions = self.source.get_endpoint_permissions(self.config, 1, self.endpoints)
+    def test_org_tables_are_flagged_for_a_non_admin_member(self) -> None:
+        with scripted_network(
+            [ScriptedResponse(json={"data": {"organizationId": 77}}), ScriptedResponse(status=403)]
+        ) as network:
+            permissions = self.source.get_endpoint_permissions(self.config, 1, self.endpoints)
 
-        assert permissions == {
-            "bookings": None,
-            "organization_users": "needs an admin key",
-            "routing_form_responses": "needs an admin key",
-        }
+        assert permissions["bookings"] is None
+        assert "organization member without admin access" in (permissions["organization_users"] or "")
+        assert permissions["routing_form_responses"] == permissions["organization_users"]
+        assert [request.path for request in network.requests_log] == ["/v2/me", "/v2/organizations/77/memberships"]
 
-    @mock.patch(f"{SOURCE_MODULE}.resolve_organization_id", side_effect=Exception("boom"))
-    def test_an_unreachable_probe_leaves_every_table_selectable(self, _mock_resolve: mock.MagicMock) -> None:
+    def test_an_unreachable_probe_leaves_every_table_selectable(self) -> None:
         # The table picker must never be blocked by a failed probe.
-        assert self.source.get_endpoint_permissions(self.config, 1, self.endpoints) == dict.fromkeys(self.endpoints)
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            assert self.source.get_endpoint_permissions(self.config, 1, self.endpoints) == dict.fromkeys(self.endpoints)
+        assert {request.path for request in network.requests_log} == {"/v2/me"}
 
-    @mock.patch(f"{SOURCE_MODULE}.resolve_organization_id")
-    def test_no_probe_when_no_org_table_is_requested(self, mock_resolve: mock.MagicMock) -> None:
-        assert self.source.get_endpoint_permissions(self.config, 1, ["bookings"]) == {"bookings": None}
-        mock_resolve.assert_not_called()
+    def test_no_probe_when_no_org_table_is_requested(self) -> None:
+        with scripted_network([]) as network:
+            assert self.source.get_endpoint_permissions(self.config, 1, ["bookings"]) == {"bookings": None}
+        assert network.requests_log == []

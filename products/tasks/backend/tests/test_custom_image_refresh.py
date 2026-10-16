@@ -75,23 +75,31 @@ class TestCustomImageRefresh(APIBaseTest):
         assert stale.status == SandboxCustomImage.Status.READY
         assert stale.base_image_refresh_reference is None
 
-    def test_refresh_build_failure_remains_ready_and_can_retry(self) -> None:
+    @patch("products.tasks.backend.logic.services.custom_image_refresh.execute_build_sandbox_image_workflow")
+    @patch("products.tasks.backend.logic.services.custom_image_refresh.resolve_template_base_image_reference")
+    def test_refresh_build_failure_remains_ready_and_waits_for_next_base(self, mock_reference, mock_execute) -> None:
+        mock_reference.return_value = "ghcr.io/posthog/posthog-sandbox-vm@sha256:current"
         stale = self._create_image(base_image_reference="ghcr.io/posthog/posthog-sandbox-vm@sha256:old")
-        stale.status = SandboxCustomImage.Status.BUILDING
-        stale.base_image_refresh_reference = "ghcr.io/posthog/posthog-sandbox-vm@sha256:current"
-        stale.save(update_fields=["status", "base_image_refresh_reference"])
+        assert refresh_stale_sandbox_custom_images() == 1
 
         activity_body = cast(Callable[[MarkImageBuildFailedInput], None], vars(mark_image_build_failed)["__wrapped__"])
         activity_body(
             MarkImageBuildFailedInput(
                 image_id=str(stale.id),
                 team_id=self.team.id,
-                error="transient build failure",
+                error="repo setup failed",
                 refresh=True,
             )
         )
 
         stale.refresh_from_db()
         assert stale.status == SandboxCustomImage.Status.READY
-        assert stale.error == "transient build failure"
-        assert stale.base_image_refresh_reference is None
+        assert stale.error == "repo setup failed"
+        assert stale.base_image_refresh_reference == "ghcr.io/posthog/posthog-sandbox-vm@sha256:current"
+
+        assert refresh_stale_sandbox_custom_images() == 0
+        assert mock_execute.call_count == 1
+
+        mock_reference.return_value = "ghcr.io/posthog/posthog-sandbox-vm@sha256:next"
+        assert refresh_stale_sandbox_custom_images() == 1
+        assert mock_execute.call_count == 2

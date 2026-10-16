@@ -173,6 +173,7 @@ describe('linearTeamsModalLogic', () => {
     it('creates the row when Linear was never turned on before', async () => {
         const logic = linearTeamsModalLogic({ config: null, enableOnSave: true, viaSetupWizard: true, onClose })
         logic.mount()
+        signalSourcesLogic.actions.loadSourceConfigsSuccess([])
         expect(logic.values.linearTeams).toEqual({ scope: 'all', teamIds: [] })
 
         await expectLogic(logic, () => logic.actions.submitLinearTeams()).toDispatchActions([

@@ -197,7 +197,7 @@ describe('PropertyFilters recent selections', () => {
                 ],
             },
             tabTestId: 'taxonomic-tab-pageview_urls',
-            searchQuery: 'example',
+            searchQuery: 'example.com',
             itemTestId: 'prop-filter-pageview_urls-0',
             // Pageview URLs collapse to a single `$current_url IContains <query>` shortcut,
             // so the recorded value is the typed query, not a specific matched URL.
@@ -296,7 +296,7 @@ describe('PropertyFilters recent selections', () => {
 
         await pickShortcutItem({
             tabTestId: 'taxonomic-tab-pageview_urls',
-            searchQuery: 'first',
+            searchQuery: '/first',
             itemTestId: 'prop-filter-pageview_urls-0',
             onChange,
         })
@@ -323,7 +323,7 @@ describe('PropertyFilters recent selections', () => {
 
         await pickShortcutItem({
             tabTestId: 'taxonomic-tab-pageview_urls',
-            searchQuery: 'pricing',
+            searchQuery: '/pricing',
             itemTestId: 'prop-filter-pageview_urls-0',
             onChange,
         })
@@ -350,7 +350,7 @@ describe('PropertyFilters recent selections', () => {
 
         await pickShortcutItem({
             tabTestId: 'taxonomic-tab-pageview_urls',
-            searchQuery: 'pricing',
+            searchQuery: '/pricing',
             itemTestId: 'prop-filter-pageview_urls-0',
             onChange,
         })
@@ -451,7 +451,7 @@ describe('PropertyFilters recent selections', () => {
 
         await pickShortcutItem({
             tabTestId: 'taxonomic-tab-pageview_urls',
-            searchQuery: 'pricing',
+            searchQuery: '/pricing',
             itemTestId: 'prop-filter-pageview_urls-0',
             onChange,
         })

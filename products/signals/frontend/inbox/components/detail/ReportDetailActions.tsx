@@ -101,11 +101,13 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     const onRestoreClick = async (): Promise<void> => {
-        // Prefer the mounted Dismissed list logic so it optimistically drops the row and fixes its
-        // count + view badge synchronously (it also fires the API call + toast). Navigate straight back.
+        // Prefer the mounted list logic of the state the report sits in, Dismissed or Held back, so it
+        // optimistically drops the row and fixes its count + view badge synchronously (it also fires
+        // the API call + toast). Navigate straight back.
+        const sectionKey = report.suppression_source === 'dismissed' ? 'dismissed' : 'held-back'
         const dismissedList = reportListLogic.findMounted({
-            sectionKey: 'dismissed',
-            listParams: INBOX_REPORT_SECTION_LIST_PARAMS.dismissed,
+            sectionKey,
+            listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey],
         })
         if (dismissedList) {
             // The list logic fires the `restore` analytics; just drive navigation here.
@@ -113,7 +115,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             router.actions.push(urls.inbox(activeTab))
             return
         }
-        // Fallback for a deep-linked detail with no mounted Dismissed list (e.g. cold load), and for
+        // Fallback for a deep-linked detail with no mounted list for its state (e.g. cold load), and for
         // the flag-off Archive list, which mounts under the `resolved` key and so isn't found above.
         setIsRestoring(true)
         try {

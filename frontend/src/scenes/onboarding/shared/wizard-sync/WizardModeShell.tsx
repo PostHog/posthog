@@ -86,7 +86,7 @@ export function WizardModeShell({
 }: {
     children: ReactNode
     hogCastKey?: number
-    /** Drop the hedgehog (e.g. the compact context-first onboarding card has no room for it). */
+    /** Drop the hedgehog for compact placements that have no room for it. */
     hideHog?: boolean
     'data-attr'?: string
 }): JSX.Element {
@@ -101,7 +101,7 @@ export function WizardModeShell({
                     )}
                 />
             )}
-            {/* With the hog hidden (compact context-first card), center the content at its natural
+            {/* With the hog hidden (compact placement), center the content at its natural
                 width instead of stretching it full-bleed — so the command block and the GitHub-connect
                 block sit centered without expanding. With the hog shown, keep the left-aligned column. */}
             <div className={cn('flex-1 flex flex-col justify-center gap-3', hideHog && 'items-center text-center')}>

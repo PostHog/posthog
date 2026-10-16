@@ -43,6 +43,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
+    "products.account_audits.backend.apps.AccountAuditsConfig",
     "products.ai_training.backend.apps.AiTrainingConfig",
     "products.ml_inference.backend.apps.MlInferenceConfig",
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
@@ -98,6 +99,7 @@ PRODUCTS_APPS = [
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
+    "products.commands.backend.apps.CommandsConfig",
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
@@ -126,6 +128,7 @@ PRODUCTS_APPS = [
     "products.security.backend.apps.SecurityConfig",
     "products.webmcp.backend.apps.WebmcpConfig",
     "products.warehouse_suggestions.backend.apps.WarehouseSuggestionsConfig",
+    "products.groups.backend.apps.GroupsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -295,7 +298,7 @@ LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/?|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
-CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
+CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS + ("x-posthog-client-provenance",)
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
 SOCIAL_AUTH_JSONFIELD_ENABLED = True
@@ -349,6 +352,13 @@ SOCIAL_AUTH_GITLAB_SECRET: str | None = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
 LICENSE_SECRET_KEY = os.getenv("LICENSE_SECRET_KEY", "license-so-secret")
+
+# Kill switch for legacy Team.secret_api_token auth (#66179). When False, the legacy
+# verifiers (TeamSecretTokenAuthentication, the conversations/customer-analytics external
+# team-token branches, the widget identity-verification legacy fallback) all go inert, and
+# ProjectSecretAPIKeyAuthentication stops deferring tokens that match a team's legacy
+# token — migrated tokens then authenticate via their backfilled PSAK mirror rows.
+ACCEPT_TEAM_SECRET_TOKENS = get_from_env("ACCEPT_TEAM_SECRET_TOKENS", True, type_cast=str_to_bool)
 
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_ENGINE = "posthog.session.backend"
@@ -624,8 +634,13 @@ SPECTACULAR_SETTINGS = {
             # Matches the shared alerts skeleton's PlatformAlert.State.
             "BillingAlertConfigurationStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
+            # The anomaly and explain bodies keep this name; the metrics query clause's own
+            # aggregation adds 'none' and is named by its MetricQueryAggregation class.
+            "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
+            # Workflow steps and workflow template steps both take a field named `type` with this set.
+            "HogFlowActionTypeEnum": "products.workflows.backend.models.hog_flow.hog_flow.SUPPORTED_ACTION_TYPES",
             #
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
@@ -653,10 +668,6 @@ SPECTACULAR_SETTINGS = {
             "ErrorTrackingIssueWritableStatusEnum": ["active", "resolved", "suppressed"],
             # ResolvedAccess types source and source_subject as literals on a dataclass, so no Choices
             # class carries them. The lists are derived from those literals.
-            # today facade enums are StrEnums on generic field names (`group`, `source`, `reason`).
-            "TodayItemGroupEnum": "products.today.backend.facade.enums.ItemGroup",
-            "TodayItemSourceEnum": "products.today.backend.facade.enums.ItemSource",
-            "TodayItemReasonEnum": "products.today.backend.facade.enums.ItemReason",
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",
@@ -689,17 +700,9 @@ SPECTACULAR_SETTINGS = {
             "ConfidenceTierEnum": ["low", "medium", "high"],
             #
             # The definition site is a Django-free module, and no field builds these choices from a
-            # posthog.enums labeled enum, so no name derives. The engineering_analytics fields go
-            # through DataclassSerializer, which pairs each value with the member name, not a label.
-            # The signals entries need a member order, or a name without the Enum suffix, that no
-            # class derives.
+            # posthog.enums labeled enum, so no name derives. The signals entries need a member order,
+            # or a name without the Enum suffix, that no class derives.
             "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
-            "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
-            "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
-            "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
-            "PRTimelineSegmentKindEnum": "products.engineering_analytics.backend.facade.contracts.PRTimelineSegmentKind",
-            "DeliveryScopeKindEnum": "products.engineering_analytics.backend.facade.contracts.DeliveryScopeKind",
-            "FrictionGroupEnum": "products.engineering_analytics.backend.facade.contracts.FrictionGroup",
             "TraceNodeKindEnum": "products.ai_observability.backend.facade.contracts.TRACE_NODE_KINDS",
             "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
             "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
@@ -829,6 +832,7 @@ SPECTACULAR_SETTINGS = {
             "LogsListWidgetTypeEnum": ["logs_list"],
             "NotebookWidgetTypeEnum": ["notebook_widget"],
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
+            "CanvasAppWidgetTypeEnum": ["canvas_app"],
         }
     ),
 }
@@ -885,6 +889,8 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 # Deploy-static source catalog (no user input or secrets reflected): several
                 # hundred KB of JSON that compresses ~7x.
                 "^/?api/(environments|projects)/(\\d+|@current)/external_data_sources/wizard/?$",
+                # The wizard tool catalog: deploy-static public JSON that compresses ~5x.
+                "^/?api/wizard/tool_catalog/?$",
                 "^/?api/instance_status/?$",
                 "^/array/.*$",
             ]
@@ -1265,6 +1271,10 @@ OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
 
 ID_JAG_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("ID_JAG_ACCESS_TOKEN_TTL_SECONDS", 60 * 60 * 2, type_cast=int)
 ID_JAG_CLOCK_SKEW_SECONDS: int = get_from_env("ID_JAG_CLOCK_SKEW_SECONDS", 30, type_cast=int)
+# IdPs issue ID-JAGs for immediate use (5 minutes is typical); the cap leaves headroom above that.
+ID_JAG_MAX_ASSERTION_LIFETIME_SECONDS: int = get_from_env(
+    "ID_JAG_MAX_ASSERTION_LIFETIME_SECONDS", 60 * 10, type_cast=int
+)
 ID_JAG_JWKS_CACHE_TTL_SECONDS: int = get_from_env("ID_JAG_JWKS_CACHE_TTL_SECONDS", 60 * 60, type_cast=int)
 
 # Extra accepted ID-JAG `aud` values (the advertised authorization-server issuer) beyond SITE_URL —
@@ -1292,8 +1302,6 @@ TOOLBAR_OAUTH_SCOPES = [
     "heatmap:write",
     "element:read",
     "uploaded_media:write",
-    "survey:read",
-    "survey:write",
     "field_note:read",
     "field_note:write",
 ]
@@ -1341,11 +1349,6 @@ WIZARD_GATEWAY_CLIENT_IDS = [
     client_id for client_id in get_list(get_from_env("WIZARD_GATEWAY_CLIENT_IDS", "")) if client_id
 ]
 WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20")
-# Wizard programs that may mint, each getting its own pinned product node and so
-# its own per-program budget and mint quota. The list is authoritative: a program
-# absent here is refused, not folded into a generic node, so listing a new program
-# is required rather than optional. Mirrors the CLI's PROGRAM_REGISTRY.
-WIZARD_GATEWAY_PROGRAM_IDS = get_list(get_from_env("WIZARD_GATEWAY_PROGRAM_IDS", ""))
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
 # Per-posture limits, JSON {"new"|"active"|"paid": {"cap_usd", "max_cap_usd",
 # "mints_per_week", "ttl_seconds"}}, each field optional and falling back to that
@@ -1384,10 +1387,8 @@ DESKTOP_GATEWAY_TOKEN_CAP_USD = get_from_env("DESKTOP_GATEWAY_TOKEN_CAP_USD", "2
 DESKTOP_GATEWAY_TOKEN_CAP_USD_OVERRIDES = get_from_env("DESKTOP_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
 # A plan, access or membership change outlives a token by at most this long. All mints share the
 # gateway's relay-key mint ceiling, so a shorter TTL supports fewer concurrent sessions; past it the
-# gateway answers 429 and the app stays on the legacy gateway.
+# gateway answers 429 and the mint fails.
 DESKTOP_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DESKTOP_GATEWAY_TOKEN_TTL_SECONDS", 300, type_cast=int)
-# Org-targeted; gates the desktop mint and the sandbox worker's posthog_code mint alike.
-DESKTOP_GATEWAY_ROLLOUT_FLAG = get_from_env("DESKTOP_GATEWAY_ROLLOUT_FLAG", "posthog-desktop-ai-gateway")
 # Per-user mint ceiling because OAuth callers skip DRF's default throttles. At the default TTL each
 # open project on each device mints about 13 times an hour.
 DESKTOP_GATEWAY_MINTS_PER_HOUR = get_from_env("DESKTOP_GATEWAY_MINTS_PER_HOUR", 120, type_cast=int)
@@ -1473,6 +1474,16 @@ WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY: int = get_from_env(
 
 WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE: int = get_from_env(
     "WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE", 100, type_cast=int
+)
+
+# Stale-while-revalidate grace for user-facing web analytics precompute reads:
+# windows that expired within this many seconds are served from their
+# complete-but-stale rows instantly (with a background revalidation enqueued)
+# instead of recomputing inline. Lowering it bounds the staleness a user can
+# see at the cost of more reads falling through to the live query. Must stay
+# well under the precompute framework's 48h ClickHouse expiry buffer.
+WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS: int = get_from_env(
+    "WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS", 4 * 60 * 60, type_cast=int
 )
 
 # Cohort the weekly AI path-cleaning-suggestion job runs for. Defaults to the precompute enrollment

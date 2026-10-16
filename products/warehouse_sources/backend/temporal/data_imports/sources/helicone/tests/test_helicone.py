@@ -8,50 +8,34 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.helicone import (
+    HeliconeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.helicone import (
     HeliconeResumeConfig,
-    _eval_scores_rows,
     _extract_data,
     _format_timestamp,
-    _prompts_rows,
-    _properties_rows,
-    _requests_rows,
-    _sessions_rows,
-    _users_rows,
-    helicone_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.settings import (
     EVAL_SCORES_ENDPOINT,
     PROMPTS_ENDPOINT,
     PROPERTIES_ENDPOINT,
+    REQUESTS_ENDPOINT,
     SESSIONS_ENDPOINT,
     USERS_ENDPOINT,
 )
-
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.helicone.helicone"
-
-
-def _response(status: int = 200, json_body: Any = None, text: str = "") -> mock.MagicMock:
-    response = mock.MagicMock(spec=requests.Response)
-    response.status_code = status
-    response.ok = 200 <= status < 300
-    response.text = text
-    response.json.return_value = json_body
-    return response
+from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.source import HeliconeSource
 
 
-def _session_returning(responses: list[mock.MagicMock]) -> mock.MagicMock:
-    session = mock.MagicMock(spec=requests.Session)
-    session.post.side_effect = responses
-    return session
-
-
-def _no_resume_manager() -> mock.MagicMock:
-    manager = mock.MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = False
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(HeliconeSource(), HeliconeSourceConfig(api_key="key", region="us"))
 
 
 class TestExtractData:
@@ -94,129 +78,109 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_valid: bool) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
-            make_session.return_value.post.return_value = _response(status=status)
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             is_valid, message = validate_credentials("key", "us")
 
         assert is_valid is expected_valid
+        assert network.requests_log[0].path == "/v1/request/query"
+        assert network.requests_log[0].json() == {"filter": "all", "limit": 1, "offset": 0}
         if expected_valid:
             assert message is None
         else:
             assert message is not None
 
     def test_network_error_is_not_valid(self) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
-            make_session.return_value.post.side_effect = requests.ConnectionError("boom")
+        with scripted_network(always(requests.ConnectionError("boom"))) as network:
             is_valid, message = validate_credentials("key", "us")
 
         assert is_valid is False
         assert message is not None
+        assert {request.path for request in network.requests_log} == {"/v1/request/query"}
 
     @parameterized.expand([("us", "https://api.helicone.ai"), ("eu", "https://eu.api.helicone.ai")])
     def test_uses_regional_host(self, region: str, expected_host: str) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
-            make_session.return_value.post.return_value = _response(status=200)
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials("key", region)
 
-        called_url = make_session.return_value.post.call_args.args[0]
-        assert called_url.startswith(expected_host)
+        assert network.requests_log[0].url.startswith(expected_host)
 
 
 class TestRequestsRows:
-    def _rows(self, session: mock.MagicMock, manager: mock.MagicMock, **kwargs: Any) -> list[list[dict[str, Any]]]:
-        defaults: dict[str, Any] = {
-            "should_use_incremental_field": False,
-            "db_incremental_field_last_value": None,
-            "incremental_field": None,
-        }
-        defaults.update(kwargs)
-        return list(
-            _requests_rows(
-                session,
-                "https://api.helicone.ai",
-                {},
-                mock.MagicMock(),
-                manager,
-                **defaults,
-            )
-        )
-
     def test_full_refresh_pages_until_short_page(self) -> None:
-        with mock.patch(f"{MODULE}.REQUESTS_PAGE_SIZE", 2):
-            session = _session_returning(
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.helicone.helicone.REQUESTS_PAGE_SIZE", 2
+        ):
+            result = _driver().run(
+                REQUESTS_ENDPOINT,
                 [
-                    _response(json_body={"data": [{"request_id": "a"}, {"request_id": "b"}], "error": None}),
-                    _response(json_body={"data": [{"request_id": "c"}], "error": None}),
-                ]
+                    ScriptedResponse(json={"data": [{"request_id": "a"}, {"request_id": "b"}], "error": None}),
+                    ScriptedResponse(json={"data": [{"request_id": "c"}], "error": None}),
+                ],
             )
-            manager = _no_resume_manager()
 
-            batches = self._rows(session, manager)
+        assert result.raised is None
+        assert [row["request_id"] for row in result.rows] == ["a", "b", "c"]
 
-        assert [row["request_id"] for batch in batches for row in batch] == ["a", "b", "c"]
-
-        bodies = [call.kwargs["json"] for call in session.post.call_args_list]
+        bodies = [request.json() for request in result.requests]
         assert [body["offset"] for body in bodies] == [0, 2]
         assert all(body["filter"] == "all" for body in bodies)
         assert all(body["sort"] == {"created_at": "asc"} for body in bodies)
 
         # State is saved after each yielded page with the cumulative offset.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert [state.offset for state in saved] == [2, 3]
+        assert [state.offset for state in result.saved_states] == [2, 3]
 
     @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_first_incremental_sync_bounds_backfill_to_lookback(self) -> None:
-        session = _session_returning([_response(json_body={"data": [], "error": None})])
-        manager = _no_resume_manager()
+        result = _driver().run(
+            REQUESTS_ENDPOINT,
+            [ScriptedResponse(json={"data": [], "error": None})],
+            should_use_incremental_field=True,
+        )
 
-        self._rows(session, manager, should_use_incremental_field=True, db_incremental_field_last_value=None)
-
-        body = session.post.call_args.kwargs["json"]
+        assert result.raised is None
+        body = result.requests[0].json()
         assert body["filter"] == {"request_response_rmt": {"request_created_at": {"gte": "2025-06-04T12:00:00.000Z"}}}
 
     def test_resume_state_restores_offset_and_pins_cutoff(self) -> None:
-        session = _session_returning([_response(json_body={"data": [], "error": None})])
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = HeliconeResumeConfig(offset=4000, created_after="2026-01-01T00:00:00.000Z")
-
-        self._rows(
-            session,
-            manager,
+        result = _driver().run(
+            REQUESTS_ENDPOINT,
+            [ScriptedResponse(json={"data": [], "error": None})],
+            resume_state=HeliconeResumeConfig(offset=4000, created_after="2026-01-01T00:00:00.000Z"),
             should_use_incremental_field=True,
             # A resumed run must page the window captured at run start, not this newer value.
             db_incremental_field_last_value=datetime(2026, 5, 1, tzinfo=UTC),
         )
 
-        body = session.post.call_args.kwargs["json"]
+        assert result.raised is None
+        body = result.requests[0].json()
         assert body["offset"] == 4000
         assert body["filter"] == {"request_response_rmt": {"request_created_at": {"gte": "2026-01-01T00:00:00.000Z"}}}
 
     def test_api_error_result_raises(self) -> None:
-        session = _session_returning([_response(json_body={"data": None, "error": "invalid filter"})])
-        manager = _no_resume_manager()
+        result = _driver().run(REQUESTS_ENDPOINT, [ScriptedResponse(json={"data": None, "error": "invalid filter"})])
 
-        with pytest.raises(Exception, match="invalid filter"):
-            self._rows(session, manager)
+        assert isinstance(result.raised, Exception)
+        assert "invalid filter" in str(result.raised)
 
 
 class TestSessionsRows:
     @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_sends_required_params_and_pages_until_short_page(self) -> None:
-        with mock.patch(f"{MODULE}.SESSIONS_PAGE_SIZE", 2):
-            session = _session_returning(
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.helicone.helicone.SESSIONS_PAGE_SIZE", 2
+        ):
+            result = _driver().run(
+                SESSIONS_ENDPOINT,
                 [
-                    _response(json_body={"data": [{"session_id": "s1"}, {"session_id": "s2"}], "error": None}),
-                    _response(json_body={"data": [], "error": None}),
-                ]
+                    ScriptedResponse(json={"data": [{"session_id": "s1"}, {"session_id": "s2"}], "error": None}),
+                    ScriptedResponse(json={"data": [], "error": None}),
+                ],
             )
-            manager = _no_resume_manager()
 
-            batches = list(_sessions_rows(session, "https://api.helicone.ai", {}, mock.MagicMock(), manager))
+        assert result.raised is None
+        assert [row["session_id"] for row in result.rows] == ["s1", "s2"]
 
-        assert [row["session_id"] for batch in batches for row in batch] == ["s1", "s2"]
-
-        body = session.post.call_args_list[0].kwargs["json"]
+        body = result.requests[0].json()
         # These fields are required by the API even when unused; dropping one is a 400.
         assert body["search"] == ""
         assert body["timezoneDifference"] == 0
@@ -224,14 +188,14 @@ class TestSessionsRows:
         assert body["timeFilter"] == {"startTimeUnixMs": 0, "endTimeUnixMs": 1780574400000}
 
     def test_resume_pins_time_window_across_attempts(self) -> None:
-        session = _session_returning([_response(json_body={"data": [], "error": None})])
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = HeliconeResumeConfig(offset=6, end_time_unix_ms=1700000000000)
+        result = _driver().run(
+            SESSIONS_ENDPOINT,
+            [ScriptedResponse(json={"data": [], "error": None})],
+            resume_state=HeliconeResumeConfig(offset=6, end_time_unix_ms=1700000000000),
+        )
 
-        list(_sessions_rows(session, "https://api.helicone.ai", {}, mock.MagicMock(), manager))
-
-        body = session.post.call_args.kwargs["json"]
+        assert result.raised is None
+        body = result.requests[0].json()
         assert body["offset"] == 6
         # Recomputing "now" on resume would shift rows across page boundaries.
         assert body["timeFilter"]["endTimeUnixMs"] == 1700000000000
@@ -239,59 +203,64 @@ class TestSessionsRows:
 
 class TestUsersRows:
     def test_yields_rows_from_single_unpaginated_request(self) -> None:
-        session = _session_returning([_response(json_body={"data": [{"user_id": "u1", "cost": 1.5}], "error": None})])
+        result = _driver().run(
+            USERS_ENDPOINT,
+            [ScriptedResponse(json={"data": [{"user_id": "u1", "cost": 1.5}], "error": None})],
+        )
 
-        batches = list(_users_rows(session, "https://api.helicone.ai", {}, mock.MagicMock()))
-
-        assert batches == [[{"user_id": "u1", "cost": 1.5}]]
-        assert session.post.call_count == 1
-        assert "timeFilter" in session.post.call_args.kwargs["json"]
+        assert result.raised is None
+        assert result.items == [[{"user_id": "u1", "cost": 1.5}]]
+        assert len(result.requests) == 1
+        assert result.requests[0].method == "POST"
+        assert "timeFilter" in result.requests[0].json()
 
 
 class TestPromptsRows:
     def test_pages_with_page_numbers_and_handles_bare_array_response(self) -> None:
-        with mock.patch(f"{MODULE}.PROMPTS_PAGE_SIZE", 2):
-            session = _session_returning(
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.helicone.helicone.PROMPTS_PAGE_SIZE", 2
+        ):
+            result = _driver().run(
+                PROMPTS_ENDPOINT,
                 [
                     # The prompts endpoint documents a bare-array response (no {data, error} wrapper).
-                    _response(json_body=[{"id": "p1"}, {"id": "p2"}]),
-                    _response(json_body=[{"id": "p3"}]),
-                ]
+                    ScriptedResponse(json=[{"id": "p1"}, {"id": "p2"}]),
+                    ScriptedResponse(json=[{"id": "p3"}]),
+                ],
             )
-            manager = _no_resume_manager()
 
-            batches = list(_prompts_rows(session, "https://api.helicone.ai", {}, mock.MagicMock(), manager))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["p1", "p2", "p3"]
 
-        assert [row["id"] for batch in batches for row in batch] == ["p1", "p2", "p3"]
-
-        bodies = [call.kwargs["json"] for call in session.post.call_args_list]
+        bodies = [request.json() for request in result.requests]
         assert [body["page"] for body in bodies] == [0, 1]
         assert all(body["search"] == "" and body["tagsFilter"] == [] for body in bodies)
 
 
 class TestPropertiesRows:
     def test_posts_empty_body_and_yields_property_rows(self) -> None:
-        session = _session_returning(
-            [_response(json_body={"data": [{"property": "environment"}, {"property": "feature"}], "error": None})]
+        result = _driver().run(
+            PROPERTIES_ENDPOINT,
+            [ScriptedResponse(json={"data": [{"property": "environment"}, {"property": "feature"}], "error": None})],
         )
 
-        batches = list(_properties_rows(session, "https://api.helicone.ai", {}, mock.MagicMock()))
-
-        assert batches == [[{"property": "environment"}, {"property": "feature"}]]
-        assert session.post.call_args.args[0] == "https://api.helicone.ai/v1/property/query"
-        assert session.post.call_args.kwargs["json"] == {}
+        assert result.raised is None
+        assert result.items == [[{"property": "environment"}, {"property": "feature"}]]
+        assert result.requests[0].url == "https://api.helicone.ai/v1/property/query"
+        assert result.requests[0].json() == {}
 
 
 class TestEvalScoresRows:
     def test_gets_and_wraps_score_names_into_rows(self) -> None:
-        session = mock.MagicMock(spec=requests.Session)
-        session.get.return_value = _response(json_body={"data": ["accuracy", "helpfulness"], "error": None})
+        result = _driver().run(
+            EVAL_SCORES_ENDPOINT,
+            [ScriptedResponse(json={"data": ["accuracy", "helpfulness"], "error": None})],
+        )
 
-        batches = list(_eval_scores_rows(session, "https://api.helicone.ai", {}, mock.MagicMock()))
-
-        assert batches == [[{"score": "accuracy"}, {"score": "helpfulness"}]]
-        assert session.get.call_args.args[0] == "https://api.helicone.ai/v1/evals/scores"
-        session.post.assert_not_called()
+        assert result.raised is None
+        assert result.items == [[{"score": "accuracy"}, {"score": "helpfulness"}]]
+        assert result.requests[0].url == "https://api.helicone.ai/v1/evals/scores"
+        assert result.requests[0].method == "GET"
 
 
 class TestHeliconeSourceResponse:
@@ -305,14 +274,11 @@ class TestHeliconeSourceResponse:
         ]
     )
     def test_full_refresh_response_metadata(self, endpoint: str, expected_primary_keys: list[str]) -> None:
-        response = helicone_source(
-            api_key="key",
-            region="us",
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(spec=ResumableSourceManager),
-        )
+        result = _driver().run(endpoint, [ScriptedResponse(json={"data": []})])
+        response = result.response
 
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_primary_keys
         assert response.partition_mode is None

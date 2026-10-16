@@ -60,7 +60,9 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
     },
     'batch-export-alerts': { label: 'Batch export alerts' },
     'billing-alerts': { label: 'Billing alerts' },
+    'data-warehouse-alerts': { label: 'Data warehouse alerts', url: urls.sources() },
     'replay-vision-alerts': { label: 'Replay vision alerts' },
+    'replay-vision-requests': { label: 'Replay vision requests' },
 }
 
 function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType }): JSX.Element | null {

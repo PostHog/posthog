@@ -369,6 +369,18 @@ def _get_openai_client() -> OpenAI:
     return OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=3)
 
 
+def _previous_states_rendered_in_current_delivery(
+    previous_states: list[dict] | None,
+    current_states: list[dict],
+) -> list[dict] | None:
+    # A summary must describe only what this delivery rendered, so the delivery access
+    # check (which covers only the current snapshot's insights) also covers the summary.
+    if not previous_states:
+        return previous_states
+    current_insight_ids = {state["insight_id"] for state in current_states}
+    return [state for state in previous_states if state["insight_id"] in current_insight_ids]
+
+
 def generate_change_summary(
     previous_states: list[dict] | None,
     current_states: list[dict],
@@ -381,6 +393,8 @@ def generate_change_summary(
     annotations_section: str = "",
 ) -> str:
     team_id = team.id if team else 0
+
+    previous_states = _previous_states_rendered_in_current_delivery(previous_states, current_states)
 
     if previous_states:
         messages = build_prompt_messages(

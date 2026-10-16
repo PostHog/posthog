@@ -96,6 +96,7 @@ STREAMLIT_AUTH_PROXY_PORT = 8080
 # host.docker.internal at `docker run` time (non-localhost hosts pass through).
 _DOCKER_URL_ENV_KEYS = frozenset(
     {
+        "AI_GATEWAY_URL",
         "LLM_GATEWAY_URL",
         "POSTHOG_API_URL",
         "POSTHOG_SITE_URL",
@@ -978,6 +979,7 @@ class DockerSandbox(AgentServerLaunchMixin):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        pi_acp_conversation: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
@@ -1008,6 +1010,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
+            pi_acp_conversation=pi_acp_conversation,
         )
         subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"

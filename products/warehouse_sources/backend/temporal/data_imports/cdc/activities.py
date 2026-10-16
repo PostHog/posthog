@@ -1288,10 +1288,13 @@ class CDCExtractActivity:
         # Outside an activity nothing retries, so every failure there is terminal.
         retries_left = activity.in_activity() and activity.info().attempt < CDC_MAX_EXTRACTION_ATTEMPTS
         terminal = not info.retryable or not retries_left
+        newly_failed_schema_ids: list[str] = []
         for schema in self.cdc_schemas:
             # Only a terminal failure paints the schema. A later successful attempt never repaints it,
             # because its status belongs to the scheduled sync that consumes the buffer.
             if terminal and not marked_broken:
+                if schema.status != ExternalDataSchema.Status.FAILED:
+                    newly_failed_schema_ids.append(str(schema.id))
                 schema.status = ExternalDataSchema.Status.FAILED
                 schema.latest_error = friendly
                 schema.save(update_fields=["status", "latest_error", "updated_at"])
@@ -1325,6 +1328,10 @@ class CDCExtractActivity:
         # here, mirroring what update_external_job_status does for non-CDC syncs.
         if terminal and not marked_broken:
             self._schedule_failure_digest()
+            # A paused schedule runs no more, so each schema it stops sends the alert once.
+            paused = not info.retryable
+            alert_schema_ids = [str(schema.id) for schema in self.cdc_schemas] if paused else newly_failed_schema_ids
+            self._emit_sync_alerts(alert_schema_ids, paused=paused)
         # An unclassified failure stays retryable and never pauses the schedule, so a deterministic
         # one re-fails every scheduled run indefinitely. Only _capture_non_retryable emits analytics,
         # so these never reach error triage — capture the terminal case so the taxonomy can be taught
@@ -1333,6 +1340,24 @@ class CDCExtractActivity:
             self._capture_unclassified(exc)
         self._emit_run_duration("failed")
         return info
+
+    def _emit_sync_alerts(self, schema_ids: list[str], *, paused: bool) -> None:
+        # An unclassified failure fails every scheduled run again. Only the schemas this run moved
+        # to Failed send an alert, so a failure that persists sends one alert, not one for each run.
+        # Deferred: the data_warehouse facade imports this pipeline back.
+        from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
+            SyncAlertEvent,
+            SyncAlertKind,
+            emit_sync_alert,
+        )
+
+        for schema_id in schema_ids:
+            emit_sync_alert(
+                team_id=self.inputs.team_id,
+                schema_id=schema_id,
+                event=SyncAlertEvent.FAILED,
+                kind=SyncAlertKind.SCHEMA_PAUSED if paused else SyncAlertKind.JOB_FAILED,
+            )
 
     def _schedule_failure_digest(self) -> None:
         try:

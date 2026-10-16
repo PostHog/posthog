@@ -289,8 +289,9 @@ class DeltaBatchConsumerAdapter:
         *,
         batches: list[PendingBatch],
         owner_token: str,
+        skip_locked: bool = False,
     ) -> None:
-        await BatchQueue.unlock_for_batches(conn, batches=batches, owner_token=owner_token)
+        await BatchQueue.unlock_for_batches(conn, batches=batches, owner_token=owner_token, skip_locked=skip_locked)
 
     async def release_all_owned(
         self,

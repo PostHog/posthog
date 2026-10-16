@@ -1,12 +1,20 @@
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.smaily import smaily
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smaily import SmailySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.settings import (
     CAMPAIGN_STATISTICS,
     ENDPOINTS,
@@ -17,67 +25,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.sma
     SmailyResumeConfig,
     SmailyRetryableError,
     check_access,
-    get_rows,
     normalize_subdomain,
-    smaily_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.source import SmailySource
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_unwrapped = smaily._fetch.__wrapped__  # type: ignore[attr-defined]
-
-BASE_URL = "https://acme.sendsmaily.net/api"
+BASE_PATH = "/api"
 
 
-class _FakeResumableManager:
-    def __init__(self, state: SmailyResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[SmailyResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> SmailyResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: SmailyResumeConfig) -> None:
-        self.saved.append(data)
+def _run(endpoint: str, script: Script, **inputs: Any) -> DriveResult:
+    config = SmailySourceConfig(subdomain="acme", username="user", password="pass")
+    return SourceDriver(SmailySource(), config).run(endpoint, script, **inputs)
 
 
-class _FakeApi:
-    """Routes `_fetch(session, url, params, logger)` calls to canned responses and records requests."""
-
-    def __init__(self, responder: Any) -> None:
-        self._responder = responder
-        self.requests: list[tuple[str, dict[str, Any]]] = []
-
-    def __call__(self, session: Any, url: str, params: dict[str, Any], logger: Any, expect_list: bool = False) -> Any:
-        self.requests.append((url, dict(params)))
-        return self._responder(url, params)
-
-
-def _collect(
-    monkeypatch: Any,
-    endpoint: str,
-    responder: Any,
-    manager: _FakeResumableManager | None = None,
-) -> tuple[list[dict], _FakeApi, _FakeResumableManager]:
-    api = _FakeApi(responder)
-    manager = manager or _FakeResumableManager()
-    monkeypatch.setattr(smaily, "_fetch", api)
-    monkeypatch.setattr(smaily, "make_tracked_session", lambda **kwargs: MagicMock())
-
-    rows: list[dict] = []
-    for batch in get_rows(
-        subdomain="acme",
-        username="user",
-        password="pass",
-        endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-    ):
-        rows.extend(batch)
-    return rows, api, manager
+def _json(body: Any, status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=body)
 
 
 class TestNormalizeSubdomain:
@@ -107,82 +69,69 @@ class TestNormalizeSubdomain:
 
 
 class TestFetch:
-    def _session_returning(self, status_code: int, body: Any = None, invalid_json: bool = False) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        if invalid_json:
-            response.json.side_effect = ValueError("not json")
-        else:
-            response.json.return_value = body if body is not None else []
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
-
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(SmailyRetryableError):
-            _fetch_unwrapped(session, f"{BASE_URL}/campaign.php", {}, MagicMock())
+        result = _run("campaigns", always(_json([], status)))
+
+        assert isinstance(result.raised, SmailyRetryableError)
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(requests.HTTPError):
-            _fetch_unwrapped(session, f"{BASE_URL}/campaign.php", {}, MagicMock())
+        result = _run("campaigns", [_json([], status)])
+
+        assert isinstance(result.raised, requests.HTTPError)
 
     def test_non_json_body_is_retryable(self) -> None:
         # Smaily serves JSON with a text/html Content-Type; an HTML error page must not crash the sync.
-        session = self._session_returning(200, invalid_json=True)
-        with pytest.raises(SmailyRetryableError):
-            _fetch_unwrapped(session, f"{BASE_URL}/campaign.php", {}, MagicMock())
+        result = _run("campaigns", always(ScriptedResponse(body=b"<html>oops</html>")))
+
+        assert isinstance(result.raised, SmailyRetryableError)
 
     @parameterized.expand([("dict_body", {"error": "nope"}), ("non_dict_rows", ["oops"])])
     def test_unexpected_list_shape_is_retryable_inside_fetch(self, _name: str, body: Any) -> None:
         # Shape validation must run inside the retried function so a malformed payload gets
         # backoff instead of failing the sync on the first hit.
-        session = self._session_returning(200, body)
-        with pytest.raises(SmailyRetryableError):
-            _fetch_unwrapped(session, f"{BASE_URL}/campaign.php", {}, MagicMock(), expect_list=True)
+        result = _run("campaigns", always(_json(body)))
+
+        assert isinstance(result.raised, SmailyRetryableError)
+        assert len(result.requests) > 1
 
 
 class TestTopLevelEndpoints:
-    def test_pages_until_short_page(self, monkeypatch: Any) -> None:
+    def test_pages_until_short_page(self) -> None:
         page_size = SMAILY_ENDPOINTS["campaigns"].page_size
         assert page_size is not None
         pages = {
-            0: [{"id": i} for i in range(page_size)],
-            1: [{"id": page_size}],
+            "0": [{"id": i} for i in range(page_size)],
+            "1": [{"id": page_size}],
         }
-        rows, api, manager = _collect(monkeypatch, "campaigns", lambda url, params: pages[params["page"]])
 
-        assert len(rows) == page_size + 1
+        result = _run("campaigns", lambda request: _json(pages[request.param("page") or ""]))
+
+        assert len(result.rows) == page_size + 1
         # State is saved after the first full page so a retry skips straight to page 1.
-        assert [s.page for s in manager.saved] == [1]
+        assert [s.page for s in result.saved_states] == [1]
 
-    def test_unpaginated_endpoint_fetches_once_without_page_params(self, monkeypatch: Any) -> None:
-        rows, api, manager = _collect(monkeypatch, "segments", lambda url, params: [{"id": 4, "name": "Women"}])
+    def test_unpaginated_endpoint_fetches_once_without_page_params(self) -> None:
+        result = _run("segments", [_json([{"id": 4, "name": "Women"}])])
 
-        assert rows == [{"id": 4, "name": "Women"}]
-        assert api.requests == [(f"{BASE_URL}/list.php", {})]
-        assert manager.saved == []
+        assert result.rows == [{"id": 4, "name": "Women"}]
+        assert result.paths == [f"{BASE_PATH}/list.php"]
+        assert result.queries == [{}]
+        assert result.saved_states == []
 
 
 class TestSegmentSubscribers:
     @staticmethod
     def _responder(subscribers_by_segment: dict[str, list[list[dict] | None]]) -> Any:
-        def respond(url: str, params: dict[str, Any]) -> Any:
-            if url.endswith("/list.php"):
-                return [{"id": segment_id} for segment_id in subscribers_by_segment]
-            return subscribers_by_segment[params["list"]][params["offset"]]
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/list.php"):
+                return _json([{"id": segment_id} for segment_id in subscribers_by_segment])
+            return _json(subscribers_by_segment[request.param("list") or ""][int(request.param("offset") or 0)])
 
         return respond
 
-    def test_paginates_within_segment_and_saves_state_after_yield(self, monkeypatch: Any) -> None:
+    def test_paginates_within_segment_and_saves_state_after_yield(self) -> None:
         page_size = SMAILY_ENDPOINTS[SEGMENT_SUBSCRIBERS].page_size
         assert page_size is not None
         responder = self._responder(
@@ -193,94 +142,76 @@ class TestSegmentSubscribers:
                 ],
             }
         )
-        rows, _, manager = _collect(monkeypatch, SEGMENT_SUBSCRIBERS, responder)
+        result = _run(SEGMENT_SUBSCRIBERS, responder)
 
-        assert len(rows) == page_size + 1
+        assert len(result.rows) == page_size + 1
         # First save: next page of segment 1; second save: segment 1 finished, queue empty.
-        assert [(s.page, s.pending_parent_ids) for s in manager.saved] == [(1, ["1"]), (0, [])]
+        assert [(s.page, s.pending_parent_ids) for s in result.saved_states] == [(1, ["1"]), (0, [])]
 
-    def test_resumes_mid_segment_without_refetching_segment_list(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(SmailyResumeConfig(page=2, pending_parent_ids=["5", "6"]))
+    def test_resumes_mid_segment_without_refetching_segment_list(self) -> None:
         responder = self._responder(
             {
                 "5": [None, None, [{"email": "resumed@x.com"}]],  # only page 2 is ever requested
                 "6": [[{"email": "next@x.com"}]],
             }
         )
-        rows, api, _ = _collect(monkeypatch, SEGMENT_SUBSCRIBERS, responder, manager)
+        result = _run(
+            SEGMENT_SUBSCRIBERS,
+            responder,
+            resume_state=SmailyResumeConfig(page=2, pending_parent_ids=["5", "6"]),
+        )
 
-        assert [row["email"] for row in rows] == ["resumed@x.com", "next@x.com"]
+        assert [row["email"] for row in result.rows] == ["resumed@x.com", "next@x.com"]
         # The segment list must not be re-fetched on resume — ids come from the saved queue.
-        assert all(not url.endswith("/list.php") for url, _ in api.requests)
-        assert api.requests[0][1] == {"list": "5", "limit": 25000, "offset": 2}
+        assert all(not path.endswith("/list.php") for path in result.paths)
+        assert result.queries[0] == {"list": ("5",), "limit": ("25000",), "offset": ("2",)}
 
 
 class TestCampaignStatistics:
     @staticmethod
     def _responder(stats_by_id: dict[str, Any]) -> Any:
-        def respond(url: str, params: dict[str, Any]) -> Any:
-            if "id" in params:
-                return stats_by_id[params["id"]]
-            return [{"id": int(campaign_id)} for campaign_id in stats_by_id]
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            campaign_id = request.param("id")
+            if campaign_id is not None:
+                return _json(stats_by_id[campaign_id])
+            return _json([{"id": int(campaign_id)} for campaign_id in stats_by_id])
 
         return respond
 
-    def test_resume_skips_already_processed_campaigns(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(SmailyResumeConfig(page=0, pending_parent_ids=["3"]))
+    def test_resume_skips_already_processed_campaigns(self) -> None:
         responder = self._responder({"3": {"id": 3, "delivered_count": 30}})
-        rows, api, _ = _collect(monkeypatch, CAMPAIGN_STATISTICS, responder, manager)
+        result = _run(CAMPAIGN_STATISTICS, responder, resume_state=SmailyResumeConfig(page=0, pending_parent_ids=["3"]))
 
-        assert rows == [{"id": 3, "delivered_count": 30}]
+        assert result.rows == [{"id": 3, "delivered_count": 30}]
         # The campaign listing must not be re-fetched on resume.
-        assert api.requests == [(f"{BASE_URL}/campaign.php", {"id": "3"})]
+        assert result.paths == [f"{BASE_PATH}/campaign.php"]
+        assert result.queries == [{"id": ("3",)}]
 
-    def test_unusable_stats_payload_yields_id_only_row(self, monkeypatch: Any) -> None:
+    def test_unusable_stats_payload_yields_id_only_row(self) -> None:
         # A campaign whose stats come back malformed (e.g. an empty list) must not silently
         # vanish from the table — it keeps a row with a numeric id and null stats columns.
         responder = self._responder({"1": [], "2": {"id": 2, "delivered_count": 20}})
-        rows, _, _ = _collect(monkeypatch, CAMPAIGN_STATISTICS, responder)
+        result = _run(CAMPAIGN_STATISTICS, responder)
 
-        assert rows == [{"id": 1}, {"id": 2, "delivered_count": 20}]
+        assert result.rows == [{"id": 1}, {"id": 2, "delivered_count": 20}]
 
 
 class TestCheckAccess:
-    @staticmethod
-    def _session(response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
-
     @parameterized.expand(
         [
-            ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "Smaily returned HTTP 500"),
+            ("ok", 200, 200, None),
+            ("unauthorized", 401, 401, None),
+            ("forbidden", 403, 403, None),
+            ("server_error", 500, 500, "Smaily returned HTTP 500"),
         ]
     )
-    @patch(f"{smaily.__name__}.make_tracked_session")
-    def test_status_mapping(
-        self,
-        _name: str,
-        status: int,
-        ok: bool,
-        expected_status: int,
-        expected_message: str | None,
-        mock_session: MagicMock,
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        mock_session.return_value = self._session(response)
-        assert check_access("acme", "user", "pass") == (expected_status, expected_message)
+    def test_status_mapping(self, _name: str, status: int, expected_status: int, expected_message: str | None) -> None:
+        with scripted_network(always(_json([], status))):
+            assert check_access("acme", "user", "pass") == (expected_status, expected_message)
 
-    @patch(f"{smaily.__name__}.make_tracked_session")
-    def test_connection_error_maps_to_zero(self, mock_session: MagicMock) -> None:
-        mock_session.return_value = self._session(requests.ConnectionError("boom"))
-        status, message = check_access("acme", "user", "pass")
+    def test_connection_error_maps_to_zero(self) -> None:
+        with scripted_network(always(requests.ConnectionError("boom"))):
+            status, message = check_access("acme", "user", "pass")
         assert status == 0
         assert message is not None and "boom" in message
 
@@ -302,33 +233,22 @@ class TestCheckAccess:
             ("server_error", 500, False, "Smaily returned HTTP 500"),
         ]
     )
-    @patch(f"{smaily.__name__}.make_tracked_session")
     def test_validate_credentials(
         self,
         _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
-        mock_session: MagicMock,
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        mock_session.return_value = self._session(response)
-        assert validate_credentials("acme", "user", "pass") == (expected_valid, expected_message)
+        with scripted_network(always(_json([], status))):
+            assert validate_credentials("acme", "user", "pass") == (expected_valid, expected_message)
 
 
 class TestSmailySourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = smaily_source(
-            subdomain="acme",
-            username="user",
-            password="pass",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _run(endpoint, always(_json([]))).response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == SMAILY_ENDPOINTS[endpoint].primary_keys
 

@@ -5,6 +5,8 @@ from collections.abc import Callable
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
@@ -13,9 +15,12 @@ from posthog.clickhouse.query_tagging import Product, QueryTags, query_tags, res
 from posthog.constants import AvailableFeature
 
 
-class TestRateLimit(BaseTest):
+class TestRateLimit(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
+        team_bypass_patcher = patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False)
+        team_bypass_patcher.start()
+        self.addCleanup(team_bypass_patcher.stop)
         self.limit = RateLimit(
             max_concurrency=1,
             applicable=lambda *args, **kwargs: kwargs.get("is_api") if "is_api" in kwargs else args[0],
@@ -41,6 +46,13 @@ class TestRateLimit(BaseTest):
         self.cancels.append(self.limit.use(is_api=True, team_id=8, task_id=17))
         with self.assertRaises(ConcurrencyLimitExceeded):
             self.cancels.append(self.limit.use(True, 8, 18))
+
+    @patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=True)
+    def test_team_bypass_uses_default(self, bypass: Mock) -> None:
+        self.cancels.append(self.limit.use(is_api=True, team_id=8, task_id=17))
+
+        assert self.limit.use(is_api=True, team_id=8, task_id=18) is None
+        bypass.assert_called_once_with(8)
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     @patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=KillSwitchLevel.FULL)
@@ -210,7 +222,9 @@ class TestRateLimit(BaseTest):
             pass
 
         # Second task should retry and eventually fail due to timeout
-        retry_limit.use(task_id=2)
+        slot = retry_limit.use(task_id=2)
+        assert slot is not None
+        self.addCleanup(retry_limit.release, slot)
         with self.assertRaises(ConcurrencyLimitExceeded):
             with retry_limit.run(task_id=2):
                 pass

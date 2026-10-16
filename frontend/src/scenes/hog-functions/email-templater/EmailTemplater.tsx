@@ -535,8 +535,17 @@ function NativeEmailTemplaterForm({
     mode: EmailEditorMode
     fieldsHidden?: boolean
 }): JSX.Element {
-    const { unlayerEditorProjectId, logicProps, templates, mergeTags, activeContentTab, visibleFields, emailTemplate } =
-        useValues(emailTemplaterLogic)
+    const {
+        unlayerEditorProjectId,
+        emailMediaLibraryEnabled,
+        unlayerEditorUser,
+        logicProps,
+        templates,
+        mergeTags,
+        activeContentTab,
+        visibleFields,
+        emailTemplate,
+    } = useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, setActiveContentTab, hideAdvancedField, revealAdvancedField } =
         useActions(emailTemplaterLogic)
     // With the AI panel integration on, chat sits beside the editor and width is scarce, so the
@@ -731,8 +740,14 @@ function NativeEmailTemplaterForm({
                                             // assistant) default to on; they're third-party AI consuming
                                             // paid credits from our Unlayer workspace, so keep them all off.
                                             ai: false,
+                                            // The identified user is unsigned, so anyone can claim it. Saved
+                                            // blocks are stored per user in Unlayer, so turn them off.
+                                            ...(emailMediaLibraryEnabled
+                                                ? { userUploads: { enabled: true, search: true }, blocks: false }
+                                                : {}),
                                         },
                                         projectId: unlayerEditorProjectId,
+                                        user: unlayerEditorUser,
                                         customJS: sceneIntegrationEnabled
                                             ? [
                                                   unsubscribeLinkToolCustomJs,

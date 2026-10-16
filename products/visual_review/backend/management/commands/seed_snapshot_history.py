@@ -166,7 +166,7 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"Seeded {n} runs × 2 themes for {stem} on repo {repo.repo_full_name} ({run_type})\n"
-                f"Light: /visual_review/repos/{repo.id}/{run_type}/snapshots/{stem}--light\n"
-                f"Dark:  /visual_review/repos/{repo.id}/{run_type}/snapshots/{stem}--dark"
+                f"Light: /visual-review/repos/{repo.repo_full_name}/{run_type}/snapshots/{stem}--light\n"
+                f"Dark:  /visual-review/repos/{repo.repo_full_name}/{run_type}/snapshots/{stem}--dark"
             )
         )

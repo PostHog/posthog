@@ -1,26 +1,23 @@
-import json
+from base64 import b64encode
 from typing import Any
 
 import pytest
-from unittest import mock
 
 from parameterized import parameterized
-from requests import HTTPError, Response
-from requests.auth import HTTPBasicAuth
+from requests import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.imagga import ImaggaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.imagga import (
-    BASE_URL,
     _daily_usage_rows,
     imagga_source,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the imagga module.
-IMAGGA_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.imagga.imagga.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.source import ImaggaSource
 
 # A representative /usage result, shaped after Imagga's public docs example.
 _USAGE_RESULT = {
@@ -37,46 +34,12 @@ _USAGE_RESULT = {
 }
 
 
-def _response(payload: Any, *, status: int = 200, retry_after: Any = None) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(payload).encode()
-    resp.url = f"{BASE_URL}/usage?concurrency=1"
-    if retry_after is not None:
-        resp.headers["Retry-After"] = str(retry_after)
-    return resp
-
-
 def _usage_body(result: Any) -> dict[str, Any]:
     return {"result": result, "status": {"type": "success"}}
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and snapshot each request's params/auth/url at prepare time.
-
-    ``request.params`` is mutated in place across pages, so a copy is snapshotted per prepared request.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"params": dict(request.params or {}), "auth": request.auth, "url": request.url})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _run(endpoint: str, result: Any, MockSession: mock.MagicMock) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    session = MockSession.return_value
-    snapshots = _wire(session, [_response(_usage_body(result))])
-    rows = _rows(imagga_source("key", "secret", endpoint, team_id=1, job_id="j"))
-    return rows, snapshots
+def _driver() -> SourceDriver:
+    return SourceDriver(ImaggaSource(), ImaggaSourceConfig(api_key="key", api_secret="secret"))
 
 
 class TestDailyUsageRows:
@@ -91,54 +54,54 @@ class TestDailyUsageRows:
 
 class TestUsageEndpoint:
     @parameterized.expand([("null_result", None), ("empty_result", {})])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_result_yields_nothing(self, _name: str, result: Any, MockSession) -> None:
-        rows, _ = _run("usage", result, MockSession)
-        assert rows == []
+    def test_empty_result_yields_nothing(self, _name: str, result: Any) -> None:
+        run = _driver().run("usage", [ScriptedResponse(json=_usage_body(result))])
+        assert run.raised is None
+        assert run.rows == []
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_without_primary_key_yields_nothing(self, MockSession) -> None:
+    def test_without_primary_key_yields_nothing(self) -> None:
         # A non-empty snapshot missing `billing_period_start` must not be yielded — merging on an
         # absent primary key column fails the sync permanently instead of producing an empty batch.
-        rows, _ = _run("usage", {"monthly_limit": 2000, "concurrency": {"max": 2, "now": 1}}, MockSession)
-        assert rows == []
+        run = _driver().run(
+            "usage",
+            [ScriptedResponse(json=_usage_body({"monthly_limit": 2000, "concurrency": {"max": 2, "now": 1}}))],
+        )
+        assert run.raised is None
+        assert run.rows == []
 
 
 class TestRetryAndErrors:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("unavailable", 503)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_is_retried_then_succeeds(self, _name: str, status: int, MockSession) -> None:
-        session = MockSession.return_value
-        # Retry-After: 0 keeps the retry wait at zero so the test doesn't sleep.
-        _wire(session, [_response({}, status=status, retry_after=0), _response(_usage_body(_USAGE_RESULT))])
-        rows = _rows(imagga_source("key", "secret", "usage", team_id=1, job_id="j"))
-        assert len(rows) == 1
-        assert session.send.call_count == 2
+    def test_retryable_status_is_retried_then_succeeds(self, _name: str, status: int) -> None:
+        run = _driver().run(
+            "usage",
+            [
+                ScriptedResponse(status=status, json={}, headers={"Retry-After": "0"}),
+                ScriptedResponse(json=_usage_body(_USAGE_RESULT)),
+            ],
+        )
+        assert run.raised is None
+        assert len(run.rows) == 1
+        assert run.paths == ["/v2/usage", "/v2/usage"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_raises_http_error(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"status": {"text": "unauthorized"}}, status=401)])
-        with pytest.raises(HTTPError):
-            _rows(imagga_source("key", "secret", "usage", team_id=1, job_id="j"))
+    def test_client_error_raises_http_error(self) -> None:
+        run = _driver().run("usage", [ScriptedResponse(status=401, json={"status": {"text": "unauthorized"}})])
+        assert isinstance(run.raised, HTTPError)
 
 
 class TestValidateCredentials:
     @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    @mock.patch(IMAGGA_SESSION_PATCH)
-    def test_status_mapping(self, _name: str, status: int, expected: bool, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("key", "secret") is expected
+    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            assert validate_credentials("key", "secret") is expected
+        assert [request.path for request in network.requests_log] == ["/v2/usage"]
 
-    @mock.patch(IMAGGA_SESSION_PATCH)
-    def test_redacts_secret_and_uses_basic_auth(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("key", "secret")
+    def test_redacts_secret_and_uses_basic_auth(self) -> None:
+        with scripted_network([ScriptedResponse()]) as network:
+            assert validate_credentials("key", "secret") is True
         # The secret is masked by value in logs/samples, and travels via Basic auth.
-        assert mock_session.call_args.kwargs["redact_values"] == ("secret",)
-        auth = mock_session.return_value.get.call_args.kwargs["auth"]
-        assert isinstance(auth, HTTPBasicAuth)
-        assert (auth.username, auth.password) == ("key", "secret")
+        assert network.session_options[0]["redact_values"] == ("secret",)
+        assert network.requests_log[0].headers["authorization"] == "Basic " + b64encode(b"key:secret").decode()
 
 
 class TestImaggaSourceResponse:

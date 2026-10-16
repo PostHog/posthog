@@ -1,17 +1,20 @@
 import json
 from base64 import b64encode
-from collections.abc import Iterable
 from typing import Any, Literal, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from requests import Response
 from requests.exceptions import ConnectionError, HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sodacloud import (
     SodaCloudSourceConfig,
 )
@@ -28,35 +31,6 @@ def config() -> SodaCloudSourceConfig:
     return SodaCloudSourceConfig(api_key_id="fake-key-id", api_key_secret="fake-key-secret", region="eu")
 
 
-@pytest.fixture
-def inputs() -> SourceInputs:
-    return SourceInputs(
-        schema_name="datasets",
-        schema_id="schema-test",
-        source_id="source-test",
-        team_id=1,
-        should_use_incremental_field=False,
-        db_incremental_field_last_value=None,
-        db_incremental_field_earliest_value=None,
-        incremental_field=None,
-        incremental_field_type=None,
-        job_id="job-test",
-        logger=MagicMock(),
-        reset_pipeline=False,
-    )
-
-
-@pytest.fixture
-def manager() -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = False
-    return manager
-
-
-def response_items(source_response: SourceResponse) -> Iterable[Any]:
-    return cast(Iterable[Any], source_response.items())
-
-
 def response(rows: list[dict[str, object]], total_pages: int = 1, status: int = 200) -> Response:
     result = Response()
     result.status_code = status
@@ -67,67 +41,65 @@ def response(rows: list[dict[str, object]], total_pages: int = 1, status: int = 
     return result
 
 
+def page(rows: list[dict[str, object]], total_pages: int = 1, status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json={"content": rows, "totalPages": total_pages})
+
+
+def run(
+    config: SodaCloudSourceConfig, script: list[ScriptedResponse], schema_name: str = "datasets", **inputs: Any
+) -> DriveResult:
+    return SourceDriver(SodaCloudSource(), config).run(schema_name, script, **inputs)
+
+
 @pytest.mark.parametrize("region,host", [("eu", "cloud.soda.io"), ("us", "cloud.us.soda.io")])
 @pytest.mark.parametrize("endpoint", ["datasets", "checks", "incidents"])
 def test_paginated_requests_and_checkpoint(
     config: SodaCloudSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
     region: Literal["eu", "us"],
     host: str,
     endpoint: str,
 ) -> None:
     config.region = region
-    inputs.schema_name = endpoint
     rows: list[dict[str, object]] = [{"id": "row-one"}, {"id": "row-two"}]
-    with patch("requests.sessions.Session.send", side_effect=[response(rows[:1], 2), response(rows[1:], 2)]) as send:
-        source_response = SodaCloudSource().source_for_pipeline(config, manager, inputs)
-        pages = iter(response_items(source_response))
-        assert next(pages) == rows[:1]
-        assert list(pages) == [rows[1:]]
+    result = run(config, [page(rows[:1], 2), page(rows[1:], 2)], schema_name=endpoint)
 
-    assert send.call_count == 2
+    assert result.raised is None
+    assert result.items == [rows[:1], rows[1:]]
+    assert len(result.requests) == 2
     expected_auth = "Basic " + b64encode(b"fake-key-id:fake-key-secret").decode()
-    for page, call in enumerate(send.call_args_list):
-        request = call.args[0]
+    for page_number, request in enumerate(result.requests):
         assert request.method == "GET"
         assert urlsplit(request.url).netloc == host
-        assert urlsplit(request.url).path == f"/api/v1/{endpoint}"
-        assert parse_qs(urlsplit(request.url).query) == {"size": ["100"], "page": [str(page)]}
-        assert request.headers["Authorization"] == expected_auth
-        assert call.kwargs["allow_redirects"] is False
-    manager.save_state.assert_called_once_with(SodaCloudResumeConfig(page=1))
+        assert request.path == f"/api/v1/{endpoint}"
+        assert dict(request.query) == {"size": ("100",), "page": (str(page_number),)}
+        assert request.headers["authorization"] == expected_auth
+    assert result.saved_states == [SodaCloudResumeConfig(page=1)]
 
 
 @pytest.mark.parametrize("original_from", [None, "2026-01-01T00:00:00Z"])
-def test_resume_retains_original_filter(
-    config: SodaCloudSourceConfig, inputs: SourceInputs, manager: MagicMock, original_from: str | None
-) -> None:
-    inputs.should_use_incremental_field = True
-    inputs.db_incremental_field_last_value = "2026-01-10T00:00:00Z"
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = SodaCloudResumeConfig(page=4, from_datetime=original_from)
-    with patch("requests.sessions.Session.send", return_value=response([{"id": "row-five"}], 5)) as send:
-        assert list(response_items(SodaCloudSource().source_for_pipeline(config, manager, inputs))) == [
-            [{"id": "row-five"}]
-        ]
-    params = parse_qs(urlsplit(send.call_args.args[0].url).query)
-    assert params["page"] == ["4"]
-    assert params.get("from") == ([original_from] if original_from else None)
-    send.assert_called_once()
-    manager.save_state.assert_not_called()
+def test_resume_retains_original_filter(config: SodaCloudSourceConfig, original_from: str | None) -> None:
+    result = run(
+        config,
+        [page([{"id": "row-five"}], 5)],
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="2026-01-10T00:00:00Z",
+        resume_state=SodaCloudResumeConfig(page=4, from_datetime=original_from),
+    )
+    assert result.items == [[{"id": "row-five"}]]
+    assert len(result.requests) == 1
+    request = result.requests[0]
+    assert request.param("page") == "4"
+    assert request.param("from") == original_from
+    assert result.saved_states == []
 
 
 @pytest.mark.parametrize("status,message", [(401, AUTH_ERROR), (403, PERMISSION_ERROR)])
-def test_sync_error_matches_non_retryable_message(
-    config: SodaCloudSourceConfig, inputs: SourceInputs, manager: MagicMock, status: int, message: str
-) -> None:
+def test_sync_error_matches_non_retryable_message(config: SodaCloudSourceConfig, status: int, message: str) -> None:
     source = SodaCloudSource()
-    with patch("requests.sessions.Session.send", return_value=response([], status=status)) as send:
-        with pytest.raises(HTTPError) as error:
-            list(response_items(source.source_for_pipeline(config, manager, inputs)))
-    send.assert_called_once()
-    assert message in [value for key, value in source.get_non_retryable_errors().items() if key in str(error.value)]
+    result = run(config, [page([], status=status)])
+    assert isinstance(result.raised, HTTPError)
+    assert len(result.requests) == 1
+    assert message in [value for key, value in source.get_non_retryable_errors().items() if key in str(result.raised)]
 
 
 @pytest.mark.parametrize(
@@ -162,24 +134,21 @@ def test_connection_error_does_not_expose_credentials(config: SodaCloudSourceCon
 
 
 @pytest.mark.parametrize("region", ["", "https://example.com", "EU", "localhost"])
-def test_invalid_region_never_sends_credentials(
-    config: SodaCloudSourceConfig, inputs: SourceInputs, manager: MagicMock, region: str
-) -> None:
+def test_invalid_region_never_sends_credentials(config: SodaCloudSourceConfig, region: str) -> None:
     config.region = cast(Literal["eu", "us"], region)
-    with patch("requests.sessions.Session.send") as send:
+    with scripted_network([]) as network:
         valid, message = SodaCloudSource().validate_credentials(config, team_id=1)
         assert not valid
         assert message == "Select Europe or United States as the Soda Cloud region."
-        with pytest.raises(ValueError, match="Select Europe"):
-            SodaCloudSource().source_for_pipeline(config, manager, inputs)
-    send.assert_not_called()
+        result = run(config, [])
+    assert isinstance(result.raised, ValueError)
+    assert "Select Europe" in str(result.raised)
+    assert network.requests_log == []
+    assert result.requests == []
 
 
-def test_invalid_endpoint_never_makes_request(
-    config: SodaCloudSourceConfig, inputs: SourceInputs, manager: MagicMock
-) -> None:
-    inputs.schema_name = "../secrets"
-    with patch("requests.sessions.Session.send") as send:
-        with pytest.raises(ValueError, match="Unsupported Soda Cloud table"):
-            SodaCloudSource().source_for_pipeline(config, manager, inputs)
-    send.assert_not_called()
+def test_invalid_endpoint_never_makes_request(config: SodaCloudSourceConfig) -> None:
+    result = run(config, [], schema_name="../secrets")
+    assert isinstance(result.raised, ValueError)
+    assert "Unsupported Soda Cloud table" in str(result.raised)
+    assert result.requests == []

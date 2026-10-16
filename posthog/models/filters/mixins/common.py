@@ -23,69 +23,27 @@ from posthog.constants import (
     BREAKDOWN_NORMALIZE_URL,
     BREAKDOWN_TYPE,
     BREAKDOWNS,
-    CLIENT_QUERY_ID,
-    COMPARE,
-    COMPARE_TO,
     DATA_WAREHOUSE_ENTITIES,
     DATE_FROM,
     DATE_TO,
     DISPLAY,
     DISPLAY_TYPES,
     EVENTS,
-    EXCLUSIONS,
     EXPLICIT_DATE,
-    FILTER_TEST_ACCOUNTS,
     INSIGHT,
     INSIGHT_TO_DISPLAY,
     INSIGHT_TRENDS,
-    LIMIT,
-    OFFSET,
-    SAMPLING_FACTOR,
-    SHOWN_AS,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_DATA_WAREHOUSE,
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_WORLD_MAP,
     BreakdownAttributionType,
 )
-from posthog.models.entity import Entity, ExclusionEntity, MathType
+from posthog.models.entity import Entity
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
 from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse_with_delta_mapping
-
-
-class ShownAsMixin(BaseParamMixin):
-    @cached_property
-    def shown_as(self) -> Optional[str]:
-        return self._data.get(SHOWN_AS, None)
-
-    @include_dict
-    def shown_as_to_dict(self):
-        return {"shown_as": self.shown_as} if self.shown_as else {}
-
-
-class ClientQueryIdMixin(BaseParamMixin):
-    @cached_property
-    def client_query_id(self) -> Optional[str]:
-        return self._data.get(CLIENT_QUERY_ID, None)
-
-    @include_query_tags
-    def client_query_tags(self):
-        return {"client_query_id": self.client_query_id} if self.client_query_id else {}
-
-
-class FilterTestAccountsMixin(BaseParamMixin):
-    @cached_property
-    def filter_test_accounts(self) -> bool:
-        setting = self._data.get(FILTER_TEST_ACCOUNTS, None)
-        if setting is True or setting == "true":
-            return True
-        return False
-
-    @include_dict
-    def filter_out_team_members_to_dict(self):
-        return {"filter_test_accounts": self.filter_test_accounts} if self.filter_test_accounts else {}
 
 
 class BreakdownMixin(BaseParamMixin):
@@ -250,48 +208,6 @@ class DisplayDerivedMixin(InsightMixin):
         return {"display": self.display}
 
 
-class OffsetMixin(BaseParamMixin):
-    @cached_property
-    def offset(self) -> int:
-        offset_raw = self._data.get(OFFSET)
-        return int(offset_raw) if offset_raw else 0
-
-    @include_dict
-    def offset_to_dict(self):
-        return {"offset": self.offset} if self.offset else {}
-
-
-class LimitMixin(BaseParamMixin):
-    @cached_property
-    def limit(self) -> int:
-        limit_raw = self._data.get(LIMIT, None)
-        return int(limit_raw) if limit_raw else 0
-
-    @include_dict
-    def limit_to_dict(self):
-        return {"limit": self.limit} if self.limit else {}
-
-
-class CompareMixin(BaseParamMixin):
-    @cached_property
-    def compare(self) -> bool:
-        _compare = self._data.get(COMPARE, None)
-        return process_bool(_compare)
-
-    @include_dict
-    def compare_to_dict(self):
-        return {"compare": self.compare} if self.compare else {}
-
-    @cached_property
-    def compare_to(self) -> bool:
-        _compare_to = self._data.get(COMPARE_TO, None)
-        return bool(_compare_to)
-
-    @include_dict
-    def compare_to_to_dict(self):
-        return {"compare_to": self.compare_to} if self.compare_to else {}
-
-
 class DateMixin(BaseParamMixin):
     date_from_delta_mapping: Optional[dict[str, int]]
     date_to_delta_mapping: Optional[dict[str, int]]
@@ -445,113 +361,13 @@ class EntitiesMixin(BaseParamMixin):
     def data_warehouse_entities(self) -> list[Entity]:
         return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_DATA_WAREHOUSE]
 
-    @cached_property
-    def exclusions(self) -> list[ExclusionEntity]:
-        _exclusions: list[ExclusionEntity] = []
-        if self._data.get(EXCLUSIONS):
-            exclusion_list = self._data.get(EXCLUSIONS, [])
-            if isinstance(exclusion_list, str):
-                exclusion_list = json.loads(exclusion_list)
-
-            _exclusions.extend([ExclusionEntity({**entity}) for entity in exclusion_list if entity])
-
-        return _exclusions
-
     @include_dict
     def entities_to_dict(self):
         return {
             **({"events": [entity.to_dict() for entity in self.events]} if len(self.events) > 0 else {}),
             **({"actions": [entity.to_dict() for entity in self.actions]} if len(self.actions) > 0 else {}),
-            **({"exclusions": [entity.to_dict() for entity in self.exclusions]} if len(self.exclusions) > 0 else {}),
         }
 
     @include_query_tags
     def entities_query_tags(self):
         return {"entity_math": list({entity.math for entity in self.entities if entity.math})}
-
-
-# These arguments are used to specify the target entity for insight actor retrieval on trend graphs
-class EntityIdMixin(BaseParamMixin):
-    @cached_property
-    def target_entity_id(self) -> Optional[str]:
-        return self._data.get("entityId", None) or self._data.get("entity_id", None)
-
-    @include_dict
-    def entity_id_to_dict(self):
-        return {"entity_id": self.target_entity_id} if self.target_entity_id else {}
-
-
-class EntityTypeMixin(BaseParamMixin):
-    @cached_property
-    def target_entity_type(self) -> Optional[str]:
-        return self._data.get("type", None) or self._data.get("entity_type", None)
-
-    @include_dict
-    def entity_type_to_dict(self):
-        return {"entity_type": self.target_entity_type} if self.target_entity_type else {}
-
-
-class EntityMathMixin(BaseParamMixin):
-    @cached_property
-    def target_entity_math(self) -> Optional[MathType]:
-        return self._data.get("entity_math", None)
-
-    @include_dict
-    def entity_math_to_dict(self):
-        return {"entity_math": self.target_entity_math} if self.target_entity_math else {}
-
-
-class EntityOrderMixin(BaseParamMixin):
-    @cached_property
-    def target_entity_order(self) -> Optional[str]:
-        return self._data.get("entity_order", None) or self._data.get("target_entity_order", None)
-
-    @include_dict
-    def entity_order_to_dict(self):
-        return {"entity_order": self.target_entity_order} if self.target_entity_order else {}
-
-
-class IncludeRecordingsMixin(BaseParamMixin):
-    @cached_property
-    def include_recordings(self) -> bool:
-        include_recordings = self._data.get("include_recordings")
-        return include_recordings is True or include_recordings == "true"
-
-    @include_dict
-    def include_recordings_to_dict(self):
-        return {"include_recordings": self.include_recordings} if self.include_recordings else {}
-
-
-class SearchMixin(BaseParamMixin):
-    @cached_property
-    def search(self) -> Optional[str]:
-        search = self._data.get("search", None)
-        return search
-
-    @include_dict
-    def search_to_dict(self):
-        return {"search": self.search} if self.search else {}
-
-
-class SampleMixin(BaseParamMixin):
-    """
-    Sample factor for a query.
-    """
-
-    @cached_property
-    def sampling_factor(self) -> Optional[float]:
-        sampling_factor = self._data.get("sampling_factor", None)
-
-        # cover for both None and empty strings - also ok to filter out 0s here
-        if sampling_factor:
-            sampling_factor = float(sampling_factor)
-            if sampling_factor < 0 or sampling_factor > 1:
-                raise ValueError("Sampling factor must be greater than 0 and smaller or equal to 1")
-
-            return sampling_factor
-
-        return None
-
-    @include_dict
-    def sampling_factor_to_dict(self):
-        return {SAMPLING_FACTOR: self.sampling_factor or ""}

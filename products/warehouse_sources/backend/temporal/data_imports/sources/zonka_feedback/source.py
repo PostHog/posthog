@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -46,6 +47,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZonkaFeedbackSource(ResumableSource[ZonkaFeedbackSourceConfig, ZonkaFeedbackResumeConfig]):
+    codebase_detection = detect(env=("^(ZONKA_FEEDBACK|ZONKAFEEDBACK)_",), script_hosts=("us1.zonkasurvey.com",))
+
     api_docs_url = "https://apidocs.zonkafeedback.com/"
 
     supported_versions = (ZONKA_API_VERSION_V1, ZONKA_API_VERSION_V2_1)

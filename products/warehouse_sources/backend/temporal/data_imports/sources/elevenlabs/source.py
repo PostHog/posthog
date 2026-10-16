@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ElevenLabsSource(ResumableSource[ElevenLabsSourceConfig, ElevenLabsResumeConfig]):
+    codebase_detection = detect(
+        env=("^ELEVENLABS_", "^ELEVEN_LABS_"),
+        npm=(
+            "@elevenlabs/elevenlabs-js",
+            "elevenlabs",
+            "@elevenlabs/client",
+            "@elevenlabs/react",
+            "@elevenlabs/react-native",
+        ),
+        pypi=("elevenlabs",),
+        swiftpm=("github.com/elevenlabs/elevenlabs-swift-sdk",),
+    )
+
     api_docs_url = "https://elevenlabs.io/docs/api-reference/introduction"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -53,8 +67,11 @@ You can create an API key in your [ElevenLabs account settings](https://elevenla
 
 Grant the following read permissions when creating the key:
 - **History** (text-to-speech generation history)
-- **Conversational AI** (conversations, agents, and triage tickets)
+- **Conversational AI** (conversations, agents, triage tickets, tools, tool executions, phone numbers, and batch calls)
 - **Voices**
+- **Models**
+- **Workspace** (members and groups)
+- **User** (subscription)
 """,
             iconPath="/static/services/elevenlabs.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/elevenlabs",

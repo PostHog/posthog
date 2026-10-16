@@ -64,11 +64,14 @@ describe('miniBreakdownsLogic', () => {
             '$browser',
             '$device_type',
             '$os',
+            '$os_name',
             '$pathname',
+            '$screen_name',
             '$user_id',
             '$ip',
             '$geoip_country_name',
             '$geoip_city_name',
+            '$current_url',
         ])
     })
 

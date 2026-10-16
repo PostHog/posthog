@@ -1,7 +1,12 @@
+from base64 import b64encode
+
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.imagga import ImaggaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.source import ImaggaSource
 
@@ -29,19 +34,16 @@ class TestImaggaSource:
         assert [s.name for s in schemas] == ["daily_usage"]
 
     @pytest.mark.parametrize(
-        "probe_result,expected_valid",
-        [(True, True), (False, False)],
+        "status,expected_valid",
+        [(200, True), (401, False)],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.imagga.source.validate_imagga_credentials"
-    )
-    def test_validate_credentials(
-        self, mock_validate: mock.MagicMock, probe_result: bool, expected_valid: bool
-    ) -> None:
-        mock_validate.return_value = probe_result
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(self, status: int, expected_valid: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert (error_message is None) is expected_valid
-        mock_validate.assert_called_once_with("acc_test", "secret_test")
+        assert [request.path for request in network.requests_log] == ["/v2/usage"]
+        assert (
+            network.requests_log[0].headers["authorization"] == "Basic " + b64encode(b"acc_test:secret_test").decode()
+        )

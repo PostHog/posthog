@@ -480,8 +480,18 @@
             0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
     }
 
-    :is(.dark, [theme='dark']) .quill-button--elevated {
-        --quill-button-edge: color-mix(in oklab, var(--foreground) 45%, var(--background));
+    /* Dark mode inverts the neutral look onto a foreground fill, so the CTA stands out on a dark surface. */
+    :is(.dark, [theme='dark']) .quill-button--elevated:not(.quill-button--variant-primary) {
+        --quill-button-edge: color-mix(in oklab, var(--background) 75%, var(--foreground));
+
+        color: var(--quill-button-edge);
+        background-color: var(--foreground);
+        border-color: var(--quill-button-edge);
+    }
+
+    :is(.dark, [theme='dark'])
+        .quill-button--elevated:not(.quill-button--variant-primary, :disabled, [aria-disabled='true']):hover {
+        background-color: color-mix(in oklab, var(--foreground) 92%, var(--background));
     }
 
     .quill-button--elevated.quill-button--variant-primary {

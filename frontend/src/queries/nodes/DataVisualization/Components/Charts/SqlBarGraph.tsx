@@ -84,6 +84,7 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                         onError={handleChartError}
                     >
                         <ReferenceLines lines={model.config.referenceLines ?? []} />
+                        {props.children}
                         {props.chartSettings.showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
                     </BarChart>
                 ) : (
@@ -107,6 +108,7 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                         }
                         onError={handleChartError}
                     >
+                        {props.children}
                         {props.showAnnotations && props.insightNumericId && (
                             <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
                         )}

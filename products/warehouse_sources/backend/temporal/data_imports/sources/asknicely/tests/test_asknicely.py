@@ -1,71 +1,36 @@
-import json
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any
 
 import pytest
-from unittest import mock
-
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.asknicely import (
     AskNicelyResumeConfig,
     _to_unix_timestamp,
-    asknicely_source,
     build_responses_url,
     build_stats_url,
-    build_unsubscribed_url,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.settings import (
     RESPONSES_PAGE_SIZE,
     UNSUBSCRIBED_PAGE_SIZE,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.source import AsknicelySource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.asknicely import (
+    AsknicelySourceConfig,
+)
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.asknicely"
 
-
-def _response(rows: list[dict[str, Any]], total_pages: Optional[int] = None) -> Response:
+def _response(rows: list[dict[str, Any]], total_pages: int | None = None) -> ScriptedResponse:
     body: dict[str, Any] = {"success": True, "data": rows}
     if total_pages is not None:
         body["totalpages"] = str(total_pages)
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _manager(resume: Optional[AskNicelyResumeConfig] = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
-    """Wire a mock session and capture each request's URL and params AT PREPARE TIME.
-
-    The paginators mutate ``request.url`` and ``request.params`` in place across pages, so
-    inspecting them after the run shows only the final page — snapshot each request as it is
-    prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[tuple[str, dict[str, Any]]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append((request.url, dict(request.params or {})))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _urls(calls: list[tuple[str, dict[str, Any]]]) -> list[str]:
-    return [url for url, _ in calls]
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+    return ScriptedResponse(json=body)
 
 
 class TestAsknicely:
@@ -93,49 +58,28 @@ class TestAsknicely:
         with pytest.raises(ValueError):
             _to_unix_timestamp(value)
 
-    def _run(
-        self,
-        responses: list[Response],
-        manager: mock.MagicMock,
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Any = None,
-        endpoint: str = "responses",
-    ) -> tuple[list[dict[str, Any]], list[tuple[str, dict[str, Any]]]]:
-        session = mock.MagicMock()
-        calls = _wire(session, responses)
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            rows = _rows(
-                asknicely_source(
-                    subdomain="acme",
-                    api_key="key",
-                    endpoint=endpoint,
-                    team_id=1,
-                    job_id="job-1",
-                    resumable_source_manager=manager,
-                    should_use_incremental_field=should_use_incremental_field,
-                    db_incremental_field_last_value=db_incremental_field_last_value,
-                )
-            )
-        return rows, calls
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(AsknicelySource(), AsknicelySourceConfig(subdomain="acme", api_key="key"))
 
     def test_paginates_until_totalpages_and_normalizes_rows(self) -> None:
-        manager = _manager()
         responses = [
             _response([{"response_id": "r1", "responded": "100"}], total_pages=2),
             _response([{"response_id": "r2", "responded": "200"}], total_pages=2),
         ]
 
-        rows, calls = self._run(responses, manager)
+        result = self._driver().run("responses", responses)
 
-        assert [row["response_id"] for row in rows] == ["r1", "r2"]
+        assert result.raised is None
+        assert [row["response_id"] for row in result.rows] == ["r1", "r2"]
         # String timestamps are coerced to ints via the data_map.
-        assert rows[0]["responded"] == 100
-        assert _urls(calls) == [
+        assert result.rows[0]["responded"] == 100
+        assert result.urls == [
             build_responses_url("acme", page_number=1, since_time=0),
             build_responses_url("acme", page_number=2, since_time=0),
         ]
         # Only the intermediate page boundary is checkpointed — never past the final page.
-        manager.save_state.assert_called_once_with(AskNicelyResumeConfig(page_number=2, since_time=0))
+        assert result.saved_states == [AskNicelyResumeConfig(page_number=2, since_time=0)]
 
     def test_stops_on_empty_page_when_totalpages_missing(self) -> None:
         responses = [
@@ -143,128 +87,113 @@ class TestAsknicely:
             _response([]),
         ]
 
-        rows, calls = self._run(responses, _manager())
+        result = self._driver().run("responses", responses)
 
-        assert len(rows) == RESPONSES_PAGE_SIZE
-        assert len(calls) == 2
+        assert result.raised is None
+        assert len(result.rows) == RESPONSES_PAGE_SIZE
+        assert len(result.requests) == 2
 
     def test_incremental_since_time_steps_back_one_second(self) -> None:
-        _, calls = self._run(
+        result = self._driver().run(
+            "responses",
             [_response([])],
-            _manager(),
             should_use_incremental_field=True,
             db_incremental_field_last_value=1700000000,
         )
-        assert _urls(calls) == [build_responses_url("acme", page_number=1, since_time=1699999999)]
+        assert result.raised is None
+        assert result.urls == [build_responses_url("acme", page_number=1, since_time=1699999999)]
 
     def test_incremental_since_time_clamps_at_zero(self) -> None:
-        _, calls = self._run(
+        result = self._driver().run(
+            "responses",
             [_response([])],
-            _manager(),
             should_use_incremental_field=True,
             db_incremental_field_last_value=0,
         )
-        assert _urls(calls) == [build_responses_url("acme", page_number=1, since_time=0)]
+        assert result.raised is None
+        assert result.urls == [build_responses_url("acme", page_number=1, since_time=0)]
 
     def test_resumes_from_saved_page_and_cutoff(self) -> None:
         # The saved since_time must win over a freshly derived one: page numbering is only
         # stable against the cutoff the interrupted run used.
-        manager = _manager(AskNicelyResumeConfig(page_number=3, since_time=500))
-
-        _, calls = self._run(
+        result = self._driver().run(
+            "responses",
             [_response([])],
-            manager,
+            resume_state=AskNicelyResumeConfig(page_number=3, since_time=500),
             should_use_incremental_field=True,
             db_incremental_field_last_value=1700000000,
         )
 
-        assert _urls(calls) == [build_responses_url("acme", page_number=3, since_time=500)]
+        assert result.raised is None
+        assert result.urls == [build_responses_url("acme", page_number=3, since_time=500)]
 
     def test_no_checkpoint_on_single_short_page(self) -> None:
         # A run that finishes on its first page must never checkpoint — there is no next page.
-        manager = _manager()
-        self._run([_response([{"response_id": "r1", "responded": "100"}])], manager)
-        manager.save_state.assert_not_called()
+        result = self._driver().run("responses", [_response([{"response_id": "r1", "responded": "100"}])])
+        assert result.raised is None
+        assert result.saved_states == []
 
     def test_unsubscribed_paginates_by_page_number_and_normalizes_rows(self) -> None:
-        manager = _manager()
         first = [
             {"id": str(i), "unsubscribetime": "1452219376", "email": f"c{i}@example.com"}
             for i in range(UNSUBSCRIBED_PAGE_SIZE)
         ]
         responses = [_response(first), _response([{"id": "last", "unsubscribetime": "1452219999"}])]
 
-        rows, calls = self._run(responses, manager, endpoint="contacts_unsubscribed")
+        result = self._driver().run("contacts_unsubscribed", responses)
 
-        assert len(rows) == UNSUBSCRIBED_PAGE_SIZE + 1
+        assert result.raised is None
+        assert len(result.rows) == UNSUBSCRIBED_PAGE_SIZE + 1
         # The unix timestamp arrives as a string; it has to be an int to partition on and to
         # compare against the responses table's timestamps.
-        assert rows[0]["unsubscribetime"] == 1452219376
-        assert _urls(calls) == [build_unsubscribed_url("acme")] * 2
-        assert [params["pagenumber"] for _, params in calls] == [1, 2]
-        assert {params["pagesize"] for _, params in calls} == {UNSUBSCRIBED_PAGE_SIZE}
+        assert result.rows[0]["unsubscribetime"] == 1452219376
+        assert result.paths == ["/api/v1/contacts/unsubscribed"] * 2
+        assert [request.origin for request in result.requests] == ["https://acme.asknice.ly"] * 2
+        assert result.params("pagenumber") == ["1", "2"]
+        assert result.params("pagesize") == [str(UNSUBSCRIBED_PAGE_SIZE)] * 2
         # The short second page ends the walk, so only the one page boundary is checkpointed.
-        manager.save_state.assert_called_once_with(AskNicelyResumeConfig(page_number=2, since_time=0))
+        assert result.saved_states == [AskNicelyResumeConfig(page_number=2, since_time=0)]
 
     def test_unsubscribed_resumes_from_saved_page(self) -> None:
-        manager = _manager(AskNicelyResumeConfig(page_number=3, since_time=0))
+        result = self._driver().run(
+            "contacts_unsubscribed", [_response([])], resume_state=AskNicelyResumeConfig(page_number=3, since_time=0)
+        )
 
-        _, calls = self._run([_response([])], manager, endpoint="contacts_unsubscribed")
-
-        assert [params["pagenumber"] for _, params in calls] == [3]
+        assert result.raised is None
+        assert result.params("pagenumber") == ["3"]
 
     def test_stats_fetches_one_page_and_never_checkpoints(self) -> None:
         # The stats series comes back whole, so a second request would re-read the same rows
         # and a saved checkpoint would leave a later run resuming a page that never existed.
-        manager = _manager()
-
-        rows, calls = self._run(
+        result = self._driver().run(
+            "stats",
             [_response([{"year": "2023", "month": "8", "day": "16", "nps": "50.0"}])],
-            manager,
-            endpoint="stats",
         )
 
-        assert [row["day"] for row in rows] == ["16"]
-        assert _urls(calls) == [build_stats_url("acme")]
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert [row["day"] for row in result.rows] == ["16"]
+        assert result.urls == [build_stats_url("acme")]
+        assert result.saved_states == []
 
     def test_unknown_endpoint_raises(self) -> None:
-        with pytest.raises(ValueError, match="Unknown AskNicely endpoint"):
-            asknicely_source(
-                subdomain="acme",
-                api_key="key",
-                endpoint="nope",
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=_manager(),
-            )
+        result = self._driver().run("nope", [])
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown AskNicely endpoint" in str(result.raised)
+        assert result.requests == []
 
     def test_sync_session_disables_capture_and_redirects(self) -> None:
         # Survey bodies stay out of HTTP sample capture, and the X-apikey header must never be
         # replayed to a redirect target.
-        session = mock.MagicMock()
-        _wire(session, [_response([])])
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session) as make_session:
-            _rows(
-                asknicely_source(
-                    subdomain="acme",
-                    api_key="key",
-                    endpoint="responses",
-                    team_id=1,
-                    job_id="job-1",
-                    resumable_source_manager=_manager(),
-                )
-            )
-        assert make_session.call_args.kwargs["capture"] is False
-        assert make_session.call_args.kwargs["allow_redirects"] is False
+        result = self._driver().run("responses", [_response([])])
+        assert result.raised is None
+        assert result.session_options[0]["capture"] is False
+        assert result.session_options[0]["allow_redirects"] is False
 
     def test_validate_credentials_session_disables_redirects(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=200)
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session) as make_session:
-            validate_credentials("acme", "key")
-        assert make_session.call_args.kwargs["allow_redirects"] is False
-        assert make_session.call_args.kwargs["capture"] is False
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert validate_credentials("acme", "key") == (True, None)
+        assert network.session_options[0]["allow_redirects"] is False
+        assert network.session_options[0]["capture"] is False
 
     @pytest.mark.parametrize(
         ("status_code", "expected_valid", "expected_message_fragment"),
@@ -278,10 +207,9 @@ class TestAsknicely:
     def test_validate_credentials_status_mapping(
         self, status_code: int, expected_valid: bool, expected_message_fragment: str | None
     ) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=status_code)
-
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        response = ScriptedResponse(status=status_code)
+        script = always(response) if status_code == 500 else [response]
+        with scripted_network(script):
             is_valid, error_message = validate_credentials("acme", "key")
 
         assert is_valid is expected_valid
@@ -291,11 +219,11 @@ class TestAsknicely:
             assert error_message is not None and expected_message_fragment in error_message
 
     def test_validate_credentials_rejects_invalid_subdomain(self) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+        with scripted_network([]) as network:
             # An invalid subdomain raises inside build_responses_url before any request is made,
             # and validate_credentials swallows it into a (False, message) result.
             is_valid, error_message = validate_credentials("bad domain", "key")
 
         assert is_valid is False
         assert error_message is not None
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
