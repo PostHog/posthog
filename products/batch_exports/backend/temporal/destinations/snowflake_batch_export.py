@@ -549,6 +549,10 @@ def _is_connect_error_retryable(err: Exception) -> bool:
     return isinstance(err, OperationalError) and err.errno in (ER_FAILED_TO_CONNECT_TO_DB, ER_RETRYABLE_CODE)
 
 
+def _quote_snowflake_identifier(identifier: str) -> str:
+    return '"' + identifier.replace('"', '""') + '"'
+
+
 class SnowflakeClient:
     """Snowflake connection client used in batch exports."""
 
@@ -954,7 +958,9 @@ class SnowflakeClient:
                 Whether to include an 'IF NOT EXISTS' clause in the query such that it
                 won't fail if the table already exists.
         """
-        field_ddl = ", ".join(f'"{field.name}" {field.snowflake_type_name}' for field in table)
+        field_ddl = ", ".join(
+            f"{_quote_snowflake_identifier(field.name)} {field.snowflake_type_name}" for field in table
+        )
 
         if_not_exists = ""
         if exists_ok:
@@ -1087,13 +1093,13 @@ class SnowflakeClient:
                 perform this operation.
         """
         select_fields = ", ".join(
-            f"PARSE_JSON($1:\"{field.name}\", 'd')"
+            f"PARSE_JSON($1:{_quote_snowflake_identifier(field.name)}, 'd')"
             if field.data_type == JsonType() and field.name.lower() != "elements"
-            else f'$1:"{field.name}"'
+            else f"$1:{_quote_snowflake_identifier(field.name)}"
             for field in table
         )
         query = f"""
-        COPY INTO "{table.name}" ({", ".join(f'"{field.name}"' for field in table)})
+        COPY INTO "{table.name}" ({", ".join(_quote_snowflake_identifier(field.name) for field in table)})
 
         FROM (
             SELECT {select_fields} FROM '@%"{table.name}"/{table.stage_prefix}'
@@ -1202,7 +1208,8 @@ class SnowflakeClient:
             field = final[primary_key_field_name]
             if n > 0:
                 merge_condition += " AND "
-            merge_condition += f'final."{field.name}" = stage."{field.name}"'
+            quoted_field = _quote_snowflake_identifier(field.name)
+            merge_condition += f"final.{quoted_field} = stage.{quoted_field}"
 
         update_condition = ""
 
@@ -1210,7 +1217,8 @@ class SnowflakeClient:
             field = final[version_key_field_name]
             if index > 0:
                 update_condition += " OR "
-            update_condition += f'final."{field.name}" < stage."{field.name}"'
+            quoted_field = _quote_snowflake_identifier(field.name)
+            update_condition += f"final.{quoted_field} < stage.{quoted_field}"
         if update_condition:
             update_condition = f"AND ({update_condition})"
 
@@ -1223,9 +1231,10 @@ class SnowflakeClient:
                 values += ", "
                 field_names += ", "
 
-            update_clause += f'final."{field.name}" = stage."{field.name}"'
-            field_names += f'"{field.name}"'
-            values += f'stage."{field.name}"'
+            quoted_field = _quote_snowflake_identifier(field.name)
+            update_clause += f"final.{quoted_field} = stage.{quoted_field}"
+            field_names += quoted_field
+            values += f"stage.{quoted_field}"
 
         merge_query = f"""
         MERGE INTO "{final.name}" AS final
