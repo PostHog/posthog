@@ -564,13 +564,19 @@ describe('sceneLogic', () => {
     })
 
     it.each([
-        ['sends the homepage to the welcome page', urls.projectHomepage(), urls.onboardingWelcome()],
+        [
+            'sends the homepage to the welcome page and keeps the side panel prompt',
+            `${urls.projectHomepage()}#panel=max:hello`,
+            urls.onboardingWelcome(),
+            { panel: 'max:hello' },
+        ],
         [
             'keeps a deep link open',
             urls.insightView('abc123' as InsightShortId),
             urls.insightView('abc123' as InsightShortId),
+            {},
         ],
-    ])('connector signup with no data: %s', async (_name, target, expectedRoute) => {
+    ])('connector signup with no data: %s', async (_name, target, expectedRoute, expectedHashParams) => {
         const priorAppContext = window.POSTHOG_APP_CONTEXT
         try {
             logic.unmount()
@@ -599,6 +605,7 @@ describe('sceneLogic', () => {
             await expectLogic(logic).delay(1)
 
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+            expect(router.values.hashParams).toEqual(expectedHashParams)
         } finally {
             window.POSTHOG_APP_CONTEXT = priorAppContext
         }
