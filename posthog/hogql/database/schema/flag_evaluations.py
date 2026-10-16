@@ -16,6 +16,7 @@ from posthog.hogql.database.models import (
     VirtualTable,
 )
 from posthog.hogql.database.schema.person_distinct_id_overrides import PersonDistinctIdOverridesTable
+from posthog.hogql.database.schema.util.null_sentinels import null_if_sentinels
 from posthog.hogql.database.schema.util.uuid import uuid_string_expr_to_uint128_expr
 from posthog.hogql.parser import parse_expr
 
@@ -138,11 +139,17 @@ class FlagEvaluationsTable(Table):
             nullable=False,
             description="Key of the flag that was evaluated; the typed copy of `properties.$feature_flag`.",
         ),
-        "response": StringDatabaseField(
+        # `flag_key` is in the sort key, and `session_id` and `request_id` carry bloom filters. They stay bare because
+        # a `nullIf` wrap stops a filter from using either. `$group_0`..`$group_4` keep '' as the events columns do.
+        "flag_evaluation_response": StringDatabaseField(name="response", nullable=False, hidden=True),
+        "response": ExpressionField(
             name="response",
-            nullable=False,
-            description="What the flag returned: 'true', 'false', or a variant key. A flag that returned JSON null "
-            "stores the literal string 'null'.",
+            expr=null_if_sentinels(ast.Field(chain=["flag_evaluation_response"])),
+            isolate_scope=True,
+            nullable=True,
+            description="What the flag returned: 'true', 'false', or a variant key. NULL when the flag returned null "
+            "or the SDK sent no response, as on events. A variant named 'null' also reads NULL. "
+            "`JSONHas(properties, '$feature_flag_response')` tells a null response from a missing one.",
         ),
         "session_id": StringDatabaseField(
             name="session_id", nullable=False, description="Session the evaluation happened in, if the SDK sent one."

@@ -48,6 +48,7 @@ from posthog.schema import (
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_HOGQL_TABLE
 
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
 from posthog.models.group.util import create_group
 from posthog.models.person import Person
 
@@ -156,6 +157,7 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
         alice = self.alice = _create_person(team_id=self.team.pk, distinct_ids=["alice"], created_at=IN_DATE_RANGE)
         bob = _create_person(team_id=self.team.pk, distinct_ids=["bob"], created_at=IN_DATE_RANGE)
         alice_2 = _create_person(team_id=self.team.pk, distinct_ids=["alice-2"], created_at=IN_DATE_RANGE)
+        self.bob_uuid = bob.uuid
         for distinct_id, person, flag_key, response, occurred_at, properties in [
             (
                 "alice",
@@ -232,12 +234,21 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("total_calls", BaseMathType.TOTAL, {"test": 3, "control": 1}),
-            ("unique_users", BaseMathType.DAU, {"test": 1, "control": 1}),
-            ("unique_sessions", BaseMathType.UNIQUE_SESSION, {"test": 2, "control": 1}),
+            ("total_calls", BaseMathType.TOTAL, {"test": 3, "control": 1, BREAKDOWN_NULL_STRING_LABEL: 1}),
+            ("unique_users", BaseMathType.DAU, {"test": 1, "control": 1, BREAKDOWN_NULL_STRING_LABEL: 1}),
+            ("unique_sessions", BaseMathType.UNIQUE_SESSION, {"test": 2, "control": 1, BREAKDOWN_NULL_STRING_LABEL: 1}),
         ]
     )
     def test_trend_by_variant(self, _name: str, math: BaseMathType, expected: dict[str, int]):
+        _create_flag_evaluations(
+            self.team.pk,
+            "probe-flag",
+            timestamp=datetime(2025, 1, 8, 14, tzinfo=UTC),
+            distinct_id="bob",
+            person_id=self.bob_uuid,
+            response=None,
+            properties={"$session_id": "s-bob", "$group_0": "org-b"},
+        )
         query = TrendsQuery(
             dateRange=DATE_RANGE,
             interval=IntervalType.DAY,
