@@ -54941,7 +54941,7 @@ export namespace Schemas {
        * * `month` - Month */
       interval: CalendarUnitEnum;
       /**
-         * Path of the insight the metric comes from. Null for a key metric.
+         * Path of the insight the metric comes from. For a key metric, a new trends insight of the same days.
          * @nullable
          */
       url: string | null;

@@ -169,6 +169,7 @@ def key_metrics(team: Team, user: User) -> list[KeyMetric] | None:
                 daily=points,
                 this_week=this_week,
                 last_week=last_week,
+                node=nodes[key],
             )
         )
     return metrics
