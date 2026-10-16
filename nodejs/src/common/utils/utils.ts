@@ -423,13 +423,15 @@ export function createPostgresPool(
     connectionString: string,
     poolSize: number,
     applicationName: string,
-    onError?: (error: Error) => any
+    onError?: (error: Error) => any,
+    connectionTimeoutMillis?: number
 ): Pool {
     const pgPool = new Pool({
         connectionString,
         idleTimeoutMillis: 500,
         application_name: applicationName,
         max: poolSize,
+        connectionTimeoutMillis,
     })
 
     const handleError =

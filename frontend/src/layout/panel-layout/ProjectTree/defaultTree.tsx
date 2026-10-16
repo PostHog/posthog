@@ -645,11 +645,6 @@ export function withProductShortcutHref(entry: FileSystemEntry): FileSystemEntry
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
-export const getDefaultTreeDataAndPeople = (): FileSystemImport[] =>
-    [...getDefaultTreeData(), ...getDefaultTreePersons()].sort((a, b) =>
-        a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })
-    )
-
 export const getDefaultTreePersons = (): FileSystemImport[] => [
     {
         path: 'Persons',
