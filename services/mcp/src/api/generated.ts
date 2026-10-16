@@ -70631,6 +70631,7 @@ export namespace Schemas {
      * * `later` - Skipped for later
      * * `other` - Other
      * * `provisioned` - Account provisioned by a partner
+     * * `connector` - Signed up through an OAuth connector
      */
     export type OnboardingSkippedReasonEnum = typeof OnboardingSkippedReasonEnum[keyof typeof OnboardingSkippedReasonEnum];
 
@@ -70640,6 +70641,7 @@ export namespace Schemas {
       Later: 'later',
       Other: 'other',
       Provisioned: 'provisioned',
+      Connector: 'connector',
     } as const;
 
     export interface OnlinePerformanceRow {
