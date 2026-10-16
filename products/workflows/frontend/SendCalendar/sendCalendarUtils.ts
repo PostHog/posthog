@@ -102,14 +102,17 @@ export function sendAudience(flow: Pick<HogFlowMinimalApi, 'trigger' | 'actions'
         const email = emailAction(flow)?.config.inputs.email?.value as { to?: { email?: string } } | undefined
         return { cohortIds: [], filters: [], accounts: false, address: email?.to?.email || null }
     }
-    const properties = trigger.filters?.properties ?? []
-    // An excluded cohort is not a recipient list, so it stays a filter with its operator.
+    return audienceFromProperties(trigger.filters?.properties ?? [], trigger.filters?.audience_type === 'accounts')
+}
+
+export function audienceFromProperties(properties: AnyPropertyFilter[], accounts = false): SendAudience {
+    // An excluded cohort says nothing about who else the audience reaches, so it counts like any other filter.
     const isCohortInclusion = (filter: AnyPropertyFilter): boolean =>
         filter.type === PropertyFilterType.Cohort && filter.operator !== PropertyOperator.NotIn
     return {
         cohortIds: audienceCohortIds(properties.filter(isCohortInclusion)),
         filters: properties.filter((filter) => !isCohortInclusion(filter)),
-        accounts: trigger.filters?.audience_type === 'accounts',
+        accounts,
         address: null,
     }
 }
