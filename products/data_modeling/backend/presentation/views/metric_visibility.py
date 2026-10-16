@@ -4,8 +4,8 @@ from django.db.models import Q, QuerySet
 
 from rest_framework.exceptions import PermissionDenied
 
+from products.data_modeling.backend.facade.flags import is_managed_viewset_enabled
 from products.data_modeling.backend.facade.models import NodeType
-from products.data_modeling.backend.logic.flags import is_managed_viewset_enabled
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
