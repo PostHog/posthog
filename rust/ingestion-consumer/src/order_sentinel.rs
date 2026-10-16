@@ -29,8 +29,9 @@ use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, Statistics, TopicPartitionList};
 use tracing::{info, warn};
 
+use crate::settlement::Settlement;
 use crate::types::SerializedKafkaMessage;
-use common_kafka_consumer::{AssignmentEpoch, TopicOffsetLedger};
+use common_kafka_consumer::{AssignmentEpoch, TopicOffsetLedger, TopicPartition};
 
 /// The first and last Kafka offsets a batch holds for one topic-partition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -414,6 +415,7 @@ pub struct SentinelContext {
     /// Called with the revoked `(topic, partition)` pairs, so the batcher
     /// can drop their queued messages before the new owner replays them.
     revoke_hook: OnceLock<RevokeHook>,
+    settlement: OnceLock<Arc<dyn Settlement>>,
 }
 
 pub type RevokeHook = Box<dyn Fn(&[(String, i32)]) + Send + Sync>;
@@ -424,7 +426,12 @@ impl SentinelContext {
             topic_offset_ledger,
             assignment_epoch: None,
             revoke_hook: OnceLock::new(),
+            settlement: OnceLock::new(),
         }
+    }
+
+    pub(crate) fn set_settlement(&self, settlement: Arc<dyn Settlement>) {
+        let _ = self.settlement.set(settlement);
     }
 
     /// Wire the revocation hook; a second call is ignored. Settable after
@@ -448,11 +455,18 @@ impl SentinelContext {
     }
 
     /// Start a new ledger generation for every partition in `tpl`, dropping
-    /// its window.
-    fn forget_ledger_partitions(&self, tpl: &TopicPartitionList) {
+    /// its window and any frontier the settlement holds for it.
+    fn forget_partitions(&self, tpl: &TopicPartitionList) {
         let elements = tpl.elements();
         self.topic_offset_ledger
             .forget_partitions(elements.iter().map(|e| (e.topic(), e.partition())));
+        if let Some(settlement) = self.settlement.get() {
+            let topic_partitions: Vec<TopicPartition> = elements
+                .iter()
+                .map(|e| TopicPartition::new(e.topic(), e.partition()))
+                .collect();
+            settlement.forget_partitions(&topic_partitions);
+        }
     }
 }
 
@@ -487,7 +501,7 @@ impl ConsumerContext for SentinelContext {
                     topic_partitions = ?partition_names(tpl),
                     "Rebalance: partitions revoked"
                 );
-                self.forget_ledger_partitions(tpl);
+                self.forget_partitions(tpl);
                 // The hook must run after the ledger forget above: it stamps
                 // each revocation with the bumped generation so only older
                 // poll slices are stripped.
@@ -520,7 +534,7 @@ impl ConsumerContext for SentinelContext {
             // any surviving ledger for them is stale. The revoke callback
             // normally dropped it already; this covers losses with no revoke
             // callback (an error rebalance, a fenced member).
-            self.forget_ledger_partitions(tpl);
+            self.forget_partitions(tpl);
             if let Some(epoch) = &self.assignment_epoch {
                 epoch.bump();
             }
@@ -536,7 +550,43 @@ impl ConsumerContext for SentinelContext {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use common_kafka_consumer::{Charge, Offset};
+    use rdkafka::config::ClientConfig;
+    use rdkafka::consumer::Consumer;
+
     use super::*;
+    use crate::settlement::GroupSettlement;
+
+    #[test]
+    fn an_assignment_without_a_revoke_drops_the_partitions_pending_frontier() {
+        let ledger = Arc::new(TopicOffsetLedger::new());
+        let settlement: Arc<dyn Settlement> = Arc::new(GroupSettlement::new(
+            Arc::clone(&ledger),
+            Duration::from_secs(3600),
+        ));
+        let context = SentinelContext::new(Arc::clone(&ledger));
+        context.set_settlement(Arc::clone(&settlement));
+        let consumer: BaseConsumer<SentinelContext> = ClientConfig::new()
+            .set("bootstrap.servers", "127.0.0.1:1")
+            .set("group.id", "test")
+            .create_with_context(context)
+            .expect("a client needs no broker to be built");
+        let p0 = TopicPartition::new("events", 0);
+        ledger
+            .charge(&p0, ledger.generation(&p0), [(Offset(10), Charge::ZERO)])
+            .unwrap();
+        settlement.settle_run(&p0, ledger.generation(&p0), &[Offset(10)]);
+
+        let mut assigned = TopicPartitionList::new();
+        assigned.add_partition("events", 0);
+        consumer
+            .context()
+            .post_rebalance(&consumer, &Rebalance::Assign(&assigned));
+
+        assert!(settlement.take_all().is_none());
+    }
 
     fn msg_at(partition: i32, offset: i64) -> SerializedKafkaMessage {
         SerializedKafkaMessage {
