@@ -19,7 +19,7 @@ export function ScannerGoalExperimentStarter({
     disabledReason,
     onDraft,
 }: ScannerGoalExperimentStarterProps): JSX.Element | null {
-    const { experimentOptions, experimentOptionsLoading, hasLoadedOptions, search } =
+    const { experimentOptions, experimentOptionsLoading, hasLoadedOptions, loadFailed, search } =
         useValues(experimentScannerPickerLogic)
     const { ensureOptionsLoaded, setSearch } = useActions(experimentScannerPickerLogic)
     const [open, setOpen] = useState(false)
@@ -34,8 +34,9 @@ export function ScannerGoalExperimentStarter({
         ensureOptionsLoaded()
     }, [ensureOptionsLoaded])
 
-    // Hidden until the first load answers, and for good when the project runs no experiment to pick.
-    if (!hasLoadedOptions || (!search && options.length === 0)) {
+    // Hidden until the first load answers, and when the project runs no experiment to pick. A failed load
+    // still shows the starter so that opening the menu can retry.
+    if (!loadFailed && (!hasLoadedOptions || (!search && options.length === 0))) {
         return null
     }
 
@@ -66,6 +67,7 @@ export function ScannerGoalExperimentStarter({
                         placeholder="Select a running experiment"
                         loading={experimentOptionsLoading}
                         value={experiment?.id}
+                        menu={{ onVisibilityChange: (visible) => visible && ensureOptionsLoaded() }}
                         options={[
                             {
                                 title: (
@@ -92,8 +94,12 @@ export function ScannerGoalExperimentStarter({
                                                   value: 0,
                                                   label: experimentOptionsLoading
                                                       ? 'Searching...'
-                                                      : 'No running experiments match your search',
-                                                  disabledReason: 'Try a different search',
+                                                      : loadFailed
+                                                        ? "Couldn't load running experiments"
+                                                        : 'No running experiments match your search',
+                                                  disabledReason: loadFailed
+                                                      ? 'Close and reopen this menu to try again'
+                                                      : 'Try a different search',
                                               },
                                           ],
                             },
