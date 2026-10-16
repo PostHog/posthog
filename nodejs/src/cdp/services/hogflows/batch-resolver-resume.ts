@@ -9,6 +9,11 @@ import { HOGFLOW_BATCH_RESOLVE_QUEUE, deserializeResolverState, serializeResolve
 // the run is on its way.
 export type BatchResolverResumeOutcome = 'resumed' | 'already_resumed' | 'job_missing' | `job_${string}`
 
+export const counterBatchResolverParked = new Counter({
+    name: 'cdp_batch_hog_flow_resolver_parked',
+    help: 'Batch resolvers created parked because their realtime cohort is still calculating.',
+})
+
 export const counterBatchResolverResume = new Counter({
     name: 'cdp_batch_hog_flow_resolver_resume',
     help: 'Resumes of batch resolvers parked on a realtime cohort, by outcome.',
