@@ -206,7 +206,7 @@ export function getConversionChipStepIndexes(
         return []
     }
     // A step after an optional step converts from an earlier step, so a chip in that gap would misread.
-    return steps.flatMap((step, index) =>
+    return steps.flatMap((_, index) =>
         index > 0 && steps[index - 1].count > 0 && !isStepOptional(index) ? [index] : []
     )
 }
