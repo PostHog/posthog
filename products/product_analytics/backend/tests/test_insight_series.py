@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import Team, User
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.product_analytics.backend import insight_series
@@ -49,6 +50,63 @@ class TestVisibleResults(SimpleTestCase):
         visible = _visible({"resultCustomizationBy": by, "resultCustomizations": customizations}, results)
 
         self.assertEqual(sorted(f"{r['action']['order']} {r['breakdown_value']}" for r in visible), expected)
+
+
+def _result(label: str, breakdown: Any = None, **action: Any) -> dict[str, Any]:
+    return {
+        "action": {"name": "signed up", "order": 0, **action},
+        "label": label,
+        "breakdown_value": breakdown,
+        "days": ["2026-10-12"],
+        "data": [1],
+    }
+
+
+class TestSeriesNames(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "a cohort breakdown shows the cohort name",
+                1,
+                [_result("Enterprise", 12), _result("Free", 13)],
+                {"Enterprise": False, "Free": False},
+            ),
+            (
+                "several series name each series once",
+                2,
+                [
+                    _result("signed up - Chrome", "Chrome"),
+                    _result("logged in - Chrome", "Chrome", name="logged in", custom_name="Logins"),
+                ],
+                {"signed up · Chrome": False, "Logins · Chrome": False},
+            ),
+            (
+                "first group occurrences add up",
+                3,
+                [
+                    _result("signed up", math="first_time_for_group"),
+                    _result("signed up", math="first_matching_event_for_group", custom_name="Matches"),
+                    _result("signed up", math="dau", custom_name="Daily people"),
+                ],
+                {"signed up": False, "Matches": False, "Daily people": True},
+            ),
+        ]
+    )
+    def test_series_names_and_averaging(
+        self, _name: str, series_count: int, results: list[dict[str, Any]], expected: dict[str, bool]
+    ) -> None:
+        with patch.object(insight_series, "_run", return_value={"results": results}):
+            found = insight_series.insight_series(
+                cast(Team, None),
+                cast(User, None),
+                short_id="abc",
+                name="Sign-ups",
+                query={"kind": "TrendsQuery", "series": [{}] * series_count},
+                dashboard=None,
+            )
+
+        assert found is not None
+        self.assertEqual({name: name in found.averaged_series for name in found.series}, expected)
 
 
 class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
@@ -91,7 +149,7 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
                 {"kind": "EventsNode", "event": "signed up", "custom_name": "Sign-ups"},
                 {"kind": "EventsNode", "event": "signed up", "math": "dau", "custom_name": "Daily people"},
             ],
-            trendsFilter={"aggregationAxisFormat": "percentage"},
+            trendsFilter={"aggregationAxisFormat": "percentage", "display": "Metric", "decimalPlaces": 1_000_000},
         )
 
         found = get_insight_series(team=self.team, user=self.user, short_id=insight.short_id)
@@ -102,13 +160,14 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
                 found.period,
                 found.averaged_series,
                 found.value_format,
+                found.decimal_places,
                 {name: (len(points), sum(v for _, v in points)) for name, points in found.series.items()},
             ),
-            ("day", ["Daily people"], "percentage", {"Sign-ups": (57, 3.0), "Daily people": (57, 2.0)}),
+            ("day", ["Daily people"], "percentage", 9, {"Sign-ups": (56, 3.0), "Daily people": (56, 2.0)}),
         )
 
-    def test_a_dashboard_filter_replaces_the_insight_filter_on_the_same_property(self) -> None:
-        self._signups((2, "Safari"), (3, "Safari"), (4, "Chrome"))
+    def test_a_dashboard_filter_replaces_the_insight_filter_and_the_interval(self) -> None:
+        self._signups((9, "Safari"), (10, "Safari"), (11, "Chrome"))
         insight = self._insight(
             series=[{"kind": "EventsNode", "event": "signed up"}],
             properties=[{"key": "$browser", "value": "Chrome", "operator": "exact", "type": "event"}],
@@ -116,6 +175,7 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
         dashboard = InsightDashboardContext(
             filters={
                 "date_from": "-1d",
+                "interval": "week",
                 "properties": [{"key": "$browser", "value": "Safari", "operator": "exact", "type": "event"}],
             }
         )
@@ -123,7 +183,7 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
         found = get_insight_series(team=self.team, user=self.user, short_id=insight.short_id, dashboard=dashboard)
 
         assert found is not None
-        self.assertEqual(sum(v for _, v in found.series["signed up"]), 2.0)
+        self.assertEqual((found.period, sum(v for _, v in found.series["signed up"])), ("week", 2.0))
 
     @parameterized.expand(
         [
@@ -132,6 +192,14 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
             (
                 "a SQL insight",
                 {"kind": "HogQLQuery", "query": "SELECT toDate(timestamp), count() FROM events GROUP BY 1"},
+            ),
+            (
+                "a daily trend on weekdays only",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "signed up"}],
+                    "dateRange": {"daysOfWeek": [1, 2, 3, 4, 5]},
+                },
             ),
         ]
     )

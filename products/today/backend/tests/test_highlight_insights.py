@@ -143,6 +143,15 @@ class TestHomeTiles(SimpleTestCase):
                 ["Chrome"],
                 ("‘By browser’ decreased by 50% last week", "1.40 → 0.70"),
             ),
+            (
+                "a currency format counts as money",
+                days([6.0] * 49 + [3.0] * 7),
+                "",
+                False,
+                ["Chrome"],
+                ("‘By browser’ decreased by 50% last week", "42 → 21"),
+                "currency",
+            ),
         ]
     )
     def test_a_home_tile_shows_when_it_moves_the_wrong_way(
@@ -153,11 +162,13 @@ class TestHomeTiles(SimpleTestCase):
         averaged: bool,
         labels: list[str],
         expected: tuple[str, str] | None,
+        value_format: str | None = None,
     ) -> None:
         found_insight = insight(
             {name: [(day, value / (index + 1)) for day, value in points] for index, name in enumerate(labels)},
             averaged_series=labels if averaged else [],
             event_name=event_name,
+            value_format=value_format,
         )
         context = cast(
             Context,

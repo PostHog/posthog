@@ -74,7 +74,7 @@ def _tile(context: Context, short_id: str, dashboard_id: int, dashboard: Insight
     if not now or not before or 0 < now / before <= 0.02:
         return None
     label = f"{insight.name} {name} {insight.event_name}"
-    money = bool(MONEY.search(label))
+    money = insight.value_format == "currency" or bool(MONEY.search(label))
     if abs(now) < 10 and not money:
         return None
     change = (now - before) / abs(before) * 100

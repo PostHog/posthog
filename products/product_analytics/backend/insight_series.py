@@ -10,7 +10,14 @@ from posthog.models import Team, User
 
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
 
-ADDITIVE_MATH = {"total", "sum", "first_time_for_user", "first_matching_event_for_user"}
+ADDITIVE_MATH = {
+    "total",
+    "sum",
+    "first_time_for_user",
+    "first_matching_event_for_user",
+    "first_time_for_group",
+    "first_matching_event_for_group",
+}
 UNCHARTED_DISPLAYS = {
     "ActionsTable",
     "ActionsPie",
@@ -80,23 +87,31 @@ def insight_series(
     query: dict[str, Any],
     dashboard: InsightDashboardContext | None,
 ) -> InsightSeries | None:
-    filters: dict[str, Any] | None = None
+    dashboard_filters: dict[str, Any] = {}
     variables: dict[str, Any] | None = None
     if dashboard is not None:
         effective = resolve_effective_dashboard_filters(query, dashboard.filters, dashboard.tile_filters)
         query = effective.query
-        filters = {key: value for key, value in (effective.filters or {}).items() if key not in DATE_FILTERS}
+        dashboard_filters = effective.filters or {}
         variables = dashboard.variables
+    filters = {key: value for key, value in dashboard_filters.items() if key not in DATE_FILTERS}
     source = query.get("source", query)
     trends = source.get("trendsFilter") or {}
     if source.get("kind") != "TrendsQuery" or trends.get("display") in UNCHARTED_DISPLAYS:
         return None
-    interval = source.get("interval") or "day"
+    interval = dashboard_filters.get("interval") or source.get("interval") or "day"
     if interval not in LOOKBACK:
         interval = "day"
+    date_range = source.get("dateRange") or {}
+    if interval == "day" and date_range.get("daysOfWeek"):
+        return None
+    kept = {key: value for key, value in date_range.items() if key not in DATE_FILTERS}
     bounded = {key: value for key, value in source.items() if key != "compareFilter"}
-    kept = {key: value for key, value in (source.get("dateRange") or {}).items() if key not in DATE_FILTERS}
-    bounded.update(interval=interval, dateRange={**kept, "date_from": LOOKBACK[interval]})
+    bounded.update(
+        interval=interval,
+        dateRange={**kept, "date_from": LOOKBACK[interval], "excludeIncompletePeriods": True},
+        trendsFilter={**trends, "metricShowChange": False},
+    )
     response = _run(team, user, bounded, filters, variables)
     formula = bool(trends.get("formula") or trends.get("formulas") or trends.get("formulaNodes"))
     several = len(source.get("series") or []) > 1
@@ -106,10 +121,14 @@ def insight_series(
         if not result.get("days"):
             continue
         action = result.get("action") or {}
-        label = str(action.get("custom_name") or result.get("label") or "Series")
+        shown = str(result.get("label") or "Series")
+        label = str(action.get("custom_name") or action.get("name") or shown)
         breakdown = result.get("breakdown_value")
         if breakdown not in (None, ""):
-            value = ", ".join(str(b) for b in breakdown) if isinstance(breakdown, list) else str(breakdown)
+            if action:
+                value = shown.removeprefix(f"{action.get('name')} - ") if several else shown
+            else:
+                value = ", ".join(str(b) for b in breakdown) if isinstance(breakdown, list) else str(breakdown)
             label = f"{label} · {value}" if several else value
         while label in series:
             label += " (2)"
@@ -122,6 +141,7 @@ def insight_series(
         return None
     nodes = source.get("series") or []
     node = nodes[0] if len(nodes) == 1 else {}
+    places = trends.get("decimalPlaces")
     return InsightSeries(
         short_id=short_id,
         name=name,
@@ -132,5 +152,5 @@ def insight_series(
         value_format=trends.get("aggregationAxisFormat"),
         value_prefix=trends.get("aggregationAxisPrefix"),
         value_postfix=trends.get("aggregationAxisPostfix"),
-        decimal_places=trends.get("decimalPlaces"),
+        decimal_places=None if places is None else min(max(int(places), 0), 9),
     )
