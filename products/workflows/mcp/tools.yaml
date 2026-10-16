@@ -18,6 +18,11 @@ ui_apps:
         description:
             Sending rules for the project, with a button to apply the recommended frequency cap and a switch for
             engagement events.
+        render_ui:
+            component_import: products/workflows/mcp/apps
+            view_component: WorkflowSendingRulesView
+            view_prop: data
+            data_type: WorkflowSendingRulesData
     workflow-data-suggestions:
         type: custom
         app_name: PostHog Workflow Suggestions

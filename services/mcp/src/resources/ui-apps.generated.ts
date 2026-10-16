@@ -138,6 +138,7 @@ export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'vision-observation-list',
     'workflow',
     'workflow-list',
+    'workflow-sending-rules',
 ]
 
 export const UI_APPS: Array<{
