@@ -7,7 +7,7 @@ import subprocess
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Literal, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 import pytest
@@ -25,7 +25,11 @@ from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.discovery import EvalSuite
 from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness, eval_feature_enabled
 from products.posthog_ai.eval_harness.harness.live_server import EvalLiveServer
-from products.posthog_ai.eval_harness.harness.providers import ModalProviderStrategy, SandboxProviderStrategy
+from products.posthog_ai.eval_harness.harness.providers import (
+    DockerProviderStrategy,
+    ModalProviderStrategy,
+    SandboxProviderStrategy,
+)
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
 from products.tasks.backend.constants import (
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
@@ -456,6 +460,31 @@ def test_modal_cleanup_case_terminates_only_the_task_sandboxes(monkeypatch: pyte
 
     sandbox_list.assert_called_once_with(app_id="app-id", tags={"task_id": "task-id"})
     sandbox.terminate.assert_called_once_with()
+
+
+def _docker_provider() -> SandboxProviderStrategy:
+    return DockerProviderStrategy(keep_containers=False)
+
+
+def _modal_provider() -> SandboxProviderStrategy:
+    provider = ModalProviderStrategy()
+    provider._tunnels = cast(Any, SimpleNamespace(url_for=lambda name: f"https://{name}.funnel.example.com"))
+    return provider
+
+
+@parameterized.expand(
+    [
+        ("docker", _docker_provider, "http://localhost:18080"),
+        ("modal", _modal_provider, "https://gateway.funnel.example.com"),
+    ]
+)
+def test_provider_routes_model_calls_to_a_gateway_the_host_worker_can_mint_through(
+    _name: str, build: Callable[[], SandboxProviderStrategy], gateway_url: str
+) -> None:
+    overrides = build().settings_overrides()
+
+    assert overrides["SANDBOX_AI_GATEWAY_URL"] == gateway_url
+    assert overrides["SANDBOX_LLM_GATEWAY_URL"] is None
 
 
 class TestAgentRunFailureDetection:

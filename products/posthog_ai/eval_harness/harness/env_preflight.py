@@ -34,7 +34,7 @@ class SandboxEvalEnv(BaseModel):
     )
     LLM_GATEWAY_ANTHROPIC_API_KEY: str = Field(
         min_length=1,
-        description="Anthropic API key the LLM gateway proxies the agent's model calls with",
+        description="Anthropic API key the AI gateway proxies the agent's model calls with",
     )
 
 
@@ -56,7 +56,7 @@ class CodexEvalEnv(BaseModel):
 
     LLM_GATEWAY_OPENAI_API_KEY: str = Field(
         min_length=1,
-        description="OpenAI API key the LLM gateway proxies the codex agent's model calls with",
+        description="OpenAI API key the AI gateway proxies the codex agent's model calls with",
     )
 
 
