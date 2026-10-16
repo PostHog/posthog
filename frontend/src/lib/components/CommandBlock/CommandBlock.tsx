@@ -103,7 +103,7 @@ export function CommandBlock({
             ref={buttonRef}
             onClick={handleCopy}
             className={cn(
-                'group inline-flex items-center gap-2 font-mono rounded-lg cursor-pointer transition-colors w-fit text-left',
+                'group inline-flex items-center gap-2 font-mono rounded-lg cursor-pointer transition-colors w-fit',
                 sizeStyle.font,
                 sizeStyle.padding,
                 className
