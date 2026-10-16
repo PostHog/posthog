@@ -244,7 +244,6 @@ export interface insightVizDataLogicValues {
     funnelsFilter: FunnelsFilter | null | undefined
     globalFiltersUnsupported: boolean
     goalLines: GoalLine[] | null | undefined
-    hasDataWarehouseEntity: boolean
     hasDataWarehouseSeries: boolean
     hasDetailedResultsTable: boolean
     hasFormula: boolean
@@ -1244,19 +1243,6 @@ export interface insightVizDataLogicMeta {
         ) => boolean
         hasDataWarehouseSeries: (
             series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
-        ) => boolean
-        hasDataWarehouseEntity: (
-            querySource:
-                | FunnelsQuery
-                | LifecycleQuery
-                | PathsQuery
-                | PathsV2Query
-                | RetentionQuery
-                | StickinessQuery
-                | TrendsQuery
-                | WebOverviewQuery
-                | WebStatsTableQuery
-                | null
         ) => boolean
         globalFiltersUnsupported: (
             querySource:
@@ -2433,10 +2419,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     | undefined
             ): boolean => (series || []).length > 0 && !!series?.some((node) => isAnyDataWarehouseNode(node)),
         ],
-        hasDataWarehouseEntity: [
-            (s) => [s.querySource],
-            (querySource: InsightQueryNode | null): boolean => !!querySource && readsDataWarehouseTable(querySource),
-        ],
         globalFiltersUnsupported: [
             (s) => [s.querySource],
             (querySource: InsightQueryNode | null): boolean =>
@@ -3040,10 +3022,6 @@ export function dateRangeZoomEnd(bucketStart: string, interval: IntervalType | n
     return start.add(1, interval).subtract(1, 'day').format('YYYY-MM-DD')
 }
 
-function readsDataWarehouseTable(query: InsightQueryNode): boolean {
-    return dataWarehouseSeriesNodes(query).length > 0
-}
-
 // The only breakdown types the trends backend resolves against a data warehouse series.
 const DATA_WAREHOUSE_SERIES_BREAKDOWN_TYPES = new Set<string>(['data_warehouse', 'hogql'])
 
@@ -3173,7 +3151,7 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as TrendsQuery).properties = undefined
         ;(mergedUpdate as TrendsQuery).filterTestAccounts = false
     }
-    if (readsDataWarehouseTable(nextQuery) && (nextQuery as TrendsQuery).samplingFactor != null) {
+    if (dataWarehouseSeriesNodes(nextQuery).length > 0 && (nextQuery as TrendsQuery).samplingFactor != null) {
         ;(mergedUpdate as TrendsQuery).samplingFactor = undefined
     }
 

@@ -641,6 +641,34 @@ describe('insightVizDataLogic', () => {
             infoToast.mockRestore()
         })
 
+        it.each([
+            {
+                saved: 'another warehouse table',
+                series: warehouseTrendsSeries,
+                kept: { filterTestAccounts: false, properties: undefined },
+            },
+            {
+                saved: 'flag calls',
+                series: flagCallsTrendsSeries,
+                kept: { filterTestAccounts: true, properties: [expect.objectContaining({ key: 'browser' })] },
+            },
+        ])('resets sampling and the filters a saved $saved series cannot take', ({ series, kept }) => {
+            builtInsightDataLogic.actions.setQuery({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [series],
+                    filterTestAccounts: true,
+                    properties: [{ type: 'event', key: 'browser', value: 'Chrome', operator: 'exact' }],
+                    samplingFactor: 0.1,
+                },
+            } as Node)
+
+            builtInsightVizDataLogic.actions.updateQuerySource({ samplingFactor: undefined } as TrendsQuery)
+
+            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({ ...kept, samplingFactor: undefined })
+        })
+
         it('keeps test accounts off when a later edit turns them on for a retention insight with a data warehouse entity', () => {
             builtInsightVizDataLogic.actions.updateQuerySource({
                 kind: NodeKind.RetentionQuery,
@@ -656,7 +684,7 @@ describe('insightVizDataLogic', () => {
                 kind: NodeKind.RetentionQuery,
                 filterTestAccounts: false,
             })
-            expect(builtInsightVizDataLogic.values.hasDataWarehouseEntity).toBe(true)
+            expect(builtInsightVizDataLogic.values.globalFiltersUnsupported).toBe(true)
         })
     })
 

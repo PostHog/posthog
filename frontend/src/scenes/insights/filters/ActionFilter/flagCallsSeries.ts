@@ -57,9 +57,9 @@ export const FLAG_CALLS_UNSUPPORTED_MATH_TYPES: ReadonlySet<string> = new Set<st
     GroupMathType.FirstMatchingEventForGroup,
 ])
 
-type SeriesNode = { kind?: string; type?: string; table_name?: string } | null | undefined
+type SeriesOrRetentionEntity = { kind?: string; type?: string; table_name?: string } | null | undefined
 
-function seriesNodes(query: InsightQueryNode): SeriesNode[] {
+function seriesNodes(query: InsightQueryNode): SeriesOrRetentionEntity[] {
     return query.kind === NodeKind.RetentionQuery
         ? [query.retentionFilter?.targetEntity, query.retentionFilter?.returningEntity]
         : 'series' in query
@@ -67,7 +67,7 @@ function seriesNodes(query: InsightQueryNode): SeriesNode[] {
           : []
 }
 
-function readsFlagCallsTable(node: SeriesNode): boolean {
+function readsFlagCallsTable(node: SeriesOrRetentionEntity): boolean {
     return node?.table_name === FLAG_EVALUATIONS_TABLE
 }
 
@@ -75,7 +75,7 @@ export function readsFlagCalls(query: InsightQueryNode): boolean {
     return seriesNodes(query).some(readsFlagCallsTable)
 }
 
-export function dataWarehouseSeriesNodes(query: InsightQueryNode): SeriesNode[] {
+export function dataWarehouseSeriesNodes(query: InsightQueryNode): SeriesOrRetentionEntity[] {
     return seriesNodes(query).filter((node) => isAnyDataWarehouseNode(node) || node?.type === 'data_warehouse')
 }
 

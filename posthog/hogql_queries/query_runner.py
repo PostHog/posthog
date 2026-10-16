@@ -3457,9 +3457,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
         )
 
-        ignores_dashboard_properties = not every_warehouse_series_reads_flag_calls(series_nodes)
+        applies_dashboard_properties = every_warehouse_series_reads_flag_calls(series_nodes)
 
-        if dashboard_filter.properties and not ignores_dashboard_properties:
+        if dashboard_filter.properties and applies_dashboard_properties:
             if self.query.properties and has_any_property_filters(self.query.properties):
                 # Check if query expects only a list (e.g. WebOverviewQuery) vs union with PropertyGroupFilter
                 properties_field = self.query.__class__.model_fields.get("properties")

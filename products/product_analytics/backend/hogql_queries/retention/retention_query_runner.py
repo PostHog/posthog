@@ -409,11 +409,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return [entity.id] if isinstance(entity.id, str) else [None]
 
     @cached_property
-    def global_property_filters(self) -> list[ast.Expr]:
-        """The query's global property filters, then the team's test account filters when the query turns them on.
-
-        Callers copy the list before they add to it, because every scan shares it.
-        """
+    def global_property_filters(self) -> tuple[ast.Expr, ...]:
+        """The query's global property filters, then the team's test account filters when the query turns them on."""
         filters: list[ast.Expr] = []
 
         if self.query.properties is not None and self.query.properties != []:
@@ -427,7 +424,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             for prop in self.team.test_account_filters:
                 filters.append(property_to_expr(prop, self.team))
 
-        return filters
+        return tuple(filters)
 
     def events_where_clause(
         self,

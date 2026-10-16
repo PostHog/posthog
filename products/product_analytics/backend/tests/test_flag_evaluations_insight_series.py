@@ -39,6 +39,7 @@ from posthog.schema import (
     PropertyGroupFilterValue,
     PropertyOperator,
     RetentionQuery,
+    RetentionType,
     StickinessQuery,
     TimeWindowMode,
     TrendsQuery,
@@ -124,7 +125,11 @@ def _flag_calls_lifecycle_series(aggregation_group_type_index: int | None = None
     )
 
 
-def _flag_calls_retention(aggregation_group_type_index: int | None = None, **retention_filter: Any) -> RetentionQuery:
+def _flag_calls_retention(
+    aggregation_group_type_index: int | None = None,
+    returning_entity: dict[str, Any] | None = None,
+    **retention_filter: Any,
+) -> RetentionQuery:
     flag_calls = _retention_entity(_aggregation_target(aggregation_group_type_index))
     return RetentionQuery(
         dateRange=DATE_RANGE,
@@ -133,7 +138,7 @@ def _flag_calls_retention(aggregation_group_type_index: int | None = None, **ret
             "period": "Day",
             "totalIntervals": 3,
             "targetEntity": flag_calls,
-            "returningEntity": flag_calls,
+            "returningEntity": returning_entity or flag_calls,
             **retention_filter,
         },
     )
@@ -291,9 +296,7 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
         returning_event: dict[str, Any] | None,
         expected: list[int],
     ):
-        query = _flag_calls_retention(
-            aggregation_group_type_index, **({"returningEntity": returning_event} if returning_event else {})
-        )
+        query = _flag_calls_retention(aggregation_group_type_index, returning_entity=returning_event)
 
         results = RetentionQueryRunner(query=query, team=self.team).calculate().model_dump()["results"]
 
@@ -406,6 +409,23 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
                 "retention_24_hour_windows",
                 RetentionQueryRunner,
                 _flag_calls_retention(timeWindowMode=TimeWindowMode.FIELD_24_HOUR_WINDOWS),
+                lambda results: [value["count"] for value in results[0]["values"]],
+                [2, 0, 0],
+            ),
+            (
+                "retention_first_time_fixed_intervals",
+                RetentionQueryRunner,
+                _flag_calls_retention(retentionType=RetentionType.RETENTION_FIRST_TIME),
+                lambda results: [value["count"] for value in results[0]["values"]],
+                [2, 1, 0],
+            ),
+            (
+                "retention_first_time_24_hour_windows",
+                RetentionQueryRunner,
+                _flag_calls_retention(
+                    retentionType=RetentionType.RETENTION_FIRST_TIME,
+                    timeWindowMode=TimeWindowMode.FIELD_24_HOUR_WINDOWS,
+                ),
                 lambda results: [value["count"] for value in results[0]["values"]],
                 [2, 0, 0],
             ),
