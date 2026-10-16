@@ -16,6 +16,7 @@ BILLING_PERIOD_DIRECTORY = re.compile(r"BILLING_PERIOD=(\d{4})-(\d{2})/?$")
 BILLING_PERIOD_INPUT = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 DATA_FILE_SUFFIXES = (".parquet", ".csv.gz")
 BUCKET_NAME = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
+DECIMAL_TYPE = re.compile(r"^decimal\((\d+),\s*(\d+)\)$")
 
 COST_AND_USAGE = "cost_and_usage"
 

@@ -9,10 +9,13 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_and_usage_report.aws_cost_and_usage_report import (
+    DELIVERY_IN_PROGRESS,
     ERROR_PREFIX,
+    MANIFEST_UNREADABLE,
     VALIDATION_ERROR_MESSAGES,
     WRONG_REGION_CODES,
     WRONG_REGION_MESSAGE,
+    CostAndUsageReportResumeConfig,
     aws_cost_and_usage_report_source,
     validate_credentials as validate_cost_and_usage_report_credentials,
 )
@@ -21,11 +24,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_a
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
     build_endpoint_schemas,
@@ -38,7 +42,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class AwsCostAndUsageReportSource(SimpleSource[AwsCostAndUsageReportSourceConfig]):
+class AwsCostAndUsageReportSource(ResumableSource[AwsCostAndUsageReportSourceConfig, CostAndUsageReportResumeConfig]):
     codebase_detection = detect(
         npm=("@aws-sdk/client-bcm-data-exports", "@aws-sdk/client-cost-and-usage-report-service"),
         cargo=("aws-sdk-bcmdataexports", "aws-sdk-costandusagereport"),
@@ -74,7 +78,16 @@ class AwsCostAndUsageReportSource(SimpleSource[AwsCostAndUsageReportSourceConfig
 
     def get_retryable_errors(self) -> set[str]:
         # An "overwrite" export is being rewritten; the next attempt reads the finished delivery.
-        return {f"{ERROR_PREFIX}: DeliveryInProgress"}
+        # An unreadable manifest is replaced by the next delivery.
+        return {f"{ERROR_PREFIX}: {DELIVERY_IN_PROGRESS}", f"{ERROR_PREFIX}: {MANIFEST_UNREADABLE}"}
+
+    def resume_covers_run(self, *, incremental_or_append: bool, schema_name: str | None = None) -> bool:
+        return not incremental_or_append
+
+    def get_resumable_source_manager(
+        self, inputs: SourceInputs
+    ) -> ResumableSourceManager[CostAndUsageReportResumeConfig]:
+        return ResumableSourceManager[CostAndUsageReportResumeConfig](inputs, CostAndUsageReportResumeConfig)
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_and_usage_report.canonical_descriptions import (
@@ -112,7 +125,15 @@ class AwsCostAndUsageReportSource(SimpleSource[AwsCostAndUsageReportSourceConfig
             config.first_billing_period,
         )
 
-    def source_for_pipeline(self, config: AwsCostAndUsageReportSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def source_for_pipeline(
+        self,
+        config: AwsCostAndUsageReportSourceConfig,
+        resumable_source_manager: ResumableSourceManager[CostAndUsageReportResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        # A reset's first attempt reads from the start. Later attempts of the run keep its progress.
+        if inputs.reset_pipeline and inputs.activity_attempt == 1:
+            resumable_source_manager.clear_state()
         return aws_cost_and_usage_report_source(
             aws_access_key_id=config.aws_access_key_id,
             aws_secret_access_key=config.aws_secret_access_key,
@@ -123,6 +144,7 @@ class AwsCostAndUsageReportSource(SimpleSource[AwsCostAndUsageReportSourceConfig
             export_name=config.export_name,
             first_billing_period=config.first_billing_period,
             logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
         )
 
     @property
@@ -135,7 +157,7 @@ class AwsCostAndUsageReportSource(SimpleSource[AwsCostAndUsageReportSourceConfig
 
 Create the export in the AWS Billing console under **Data Exports**, delivered to S3 as Parquet or gzip CSV. Parquet keeps the column types of the export; gzip CSV takes them from the export's manifest. Then create an IAM user or role with `s3:ListBucket` on the bucket and `s3:GetObject` on the export's prefix, and paste its access key ID and secret access key.
 
-AWS rewrites a whole billing period on each delivery and restates the previous month for up to two weeks after it ends, so every sync rebuilds the table from the latest delivery of each billing period. Set a first billing period to limit how many months each sync reads.""",
+AWS rewrites a whole billing period on each delivery and restates the previous month for up to two weeks after it ends, so every sync rebuilds the table from the latest delivery of each billing period. Each sync reads every month from the first billing period on, and each read counts as synced rows, so start at the earliest month you need.""",
             iconPath="/static/services/aws_cost_and_usage_report.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-cost-and-usage-report",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -201,9 +223,9 @@ AWS rewrites a whole billing period on each delivery and restates the previous m
                     ),
                     SourceFieldInputConfig(
                         name="first_billing_period",
-                        label="First billing period to sync (YYYY-MM, empty syncs every period in the bucket)",
+                        label="First billing period to sync (YYYY-MM)",
                         type=SourceFieldInputConfigType.TEXT,
-                        required=False,
+                        required=True,
                         placeholder="2024-01",
                         secret=False,
                     ),

@@ -11,6 +11,6 @@ class AwsCostAndUsageReportSourceConfig(config.Config):
     aws_region: str
     bucket: str
     export_name: str
+    first_billing_period: str
     aws_session_token: str | None = None
     prefix: str | None = None
-    first_billing_period: str | None = None

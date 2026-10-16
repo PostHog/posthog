@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_a
     NO_EXPORT_MESSAGE,
     VALIDATION_ERROR_MESSAGES,
     WRONG_REGION_MESSAGE,
+    CostAndUsageReportResumeConfig,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_and_usage_report.source import (
@@ -175,6 +176,7 @@ class TestSync:
         # February predates the first billing period; April's manifest uses the bare name.
         assert requested_keys(result.requests) == [
             f"{BASE}/metadata/BILLING_PERIOD=2024-03/my-export-Manifest.json",
+            f"{BASE}/metadata/BILLING_PERIOD=2024-03/Manifest.json",
             f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.snappy.parquet",
             f"{BASE}/metadata/BILLING_PERIOD=2024-04/my-export-Manifest.json",
             f"{BASE}/metadata/BILLING_PERIOD=2024-04/Manifest.json",
@@ -184,7 +186,7 @@ class TestSync:
             {
                 "identity_line_item_id": "a",
                 "line_item_unblended_cost": 1.5,
-                "resource_tags": '{"user:team": "web"}',
+                "resource_tags": '{"user:team":"web"}',
                 "billing_period": MARCH,
             },
             {
@@ -381,6 +383,85 @@ def probe(c: AwsCostAndUsageReportSourceConfig) -> tuple[bool, str | None]:
         c.export_name,
         c.first_billing_period,
     )
+
+
+class TestDeliveries:
+    MANIFEST_KEY = f"{BASE}/metadata/BILLING_PERIOD=2024-03/my-export-Manifest.json"
+    FIRST = f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00001.snappy.parquet"
+    SECOND = f"{BASE}/data/BILLING_PERIOD=2024-03/my-export-00002.snappy.parquet"
+    WRITTEN = "Wed, 06 Mar 2024 10:00:00 GMT"
+
+    def _run(self, objects: Mapping[str, ScriptedResponse], resume_state: Any = None) -> Any:
+        periods = listing(prefixes=[f"{BASE}/data/BILLING_PERIOD=2024-03/"])
+        return SourceDriver(AwsCostAndUsageReportSource(), config()).run(
+            "cost_and_usage", s3({f"{BASE}/data/": [periods]}, objects), resume_state=resume_state
+        )
+
+    @pytest.mark.parametrize(
+        "saved_written, expected_ids, raised",
+        [
+            ("Wed, 06 Mar 2024 10:00:00 GMT", ["b"], None),
+            # AWS delivered the month again, so the saved file and batch point into other files.
+            ("Tue, 05 Mar 2024 10:00:00 GMT", [], "DeliveryInProgress"),
+        ],
+    )
+    def test_a_resumed_run_continues_after_its_last_batch_only_within_the_same_delivery(
+        self, saved_written: str, expected_ids: list[str], raised: str | None
+    ) -> None:
+        manifest = ScriptedResponse(
+            json={"dataFiles": [self.FIRST, self.SECOND]}, headers={"Last-Modified": self.WRITTEN}
+        )
+        result = self._run(
+            {
+                self.MANIFEST_KEY: manifest,
+                self.FIRST: parquet_file([{"id": "a", "cost": 1.0, "tags": []}]),
+                self.SECOND: parquet_file([{"id": "b", "cost": 2.0, "tags": []}]),
+            },
+            resume_state=CostAndUsageReportResumeConfig(
+                billing_period="2024-03", manifest_last_modified=saved_written, file_index=0, batch_index=1
+            ),
+        )
+
+        assert [row["identity_line_item_id"] for row in table_rows(result.items)] == expected_ids
+        if raised is None:
+            assert result.raised is None
+            assert result.saved_states[-1] == CostAndUsageReportResumeConfig(
+                billing_period="2024-03", manifest_last_modified=self.WRITTEN, file_index=1, batch_index=1
+            )
+        else:
+            assert raised in str(result.raised)
+            assert result.final_state is None
+
+    @pytest.mark.parametrize(
+        "manifest",
+        [
+            ScriptedResponse(body=b"{not json", headers={"Content-Type": "application/json"}),
+            ScriptedResponse(json={"dataFiles": []}),
+        ],
+    )
+    def test_a_manifest_with_no_readable_file_list_fails_instead_of_dropping_the_month(
+        self, manifest: ScriptedResponse
+    ) -> None:
+        result = self._run({self.MANIFEST_KEY: manifest})
+
+        assert str(result.raised).startswith("AWS Cost and Usage Report request failed: ManifestUnreadable")
+        assert result.items == []
+
+    def test_the_newer_manifest_wins_when_an_export_left_both_names_behind(self) -> None:
+        result = self._run(
+            {
+                self.MANIFEST_KEY: ScriptedResponse(
+                    json={"dataFiles": [self.FIRST]}, headers={"Last-Modified": "Mon, 04 Mar 2024 10:00:00 GMT"}
+                ),
+                f"{BASE}/metadata/BILLING_PERIOD=2024-03/Manifest.json": ScriptedResponse(
+                    json={"dataFiles": [self.SECOND]}, headers={"Last-Modified": self.WRITTEN}
+                ),
+                self.SECOND: parquet_file([{"id": "b", "cost": 2.0, "tags": []}]),
+            }
+        )
+
+        assert result.raised is None
+        assert [row["identity_line_item_id"] for row in table_rows(result.items)] == ["b"]
 
 
 class TestValidateCredentials:

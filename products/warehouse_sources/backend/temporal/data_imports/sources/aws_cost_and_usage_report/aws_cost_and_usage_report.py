@@ -1,13 +1,16 @@
 import re
 import json
+import decimal
 import datetime as dt
 import tempfile
 import dataclasses
+import email.utils
 from collections.abc import Callable, Iterator
 from functools import cache
 from typing import IO, Any, Optional
 from urllib.parse import quote, urlencode
 
+import orjson
 import pyarrow as pa
 import requests
 import pyarrow.parquet as pq
@@ -18,6 +21,7 @@ from botocore.loaders import Loader
 from defusedxml import ElementTree
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -29,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_a
     BUCKET_NAME,
     COST_AND_USAGE,
     DATA_FILE_SUFFIXES,
+    DECIMAL_TYPE,
     DOWNLOAD_CHUNK_BYTES,
     LIST_PAGE_SIZE,
     ROWS_PER_BATCH,
@@ -44,6 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
     interruptible_wait,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -53,6 +59,7 @@ REQUEST_TIMEOUT_SECONDS = 120
 DOWNLOAD_ATTEMPTS = 3
 NO_MANIFEST = "NoManifest"
 DELIVERY_IN_PROGRESS = "DeliveryInProgress"
+MANIFEST_UNREADABLE = "ManifestUnreadable"
 BILLING_PERIOD_COLUMN = "billing_period"
 ERROR_PREFIX = "AWS Cost and Usage Report request failed"
 WRONG_REGION_CODES = frozenset(
@@ -68,14 +75,8 @@ class AwsCostAndUsageReportError(Exception):
 
 
 @dataclasses.dataclass(frozen=True)
-class S3Object:
-    key: str
-    size: int
-
-
-@dataclasses.dataclass(frozen=True)
 class S3ListPage:
-    objects: list[S3Object]
+    keys: list[str]
     prefixes: list[str]
     next_token: Optional[str]
 
@@ -90,6 +91,20 @@ class Delivery:
     # When AWS wrote the manifest. An "overwrite" export rewrites its data files in place, so a
     # file changed after this belongs to a newer delivery.
     manifest_last_modified: Optional[str] = None
+
+
+@frozen
+class CostAndUsageReportResumeConfig:
+    """How far a full refresh got: the billing period, the delivery it read, and the next batch.
+
+    `manifest_last_modified` pins the delivery. If AWS delivered the period again since, the saved
+    file and batch numbers point into a different set of files.
+    """
+
+    billing_period: str
+    manifest_last_modified: Optional[str]
+    file_index: int
+    batch_index: int
 
 
 @dataclasses.dataclass(frozen=True)
@@ -142,14 +157,11 @@ def error_for_response(response: requests.Response) -> AwsCostAndUsageReportErro
 
 def parse_list_page(body: bytes) -> S3ListPage:
     root = ElementTree.fromstring(body)
-    objects = [
-        S3Object(key=item.findtext(f"{S3_NAMESPACE}Key") or "", size=int(item.findtext(f"{S3_NAMESPACE}Size") or 0))
-        for item in root.findall(f"{S3_NAMESPACE}Contents")
-    ]
+    keys = [item.findtext(f"{S3_NAMESPACE}Key") or "" for item in root.findall(f"{S3_NAMESPACE}Contents")]
     prefixes = [item.findtext(f"{S3_NAMESPACE}Prefix") or "" for item in root.findall(f"{S3_NAMESPACE}CommonPrefixes")]
     truncated = (root.findtext(f"{S3_NAMESPACE}IsTruncated") or "").lower() == "true"
     next_token = root.findtext(f"{S3_NAMESPACE}NextContinuationToken") if truncated else None
-    return S3ListPage(objects=objects, prefixes=[prefix for prefix in prefixes if prefix], next_token=next_token)
+    return S3ListPage(keys=keys, prefixes=[prefix for prefix in prefixes if prefix], next_token=next_token)
 
 
 class S3Client:
@@ -215,17 +227,17 @@ class S3Client:
         return parse_list_page(self._get(self._session, self._url(query=query)).content)
 
     def list_all(self, prefix: str) -> S3ListPage:
-        objects: list[S3Object] = []
+        keys: list[str] = []
         prefixes: list[str] = []
         token: Optional[str] = None
         while True:
             page = self.list_page(prefix, token)
-            objects.extend(page.objects)
+            keys.extend(page.keys)
             prefixes.extend(page.prefixes)
             token = page.next_token
             reach_safe_point()
             if not token:
-                return S3ListPage(objects=objects, prefixes=prefixes, next_token=None)
+                return S3ListPage(keys=keys, prefixes=prefixes, next_token=None)
 
     def get_object(self, key: str) -> Optional[S3Body]:
         """The object body and its `Last-Modified`, or None when the key does not exist."""
@@ -327,26 +339,43 @@ def latest_delivery(client: S3Client, bucket: str, base: str, export_name: str, 
     without one is still being delivered and its files would be incomplete.
     """
     partition = f"BILLING_PERIOD={period:%Y-%m}"
+    # An "overwrite" export writes `<export>-Manifest.json` and a "create new" one `Manifest.json`.
+    # An export switched between the two leaves the old one behind, so the newer one wins.
+    found: list[tuple[dt.datetime, str, S3Body]] = []
     for manifest_key in (
         f"{base}/metadata/{partition}/{export_name.strip('/')}-Manifest.json",
         f"{base}/metadata/{partition}/Manifest.json",
     ):
         manifest_object = client.get_object(manifest_key)
         reach_safe_point()
-        if manifest_object is None:
-            continue
-        try:
-            manifest = json.loads(manifest_object.content)
-        except ValueError:
-            continue
-        keys = manifest_data_keys(manifest, bucket)
-        if keys:
-            return Delivery(
-                keys=keys,
-                column_types=manifest_column_types(manifest),
-                manifest_last_modified=manifest_object.last_modified,
-            )
-    return None
+        if manifest_object is not None:
+            found.append((_http_date(manifest_object.last_modified), manifest_key, manifest_object))
+    if not found:
+        return None
+    _, manifest_key, manifest_object = max(found, key=lambda item: item[0])
+    unreadable = AwsCostAndUsageReportError(
+        f"{ERROR_PREFIX}: {MANIFEST_UNREADABLE} - s3://{bucket}/{manifest_key} lists no data files",
+        MANIFEST_UNREADABLE,
+    )
+    try:
+        manifest = json.loads(manifest_object.content)
+    except ValueError as error:
+        raise unreadable from error
+    keys = manifest_data_keys(manifest, bucket)
+    if not keys:
+        raise unreadable
+    return Delivery(
+        keys=keys,
+        column_types=manifest_column_types(manifest),
+        manifest_last_modified=manifest_object.last_modified,
+    )
+
+
+def _http_date(value: Optional[str]) -> dt.datetime:
+    try:
+        return email.utils.parsedate_to_datetime(value) if value else dt.datetime.min.replace(tzinfo=dt.UTC)
+    except (TypeError, ValueError):
+        return dt.datetime.min.replace(tzinfo=dt.UTC)
 
 
 def _jsonable(value: Any, value_type: pa.DataType) -> Any:
@@ -375,7 +404,7 @@ def shape_table(table: pa.Table, period: dt.date) -> pa.Table:
     for index, field in enumerate(table.schema):
         if _is_nested(field.type):
             encoded = [
-                None if value is None else json.dumps(_jsonable(value, field.type), default=str)
+                None if value is None else orjson.dumps(_jsonable(value, field.type), default=str).decode()
                 for value in table.column(index).to_pylist()
             ]
             table = table.set_column(index, field.name, pa.array(encoded, type=pa.string()))
@@ -405,7 +434,14 @@ class CsvColumnType:
 
 def csv_column_type(declared_type: str) -> Optional[CsvColumnType]:
     """How to read a CSV cell of a declared column type, and the Arrow type it lands as. None keeps the text."""
-    if declared_type in ("double", "float", "real") or declared_type.startswith("decimal"):
+    if declared_type in ("double", "float", "real"):
+        return CsvColumnType(float, pa.float64())
+    if match := DECIMAL_TYPE.match(declared_type):
+        # Same type as the Parquet file of the same export, so a format switch keeps the column type.
+        precision, scale = int(match.group(1)), int(match.group(2))
+        step = decimal.Decimal(1).scaleb(-scale)
+        return CsvColumnType(lambda text: decimal.Decimal(text).quantize(step), pa.decimal128(precision, scale))
+    if declared_type.startswith("decimal"):
         return CsvColumnType(float, pa.float64())
     if declared_type in ("bigint", "int", "integer", "smallint", "tinyint", "long"):
         return CsvColumnType(int, pa.int64())
@@ -418,9 +454,12 @@ def csv_column_type(declared_type: str) -> Optional[CsvColumnType]:
     return None
 
 
-def convert_csv_rows(rows: list[dict[str, Any]], converters: dict[str, Callable[[str], Any]]) -> None:
+def convert_csv_rows(rows: list[dict[str, Any]], converters: dict[str, Callable[[str], Any]]) -> int:
     """Give CSV cells the types the export declares. Every cell arrives as text, so without this a
-    cost column would land as a string. An empty or unreadable cell becomes null."""
+    cost column would land as a string. An empty or unreadable cell becomes null.
+
+    Returns how many non-empty cells could not be read."""
+    unreadable = 0
     for row in rows:
         for column, convert in converters.items():
             value = row.get(column)
@@ -431,11 +470,15 @@ def convert_csv_rows(rows: list[dict[str, Any]], converters: dict[str, Callable[
                 continue
             try:
                 row[column] = convert(value)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, ArithmeticError):
                 row[column] = None
+                unreadable += 1
+    return unreadable
 
 
-def iter_data_file(client: S3Client, key: str, period: dt.date, delivery: Delivery) -> Iterator[pa.Table]:
+def iter_data_file(
+    client: S3Client, key: str, period: dt.date, delivery: Delivery, logger: FilteringBoundLogger
+) -> Iterator[pa.Table]:
     """Yield the file's rows as Arrow tables, whatever its format, so one run never mixes item types."""
     with tempfile.NamedTemporaryFile(suffix=".download") as destination:
         try:
@@ -467,11 +510,14 @@ def iter_data_file(client: S3Client, key: str, period: dt.date, delivery: Delive
             if (column_type := csv_column_type(kind)) is not None
         }
         converters = {name: column_type.convert for name, column_type in column_types.items()}
-        for file_rows in iter_file_rows(destination, resolve_file_format(key), key, chunk_size=ROWS_PER_BATCH):
+        unreadable = 0
+        for file_rows in iter_file_rows(
+            destination, resolve_file_format(key), key, chunk_size=ROWS_PER_BATCH, logger=logger
+        ):
             if not file_rows:
                 continue
             rows = [{column_names.get(name, name): value for name, value in row.items()} for row in file_rows]
-            convert_csv_rows(rows, converters)
+            unreadable += convert_csv_rows(rows, converters)
             for row in rows:
                 row[BILLING_PERIOD_COLUMN] = period_start
             schema = pa.schema(
@@ -486,6 +532,10 @@ def iter_data_file(client: S3Client, key: str, period: dt.date, delivery: Delive
                 ]
             )
             yield pa.Table.from_pylist(rows, schema=schema)
+        if unreadable:
+            logger.warning(
+                f"{unreadable} cell(s) in {key} did not match the type the manifest declares and were set to null"
+            )
 
 
 def get_rows(
@@ -498,6 +548,7 @@ def get_rows(
     export_name: str,
     first_billing_period: Optional[str],
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[CostAndUsageReportResumeConfig],
 ) -> Iterator[pa.Table]:
     client = S3Client(aws_access_key_id, aws_secret_access_key, aws_session_token, aws_region, bucket)
     base = export_base(prefix, export_name)
@@ -506,16 +557,46 @@ def get_rows(
         logger.warning(f"No billing periods found under s3://{bucket.strip()}/{base}/data/")
         return
 
-    delivered = 0
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    delivered = 1 if resume is not None else 0
     for period in periods:
+        billing_period = f"{period:%Y-%m}"
+        if resume is not None and billing_period < resume.billing_period:
+            continue
         delivery = latest_delivery(client, bucket.strip(), base, export_name, period)
         if delivery is None:
-            logger.warning(f"Skipping billing period {period:%Y-%m}: AWS has not finished delivering it")
+            logger.warning(f"Skipping billing period {billing_period}: AWS has not finished delivering it")
             continue
-        delivered += 1
-        logger.debug(f"Reading billing period {period:%Y-%m} from {len(delivery.keys)} file(s)")
-        for key in delivery.keys:
-            yield from iter_data_file(client, key, period, delivery)
+        first_file, first_batch = 0, 0
+        if resume is not None and billing_period == resume.billing_period:
+            if delivery.manifest_last_modified != resume.manifest_last_modified:
+                # The rows already read came from the older delivery, so only a fresh refresh is consistent.
+                resumable_source_manager.clear_state()
+                raise AwsCostAndUsageReportError(
+                    f"{ERROR_PREFIX}: {DELIVERY_IN_PROGRESS} - AWS delivered billing period {billing_period} "
+                    "again during this sync; the next attempt starts over",
+                    DELIVERY_IN_PROGRESS,
+                )
+            first_file, first_batch = resume.file_index, resume.batch_index
+        else:
+            delivered += 1
+        logger.debug(f"Reading billing period {billing_period} from {len(delivery.keys)} file(s)")
+        for file_index, key in enumerate(delivery.keys):
+            if file_index < first_file:
+                continue
+            skip = first_batch if file_index == first_file else 0
+            for batch_index, table in enumerate(iter_data_file(client, key, period, delivery, logger)):
+                if batch_index < skip:
+                    continue
+                resumable_source_manager.save_state(
+                    CostAndUsageReportResumeConfig(
+                        billing_period=billing_period,
+                        manifest_last_modified=delivery.manifest_last_modified,
+                        file_index=file_index,
+                        batch_index=batch_index + 1,
+                    )
+                )
+                yield table
 
     if not delivered:
         raise AwsCostAndUsageReportError(
@@ -581,10 +662,13 @@ def validate_credentials(
             return False, VALIDATION_ERROR_MESSAGES[code]
         capture_exception(error)
         return False, GENERIC_VALIDATION_ERROR
-    except Exception:
+    except requests.RequestException:
         return False, "Could not reach Amazon S3. Check the bucket name and region, then try again."
+    except Exception as error:
+        capture_exception(error)
+        return False, GENERIC_VALIDATION_ERROR
 
-    if not page.prefixes and not page.objects:
+    if not page.prefixes and not page.keys:
         return False, NO_EXPORT_MESSAGE
     return True, None
 
@@ -599,6 +683,7 @@ def aws_cost_and_usage_report_source(
     export_name: str,
     first_billing_period: Optional[str],
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[CostAndUsageReportResumeConfig],
 ) -> SourceResponse:
     return SourceResponse(
         name=COST_AND_USAGE,
@@ -612,6 +697,7 @@ def aws_cost_and_usage_report_source(
             export_name=export_name,
             first_billing_period=first_billing_period,
             logger=logger,
+            resumable_source_manager=resumable_source_manager,
         ),
         primary_keys=None,
         partition_keys=[BILLING_PERIOD_COLUMN],
