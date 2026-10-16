@@ -37,6 +37,8 @@ _COMMON_STATS_COLUMNS = {
     "conversion_values": "The total value of conversions attributed to the ads.",
     "cost_per_action_type": "Average cost per action, broken down by action type.",
     "action_values": "The total value of actions, broken down by action type.",
+    "video_play_actions": "Number of times the video started playing, reported by action type.",
+    "video_thruplay_watched_actions": "Number of video plays lasting at least 15 seconds, or to completion for shorter videos, reported by action type.",
 }
 
 
