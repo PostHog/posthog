@@ -91,6 +91,8 @@ class _Recorder:
         self.picker_workflow_id: str | None = None
         # True holds untagged replies back on the thread creator's `ask` mode.
         self.awaiting_confirmation = False
+        # True makes discovery report that the team is out of AI credits.
+        self.discover_usage_limited = False
 
 
 def _fake_activities(rec: _Recorder) -> list:
@@ -173,7 +175,9 @@ def _fake_activities(rec: _Recorder) -> list:
         thread_messages: list[SlackThreadMessage],
         user_id: int,
     ) -> SlackRepoSelectionOutcome:
-        return SlackRepoSelectionOutcome(status="failed", repository=None, reason="agent crashed")
+        return SlackRepoSelectionOutcome(
+            status="failed", repository=None, reason="agent crashed", usage_limited=rec.discover_usage_limited
+        )
 
     @activity.defn(name="post_posthog_code_repo_picker_activity")
     async def post_picker(
@@ -542,6 +546,21 @@ async def test_repo_picker_signal_resolves_and_queue_continues():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created == [("1.1", "org/picked"), ("1.2", "org/auto-repo")]
+
+
+@pytest.mark.asyncio
+async def test_usage_limited_discovery_ends_without_a_picker_or_a_task():
+    rec = _Recorder()
+    rec.cascade_modes["1.1"] = "agent_needed"
+    rec.discover_usage_limited = True
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        await asyncio.wait_for(handle.result(), timeout=30)
+
+    assert not rec.picker_posted.is_set()
+    assert rec.created == []
+    assert rec.internal_errors == []
 
 
 @pytest.mark.asyncio
