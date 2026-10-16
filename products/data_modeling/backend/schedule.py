@@ -34,7 +34,7 @@ from posthog.temporal.common.search_attributes import (
     POSTHOG_TEAM_ID_KEY,
 )
 
-from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id, is_tier_schedule_id
+from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id
 from products.data_modeling.backend.models.node import Node
 
 # A schedule id is the bare DAG id, or "{dag_id}:{interval_seconds}" for a per-cadence-tier
@@ -55,7 +55,7 @@ def dag_schedule_search_attributes(*, team_id: int, organization_id: str, dag_id
 
 @async_to_sync
 async def get_v2_scheduled_dag_ids(
-    candidate_dag_ids: Collection[str] | None = None, *, tiered_only: bool = False
+    candidate_dag_ids: Collection[str] | None = None,
 ) -> set[str]:
     """Return the IDs of DAGs that already have a v2 `data-modeling-execute-dag` Temporal schedule.
 
@@ -90,14 +90,13 @@ async def get_v2_scheduled_dag_ids(
         if (
             isinstance(action, ScheduleListActionStartWorkflow)
             and action.workflow == DATA_MODELING_EXECUTE_DAG_WORKFLOW
-            and (not tiered_only or is_tier_schedule_id(listing.id))
         ):
             dag_ids.add(dag_id_from_schedule_id(listing.id))
     return dag_ids
 
 
 def get_v2_saved_query_ids(
-    candidate_ids: Collection[uuid.UUID] | None = None, *, tiered_only: bool = False
+    candidate_ids: Collection[uuid.UUID] | None = None,
 ) -> set[uuid.UUID]:
     """Return saved query IDs whose DAG already runs on a v2 schedule.
 
@@ -120,12 +119,10 @@ def get_v2_saved_query_ids(
         if not dag_ids_by_saved_query:
             return set()
 
-        v2_dag_ids = get_v2_scheduled_dag_ids(
-            {dag_id for ids in dag_ids_by_saved_query.values() for dag_id in ids}, tiered_only=tiered_only
-        )
+        v2_dag_ids = get_v2_scheduled_dag_ids({dag_id for ids in dag_ids_by_saved_query.values() for dag_id in ids})
         return {saved_query_id for saved_query_id, ids in dag_ids_by_saved_query.items() if ids & v2_dag_ids}
 
-    v2_dag_ids = get_v2_scheduled_dag_ids(tiered_only=tiered_only)
+    v2_dag_ids = get_v2_scheduled_dag_ids()
     if not v2_dag_ids:
         return set()
 

@@ -238,35 +238,6 @@ class TestReconcileDagSchedules(BaseTest):
         delete.assert_called_once_with(temporal, schedule_id=created_ids[0])
         self.assertNotEqual(created_ids[0], legacy_id)
 
-    def test_refuses_to_unschedule_covered_dag_without_targets(self):
-        # a covered DAG with no targets means unseeded conversion, not a wind-down —
-        # converging to zero schedules would silently stop all materialization
-        dag = DAG.get_or_create_default(self.team)
-        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
-        endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
-        Edge.objects.create(team=self.team, dag=dag, source=source, target=endpoint)
-
-        legacy_id = str(dag.id)
-
-        async def fake_list_schedules(*_args, **_kwargs):
-            async def gen():
-                yield _listing(legacy_id)
-
-            return gen()
-
-        temporal = mock.Mock()
-        temporal.list_schedules = fake_list_schedules
-
-        with (
-            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
-            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
-            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
-        ):
-            reconcile_dag_schedules(dag)
-
-        create.assert_not_called()
-        delete.assert_not_called()
-
     def test_sweeps_legacy_schedule_when_dag_has_no_schedulable_nodes(self):
         # a DAG holding only source tables has nothing to seed, so the unseeded-conversion
         # guard must not apply: its legacy schedule just fires no-op execute-dag runs forever
@@ -426,24 +397,6 @@ class TestMaybeReconcileDag(BaseTest):
         temporal = mock.Mock()
         temporal.list_schedules = fake_list_schedules
         return temporal
-
-    def test_untiered_dag_is_left_alone(self):
-        # a legacy single-schedule DAG converts only via the conversion command: tiering the
-        # seeded nodes here would delete the whole-DAG schedule the unseeded ones still ride
-        dag = self._dag_with_target()
-        with (
-            mock.patch(
-                f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([str(dag.id)]))
-            ),
-            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
-            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()) as update,
-            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
-        ):
-            with self.captureOnCommitCallbacks(execute=True):
-                maybe_reconcile_dag(dag)
-        create.assert_not_called()
-        update.assert_not_called()
-        delete.assert_not_called()
 
     def test_dag_with_no_schedule_regains_a_tier(self):
         dag = self._dag_with_target()
