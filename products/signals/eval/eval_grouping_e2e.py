@@ -30,7 +30,6 @@ import uuid
 import asyncio
 import logging
 from itertools import combinations
-from time import time
 from typing import Any
 
 import pytest
@@ -59,7 +58,7 @@ from products.signals.backend.temporal.types import (
     SignalCandidate,
     SpecificityMetadata,
 )
-from products.signals.eval.capture import EvalMetric, capture_evaluation, deterministic_uuid
+from products.signals.eval.capture import EvalMetric
 from products.signals.eval.common import (
     MAX_CONCURRENT_RUNS,
     EvalProgress,
@@ -70,6 +69,8 @@ from products.signals.eval.common import (
 from products.signals.eval.conftest import EVAL_TEAM_ID
 from products.signals.eval.fixtures.grouping_data import GROUP_DATA
 from products.signals.eval.mock import EmbeddingStore, ReportStore
+from products.signals.eval.offline import SignalsEvalRecorder
+from products.signals.eval.offline_config import GROUPING_SUITE
 
 TRANSPORT_RETRIES = 3
 
@@ -82,17 +83,21 @@ class EvalGroupingPipeline:
         return MagicMock(id=EVAL_TEAM_ID)
 
     @pytest.fixture(autouse=True)
-    def _setup(self, posthog_client, openai_client, gateway_client, mock_temporal, limit, no_capture, online):
-        self.posthog_client = posthog_client
+    def _setup(
+        self, posthog_client, openai_client, gateway_client, mock_temporal, limit, no_capture, online, eval_metadata
+    ):
+        self.results = SignalsEvalRecorder(
+            GROUPING_SUITE,
+            disabled=no_capture,
+            online_client=posthog_client if online else None,
+            metadata=eval_metadata,
+        )
         self.gateway_client = gateway_client
         self.openai_client = openai_client
         self.store = EmbeddingStore(openai_client)
         self.report_store = ReportStore()
         self.limit = limit
-        self.no_capture = no_capture
-        self.online = online
         self._match_lock = asyncio.Lock()
-        self.start_time = time()
 
         # Suppress structlog noise from downstream modules during the eval
         root_logger = logging.getLogger()
@@ -123,6 +128,7 @@ class EvalGroupingPipeline:
 
         self._capture_grouping_quality()
         self._capture_aggregate_metrics(stream)
+        await self.results.publish()
 
     async def run_signal_pipeline_concurrently(self, sem: asyncio.Semaphore, record_id: int, case: EvalSignalCase):
         async with sem:
@@ -458,6 +464,7 @@ class EvalGroupingPipeline:
                     description="Average pairwise cosine distance between query embeddings (0 = identical, 1 = orthogonal)",
                     result_type="numeric",
                     score=query_diversity,
+                    score_max=2,
                 ),
                 EvalMetric(
                     name="candidate_diversity",
@@ -606,7 +613,7 @@ class EvalGroupingPipeline:
                     description="Adjusted rand index — chance-corrected clustering similarity, -1 (worst) to 1 (perfect)",
                     result_type="numeric",
                     score=ari,
-                    score_min=0,
+                    score_min=-1,
                     score_max=1,
                 ),
                 EvalMetric(
@@ -653,21 +660,12 @@ class EvalGroupingPipeline:
         metrics: list[EvalMetric],
         passed: bool = True,
     ):
-        if self.no_capture:
-            return
-        experiment_id = deterministic_uuid(eval_name)
-        item_id = deterministic_uuid(f"{eval_name}:{item_name}:{self.start_time}")
-        capture_evaluation(
-            client=self.posthog_client,
-            dataset_id=None,
-            experiment_id=experiment_id,
-            experiment_name=eval_name,
-            item_id=item_id,
+        self.results.record(
+            eval_name=eval_name,
             item_name=item_name,
             input=input,
             output=output,
             expected=expected,
             metrics=metrics,
-            eval_type="online" if self.online else "offline",
             passed=passed,
         )

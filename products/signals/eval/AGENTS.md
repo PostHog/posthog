@@ -1,5 +1,9 @@
 # Signal grouping eval
 
+Offline runs publish to PostHog's offline experiments API through the shared eval-harness publisher.
+Read [offline evaluation reporting](../../../docs/internal/ai-offline-evaluation-reporting.md#signals-pytest-suites)
+for the two suites, pinned scorer versions, upload credentials, and result layout.
+
 End-to-end evaluation of the signal grouping pipeline.
 Measures how well the pipeline clusters incoming signals into reports, compared against hand-labeled ground-truth groups.
 
@@ -48,16 +52,18 @@ Set in `.env` at the repo root (loaded automatically):
 | `LLM_GATEWAY_URL`              | Internal LLM gateway base URL (all LLM calls: matching, specificity, summarization, actionability, safety) |
 | `LLM_GATEWAY_PERSONAL_API_KEY` | Bearer token for the LLM gateway (PostHog personal API key)                                                |
 | `SIGNALS_EVAL_TEAM_ID`         | Team id used for LLM cost attribution headers (defaults to `1`)                                            |
-| `POSTHOG_PROJECT_API_KEY`      | Capturing eval results (skip with `--no-capture`)                                                          |
-| `POSTHOG_HOST`                 | PostHog instance (defaults to `http://localhost:8010`)                                                     |
+| `POSTHOG_OFFLINE_EVAL_API_KEY` | Offline result uploads; requires `offline_evaluation_ingestion:write`                                      |
+| `POSTHOG_OFFLINE_EVAL_HOST`    | Offline API origin (defaults to `https://us.posthog.com`; project `2`)                                     |
+| `POSTHOG_PROJECT_API_KEY`      | Trace capture and legacy `--online` result events                                                          |
+| `POSTHOG_HOST`                 | Trace and legacy event destination (defaults to `http://localhost:8010`)                                   |
 
 ### CLI options
 
-| Flag           | Effect                                                 |
-| -------------- | ------------------------------------------------------ |
-| `--limit N`    | Process only the first N signals from the stream       |
-| `--no-capture` | Skip emitting `$ai_evaluation` events to PostHog       |
-| `--online`     | Tag captured results as online eval (default: offline) |
+| Flag           | Effect                                                    |
+| -------------- | --------------------------------------------------------- |
+| `--limit N`    | Process only the first N signals from the stream          |
+| `--no-capture` | Skip offline uploads and trace capture                    |
+| `--online`     | Emit legacy online eval events instead of offline uploads |
 
 ## What it produces
 
@@ -72,8 +78,8 @@ Followed by an aggregate results summary table.
 
 ### Eval metrics captured to PostHog
 
-All metrics are captured as `$ai_evaluation` events with source `signals-grouping`.
-Five eval experiments, each with their own metrics:
+Offline runs produce one experiment per suite, with items for each stage and aggregate statistics.
+The table below lists stage names. Legacy `--online` capture emits `$ai_evaluation` events with source `signals-grouping` and an experiment per stage.
 
 | Experiment                     | Granularity | Metrics                                                                                                                                                                                                 |
 | ------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -101,13 +107,15 @@ Five eval experiments, each with their own metrics:
 | `conftest.py`               | pytest fixtures: API clients, CLI options, mock temporal                          |
 | `mock.py`                   | `EmbeddingStore` (in-memory vector store) and `ReportStore` (in-memory report DB) |
 | `capture.py`                | `capture_evaluation()` helper — formats and sends `$ai_evaluation` events         |
+| `offline.py`                | Adapts completed metrics to the shared offline publisher                          |
+| `offline_config.py`         | Destination project and pinned scorer versions                                    |
 | `data_spec.py`              | `EvalSignalSpec` / `EvalGroupSpec` — signal and group specifications              |
 | `fixtures/grouping_data.py` | Ground-truth: 48 groups, 111 signals across Zendesk/GitHub/Linear/error tracking  |
 | `cache/embeddings.json`     | Disk cache for OpenAI embeddings (auto-generated, avoids redundant API calls)     |
 
 ## Clearing eval data
 
-To delete captured eval events from ClickHouse (DEBUG mode only):
+To delete legacy captured eval events from ClickHouse (DEBUG mode only; offline experiments are unaffected):
 
 ```bash
 python manage.py clear_eval_data --dry-run    # preview counts
@@ -126,6 +134,8 @@ python manage.py clear_eval_data --source X    # filter by eval source tag
 
 ## HogQL queries
 
+These queries cover historical offline `$ai_evaluation` events only.
+New offline runs use the offline experiments UI and API described in the reporting guide above.
 All queries filter on `$ai_eval_source = 'signals-grouping'` and `$ai_evaluation_type = 'offline'`.
 Run these in the PostHog SQL editor.
 

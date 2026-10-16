@@ -1,8 +1,9 @@
 import uuid
-from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from posthoganalytics import Posthog
+
+from posthog.dataclasses import frozen
 
 DISTINCT_ID = "llma_eval"
 
@@ -11,7 +12,7 @@ def deterministic_uuid(name: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"llma-eval:{name}"))
 
 
-@dataclass
+@frozen
 class EvalMetric:
     name: str
     description: str | None = None
@@ -21,7 +22,7 @@ class EvalMetric:
     score_min: float = 0
     score_max: float = 1
     reasoning: str | None = None
-    status: str = "ok"
+    status: Literal["ok", "error", "skipped", "not_applicable"] = "ok"
     error_code: str | None = None
     error_message: str | None = None
 

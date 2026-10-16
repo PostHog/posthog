@@ -1,4 +1,5 @@
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -42,7 +43,7 @@ EVAL_TEAM_ID = int(os.environ.get("SIGNALS_EVAL_TEAM_ID", "1"))
 
 def pytest_addoption(parser):
     parser.addoption("--limit", default=None, type=int, help="Limit number of items to process (e.g. --limit 3)")
-    parser.addoption("--no-capture", action="store_true", default=False, help="Skip emitting eval results to PostHog")
+    parser.addoption("--no-capture", action="store_true", default=False, help="Skip eval uploads and trace capture")
     parser.addoption("--online", action="store_true", default=False, help="Capture as online eval")
     parser.addoption("--strategy", default="example_strategy", help="Strategy module name (default: example_strategy)")
     parser.addoption(
@@ -66,9 +67,10 @@ def online(request):
 
 
 @pytest.fixture
-def posthog_client(no_capture, db):
+def posthog_client(no_capture, online, request):
     api_key = os.environ.get("POSTHOG_PROJECT_API_KEY", "")
-    if not api_key:
+    if online and not no_capture and not api_key:
+        request.getfixturevalue("db")
         last_team = Team.objects.order_by("-pk").first()
         if last_team:
             api_key = last_team.api_token
@@ -76,14 +78,35 @@ def posthog_client(no_capture, db):
             org = Organization.objects.create(name="Eval Org", is_ai_data_processing_approved=True)
             team = Team.objects.create(organization=org, name="Eval Team")
             api_key = team.api_token
-    if not api_key and not no_capture:
+    if online and not api_key and not no_capture:
         raise ValueError("POSTHOG_PROJECT_API_KEY needs to be set (or pass --no-capture).")
     host = os.environ.get("POSTHOG_HOST", "http://localhost:8010")
     client = Posthog(
-        api_key or "phx_unused", host=host, disabled=no_capture, debug=bool(os.environ.get("POSTHOG_DEBUG"))
+        api_key or "phx_unused",
+        host=host,
+        disabled=no_capture or not api_key,
+        debug=bool(os.environ.get("POSTHOG_DEBUG")),
     )
     yield client
     client.shutdown()
+
+
+@pytest.fixture
+def eval_metadata(limit: int | None) -> dict[str, object]:
+    metadata: dict[str, object] = {"limit": limit}
+    root = Path(__file__).resolve().parents[3]
+    try:
+        metadata["git_sha"] = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True, stderr=subprocess.DEVNULL, timeout=5
+        ).strip()
+        metadata["git_dirty"] = bool(
+            subprocess.check_output(
+                ["git", "status", "--porcelain"], cwd=root, text=True, stderr=subprocess.DEVNULL, timeout=5
+            ).strip()
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return metadata
 
 
 @pytest.fixture
