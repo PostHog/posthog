@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from requests import Request, Response
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -47,12 +49,55 @@ def convert_ms_json_dates(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _if_modified_since(last_value: Any) -> str | None:
+    if isinstance(last_value, str) and (match := _MS_JSON_DATE.match(last_value)):
+        last_value = datetime.fromtimestamp(int(match.group(1)) / 1000, tz=UTC)
     parsed = parse_datetime_value(last_value)
     if parsed is None:
         return None
     if parsed.tzinfo is not None:
         parsed = parsed.astimezone(UTC)
     return parsed.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+class XeroModifiedSincePaginator(BasePaginator):
+    """Walks an incremental read by moving `If-Modified-Since` up to the last row of each page.
+
+    Page numbers over a list sorted by `UpdatedDateUTC` shift when a row already read is updated
+    mid-walk, so the next page skips a row that the run's watermark then never revisits. Rows at
+    the cursor second are read again on the next page, and the merge on the primary key absorbs them.
+    """
+
+    def __init__(self, modified_since: str | None) -> None:
+        super().__init__()
+        self._modified_since = modified_since
+        self._page = 1
+
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def update_state(self, response: Response, data: list[Any] | None = None) -> None:
+        rows = data or []
+        if len(rows) < PAGE_SIZE:
+            self._has_next_page = False
+            return
+        cursor = _if_modified_since(rows[-1].get(UPDATED_DATE_FIELD))
+        # A full page inside one second cannot move the cursor, so step past it by page instead.
+        if cursor is None or cursor == self._modified_since:
+            self._page += 1
+        else:
+            self._modified_since = cursor
+            self._page = 1
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def _apply(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["page"] = self._page
+        if self._modified_since is not None:
+            request.headers["If-Modified-Since"] = self._modified_since
 
 
 def xero_source(
@@ -70,7 +115,7 @@ def xero_source(
 
     headers = {"Accept": "application/json", "xero-tenant-id": tenant_id}
     modified_since = _if_modified_since(db_incremental_field_last_value) if incremental else None
-    if modified_since is not None:
+    if modified_since is not None and not config.paginated:
         headers["If-Modified-Since"] = modified_since
 
     params: dict[str, Any] = dict(config.extra_params)
@@ -78,7 +123,10 @@ def xero_source(
         # Ascending order keeps the pipeline's watermark checkpoint valid after each page.
         params["order"] = f"{UPDATED_DATE_FIELD} ASC"
     paginator: BasePaginator
-    if config.paginated:
+    if config.paginated and incremental:
+        params["pageSize"] = PAGE_SIZE
+        paginator = XeroModifiedSincePaginator(modified_since)
+    elif config.paginated:
         params["pageSize"] = PAGE_SIZE
         paginator = PageNumberPaginator(base_page=1, page_param="page", total_path="pagination.pageCount")
     else:
@@ -103,7 +151,7 @@ def xero_source(
         "resources": [resource],
     }
 
-    # A page number is only valid under one If-Modified-Since value, so incremental runs resume from the watermark.
+    # An incremental run resumes from the pipeline's watermark; only a full refresh keeps a page cursor.
     resumable = config.paginated and not incremental
     initial_paginator_state: dict[str, Any] | None = None
     if resumable and resumable_source_manager.can_resume():

@@ -1875,7 +1875,8 @@ class TestXeroIntegrationModel(BaseTest):
         mock_get.return_value.status_code = 200
         mock_get.return_value.json.return_value = [
             {"tenantId": "org-a", "tenantName": "Company A", "tenantType": "ORGANISATION", "authEventId": "event-1"},
-            {"tenantId": "org-c", "tenantName": "Company C", "tenantType": "ORGANISATION", "authEventId": "event-1"},
+            {"tenantId": "org-c", "tenantName": "Company C", "tenantType": "ORGANISATION", "authEventId": "event-2"},
+            {"tenantId": "org-d", "tenantName": "Company D", "tenantType": "ORGANISATION", "authEventId": "event-9"},
         ]
 
         integration = OauthIntegration.integration_from_oauth_response(
@@ -1883,7 +1884,10 @@ class TestXeroIntegrationModel(BaseTest):
         )
 
         assert integration.id == existing.id
-        assert integration.config["xero_tenants"] == [{"tenantId": "org-a", "tenantName": "Company A"}]
+        assert integration.config["xero_tenants"] == [
+            {"tenantId": "org-a", "tenantName": "Company A"},
+            {"tenantId": "org-c", "tenantName": "Company C"},
+        ]
         assert integration.sensitive_config["refresh_token"] == "rt_1"
 
     @patch("posthog.models.integration.oauth.requests.get")

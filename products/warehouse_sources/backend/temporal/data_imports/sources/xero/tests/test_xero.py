@@ -89,15 +89,30 @@ class TestXeroTransport:
         assert result.raised is None
         assert result.requests[0].headers.get("if-modified-since") == expected_header
 
-    def test_incremental_run_saves_no_page_cursor(self) -> None:
+    def test_incremental_walk_moves_if_modified_since_instead_of_paging(self) -> None:
+        # A row updated mid-walk moves to the end of the sorted list, so page numbers would skip
+        # the row that slides into the gap. The cursor walk restarts at page 1 from the last row.
+        def page(updated_ms: list[int]) -> ScriptedResponse:
+            rows = [{"InvoiceID": f"r{i}", "UpdatedDateUTC": f"/Date({ms}+0000)/"} for i, ms in enumerate(updated_ms)]
+            return ScriptedResponse(json={"Invoices": rows})
+
+        first = [1714557600000 + i * 1000 for i in range(PAGE_SIZE)]
+        same_second = [first[-1] + 1000] * PAGE_SIZE
         result = _run(
             "invoices",
-            [_invoices_page(["a", "b"], 1, 2), _invoices_page(["c"], 2, 2)],
+            [page(first), page(same_second), page(same_second), page([same_second[0] + 5000])],
             incremental_field="UpdatedDateUTC",
-            db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC),
+            db_incremental_field_last_value=datetime(2024, 5, 1, 9, 0, tzinfo=UTC),
         )
 
         assert result.raised is None
+        assert [r.headers.get("if-modified-since") for r in result.requests] == [
+            "2024-05-01T09:00:00",
+            "2024-05-01T10:16:39",
+            "2024-05-01T10:16:40",
+            "2024-05-01T10:16:40",
+        ]
+        assert result.params("page") == ["1", "1", "1", "2"]
         assert result.saved_states == []
 
     @pytest.mark.parametrize(

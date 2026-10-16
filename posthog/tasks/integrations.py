@@ -19,7 +19,7 @@ from products.workflows.backend.facade.api import delete_ses_identity
 
 GITHUB_BRANCH_REFRESH_RETRY_SECONDS = 5 * 60
 
-ROTATING_REFRESH_TOKEN_KINDS = ("resend", "xero")
+SYNC_PATH_LOCKED_REFRESH_KINDS = ("resend", "xero")
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
@@ -33,7 +33,7 @@ def refresh_integrations() -> int:
     # re-exchanged on use by `MetaGraphIntegration.refresh_access_token` rather than by this sweep.
     oauth_integrations = defer_repository_cache_fields(
         Integration.objects.filter(kind__in=OauthIntegration.supported_kinds)
-        .exclude(kind__in=["meta-ads", "instagram", *ROTATING_REFRESH_TOKEN_KINDS])
+        .exclude(kind__in=["meta-ads", "instagram", *SYNC_PATH_LOCKED_REFRESH_KINDS])
         .all()
     )
 
@@ -90,7 +90,7 @@ def refresh_integration(id: int) -> int:
     # backlog several duplicate refreshes can pile up for the same row; the first mints a fresh token
     # and this keeps the rest from re-minting one that's already valid.
     # Rotating-token kinds are not refreshed here either (see refresh_integrations).
-    if integration.kind in ROTATING_REFRESH_TOKEN_KINDS:
+    if integration.kind in SYNC_PATH_LOCKED_REFRESH_KINDS:
         return 0
 
     if integration.kind in OauthIntegration.supported_kinds:

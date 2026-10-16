@@ -10,8 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 
 # Xero access tokens live 30 minutes, so re-check the row well before one expires mid-sync.
 _XERO_TOKEN_RECHECK_AFTER = timedelta(minutes=10)
-# A failed refresh only matters once the current token is this close to expiring.
-_XERO_TOKEN_EXPIRY_MARGIN = timedelta(minutes=2)
+# A failed refresh raises when the old token could expire before the next recheck, so this margin
+# must exceed the recheck interval.
+_XERO_TOKEN_EXPIRY_MARGIN = _XERO_TOKEN_RECHECK_AFTER + timedelta(minutes=2)
 
 XERO_RECONNECT_REQUIRED_MESSAGE = "Xero no longer accepts this connection. Reconnect your Xero account."
 

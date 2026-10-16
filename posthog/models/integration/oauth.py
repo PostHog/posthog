@@ -1306,9 +1306,8 @@ class OauthIntegration:
             integration_id = f"grant:{hashlib.sha256(grant_token.encode()).hexdigest()}"
 
         # One Xero grant reaches every organisation the user connected, so it is keyed by the user.
-        # A Xero token reaches every organisation the user ever connected to the app, across PostHog
-        # projects. The integration keeps only organisations granted in this project's own consents,
-        # so another project's connection never exposes them. A reconnect adds to that list.
+        # The integration keeps only organisations granted in this project's own consents, because a
+        # Xero token also reaches those the user connected from other projects. A reconnect adds to it.
         if kind == "xero" and not integration_id:
             id_claims = common._decode_jwt_payload(config["id_token"]) if config.get("id_token") else None
             token_claims = common._decode_jwt_payload(config["access_token"])

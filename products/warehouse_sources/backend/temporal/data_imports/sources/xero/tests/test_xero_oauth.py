@@ -46,7 +46,8 @@ class TestResolveXeroOauthToken(BaseTest):
         [
             ("transient_failure_on_an_expiring_token", 3600, False, XeroTokenRefreshError, None),
             ("terminal_failure_on_an_expiring_token", 3600, True, ValueError, None),
-            ("failure_while_the_token_still_has_time_left", 0, False, None, "at_1"),
+            ("failure_with_less_time_left_than_the_next_recheck", 22 * 60, False, XeroTokenRefreshError, None),
+            ("failure_while_the_token_outlasts_the_next_recheck", 0, False, None, "at_1"),
         ]
     )
     def test_failed_refresh(
@@ -60,7 +61,7 @@ class TestResolveXeroOauthToken(BaseTest):
         integration = Integration.objects.create(
             team=self.team,
             kind="xero",
-            integration_id="user-123:event-1",
+            integration_id="user-123",
             config={"expires_in": 1800, "refreshed_at": int(time.time()) - token_age_seconds},
             sensitive_config={"access_token": "at_1", "refresh_token": "rt_1"},
         )

@@ -36,7 +36,7 @@ class TestXeroAccessToken:
             patch(_RESOLVE_TOKEN) as resolve,
         ):
             with pytest.raises(ValueError, match="Integration not found"):
-                XeroSource()._access_token(7, team_id=1)
+                XeroSource()._consented_tenant_ids(7, team_id=1)
 
         resolve.assert_not_called()
 
@@ -78,6 +78,7 @@ class TestXeroOrganisationPicker:
         [
             (ScriptedResponse(json=[]), "still connected"),
             (ScriptedResponse(status=401, json={"Title": "Unauthorized", "Status": 401}), "Reconnect"),
+            (ScriptedResponse(status=503, json={"Title": "Service Unavailable"}), "Could not reach Xero"),
             (requests.ConnectionError("connection reset"), "Could not reach Xero"),
         ],
     )

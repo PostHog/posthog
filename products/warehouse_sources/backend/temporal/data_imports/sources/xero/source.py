@@ -131,25 +131,17 @@ class XeroSource(OAuthMixin, ResumableSource[XeroSourceConfig, XeroResumeConfig]
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=tuple(INCREMENTAL_FIELDS))
 
-    def _xero_integration(self, integration_id: int, team_id: int) -> Integration:
+    def _consented_tenant_ids(self, integration_id: int, team_id: int) -> set[str]:
         integration = self.get_oauth_integration(integration_id, team_id)
-        # The lookup only scopes to the team, so reject another provider's integration before sending its token.
+        # The lookup only scopes to the team, so reject another provider's integration before reading its token.
         if integration.kind != Integration.IntegrationKind.XERO:
             raise ValueError(f"Integration not found: {integration_id}")
-        return integration
-
-    def _consented_tenant_ids(self, integration_id: int, team_id: int) -> set[str]:
-        tenants = self._xero_integration(integration_id, team_id).config.get("xero_tenants") or []
-        return {tenant["tenantId"] for tenant in tenants}
-
-    def _access_token(self, integration_id: int, team_id: int) -> str:
-        self._xero_integration(integration_id, team_id)
-        return resolve_xero_oauth_token(integration_id, team_id)
+        return {tenant["tenantId"] for tenant in integration.config.get("xero_tenants") or []}
 
     def _build_auth(self, config: XeroSourceConfig, team_id: int) -> AuthConfigBase:
         if config.tenant_id not in self._consented_tenant_ids(config.xero_integration_id, team_id):
             raise ValueError(_ORGANISATION_NOT_CONNECTED)
-        token = self._access_token(config.xero_integration_id, team_id)
+        token = resolve_xero_oauth_token(config.xero_integration_id, team_id)
         return XeroIntegrationAuth(config.xero_integration_id, team_id, token)
 
     def get_oauth_accounts(
@@ -159,15 +151,17 @@ class XeroSource(OAuthMixin, ResumableSource[XeroSourceConfig, XeroResumeConfig]
             consented = self._consented_tenant_ids(integration_id, team_id)
             organisations = [
                 organisation
-                for organisation in list_organisations(self._access_token(integration_id, team_id))
+                for organisation in list_organisations(resolve_xero_oauth_token(integration_id, team_id))
                 if organisation["tenantId"] in consented
             ]
         except ValueError:
             raise IntegrationAccountListingError(_CONNECTION_BROKEN)
         except XeroTokenRefreshError:
             raise IntegrationAccountListingError("Could not reach Xero. Try again in a few minutes.")
-        except requests.HTTPError:
-            raise IntegrationAccountListingError(_RECONNECT_MESSAGE)
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code in (401, 403):
+                raise IntegrationAccountListingError(_RECONNECT_MESSAGE)
+            raise IntegrationAccountListingError("Could not reach Xero. Try again in a few minutes.")
         except requests.RequestException:
             raise IntegrationAccountListingError("Could not reach Xero. Try again in a few minutes.")
         if not organisations:
@@ -189,7 +183,7 @@ class XeroSource(OAuthMixin, ResumableSource[XeroSourceConfig, XeroResumeConfig]
         try:
             if config.tenant_id not in self._consented_tenant_ids(config.xero_integration_id, team_id):
                 return False, _ORGANISATION_NOT_CONNECTED
-            token = self._access_token(config.xero_integration_id, team_id)
+            token = resolve_xero_oauth_token(config.xero_integration_id, team_id)
         except ValueError:
             return False, _CONNECTION_BROKEN
         except XeroTokenRefreshError:
