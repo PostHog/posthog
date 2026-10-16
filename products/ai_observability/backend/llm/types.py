@@ -3,6 +3,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from posthog.dataclasses import frozen
+
 
 @dataclass
 class Usage:
@@ -11,6 +13,15 @@ class Usage:
     total_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+
+
+@frozen
+class OutputSchema:
+    """A JSON schema the model's reply must match, passed through from the caller unchanged."""
+
+    schema: dict[str, Any]
+    name: str = "response"
+    strict: bool = True
 
 
 @dataclass
@@ -26,7 +37,10 @@ class CompletionRequest:
     seed: int | None = None
     max_tokens: int | None = None
     tools: list[dict[str, Any]] | None = None
+    # Pydantic class for the non-streaming internal callers (see `complete()`), a plain
+    # schema for the playground's streaming path. Each adapter honors one in its own method.
     response_format: type[BaseModel] | None = None
+    output_schema: OutputSchema | None = None
     thinking: bool = False
     reasoning_level: str | None = None
 
