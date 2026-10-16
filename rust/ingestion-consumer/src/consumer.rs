@@ -766,9 +766,12 @@ impl IngestionConsumer {
             }
             tokio::select! {
                 completion = completions.recv() => match completion {
-                    Some(completion) => self
-                        .apply_completion(in_flight_polls, &completion)
-                        .map_err(Failure::Commit)?,
+                    Some(completion) => {
+                        apply_completion(in_flight_polls, &completion, |tp, generation, run| {
+                            self.settlement.settle_run(tp, generation, run)
+                        });
+                        self.commit_due().map_err(Failure::Commit)?;
+                    }
                     None => return Err(Failure::Batch(anyhow::anyhow!(
                         "batcher completion channel closed"
                     ))),
@@ -823,22 +826,6 @@ impl IngestionConsumer {
                 "Removed revoked partitions' messages from in-flight polls"
             );
         }
-    }
-
-    fn apply_completion(
-        &self,
-        in_flight_polls: &mut VecDeque<InFlightPoll>,
-        completion: &GroupCompletion,
-    ) -> anyhow::Result<()> {
-        apply_completion(
-            in_flight_polls,
-            completion,
-            |topic_partition, generation, offsets| {
-                self.settlement
-                    .settle_run(topic_partition, generation, offsets)
-            },
-        );
-        self.commit_due()
     }
 
     fn commit_due(&self) -> anyhow::Result<()> {
