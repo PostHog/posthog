@@ -46,13 +46,13 @@ jobs:
               # dataset before failing inside the eval.
               env:
                   REPLAY_VISION_EVAL_POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
-                  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  GEMINI_OFFLINE_EVALS_API_KEY: ${{ secrets.GEMINI_OFFLINE_EVALS_API_KEY }}
+                  OPENAI_OFFLINE_EVALS_API_KEY: ${{ secrets.OPENAI_OFFLINE_EVALS_API_KEY }}
+                  ANTHROPIC_OFFLINE_EVALS_API_KEY: ${{ secrets.ANTHROPIC_OFFLINE_EVALS_API_KEY }}
                   BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
               run: |
                   missing=""
-                  for name in REPLAY_VISION_EVAL_POSTHOG_API_KEY GEMINI_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY BRAINTRUST_API_KEY; do
+                  for name in REPLAY_VISION_EVAL_POSTHOG_API_KEY GEMINI_OFFLINE_EVALS_API_KEY OPENAI_OFFLINE_EVALS_API_KEY ANTHROPIC_OFFLINE_EVALS_API_KEY BRAINTRUST_API_KEY; do
                       [ -n "${!name}" ] || missing="$missing $name"
                   done
                   if [ -n "$missing" ]; then
@@ -156,12 +156,12 @@ jobs:
               shell: bash
               env:
                   REPLAY_VISION_EVAL_DATASET: ${{ env.DATASET_DIR }}
-                  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+                  GEMINI_API_KEY: ${{ secrets.GEMINI_OFFLINE_EVALS_API_KEY }}
                   BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
                   # The one-shot preflight name for a plain Anthropic key (used directly, no gateway).
-                  LLM_GATEWAY_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  LLM_GATEWAY_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_OFFLINE_EVALS_API_KEY }}
                   # The summary_alignment judge (autoevals) calls its model with the OpenAI client.
-                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_OFFLINE_EVALS_API_KEY }}
                   TRIALS: ${{ inputs.trials }}
               run: |
                   # To the runner-local file only, never the public job log: the eval calls run_scan
