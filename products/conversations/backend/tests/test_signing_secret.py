@@ -36,6 +36,20 @@ class TestSigningSecret(BaseTest):
         self.assertEqual(row.secret, self.team.secret_api_token)
         self.assertEqual(SigningSecret.objects.for_team(self.team.id).count(), 1)
 
+    def test_legacy_rotation_does_not_clobber_an_independent_secret(self):
+        # Once the secret is rotated via the conversations endpoint, a legacy-token
+        # rotation syncing over it would silently break customer identity verification.
+        self.team.secret_api_token = "phs_previous_secret"
+        self.team.save()
+        SigningSecret.objects.for_team(self.team.id).update_or_create(
+            team=self.team, defaults={"secret": "an_independent_secret", "rotated_independently": True}
+        )
+
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+
+        row = SigningSecret.objects.for_team(self.team.id).get()
+        self.assertEqual(row.secret, "an_independent_secret")
+
     def test_failed_signing_secret_write_rolls_the_rotation_back(self):
         # The two stores must never diverge: if the signing-secret copy fails, the
         # legacy column must keep its old value instead of rotating alone.

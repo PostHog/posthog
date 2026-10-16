@@ -33,6 +33,9 @@ class SigningSecret(UUIDModel):
     # Encryption/decryption is transparent via the field; value reads back as the raw string.
     # Non-deterministic ciphertext: never filter by this value — fetch by team and compare.
     secret = EncryptedTextField()
+    # True once rotated via the conversations endpoint: the secret stops mirroring the
+    # legacy Team.secret_api_token, so divergence from it is expected, not staleness.
+    rotated_independently = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
