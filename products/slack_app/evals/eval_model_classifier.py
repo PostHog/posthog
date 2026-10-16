@@ -24,13 +24,12 @@ from __future__ import annotations
 
 import asyncio
 
-from posthog.temporal.ai.slack_app.activities import classifiers
-
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
 from products.slack_app.backend.services.model_catalogue import ModelChoice
+from products.slack_app.backend.temporal.activities import classifiers
 from products.slack_app.evals.scorers import MODEL_OVERRIDE_KEY, ModelOverrideMatch, NoUnaskedOverride
 
 SUITE_KIND = SuiteKind.ONE_SHOT

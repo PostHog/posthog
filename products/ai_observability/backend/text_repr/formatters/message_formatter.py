@@ -167,6 +167,17 @@ def reduce_by_uniform_sampling(
 SURROGATE_REGEX = re.compile("[\ud800-\udfff]")
 
 
+EVENT_TEXT_MAX_CHARS = 150_000
+
+
+def truncate_by_line_sampling(text: str, max_length: int) -> str:
+    if len(text) <= max_length:
+        return text
+    # Line-number first so the sampler's "gaps indicate omitted content" header is truthful.
+    sampled, _ = reduce_by_uniform_sampling(add_line_numbers(text), max_length)
+    return sampled
+
+
 def sanitize_surrogates(text: str) -> str:
     """Make `text` encodable as UTF-8.
 

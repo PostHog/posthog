@@ -9,19 +9,20 @@ import { percentage } from 'lib/utils/numbers'
 import { alphabet } from 'lib/utils/strings'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import {
-    FormattedDateOptions,
-    getDatumTitle,
-    getFormattedDate,
-    getTooltipTitle,
-    SeriesDatum,
-} from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { formatAggregationValue, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
 import { ActionFilter, CompareLabelType, IntervalType } from '~/types'
+
+import {
+    FormattedDateOptions,
+    getDatumTitle,
+    getFormattedDate,
+    getTooltipTitle,
+    SeriesDatum,
+} from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 
 import { getSeriesIdentification, type SeriesIdentification } from './seriesIdentification'
 

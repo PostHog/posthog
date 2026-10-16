@@ -17,7 +17,8 @@ rate, so a head without a paired error skips this check.
 A paired grade also says how many positives the shared holdout holds. Below the head's
 `min_holdout_positives` neither model can be read on it, so the head is skipped, not counted as a
 regression. A head the candidate did not train still blocks: a candidate must not replace a champion
-by losing a head the champion serves.
+by losing a head the champion serves. A champion head that is no longer in `HEADS` is not compared:
+it was retired, so no candidate trains it.
 
 An owner can change one family's outcome through the `promotion` override (see
 `products/signals/backend/ranking/overrides.py`). `skip_gates` waives named checks inside the rule,
@@ -31,6 +32,7 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 from products.signals.backend.ranking.overrides import PromotionOverride
+from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME
 from products.signals.dags.inbox_ranking.training.train import HoldoutGrade
 
 # A candidate may be this much worse than the champion on a readable head and still promote: at
@@ -122,6 +124,8 @@ def _compare_to_champion(
     candidate_heads = {head["head"]: head for head in candidate.get("heads", [])}
     skipped: list[str] = []
     for head, stored_auc in _readable_aucs(champion).items():
+        if head not in HEADS_BY_NAME:
+            continue
         candidate_positives = candidate_heads.get(head, {}).get("holdout_positives")
         if (
             "min_holdout_positives" in skip_gates
