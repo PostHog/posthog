@@ -775,7 +775,8 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertEqual(data["detail"], "This field is required.")
         self.assertEqual(data["type"], "validation_error")
 
-    def test_with_join_key_type_error(self):
+    @patch(f"{VIEW_LINK_PATH}.capture_exception")
+    def test_with_join_key_type_error(self, mock_capture_exception):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
             {
@@ -786,10 +787,12 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         data = response.json()
         self.assertEqual(data["attr"], None)
         self.assertEqual(data["code"], "CHQueryErrorIllegalTypeOfArgument")
+        self.assertFalse(data["is_valid"])
+        mock_capture_exception.assert_not_called()
         self.assertEqual(data["type"], "query_error")
         self.assertEqual(
             data["hogql"],
