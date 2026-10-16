@@ -64,6 +64,8 @@ class GoogleAnalyticsQuotaExceededError(Exception):
     Deliberately NOT matched by `get_non_retryable_errors` so Temporal retries
     the activity later (the resumable source picks up from the last saved
     chunk), which is the right recovery for hourly/daily property token quotas.
+    An incremental run that already loaded rows does not raise it: the run ends
+    early instead, so the next run continues from the promoted watermark.
     Tagged `(retryable)` so `GoogleAnalyticsSource.get_retryable_errors` can
     keep this self-recovering failure out of error tracking.
     """
@@ -409,6 +411,7 @@ def google_analytics_source(
                 start_date = max(start_date, dt.date.fromisoformat(resume_chunk_start))
 
         session = google_analytics_session(config.google_analytics_integration_id, team_id)
+        yielded_rows = False
 
         for chunk_start, chunk_end in _iter_chunks(start_date, end_date):
             chunk_start_iso = chunk_start.isoformat()
@@ -418,20 +421,36 @@ def google_analytics_source(
             while True:
                 # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
                 resumable_source_manager.safe_point()
-                payload = _run_report(
-                    session=session,
-                    property_id=config.property_id,
-                    start_date=chunk_start_iso,
-                    end_date=chunk_end.isoformat(),
-                    dimensions=dimensions,
-                    metrics=metrics,
-                    offset=offset,
-                )
+                try:
+                    payload = _run_report(
+                        session=session,
+                        property_id=config.property_id,
+                        start_date=chunk_start_iso,
+                        end_date=chunk_end.isoformat(),
+                        dimensions=dimensions,
+                        metrics=metrics,
+                        offset=offset,
+                    )
+                except GoogleAnalyticsQuotaExceededError:
+                    # A failed job keeps no resume point, so the next job reads the whole window again.
+                    # Rows arrive in date order, so ending the run here promotes the last loaded date,
+                    # and LOOKBACK_DAYS re-reads a date that a page split. A full refresh must fail.
+                    if not (should_use_incremental_field and yielded_rows):
+                        raise
+                    logger.warning(
+                        "ga4_quota_exhausted_ending_run_early",
+                        team_id=team_id,
+                        resource_name=resource_name,
+                        chunk_start=chunk_start_iso,
+                        offset=offset,
+                    )
+                    return
                 rows = _rows_to_dicts(payload)
                 if not rows:
                     break
 
                 yield rows
+                yielded_rows = True
 
                 next_offset = offset + len(rows)
                 row_count = payload.get("rowCount", 0)
