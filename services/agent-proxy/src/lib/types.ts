@@ -17,6 +17,8 @@ export class TaskRunStreamError extends Error {
     }
 }
 
+export class TaskRunStreamGenerationMismatch extends Error {}
+
 export class TaskRunStreamCursorTrimmedError extends Error {
     constructor(public readonly cursor: string) {
         super(`Stream cursor ${cursor} was trimmed`)
@@ -121,6 +123,7 @@ export interface SandboxEventIngestTokenPayload {
     presenceGated: boolean
     thinTail: boolean
     originProduct: string
+    streamGeneration?: string
 }
 
 // ---------------------------------------------------------------------------
