@@ -55,6 +55,15 @@ class TestRentCastSource:
         assert result == expected
         assert network.requests_log[0].headers["x-api-key"] == "rc-key"
 
+    def test_validate_credentials_rejects_bad_zip_codes_without_a_request(self) -> None:
+        config = RentCastSourceConfig(api_key="rc-key", zip_codes="10001, 1234")
+        with scripted_network(always(ScriptedResponse(status=200, json=[]))) as network:
+            valid, message = self.source.validate_credentials(config, self.team_id)
+
+        assert valid is False
+        assert message is not None and "1234" in message
+        assert network.requests_log == []
+
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         result = SourceDriver(self.source, self.config).run(
             "properties",
