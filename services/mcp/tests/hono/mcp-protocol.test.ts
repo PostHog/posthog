@@ -12,6 +12,7 @@ import {
     defineJsonRpcEdgeCaseTests,
     defineMcpProtocolTests,
     defineResilienceTests,
+    defineMcpResourcesFilterTests,
     defineResourceCatalogTests,
     defineSessionLifecycleTests,
     defineSessionTrackingTests,
@@ -87,6 +88,7 @@ defineHttpRouteTests('Hono', harness)
 defineAuthTests('Hono', harness)
 defineJsonRpcEdgeCaseTests('Hono', harness)
 defineSessionLifecycleTests('Hono', harness)
+defineMcpResourcesFilterTests('Hono', harness)
 defineResourceCatalogTests('Hono', harness)
 defineCatalogFilterTests('Hono', harness)
 defineExecModeTests('Hono', harness)

@@ -1508,6 +1508,68 @@ export function defineSessionLifecycleTests(
 // Resource catalog assertions that go beyond "list isn't empty". The catalog
 // has two distinct sources (UI apps + context-mill manifest) and prompts — a
 // regression that dropped one source would show up here.
+function buildResourcesFilterClient(
+    harness: ProtocolTestHarness,
+    resourcesParam: string | undefined
+): { client: Client; transport: StreamableHTTPClientTransport } {
+    const url = new URL('/mcp', harness.baseUrl)
+    if (resourcesParam) {
+        url.searchParams.set('resources', resourcesParam)
+    }
+    const transport = new StreamableHTTPClientTransport(url, {
+        fetch: harness.fetch,
+        requestInit: {
+            headers: { Authorization: `Bearer ${harness.token}`, 'x-posthog-mcp-mode': 'tools' },
+        },
+    })
+    const client = new Client({ name: 'mcp-resources-filter-test', version: '0.0.0' }, { capabilities: {} })
+    return { client, transport }
+}
+
+export function defineMcpResourcesFilterTests(
+    label: string,
+    getHarness: () => Promise<ProtocolTestHarness> | ProtocolTestHarness
+): void {
+    describe(`MCP resources connection filter (${label})`, () => {
+        let harness: ProtocolTestHarness
+
+        beforeEach(async () => {
+            harness = await getHarness()
+        })
+
+        it('?resources=none omits resources capability and returns an empty list', async () => {
+            const { client, transport } = buildResourcesFilterClient(harness, 'none')
+            await client.connect(transport as ConnectableTransport)
+            expect(client.getServerCapabilities()?.resources).toBeUndefined()
+            const { resources } = await client.listResources()
+            expect(resources).toEqual([])
+            await safeClose(client)
+        })
+
+        it('?resources=apps excludes context-mill posthog:// entries but keeps ui:// apps', async () => {
+            const { client, transport } = buildResourcesFilterClient(harness, 'apps')
+            await client.connect(transport as ConnectableTransport)
+            const { resources } = await client.listResources()
+            expect(resources.length).toBeGreaterThan(0)
+            expect(resources.every((r) => r.uri.startsWith('ui://'))).toBe(true)
+            const cmUri = 'posthog://guide/getting-started'
+            const blocked = await client.readResource({ uri: cmUri })
+            expect(blocked.contents).toEqual([])
+            await safeClose(client)
+        })
+
+        it('default connection still lists both ui and context-mill resources', async () => {
+            const { client, transport } = buildResourcesFilterClient(harness, undefined)
+            await client.connect(transport as ConnectableTransport)
+            const { resources } = await client.listResources()
+            const uris = resources.map((r) => r.uri)
+            expect(uris.some((u) => u.startsWith('ui://') || u.startsWith('mcp-ext-app://'))).toBe(true)
+            expect(uris.some((u) => u.startsWith('posthog://'))).toBe(true)
+            await safeClose(client)
+        })
+    })
+}
+
 export function defineResourceCatalogTests(
     label: string,
     getHarness: () => Promise<ProtocolTestHarness> | ProtocolTestHarness

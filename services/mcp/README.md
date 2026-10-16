@@ -367,6 +367,8 @@ x-posthog-mcp-mode: tools
 The header wins when both the header and the query parameter are set.
 An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
 
+Pin which MCP resources are advertised at connection time with `?resources=` or `x-posthog-mcp-resources` (header wins). Use `none` to disable resources (including `@` autocomplete), or a comma-separated list of `skills`, `docs`, and `apps` to include only those URI families.
+
 The cli-mode command surface is documented publicly on [posthog.com/docs/model-context-protocol/tools](https://posthog.com/docs/model-context-protocol/tools), which embeds `schema/exec-command-reference.md` at build time.
 That fragment is generated from the templates in `src/templates/sections/` by `scripts/generate-exec-docs.ts` (part of `hogli build:openapi`); edit the templates, not the fragment.
 

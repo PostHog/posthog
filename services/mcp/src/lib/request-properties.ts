@@ -2,6 +2,7 @@
 // and query params into the same shape, so the logic lives here.
 
 import { resolveEffectiveClientName } from './client-detection'
+import { parseMcpResources, type McpResourcesSelection } from './mcp-resources'
 import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue, type McpMode } from './utils'
 
 export type Transport = 'streamable-http' | 'sse'
@@ -25,6 +26,8 @@ export type RequestProperties = {
     mcpVendorClient?: string | undefined
     readOnly?: boolean | undefined
     mode?: McpMode | undefined
+    /** Set by `parseRequestProperties` / the worker; omitted only in partial test fixtures. */
+    mcpResources?: McpResourcesSelection
     transport?: Transport | undefined
     mcpSessionId?: string | undefined
     mcpConversationId?: string | undefined
@@ -117,6 +120,7 @@ export function parseRequestProperties(
         mcpProtocolVersion: clientInfo.protocolVersion,
         mcpVendorClient: vendorClient,
         mode: parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
+        mcpResources: parseMcpResources(header(request, 'x-posthog-mcp-resources') || params.get('resources')),
         taskId: sanitizeHeaderValue(header(request, 'x-posthog-task-id')),
         taskOriginProduct: sanitizeHeaderValue(header(request, 'x-posthog-task-origin')),
         excludeTools: parseExcludeTools(
