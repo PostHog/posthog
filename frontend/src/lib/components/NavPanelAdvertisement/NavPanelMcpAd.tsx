@@ -63,6 +63,7 @@ export function NavPanelMcpAd({ fallback }: { fallback: JSX.Element | null }): J
                         </span>
                         <CommandBlock
                             command={MCP_INSTALL_COMMAND}
+                            displayLines={['npx @posthog/wizard', 'mcp add']}
                             copyLabel="MCP install command"
                             ariaLabel="Copy MCP install command"
                             size="sm"
