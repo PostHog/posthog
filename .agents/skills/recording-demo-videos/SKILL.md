@@ -5,9 +5,10 @@ description: >
   PostHog stack, for a Loom, a Slack demo, or a PR. Use when asked to record a video, demo,
   walkthrough, or Loom of a change end to end, including flows that leave the app, such as an API
   call shown as a terminal card or an email arriving in the local inbox. The recorder drives the
-  real app with Playwright, adds RoundHog captions and a cursor, frames the video with title and end
-  cards that carry the logo and a hedgehog from @posthog/brand, and cuts loading time out. For a
-  short animated WebP of one interaction in a PR description, use the reel mode of qa-frontend.
+  real app with Playwright, adds RoundHog captions, a cursor, hedgehog stickers, and an optional
+  ElevenLabs voiceover and music bed, frames the video with title and end cards that carry the logo and a hedgehog
+  from @posthog/brand, and cuts loading time out. For a short animated WebP of one interaction in a
+  PR description, use the reel mode of qa-frontend.
 ---
 
 # Recording demo videos
@@ -18,6 +19,7 @@ It writes an MP4 of one to three minutes, a contact sheet of frames to review, a
 
 The output looks like this: a title card with the logo and a hedgehog, the app with a caption bar and a cursor for each step, terminal cards for API calls, and an end card.
 Waits for page loads and data are cut, so the video moves at reading speed.
+A voiceover can read the captions, a music bed can sit under it, and a step can pop in a hedgehog sticker with a short sound.
 
 Use [qa-frontend](../qa-frontend/SKILL.md) instead for a reel: a short animated WebP of one interaction, made from stills, for a PR description.
 For a narrated or musical promo video, see [hogreel](references/branding.md#promo-videos).
@@ -46,7 +48,8 @@ Use reserved domains (`example.com`) or a domain you control for addresses, and 
 Some flows validate a domain, for example the email sender refuses a domain without mail servers, so check what the flow accepts.
 
 Each take changes state: it creates objects, sends emails, and bumps versions.
-Write a reset script with the seed script, so every take starts from the same state.
+Write three small scripts for the demo: seed the starting state, reset it before every take, and check that the flow works once before the first take.
+[references/seeding.md](references/seeding.md) shows how to work out what the flow needs and how to write each script.
 
 ### 3. Write the storyboard
 
@@ -63,8 +66,12 @@ Plan the beats before you write steps:
 5. The end card sums up the change in one line.
 
 Captions are user-facing copy, so `/writing-user-facing-copy` applies: sentence case, one idea each, no em dashes.
+Write them to be read aloud too, when the video has a voiceover.
 A caption holds for about a third of a second per word, at least two and a half seconds.
 Aim for one to two minutes in total.
+
+For a voiceover or music, add `voiceover` or `music` to the storyboard and ask the developer for an ElevenLabs API key in `ELEVENLABS_API_KEY`.
+Settle the captions in a silent take first, because every changed line costs credits.
 
 ### 4. Record
 
@@ -86,6 +93,7 @@ Most first takes need another one. Look for:
 - spinners, skeletons or empty tables where the step expected data. Add a `wait_for` on the content.
 - numbers that disagree with what happened in the video.
 - debug chrome, banners and toasts that distract. Add them to `hide_text` or `hide_selectors`.
+- with a voiceover: the `voice` list in the log, which gives each line's start and length in the video. A line that runs long holds its step, so a step that lingers often has a long line. Trim the line.
 - secrets, real names, or anything else that must not be public, in the pixels and in the captions.
 
 Reset the data, then record again. Read individual frames with ffmpeg when the sheet is too small to judge.
@@ -98,6 +106,7 @@ PR assets are public forever, so check the frames for private data before every 
 
 ## References
 
-- [references/storyboard.md](references/storyboard.md): the storyboard format, targets, variables and secrets, and a full example.
+- [references/seeding.md](references/seeding.md): working out what a flow needs, and the seed, reset and check scripts.
+- [references/storyboard.md](references/storyboard.md): the storyboard format, targets, variables and secrets, voiceover, music, and a full example.
 - [references/branding.md](references/branding.md): where the brand assets come from, the rules for the logo, colors, type and hedgehogs, and hogreel.
 - [references/troubleshooting.md](references/troubleshooting.md): failures we hit while recording, and their fixes.

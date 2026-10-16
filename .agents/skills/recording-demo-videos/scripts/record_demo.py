@@ -10,12 +10,14 @@ of frames to review, and a log with the cut list next to the `output` path in th
 
 import os
 import re
+import ssl
 import sys
 import json
 import time
 import base64
 import shutil
 import asyncio
+import hashlib
 import tempfile
 import subprocess
 import urllib.error
@@ -24,6 +26,14 @@ from pathlib import Path
 from typing import Any
 
 from playwright.async_api import BrowserContext, Locator, Page, async_playwright
+
+try:
+    import certifi
+
+    # Some Python builds ship without CA certificates, so HTTPS calls use certifi's bundle when it is there.
+    SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    SSL_CONTEXT = ssl.create_default_context()
 
 DEFAULT_VIEWPORT = {"width": 1440, "height": 900}
 FIRST_LOAD_TIMEOUT_MS = 300_000
@@ -34,6 +44,30 @@ FPS = 25
 # The debug chrome of a local dev stack. It is noise in a demo.
 DEFAULT_HIDE_SELECTORS = [".tricolor"]
 DEFAULT_HIDE_TEXT = ["DEBUG mode"]
+ELEVEN_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice}/with-timestamps?output_format=mp3_44100_128"
+# Brian, the premade ElevenLabs voice the DevEx videos use, at their settings.
+DEFAULT_VOICEOVER = {
+    "voice": "nPczCjzI2devNBz1zQrb",
+    "model": "eleven_v3",
+    "settings": {"stability": 0.5, "speed": 1.12},
+}
+VOICE_CACHE = Path.home() / ".cache" / "posthog-demo-videos" / "voiceover"
+MUSIC_URL = "https://api.elevenlabs.io/v1/music?output_format=mp3_44100_128"
+MUSIC_CACHE = Path.home() / ".cache" / "posthog-demo-videos" / "music"
+DEFAULT_MUSIC_PROMPT = (
+    "Light, upbeat, playful instrumental background music for a software product demo. Soft synth plucks, "
+    "gentle drums, warm bass. Steady tempo, unobtrusive, no big drops."
+)
+# The bed sits well under the voice, and dips further while a line plays.
+DEFAULT_MUSIC_VOLUME = 0.18
+# Breath between a line ending and the next step starting.
+VOICE_TAIL_SECONDS = 0.35
+STICKER_POSITIONS = {
+    "bottom-right": "right:56px;bottom:120px",
+    "bottom-left": "left:56px;bottom:120px",
+    "top-right": "right:56px;top:96px",
+    "top-left": "left:56px;top:96px",
+}
 FALLBACK_COLORS = {
     "cobalt": "#0457FF",
     "tangerine": "#FF5C1C",
@@ -133,6 +167,14 @@ def overlay_script(brand: Brand, hide_selectors: list[str], hide_text: list[str]
         "(() => { const C = "
         + json.dumps(config)
         + r""";
+  // Hidden from the first frame of every page, before the app renders them.
+  if (C.hideSelectors.length) {
+    const early = document.createElement('style');
+    early.textContent = C.hideSelectors.join(',') + '{display:none!important}';
+    // The root element can be missing this early in a load. A failure here would stop the whole overlay.
+    const attach = () => { if (!document.documentElement) return false; document.documentElement.appendChild(early); return true; };
+    if (!attach()) { const watch = new MutationObserver(() => { if (attach()) watch.disconnect(); }); watch.observe(document, { childList: true }); }
+  }
   const ensure = () => {
     if (!document.body || document.getElementById('__demo_cursor')) return;
     if (C.fontCss) { const s = document.createElement('style'); s.textContent = C.fontCss; document.head.appendChild(s); }
@@ -163,6 +205,21 @@ def overlay_script(brand: Brand, hide_selectors: list[str], hide_text: list[str]
         if (t.startsWith(text) && t.length < text.length + 120 && parent.length >= text.length + 120) el.style.display = 'none';
       }
     }
+  };
+  window.__sticker = (src, label, pos, seconds) => {
+    ensure();
+    const el = document.createElement('div');
+    el.style.cssText = 'position:fixed;' + pos + ';z-index:2147483645;pointer-events:none;display:flex;flex-direction:column;'
+      + 'align-items:center;gap:6px;transform:scale(.2) rotate(-14deg);opacity:0;'
+      + 'transition:transform .42s cubic-bezier(.34,1.7,.5,1),opacity .2s';
+    el.innerHTML = '<img src="' + src + '" style="width:190px;height:190px;object-fit:contain;filter:drop-shadow(0 8px 14px rgba(0,0,0,.22))">'
+      + (label ? '<div style="background:' + C.accent + ';color:#fff;font:800 22px RoundHog,-apple-system,sans-serif;'
+      + 'padding:6px 16px;border-radius:999px;transform:rotate(-4deg);box-shadow:0 6px 16px rgba(0,0,0,.2)"></div>' : '');
+    if (label) el.lastChild.textContent = label;
+    document.body.appendChild(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => { el.style.opacity = '1'; el.style.transform = 'scale(1) rotate(5deg)'; }));
+    setTimeout(() => { el.style.transition = 'transform .3s ease-in,opacity .3s'; el.style.opacity = '0';
+      el.style.transform = 'scale(.6) rotate(12deg)'; setTimeout(() => el.remove(), 400); }, seconds * 1000);
   };
   window.__caption = (t) => { ensure(); const el = document.getElementById('__demo_caption'); if (!el) return;
     el.textContent = t || ''; el.style.display = t ? 'block' : 'none'; };
@@ -234,6 +291,108 @@ class Vars:
         return self.values[name]
 
 
+def elevenlabs_post(url: str, body: dict[str, Any], timeout: int) -> bytes:
+    api_key = os.environ.get("ELEVENLABS_API_KEY")
+    if not api_key:
+        raise SystemExit("Music and voiceover need ELEVENLABS_API_KEY in the environment.")
+    request = urllib.request.Request(
+        url, data=json.dumps(body).encode(), headers={"xi-api-key": api_key, "content-type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout, context=SSL_CONTEXT) as response:
+            return response.read()
+    except urllib.error.HTTPError as error:
+        raise SystemExit(f"ElevenLabs returned {error.code}: {error.read().decode()[:400]}") from error
+    except urllib.error.URLError as error:
+        raise SystemExit(f"Could not reach ElevenLabs: {error.reason}") from error
+
+
+class Voiceover:
+    """One ElevenLabs take of every spoken line, cut back into a clip per line.
+
+    The whole script is read as one take, so the delivery flows instead of restarting on each line.
+    The per-character timestamps from ElevenLabs cut it per line. Takes are cached by text and voice,
+    so recording again with the same script costs no credits.
+    """
+
+    def __init__(self, config: dict[str, Any], lines: dict[str, str], workdir: Path) -> None:
+        self.config = {**DEFAULT_VOICEOVER, **config}
+        self.lines = {key: text for key, text in lines.items() if text.strip()}
+        self.clips: dict[str, tuple[Path, float]] = {}
+        if self.lines:
+            self._prepare(workdir)
+
+    def _prepare(self, workdir: Path) -> None:
+        keys = list(self.lines)
+        text = "\n\n".join(self.lines[key] for key in keys)
+        mp3, alignment = self._take(text)
+        chars = alignment["characters"]
+        starts, ends = alignment["character_start_times_seconds"], alignment["character_end_times_seconds"]
+        spoken = "".join(chars)
+        cursor = 0
+        for key in keys:
+            at = spoken.find(self.lines[key], cursor)
+            if at < 0:
+                raise SystemExit(f"The voiceover take does not contain the line for {key}.")
+            end = at + len(self.lines[key]) - 1
+            cursor = end + 1
+            begin, finish = max(starts[at] - 0.05, 0), ends[end] + 0.1
+            clip = workdir / f"voice-{key}.wav"
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    str(mp3),
+                    "-ss",
+                    f"{begin:.3f}",
+                    "-to",
+                    f"{finish:.3f}",
+                    str(clip),
+                ],
+                check=True,
+            )
+            self.clips[key] = (clip, finish - begin)
+
+    def _take(self, text: str) -> tuple[Path, dict[str, Any]]:
+        key = hashlib.sha256(json.dumps([text, self.config], sort_keys=True).encode()).hexdigest()[:20]
+        mp3, timing = VOICE_CACHE / f"{key}.mp3", VOICE_CACHE / f"{key}.json"
+        if mp3.exists() and timing.exists():
+            return mp3, json.loads(timing.read_text())
+        body = {"text": text, "model_id": self.config["model"], "voice_settings": self.config.get("settings", {})}
+        data = json.loads(elevenlabs_post(ELEVEN_URL.format(voice=self.config["voice"]), body, timeout=300))
+        VOICE_CACHE.mkdir(parents=True, exist_ok=True)
+        mp3.write_bytes(base64.b64decode(data["audio_base64"]))
+        # Written last, so a half-written take never counts as cached.
+        timing.write_text(json.dumps(data["alignment"]))
+        return mp3, data["alignment"]
+
+
+def spoken_lines(storyboard: dict[str, Any], variables: "Vars") -> dict[str, str]:
+    """What the voiceover says, keyed by where it is said. A `say` key wins over the caption or card text."""
+
+    def card_line(spec: dict[str, Any]) -> str:
+        if "say" in spec:
+            return spec["say"]
+        return " ".join(part.rstrip(".") + "." for part in (spec.get("heading"), spec.get("subheading")) if part)
+
+    lines: dict[str, str] = {}
+    if "title" in storyboard:
+        lines["title"] = card_line(storyboard["title"])
+    for index, step in enumerate(storyboard["steps"]):
+        if "card" in step:
+            lines[f"step{index}"] = card_line(step["card"])
+        elif "http" in step:
+            lines[f"step{index}"] = step["http"].get("say", step["http"].get("title", ""))
+        else:
+            lines[f"step{index}"] = step.get("say", step.get("caption", ""))
+    if "end" in storyboard:
+        lines["end"] = card_line(storyboard["end"])
+    return {key: variables.shown(text) for key, text in lines.items()}
+
+
 class Recorder:
     def __init__(self, storyboard: dict[str, Any], brand: Brand, variables: Vars) -> None:
         self.sb = storyboard
@@ -242,9 +401,47 @@ class Recorder:
         self.base_url = storyboard.get("base_url", "http://localhost:8010").rstrip("/")
         self.cuts: list[tuple[float, float]] = []
         self.t0 = 0.0
+        self.voice: Voiceover | None = None
+        # Sounds to lay over the video: (seconds into the cut video, file).
+        self.sounds: list[tuple[float, Path]] = []
+        self.speaking_until = 0.0
+        self.pop: Path | None = None
+        self.voice_log: list[dict[str, Any]] = []
+        self.base = Path(".")
 
     def now(self) -> float:
         return time.monotonic() - self.t0
+
+    def video_now(self) -> float:
+        """Seconds into the final video, after the cuts made so far."""
+        return self.now() - sum(end - start for start, end in self.cuts)
+
+    def speak(self, key: str) -> None:
+        if not self.voice or key not in self.voice.clips:
+            return
+        clip, duration = self.voice.clips[key]
+        self.sounds.append((self.video_now(), clip))
+        self.voice_log.append({"line": key, "at": round(self.video_now(), 2), "seconds": round(duration, 2)})
+        self.speaking_until = self.video_now() + duration + VOICE_TAIL_SECONDS
+
+    async def finish_speaking(self) -> None:
+        # Cuts made while a line plays shorten the video, so this waits on video time, not wall time.
+        while self.video_now() < self.speaking_until:
+            await asyncio.sleep(0.1)
+
+    async def sticker(self, page: Page, spec: dict[str, Any]) -> None:
+        position = STICKER_POSITIONS.get(spec.get("position", "bottom-right"), STICKER_POSITIONS["bottom-right"])
+        await page.evaluate(
+            "([src, label, pos, seconds]) => window.__sticker && window.__sticker(src, label, pos, seconds)",
+            [
+                self.brand.hog(spec.get("hog", "star")),
+                self.vars.shown(spec.get("text", "")),
+                position,
+                spec.get("seconds", 3),
+            ],
+        )
+        if self.pop:
+            self.sounds.append((self.video_now() + 0.05, self.pop))
 
     async def waited(self, coro: Any, keep: float = CUT_KEEP_SECONDS) -> None:
         start = self.now()
@@ -302,7 +499,7 @@ class Recorder:
                 await page.wait_for_timeout(5000)
         await page.close()
 
-    async def card(self, page: Page, spec: dict[str, Any], dark: bool = False) -> None:
+    async def card(self, page: Page, spec: dict[str, Any], key: str, dark: bool = False) -> None:
         html = card_html(
             self.brand,
             self.vars.shown(spec.get("heading", "")),
@@ -311,9 +508,11 @@ class Recorder:
             dark=dark,
         )
         await page.set_content(html)
-        await asyncio.sleep(spec.get("hold", 4))
+        self.speak(key)
+        await asyncio.sleep(spec.get("hold", 1.5 if self.voice else 4))
+        await self.finish_speaking()
 
-    async def http(self, page: Page, spec: dict[str, Any]) -> None:
+    async def http(self, page: Page, spec: dict[str, Any], key: str) -> None:
         method = spec.get("method", "POST").upper()
         shown_url, real_url = self.vars.shown(self.url(spec["url"])), self.url(spec["url"])
         headers = spec.get("headers", {})
@@ -326,6 +525,7 @@ class Recorder:
             lines.append(f"    -d '{json.dumps(self.vars.shown(body), indent=2)}'")
         command = "\n".join(lines).rstrip(" \\")
         await page.set_content(terminal_html(self.brand, self.vars.shown(spec.get("title", ""))))
+        self.speak(key)
         await page.evaluate(
             """async (t) => { const el = document.getElementById('cmd');
                for (let i = 0; i < t.length; i += 3) { el.textContent = t.slice(0, i + 3); await new Promise(r => setTimeout(r, 12)); } }""",
@@ -352,14 +552,15 @@ class Recorder:
         expected = spec.get("expect_status")
         if expected and status != expected:
             raise RuntimeError(f"{method} {shown_url} returned {status}, expected {expected}: {text[:300]}")
-        await asyncio.sleep(spec.get("hold", 4))
+        await asyncio.sleep(spec.get("hold", 2.5 if self.voice else 4))
+        await self.finish_speaking()
 
-    async def step(self, page: Page, step: dict[str, Any]) -> None:
+    async def step(self, page: Page, step: dict[str, Any], key: str) -> None:
         if "card" in step:
-            await self.card(page, step["card"])
+            await self.card(page, step["card"], key)
             return
         if "http" in step:
-            await self.http(page, step["http"])
+            await self.http(page, step["http"], key)
             return
         if "goto" in step:
             await self.waited(page.goto(self.url(step["goto"]), timeout=FIRST_LOAD_TIMEOUT_MS), keep=0.2)
@@ -367,6 +568,7 @@ class Recorder:
             await self.waited(self.locate(page, step["wait_for"]).wait_for(timeout=STEP_TIMEOUT_MS), keep=0.2)
         if "caption" in step:
             await self.caption(page, step["caption"])
+        self.speak(key)
         if "scroll" in step:
             await page.mouse.wheel(0, step["scroll"])
             await asyncio.sleep(0.6)
@@ -389,13 +591,20 @@ class Recorder:
             await page.keyboard.type(self.vars.real(spec.get("text", "")), delay=spec.get("delay_ms", 80))
         if "wait_for" in step and "goto" not in step:
             await self.waited(self.locate(page, step["wait_for"]).wait_for(timeout=STEP_TIMEOUT_MS))
-        default_hold = max(2.5, len(step.get("caption", "").split()) * 0.32)
+        if "sticker" in step:
+            await self.sticker(page, step["sticker"])
+        default_hold = 1.0 if self.voice else max(2.5, len(step.get("caption", "").split()) * 0.32)
         await asyncio.sleep(step.get("hold", default_hold))
+        await self.finish_speaking()
 
     async def run(self, output: Path) -> dict[str, Any]:
         viewport = self.sb.get("viewport", DEFAULT_VIEWPORT)
         video_dir = Path(tempfile.mkdtemp(prefix="demo-video-"))
         log: dict[str, Any] = {"output": str(output)}
+        if "voiceover" in self.sb:
+            self.voice = Voiceover(self.sb["voiceover"], spoken_lines(self.sb, self.vars), video_dir)
+        if any("sticker" in step for step in self.sb["steps"]):
+            self.pop = pop_sound(video_dir)
         async with async_playwright() as p:
             browser = await p.chromium.launch()
             setup = await browser.new_context(viewport=viewport)
@@ -421,13 +630,15 @@ class Recorder:
             self.t0 = time.monotonic()
             try:
                 if "title" in self.sb:
-                    await self.card(page, self.sb["title"])
+                    await self.card(page, self.sb["title"], "title")
                 for index, step in enumerate(self.sb["steps"]):
                     log["step"] = index
-                    await self.step(page, step)
+                    await self.step(page, step, f"step{index}")
                 await self.caption(page, "")
                 if "end" in self.sb:
-                    await self.card(page, self.sb["end"])
+                    await self.card(page, self.sb["end"], "end")
+                # The recording drops its last frames when the context closes.
+                await asyncio.sleep(1.5)
                 log["duration"] = round(self.now(), 2)
             except Exception as error:
                 log["error"] = f"step {log.get('step')}: {error!r}"[:800]
@@ -437,8 +648,18 @@ class Recorder:
                 await context.close()
                 await browser.close()
         log["cuts"] = self.cuts
+        if self.voice_log:
+            log["voice"] = self.voice_log
         if raw_video and "error" not in log:
-            encode(raw_video, output, self.cuts, log["duration"])
+            encode(
+                raw_video,
+                output,
+                self.cuts,
+                log["duration"],
+                self.sounds,
+                self.sb["music"] if "music" in self.sb else None,
+                self.base,
+            )
             contact_sheet(output)
         elif raw_video:
             shutil.copy(raw_video, output.with_suffix(".failed.webm"))
@@ -446,27 +667,113 @@ class Recorder:
         return log
 
 
-def encode(raw: Path, output: Path, cuts: list[tuple[float, float]], duration: float) -> None:
+def music_track(spec: dict[str, Any], seconds: float, base: Path) -> Path:
+    """A music bed at least `seconds` long: a file from the storyboard, or one generated by ElevenLabs Music."""
+    if "file" in spec:
+        return (base / spec["file"]).resolve()
+    prompt = spec.get("prompt", DEFAULT_MUSIC_PROMPT)
+    # Generated in 10 second steps, so a slightly longer take reuses the cached track.
+    length_ms = min(max(int((seconds + 9.99) // 10 * 10_000), 10_000), 300_000)
+    key = hashlib.sha256(json.dumps([prompt, length_ms]).encode()).hexdigest()[:20]
+    path = MUSIC_CACHE / f"{key}.mp3"
+    if not path.exists():
+        audio = elevenlabs_post(
+            MUSIC_URL, {"prompt": prompt, "music_length_ms": length_ms, "force_instrumental": True}, timeout=600
+        )
+        MUSIC_CACHE.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(audio)
+    return path
+
+
+def duration_of(path: Path) -> float:
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True, check=True,
+    )  # fmt: skip
+    return float(probe.stdout.strip())
+
+
+def encode(
+    raw: Path,
+    output: Path,
+    cuts: list[tuple[float, float]],
+    duration: float,
+    sounds: list[tuple[float, Path]],
+    music: dict[str, Any] | None,
+    base: Path,
+) -> None:
     keep = f"between(t,0,{duration + 0.5})"
     if cuts:
         keep += "*not(" + "+".join(f"between(t,{a},{b})" for a, b in cuts) + ")"
+    silent = output.with_suffix(".silent.mp4") if sounds or music is not None else output
     subprocess.run(
         [
             "ffmpeg", "-y", "-loglevel", "error", "-i", str(raw),
             "-vf", f"fps={FPS},select='{keep}',setpts=N/{FPS}/TB",
             "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "22",
-            "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(output),
+            "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(silent),
         ],
         check=True,
     )  # fmt: skip
+    if not sounds and music is None:
+        return
+    inputs: list[str] = []
+    chains: list[str] = []
+    for index, (at, path) in enumerate(sounds, start=1):
+        inputs += ["-i", str(path)]
+        delay = max(int(at * 1000), 0)
+        chains.append(f"[{index}:a]aresample=44100,aformat=channel_layouts=stereo,adelay={delay}|{delay}[s{index}]")
+    if sounds:
+        mix = "".join(f"[s{i}]" for i in range(1, len(sounds) + 1))
+        chains.append(f"{mix}amix=inputs={len(sounds)}:normalize=0:dropout_transition=0[front]")
+    if music is not None:
+        length = duration_of(silent)
+        inputs += ["-stream_loop", "-1", "-i", str(music_track(music, length, base))]
+        volume = music.get("volume", DEFAULT_MUSIC_VOLUME)
+        fade_out = max(length - 2.5, 0)
+        chains.append(
+            f"[{len(sounds) + 1}:a]aresample=44100,aformat=channel_layouts=stereo,atrim=0:{length:.2f},"
+            f"volume={volume},afade=t=in:d=1.5,afade=t=out:st={fade_out:.2f}:d=2.5[bed]"
+        )
+        if sounds:
+            # The bed ducks under the voice and sound effects, then comes back up between lines.
+            chains.append("[front]asplit=2[front_mix][front_key]")
+            chains.append("[bed][front_key]sidechaincompress=threshold=0.02:ratio=6:attack=30:release=400[ducked]")
+            chains.append("[front_mix][ducked]amix=inputs=2:normalize=0:dropout_transition=0[mixed]")
+        else:
+            chains.append("[bed]anull[mixed]")
+    else:
+        chains.append("[front]anull[mixed]")
+    # -16 LUFS, the usual level for web video, so it plays as loud as other videos in Slack or Loom.
+    chains.append("[mixed]loudnorm=I=-16:TP=-1.5:LRA=11[aout]")
+    graph = ";".join(chains)
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error", "-i", str(silent), *inputs,
+            "-filter_complex", graph, "-map", "0:v", "-map", "[aout]",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", str(output),
+        ],
+        check=True,
+    )  # fmt: skip
+    silent.unlink()
+
+
+def pop_sound(workdir: Path) -> Path:
+    """A short rising blip for stickers, synthesized so the skill ships no audio files."""
+    path = workdir / "pop.wav"
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi",
+            "-i", "aevalsrc='0.4*sin(2*PI*(420+2600*t)*t)*exp(-16*t)':s=44100:d=0.22",
+            "-ac", "2", str(path),
+        ],
+        check=True,
+    )  # fmt: skip
+    return path
 
 
 def contact_sheet(video: Path) -> None:
-    probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(video)],
-        capture_output=True, text=True, check=True,
-    )  # fmt: skip
-    every = max(float(probe.stdout.strip()) / 16, 0.5)
+    every = max(duration_of(video) / 16, 0.5)
     subprocess.run(
         [
             "ffmpeg", "-y", "-loglevel", "error", "-i", str(video),
@@ -491,6 +798,7 @@ def main() -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     values = {**os.environ, **storyboard.get("vars", {})}
     recorder = Recorder(storyboard, Brand(repo_root), Vars(values, storyboard.get("secrets", [])))
+    recorder.base = storyboard_path.parent
     log = asyncio.run(recorder.run(output))
     output.with_suffix(".log.json").write_text(json.dumps(log, indent=2))
     sys.stdout.write(json.dumps(log, indent=2) + "\n")

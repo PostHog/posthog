@@ -44,12 +44,20 @@ Use a domain with mail servers. MailDev catches the email, so nothing reaches th
 
 Metrics arrive through Kafka and ClickHouse, a few seconds after the action.
 Wait for the chart or counter to load with a `wait_for`, and read the number in the contact sheet.
-We have seen a local stack count one run twice. When a number is off in a take, reset and record again rather than share it.
+A local stack can count a workflow run twice. Its ClickHouse has two Kafka tables, `kafka_app_metrics2` and `kafka_app_metrics2_ws`, that read the same topic into `app_metrics2`.
+ClickHouse drops most of the copies as duplicate inserts, but not all, so a count can come out one or two high.
+When a number is off in a take, reset and record again rather than share it, or keep the counter out of the shot.
 
 ## The local stack lost its data
 
 A cloud sandbox can restart, which stops the containers and can leave an empty database.
 Run `hogli start -y -d` and `hogli wait`, then the seed script. Start any extra workers again.
+
+## ElevenLabs calls fail
+
+- `ELEVENLABS_API_KEY` missing: the developer has to set it. In a cloud task, add it as an environment variable of the task's environment in PostHog Desktop, under Settings and Environments. Never paste it into a storyboard or a commit.
+- `401` or `quota_exceeded`: the key is wrong, lacks access to the endpoint, or the account ran out of credits. Takes already in the cache still work.
+- A certificate error: the recorder uses `certifi`'s certificates, which the repo's Python environment has. Run it with `uv run python` from the checkout.
 
 ## Inline HTML is refused
 
