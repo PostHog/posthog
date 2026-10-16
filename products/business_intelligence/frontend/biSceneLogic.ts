@@ -79,6 +79,12 @@ export interface BIWorksheetHistory {
     future: BIWorksheetSnapshot[]
 }
 
+function normalizeWorksheetForComparison(query: unknown): unknown {
+    return query && typeof query === 'object' && isBIVisualizationNode(query)
+        ? JSON.parse(JSON.stringify({ ...query, source: { ...query.source, filters: query.source.filters ?? {} } }))
+        : query
+}
+
 function emptyWorksheet(): BIVisualizationNode {
     return {
         kind: NodeKind.BIVisualizationNode,
@@ -611,8 +617,10 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         hasUnsavedChanges: [
             (s) => [s.worksheet, s.name, s.insight],
             (worksheet: BIVisualizationNode, name: string, insight: InsightApi | null): boolean =>
-                !equal(JSON.parse(JSON.stringify(worksheet)), insight?.query ?? emptyWorksheet()) ||
-                name.trim() !== (insight?.name || 'Untitled worksheet'),
+                !equal(
+                    normalizeWorksheetForComparison(worksheet),
+                    normalizeWorksheetForComparison(insight?.query ?? emptyWorksheet())
+                ) || name.trim() !== (insight?.name || 'Untitled worksheet'),
         ],
         saveDisabledReason: [
             (s) => [s.generatedQuery, s.insight, s.name, s.agentUpdateState],
@@ -689,12 +697,14 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 if (!updated || updated.id !== baseline.id || !isBIVisualizationNode(updated.query)) {
                     throw new Error('The updated worksheet is unavailable')
                 }
-                const localQuery = JSON.parse(JSON.stringify(values.worksheet))
-                const queryEdited = !equal(localQuery, baseline.query)
+                const localQuery = normalizeWorksheetForComparison(values.worksheet)
+                const baselineQuery = normalizeWorksheetForComparison(baseline.query)
+                const updatedQuery = normalizeWorksheetForComparison(updated.query)
+                const queryEdited = !equal(localQuery, baselineQuery)
                 const nameEdited = values.name !== (baseline.name || 'Untitled worksheet')
                 const conflict =
                     (hadConflict && (queryEdited || nameEdited)) ||
-                    (queryEdited && !equal(updated.query, baseline.query) && !equal(localQuery, updated.query)) ||
+                    (queryEdited && !equal(updatedQuery, baselineQuery) && !equal(localQuery, updatedQuery)) ||
                     (nameEdited && updated.name !== baseline.name && values.name !== updated.name)
 
                 actions.setInsightFromAgent(updated)
@@ -783,7 +793,12 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             actions.restoreState({ editorView: BIEditorView.BI, config: worksheet.config })
             actions.runAfterChange()
         },
-        setName: () => actions.recordWorksheet(),
+        setName: () => {
+            actions.recordWorksheet()
+            if (values.agentUpdateConflict) {
+                actions.syncWorksheetUrl()
+            }
+        },
         [dataNodeLogic({ key: `InsightViz.new-bi-${props.tabId}`, query: emptyWorksheet().source }).actionTypes
             .loadDataSuccess]: ({ response }) => {
             if (
@@ -866,12 +881,14 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             if (insight && isBIVisualizationNode(insight.query)) {
                 actions.setName(insight.name || 'Untitled worksheet')
                 let worksheet: BIVisualizationNode = insight.query
-                const { q, filters } = router.values.hashParams
+                const { q, filters, bi_conflict } = router.values.hashParams
+                let restoredDraft = false
                 if (q) {
                     try {
                         const draft = typeof q === 'string' ? JSON.parse(q) : q
                         if (isBIVisualizationNode(draft) && parseBIEditorState(BIEditorView.BI, draft.config)) {
                             worksheet = draft
+                            restoredDraft = true
                         }
                     } catch {
                         lemonToast.error('Could not restore worksheet edits from the link.')
@@ -881,6 +898,10 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                     worksheet = { ...worksheet, source: { ...worksheet.source, filters: filters as HogQLFilters } }
                 }
                 actions.restoreWorksheet(worksheet)
+                if (restoredDraft && bi_conflict?.insightId === insight.id && typeof bi_conflict.name === 'string') {
+                    actions.setName(bi_conflict.name)
+                    actions.setAgentUpdateState('conflict')
+                }
                 actions.recordWorksheet(true)
                 void insightsViewedCreate(String(values.currentTeamId), { insight_ids: [insight.id] }).catch(() => {})
             }
@@ -1060,7 +1081,12 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                         ? urls.businessIntelligenceWorksheet(values.insight.short_id)
                         : urls.businessIntelligenceNew(),
                     router.values.searchParams,
-                    { q: cache.lastHash }
+                    {
+                        q: cache.lastHash,
+                        ...(values.agentUpdateConflict && values.insight
+                            ? { bi_conflict: { insightId: values.insight.id, name: values.name } }
+                            : {}),
+                    }
                 )
             } finally {
                 cache.syncingWorksheetUrl = false

@@ -33,11 +33,14 @@ it('attaches draft and metric content as untrusted data and omits oversized draf
         name: 'revenue',
         definition: { kind: NodeKind.HogQLQuery, query: `SELECT '${marker}'` },
     })!
-    const context = buildBIAgentContext(node)
+    const context = buildBIAgentContext(node, 'worksheet-test', 'Local draft title')
     expect(context.filter((item) => item.type === 'instructions').some((item) => item.value?.includes(marker))).toBe(
         false
     )
     expect(context.some((item) => item.type === 'text' && item.value?.includes(marker))).toBe(true)
+    expect(context.some((item) => item.type === 'text' && item.value?.includes('"name":"Local draft title"'))).toBe(
+        true
+    )
     expect(
         buildBIAgentContext({ ...node, source: { ...node.source, query: marker.repeat(10000) } }).some((item) =>
             item.value?.includes('has been omitted')

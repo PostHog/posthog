@@ -88,8 +88,8 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
     const hierarchyParent = getBIHierarchyParent(worksheet)
 
     const contextItems = useMemo(
-        () => buildBIAgentContext(worksheet, insight?.short_id),
-        [worksheet, insight?.short_id]
+        () => buildBIAgentContext(worksheet, insight?.short_id, name),
+        [worksheet, insight?.short_id, name]
     )
     useSceneAgentPanel({
         sceneKey: 'business-intelligence',

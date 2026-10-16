@@ -15,6 +15,7 @@ import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
 
+import { catalogMetricWorksheet } from './biCatalog'
 import { BI_EDITOR_EVENTS } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
 import { BIEditorView, buildBIQuery } from './biEditorTypes'
@@ -168,6 +169,24 @@ describe('biSceneLogic', () => {
         expect(logic.values.agentUpdateState).toBeNull()
     })
 
+    it('applies assistant snapshot edits when the saved source omits empty filters', async () => {
+        const snapshot = (query: string): BIVisualizationNode =>
+            catalogMetricWorksheet({ name: 'revenue', definition: { kind: NodeKind.HogQLQuery, query } })!
+        stored = { ...stored, query: snapshot('SELECT 42 AS revenue') }
+        await expectLogic(logic, () =>
+            router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
+        ).toFinishAllListeners()
+        expect(logic.values.hasUnsavedChanges).toBe(false)
+        expect(stored.query.source.filters).toBeUndefined()
+
+        stored = { ...stored, query: snapshot('SELECT 43 AS revenue') }
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+
+        expect(logic.values.worksheet.source.query).toBe('SELECT 43 AS revenue')
+        expect(logic.values.agentUpdateState).toBeNull()
+        expect(logic.values.hasUnsavedChanges).toBe(false)
+    })
+
     it('reconciles assistant changes after an already-running save completes', async () => {
         await expectLogic(logic, () =>
             router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
@@ -204,7 +223,7 @@ describe('biSceneLogic', () => {
         expect(stored.name).toBe('Assistant name')
     })
 
-    it('preserves conflicting drafts and blocks overwriting the assistant until changes are discarded', async () => {
+    it('preserves conflicting drafts across retries and reload until changes are discarded', async () => {
         await expectLogic(logic, () =>
             router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
         ).toFinishAllListeners()
@@ -227,9 +246,22 @@ describe('biSceneLogic', () => {
         await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
         expect(logic.values.agentUpdateState).toBe('conflict')
 
+        logic.actions.setName('Local draft title')
+        logic.unmount()
+        logic = biSceneLogic({ tabId: 'bi-reloaded' })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        expect(logic.values.agentUpdateState).toBe('conflict')
+        expect(logic.values.name).toBe('Local draft title')
+        expect(logic.values.worksheet.config.limit).toBe(10000)
+        await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        expect(save).not.toHaveBeenCalled()
+
         logic.actions.discardChanges()
         expect(logic.values.worksheet.config.limit).toBe(50000)
         expect(logic.values.agentUpdateState).toBeNull()
+        expect(router.values.hashParams.bi_conflict).toBeUndefined()
     })
 
     it('blocks stale saves after an assistant refresh fails and allows a retry', async () => {
