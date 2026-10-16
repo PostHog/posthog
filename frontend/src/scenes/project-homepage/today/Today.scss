@@ -201,9 +201,17 @@ html[data-today-transition]::view-transition-new(root) {
     white-space: nowrap;
 }
 
-.TodayPulse__link:hover {
-    color: var(--today-ink);
-    text-decoration: underline;
+.TodayPulse__link {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    color: inherit;
+
+    &:hover .TodayPulse__name {
+        color: var(--today-ink);
+        text-decoration: underline;
+    }
 }
 
 .TodayPulse__row {

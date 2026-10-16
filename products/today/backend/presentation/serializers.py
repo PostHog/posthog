@@ -294,7 +294,8 @@ class HighlightMetricSerializer(DataclassSerializer):
         choices=HighlightInterval.choices, help_text="What one value in `series` covers: a day, a week or a month."
     )
     url = serializers.CharField(
-        allow_null=True, help_text="Path of the insight the metric comes from. Null for a key metric."
+        allow_null=True,
+        help_text="Path of the insight the metric comes from. For a key metric, a new trends insight of the same days.",
     )
     value_format = HighlightValueFormatSerializer(
         allow_null=True,
