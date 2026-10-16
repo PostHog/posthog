@@ -16,7 +16,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.models import Organization, OrganizationMembership, SessionRecording, SharingConfiguration, Team, User
-from posthog.models.access_filter import apply_filter
+from posthog.models.access_filter import object_ids_to_q
 
 from products.access_control.backend.facade import testing as access_control_testing
 from products.access_control.backend.facade.api import set_object_access_control
@@ -154,7 +154,7 @@ class TestOpenFgaDashboardMirror(BaseTest):
 
     def _visible_dashboard_ids(self, result: ObjectIds) -> frozenset[str]:
         queryset = Dashboard.objects.filter(team_id=self.team.id)
-        return frozenset(str(id) for id in apply_filter(queryset, result).values_list("id", flat=True))
+        return frozenset(str(id) for id in queryset.filter(object_ids_to_q(result)).values_list("id", flat=True))
 
     def _assert_dashboard_permissions(
         self, expected: frozenset[Action], *, dashboard_id: int | None = None, subject: Subject | None = None

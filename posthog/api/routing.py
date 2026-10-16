@@ -27,7 +27,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
 )
-from posthog.authz import filter_dashboard_queryset, filter_resource_queryset
+from posthog.authz import filter_resource_queryset
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.models.organization import Organization
 from posthog.models.project import Project
@@ -396,8 +396,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if is_service_auth(self.request):
             return queryset
 
-        if self.scope_object == "dashboard":
-            return filter_dashboard_queryset(self.request.user, queryset)
         resource = model_to_resource(queryset.model)
         if resource in ACCESS_CONTROL_RESOURCES:
             return filter_resource_queryset(self.request.user, queryset, ResourceType(resource))

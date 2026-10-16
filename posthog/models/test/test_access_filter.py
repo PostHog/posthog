@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.models import Team, User
-from posthog.models.access_filter import apply_filter, filter_q
+from posthog.models.access_filter import object_ids_to_q
 
 from products.authz.backend.facade.contracts import ObjectIds
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -42,14 +42,6 @@ class TestQuerysetAccessFilter(BaseTest):
             if result.allows(str(flag.pk), created_by_user_id=flag.created_by_id, subject_user_id=self.user.pk)
         ]
         queryset = FeatureFlag.objects.filter(team=self.team).order_by("id")
-        assert (
-            list(apply_filter(queryset, result, subject_user_id=self.user.pk).values_list("id", flat=True)) == expected
-        )
-        assert (
-            list(queryset.filter(filter_q(result, subject_user_id=self.user.pk)).values_list("id", flat=True))
-            == expected
-        )
-        assert (
-            list(apply_filter(queryset, result, subject_user_id=self.user.pk).values_list("id", flat=True)[:1])
-            == expected[:1]
-        )
+        filtered = queryset.filter(object_ids_to_q(result, subject_user_id=self.user.pk))
+        assert list(filtered.values_list("id", flat=True)) == expected
+        assert list(filtered.values_list("id", flat=True)[:1]) == expected[:1]

@@ -4,16 +4,12 @@ The result carries the decision; this module only translates it. It knows the co
 which the authz facade must not, so it lives next to the ORM instead of inside the product.
 """
 
-from typing import TypeVar
-
-from django.db.models import Model, Q, QuerySet
+from django.db.models import Q
 
 from products.authz.backend.facade.contracts import ObjectIds
 
-M = TypeVar("M", bound=Model)
 
-
-def filter_q(
+def object_ids_to_q(
     result: ObjectIds,
     *,
     id_field: str = "id",
@@ -34,21 +30,3 @@ def filter_q(
     ids = Q(**{f"{id_field}__in": result.ids})
     allowed = ~ids if result.excluded else ids
     return allowed | creator if creator else allowed
-
-
-def apply_filter(
-    queryset: QuerySet[M],
-    result: ObjectIds,
-    *,
-    id_field: str = "id",
-    creator_field: str | None = "created_by",
-    subject_user_id: int | None = None,
-) -> QuerySet[M]:
-    """Narrow `queryset` to the rows `result` allows. A capped result keeps nothing."""
-    if not result.complete:
-        return queryset.none()
-    if not result.restricts:
-        return queryset
-    return queryset.filter(
-        filter_q(result, id_field=id_field, creator_field=creator_field, subject_user_id=subject_user_id)
-    )
