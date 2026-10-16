@@ -79,6 +79,7 @@ def _context(
         split_history=SplitHistory(
             launched_at=launched_at,
             team_timezone="Europe/Berlin",
+            changes=changes,
             counted_changes=changes,
             exposed_before_first=exposed_before_first,
             exposed_between=exposed_between,

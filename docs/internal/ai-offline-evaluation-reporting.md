@@ -2,7 +2,8 @@
 
 The evaluation harness in `products/posthog_ai/eval_harness/` reports public-suite scorer results to Braintrust.
 The SQL suite also publishes those results to PostHog's offline experiment API when configured.
-The harness no longer emits legacy `$ai_evaluation` result events. Agent and judge trace capture remains available.
+The Signals pytest suites reuse the same publisher for their completed results.
+Agent and judge trace capture remains available.
 Reporting does not run the agent or scorers again.
 Use `hogli evals` to run PostHog AI 2.0 suites. See the [eval harness guide](../../products/posthog_ai/eval_harness/README.md) for suite discovery and execution.
 
@@ -146,6 +147,41 @@ result = Score(
 The numeric `score` still controls existing Braintrust and local aggregates; `result` describes the offline outcome. Configure this example's scorer kind as `categorical`.
 Scorer provisioning stays separate from uploading results, so publishing requires only the ingestion scope and does not create or modify scorer definitions.
 
+## Signals pytest suites
+
+The suites in `products/signals/eval/` keep their pytest runner and mocked infrastructure.
+They publish completed metrics through `OfflineEvalPublisher` without running the pipeline or judges again.
+Run them from the repository root:
+
+```bash
+pytest products/signals/eval/eval_grouping_e2e.py products/signals/eval/eval_scout_safety.py
+```
+
+The grouping suite has 111 input signals across 48 fixture groups; scout safety has 7 cases.
+Each suite execution publishes one experiment: `signals/grouping-e2e` or `signals/scout-safety`.
+Grouping records separate items for pipeline stages, generated reports, and aggregate statistics, so uploaded item counts exceed the input signal count.
+Scout safety records one item per case and one aggregate item.
+Use `--limit N` for a subset; the run metadata records the limit and checkout revision.
+
+Both suites target project `2` and pin immutable scorer version UUIDs in
+[`offline_config.py`](../../products/signals/eval/offline_config.py).
+There are 16 grouping scorers and 3 scout safety scorers, reused across inputs.
+Classification checks at different stages have separate scorers.
+Per-report `group_recall` and aggregate `mean_group_recall` also stay separate.
+Metrics that do not apply to an item's stage publish `not_applicable`.
+Numeric definitions allow ARI in `[-1, 1]` and query cosine distance in `[0, 2]`.
+
+Set `POSTHOG_OFFLINE_EVAL_API_KEY` with `offline_evaluation_ingestion:write` and optionally
+`POSTHOG_OFFLINE_EVAL_HOST`, as for the SQL suite.
+Missing or invalid configuration disables offline uploads with a message; upload failures also report a message without changing the eval outcome.
+Successful uploads print the experiment URL.
+Scout results upload before the existing assertion against unsafe payload leaks.
+Each execution has a fresh experiment ID, so repeated runs do not overwrite one another.
+
+`--no-capture` suppresses result uploads and trace capture.
+`POSTHOG_PROJECT_API_KEY` and `POSTHOG_HOST` remain the separate trace-capture settings.
+Runs appear in the offline experiments UI.
+
 ## Postgres experiment ingestion
 
 The project API accepts offline experiment results behind the `ai-observability-offline-evaluations` feature flag.
@@ -265,7 +301,7 @@ Experiment views share remembered tag filters, while explicit URL filters take p
 ## Postgres experiment reads
 
 Read endpoints use the same feature flag as ingestion.
-The offline UI uses these APIs. The configured SQL pilot publishes results here; legacy `$ai_evaluation` events do not populate these views.
+The offline UI uses these APIs. The configured SQL pilot and Signals suites publish results here.
 
 The following GET paths are relative to `/api/projects/{project_id}/ai_observability/`:
 

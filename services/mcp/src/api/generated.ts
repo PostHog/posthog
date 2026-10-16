@@ -11067,6 +11067,8 @@ export namespace Schemas {
     }
 
     export interface BIConfig {
+      /** Catalog provenance only: the snapshot does not track subsequent definition edits. */
+      catalogMetric?: string | null;
       chartType: ChartDisplayType;
       colorBy?: string | null;
       columns: BIField[];
@@ -11088,6 +11090,8 @@ export namespace Schemas {
       missingDates?: MissingDates | null;
       /** Split the returned groups into charts using these ordered dimension IDs. */
       panes?: BIPaneSettings | null;
+      /** Executable catalog query snapshot. Dates and grouping belong to the definition, not the shelves. */
+      querySnapshot?: HogQLQuery | null;
       resultFilterGroup?: BIConditionGroup | null;
       resultFilters?: BIResultFilter[] | null;
       rowFilterGroup?: BIConditionGroup | null;
@@ -31847,6 +31851,7 @@ export namespace Schemas {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -33235,6 +33240,7 @@ export namespace Schemas {
       BlackboardLearn: 'BlackboardLearn',
       Bling: 'Bling',
       Bloomerang: 'Bloomerang',
+      Blueshift: 'Blueshift',
       Bluesky: 'Bluesky',
       BolRetailer: 'BolRetailer',
       Boulevard: 'Boulevard',
@@ -34637,6 +34643,7 @@ export namespace Schemas {
        * * `BlackboardLearn` - BlackboardLearn
        * * `Bling` - Bling
        * * `Bloomerang` - Bloomerang
+       * * `Blueshift` - Blueshift
        * * `Bluesky` - Bluesky
        * * `BolRetailer` - BolRetailer
        * * `Boulevard` - Boulevard
@@ -37291,6 +37298,7 @@ export namespace Schemas {
        * * `BlackboardLearn` - BlackboardLearn
        * * `Bling` - Bling
        * * `Bloomerang` - Bloomerang
+       * * `Blueshift` - Blueshift
        * * `Bluesky` - Bluesky
        * * `BolRetailer` - BolRetailer
        * * `Boulevard` - Boulevard
@@ -38122,6 +38130,12 @@ export namespace Schemas {
          * @maximum 100000000
          */
       monthly_credit_budget?: number;
+      /**
+         * Goal-based flow only: a launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it. Ignored without `monthly_credit_budget`.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      experiment_id?: number;
     }
 
     /**
@@ -38137,25 +38151,6 @@ export namespace Schemas {
       Balanced: 'balanced',
       Comprehensive: 'comprehensive',
     } as const;
-
-    /**
-     * The experiment a scanner watches. Scans derive their person-scoped exposure filter from
-     * this blob at query time, so it is the only place an experiment can enter a scanner's
-     * targeting — which is what lets the write-side access check and read-side redaction cover it.
-     */
-    export interface ScannerExperimentTargeting {
-      /**
-         * The experiment the scanner watches.
-         * @minimum 1
-         */
-      experiment_id: number;
-      /**
-         * Narrow to sessions of people exposed to this variant. Null means every variant.
-         * @maxLength 400
-         * @nullable
-         */
-      variant?: string | null;
-    }
 
     /**
      * An AI-drafted scanner configuration, ready to seed the creation wizard. Nothing is persisted.
@@ -38201,8 +38196,6 @@ export namespace Schemas {
          * @nullable
          */
       credit_limit: number | null;
-      /** Goal-based flow only: the experiment whose participants the draft watches, when the goal named one of the project's launched experiments. Null when it named none. Carried separately from `query`, which never holds an exposure filter. */
-      experiment_targeting: ScannerExperimentTargeting | null;
       /**
          * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
          * @nullable
@@ -42142,6 +42135,25 @@ export namespace Schemas {
     }
 
     /**
+     * The experiment a scanner watches. Scans derive their person-scoped exposure filter from
+     * this blob at query time, so it is the only place an experiment can enter a scanner's
+     * targeting — which is what lets the write-side access check and read-side redaction cover it.
+     */
+    export interface ScannerExperimentTargeting {
+      /**
+         * The experiment the scanner watches.
+         * @minimum 1
+         */
+      experiment_id: number;
+      /**
+         * Narrow to sessions of people exposed to this variant. Null means every variant.
+         * @maxLength 400
+         * @nullable
+         */
+      variant?: string | null;
+    }
+
+    /**
      * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
      */
     export interface EstimateRequest {
@@ -45068,6 +45080,428 @@ export namespace Schemas {
       can_view_task: boolean;
     }
 
+    export interface ExperimentHealthInputsReleaseCondition {
+      /** The condition's position in the flag, from 1, as the flag page labels it ('Set 2'). */
+      number: number;
+      /**
+         * The condition's rollout, in percent. Null when the flag stores no number.
+         * @nullable
+         */
+      rollout_percentage: number | null;
+      /**
+         * The number of property filters. Null when the flag stores no list.
+         * @nullable
+         */
+      property_count: number | null;
+      /** Whether the condition can serve a request. A condition after one that matches everyone never does. */
+      reachable: boolean;
+      /**
+         * The variant that the condition's override serves. Null when the condition is not reachable, has no override, or its override names no variant of the flag.
+         * @nullable
+         */
+      pinned_variant: string | null;
+    }
+
+    export interface ExperimentHealthInputsVariant {
+      /**
+         * The variant key. Null when the flag stores no string key.
+         * @nullable
+         */
+      key: string | null;
+      /**
+         * The variant's share of the split, in percent. Null when the flag stores no number.
+         * @nullable
+         */
+      rollout_percentage: number | null;
+    }
+
+    export interface ExperimentHealthInputsFlag {
+      /** Whether the flag is enabled. */
+      active: boolean;
+      /** Whether the flag is deleted. */
+      deleted: boolean;
+      /** The flag's release conditions, in evaluation order. */
+      release_conditions: ExperimentHealthInputsReleaseCondition[];
+      /** The flag's variants and their split. */
+      variants: ExperimentHealthInputsVariant[];
+    }
+
+    export interface ExperimentHealthInputsSplitChange {
+      /** When the flag's split changed. */
+      changed_at: string;
+      /** The split before the change. */
+      before: ExperimentHealthInputsVariant[];
+      /** The split after the change. */
+      after: ExperimentHealthInputsVariant[];
+      /** Whether the split-change check counts this change: it and every later change count from the first with an exposure before it, or an unknown answer. False for every change when not checked. */
+      counted: boolean;
+    }
+
+    export interface ExperimentHealthInputsSplitHistory {
+      /** Whether the split changes were compared with the exposures. False when not_checked_reason is set. */
+      checked: boolean;
+      /**
+         * Why the split changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were.
+         * @nullable
+         */
+      not_checked_reason: string | null;
+      /** When the experiment launched. */
+      launched_at: string;
+      /** The project's time zone, which the finding uses for times. */
+      team_timezone: string;
+      /** Every split change since launch. Empty for 'no_history_access', which does not read them. */
+      changes: ExperimentHealthInputsSplitChange[];
+      /**
+         * Whether anyone was exposed before the first counted change. Null when unknown or not checked.
+         * @nullable
+         */
+      exposed_before_first: boolean | null;
+      /**
+         * Whether anyone was exposed between the first and the last change. Asked only when the last change restores the split from before the first. Null when not asked or unknown.
+         * @nullable
+         */
+      exposed_between: boolean | null;
+    }
+
+    /**
+     * * `read` - Read
+     * * `not_needed` - Not Needed
+     * * `no_query_access` - No Query Access
+     * * `denied_properties` - Denied Properties
+     * * `no_flag_version` - No Flag Version
+     * * `unknown` - Unknown
+     */
+    export type ExperimentHealthInputsTrafficStatusEnum = typeof ExperimentHealthInputsTrafficStatusEnum[keyof typeof ExperimentHealthInputsTrafficStatusEnum];
+
+
+    export const ExperimentHealthInputsTrafficStatusEnum = {
+      Read: 'read',
+      NotNeeded: 'not_needed',
+      NoQueryAccess: 'no_query_access',
+      DeniedProperties: 'denied_properties',
+      NoFlagVersion: 'no_flag_version',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface ExperimentHealthInputsConditionSetPeople {
+      /** The number of the release condition, from 1. */
+      condition_set: number;
+      /** The people whose latest call this condition served. */
+      people: number;
+    }
+
+    export interface ExperimentHealthInputsConditionSetTraffic {
+      /** The start of the window: the latest of launch, the flag's last save and 7 days ago. */
+      since: string;
+      /** The project's time zone, which the finding uses for times. */
+      team_timezone: string;
+      /** People by the release condition that served their latest call of the flag's version. */
+      people_by_set: ExperimentHealthInputsConditionSetPeople[];
+      /** The flag's calls in the window, of any flag version. */
+      calls: number;
+      /** The calls that the flag service evaluated. Only those name a condition set. Local evaluation in a server SDK and a bootstrapped value name none. */
+      remotely_evaluated_calls: number;
+    }
+
+    export interface ExperimentHealthInputsReaderAccess {
+      /** Whether the reader may read the flag's history, which the split-change check needs. */
+      can_read_flag_history: boolean;
+      /** Whether the reader may query events, which the split-change and forced-variant checks need. */
+      can_query_events: boolean;
+      /** Event properties the reader is denied. The forced-variant check skips its scan when one of them is a flag call property it reads. */
+      denied_event_properties: string[];
+    }
+
+    /**
+     * * `ready` - Ready
+     * * `stale` - Stale
+     * * `calculating` - Calculating
+     * * `not_launched` - Not Launched
+     * * `no_query_access` - No Query Access
+     * * `failed` - Failed
+     */
+    export type HealthExposureInputsStatusEnum = typeof HealthExposureInputsStatusEnum[keyof typeof HealthExposureInputsStatusEnum];
+
+
+    export const HealthExposureInputsStatusEnum = {
+      Ready: 'ready',
+      Stale: 'stale',
+      Calculating: 'calculating',
+      NotLaunched: 'not_launched',
+      NoQueryAccess: 'no_query_access',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Exposed people by variant. '$multiple' counts the people exposed to more than one variant.
+     */
+    export type ExperimentHealthInputsExposureTotalsTotalExposures = {[key: string]: number};
+
+    export interface ExperimentHealthInputsExposureTotals {
+      /** Exposed people by variant. '$multiple' counts the people exposed to more than one variant. */
+      total_exposures: ExperimentHealthInputsExposureTotalsTotalExposures;
+      /** How the analysis treats people in several variants: 'exclude' or 'first_seen'. */
+      multiple_variant_handling: string;
+      /**
+         * The p-value of the sample ratio test. Null when there was too little data.
+         * @nullable
+         */
+      sample_ratio_mismatch_p_value: number | null;
+      /**
+         * Hours from launch to the computation of the answer, as the checks read them.
+         * @nullable
+         */
+      hours_since_launch: number | null;
+    }
+
+    export interface ExperimentHealthInputsExposures {
+      /** Whether a cached answer was read. 'calculating' means no answer is cached and a calculation runs in the background, so a later request reads a fresh answer. 'stale' means the cached answer is past its age: a recalculation runs in the background, or the last one failed and 'error' says why. After a failed calculation, no new one starts for 20 minutes.
+       *
+       * * `ready` - Ready
+       * * `stale` - Stale
+       * * `calculating` - Calculating
+       * * `not_launched` - Not Launched
+       * * `no_query_access` - No Query Access
+       * * `failed` - Failed */
+      status: HealthExposureInputsStatusEnum;
+      /**
+         * When the answer was computed.
+         * @nullable
+         */
+      computed_at: string | null;
+      /** What the exposure checks read. Null without an answer. */
+      totals: ExperimentHealthInputsExposureTotals | null;
+      /** The findings of the exposure checks on this answer: zero exposures, SRM and bias risk. */
+      findings: ExperimentHealthFinding[];
+      /**
+         * Why the query or its last background calculation failed. Set for 'failed', and for 'stale' when the recalculation failed.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    /**
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error
+     */
+    export type SetupContextSectionStatusEnum = typeof SetupContextSectionStatusEnum[keyof typeof SetupContextSectionStatusEnum];
+
+
+    export const SetupContextSectionStatusEnum = {
+      Ok: 'ok',
+      Skipped: 'skipped',
+      TimedOut: 'timed_out',
+      Error: 'error',
+    } as const;
+
+    export interface ExperimentSetupTeamDefaults {
+      /**
+         * Default statistical method for new experiments: 'bayesian' or 'frequentist'.
+         * @nullable
+         */
+      stats_method: string | null;
+      /**
+         * Default confidence level for new experiments, for example 0.95. Null when unset.
+         * @nullable
+         */
+      confidence_level: number | null;
+      /**
+         * The team's default minimum detectable effect, as a percentage. Null when the team has not set one; product_default_minimum_detectable_effect applies then.
+         * @nullable
+         */
+      minimum_detectable_effect: number | null;
+      /** The minimum detectable effect, as a percentage, that applies when the team has no default. */
+      product_default_minimum_detectable_effect: number;
+      /** The statistical method that applies when the team has no default. */
+      product_default_stats_method: string;
+      /** The confidence level that applies when the team has no default. Both methods use the same one. */
+      product_default_confidence_level: number;
+      /** Default for counting only users whose metric window has fully passed. */
+      only_count_matured_users: boolean;
+      /** Default for CUPED variance reduction on new experiments. */
+      cuped_enabled: boolean;
+      /** Default for sequential testing. Applies only to the frequentist method. */
+      sequential_testing_enabled: boolean;
+      /** Default for persisting flag values across authentication steps on new flags. It becomes the flag's ensure_experience_continuity. */
+      flags_persistence_default: boolean;
+      /** How many filters the team uses to identify internal and test users. */
+      test_account_filter_count: number;
+      /** A new experiment filters test accounts this way unless its own exposure criteria say otherwise. It does not follow the project's insight default. */
+      new_experiments_filter_test_accounts: boolean;
+      /** The exposure event a new experiment launched now counts by default: '$experiment_exposure' or '$feature_flag_called'. */
+      default_exposure_event: string;
+    }
+
+    export interface ExperimentSetupTeamDefaultsSection {
+      /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+       *
+       * * `ok` - Ok
+       * * `skipped` - Skipped
+       * * `timed_out` - Timed Out
+       * * `error` - Error */
+      status: SetupContextSectionStatusEnum;
+      /** The team's experiment defaults. */
+      data: ExperimentSetupTeamDefaults | null;
+    }
+
+    /**
+     * * `web` - Web
+     * * `mobile` - Mobile
+     * * `server` - Server
+     * * `other` - Other
+     */
+    export type SdkLibCategoryEnum = typeof SdkLibCategoryEnum[keyof typeof SdkLibCategoryEnum];
+
+
+    export const SdkLibCategoryEnum = {
+      Web: 'web',
+      Mobile: 'mobile',
+      Server: 'server',
+      Other: 'other',
+    } as const;
+
+    export interface ExperimentSetupSdkLib {
+      /**
+         * The $lib value of the SDK, for example 'web'.
+         * @nullable
+         */
+      lib: string | null;
+      /** 'web' for the JavaScript web SDK, 'mobile', 'server', or 'other' for libraries not classified.
+       *
+       * * `web` - Web
+       * * `mobile` - Mobile
+       * * `server` - Server
+       * * `other` - Other */
+      category: SdkLibCategoryEnum;
+      /** Multivariate flag calls this SDK sent in the window. */
+      calls: number;
+      /** Distinct ids that sent those calls. */
+      distinct_ids: number;
+      /** Share of calls that carry a $device_id. 0 when this SDK never sends one, as server SDKs don't. */
+      device_id_share: number;
+      /**
+         * Share of calls evaluated locally in the SDK instead of by the flags service. Null when no call from this SDK reported it, as the web SDK doesn't.
+         * @nullable
+         */
+      locally_evaluated_share: number | null;
+      /**
+         * Share of distinct ids that were anonymous, among those that report whether they are identified. Null when no call from this SDK reported it.
+         * @nullable
+         */
+      anonymous_share: number | null;
+    }
+
+    export interface ExperimentSetupLibActivity {
+      /**
+         * The $lib value of the SDK, for example 'web'.
+         * @nullable
+         */
+      lib: string | null;
+      /** 'web', 'mobile', 'server', or 'other'.
+       *
+       * * `web` - Web
+       * * `mobile` - Mobile
+       * * `server` - Server
+       * * `other` - Other */
+      category: SdkLibCategoryEnum;
+      /** Events this SDK sent in the window, of any kind. */
+      events: number;
+      /** Distinct ids that sent those events. */
+      distinct_ids: number;
+    }
+
+    export interface ExperimentSetupSdkProfile {
+      /** Days of flag calls read, ending now. */
+      window_days: number;
+      /** The event read: '$experiment_exposure' when the project receives it, otherwise '$feature_flag_called'. Only one is read, because one copies the other, and only multivariate responses count either way. This says what the project's events carry today, so it can differ from team_defaults.default_exposure_event, which says what a new experiment would count. */
+      source_event: string;
+      /** When the numbers were computed. They are cached for hours. */
+      computed_at: string;
+      /** One row per SDK, most calls first. */
+      libs: ExperimentSetupSdkLib[];
+      /** True when more SDKs sent flag calls than libs lists. */
+      libs_truncated: boolean;
+      /** Distinct multivariate flag keys called in the window. */
+      flags_seen: number;
+      /** How many of those flag keys were called by both a server SDK and the web SDK. */
+      flags_evaluated_on_server_and_web: number;
+      /** True when at least one flag key was called by both a server SDK and the web SDK. The same flag decided on the server and read in the browser can bucket one user into two variants. */
+      evaluated_on_server_and_web: boolean;
+      /**
+         * Up to 10 SDKs seen on any event over the last day, most events first. Set only when libs is empty, so a project creating its first experiment still says which platforms it sends from. Null when flag calls exist, and null when this extra read timed out.
+         * @nullable
+         */
+      libs_on_any_event: ExperimentSetupLibActivity[] | null;
+      /** True when more SDKs sent events than libs_on_any_event lists. False when it is null. */
+      libs_on_any_event_truncated: boolean;
+    }
+
+    export interface ExperimentSetupSdkProfileSection {
+      /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+       *
+       * * `ok` - Ok
+       * * `skipped` - Skipped
+       * * `timed_out` - Timed Out
+       * * `error` - Error */
+      status: SetupContextSectionStatusEnum;
+      /** Which SDKs send multivariate flag calls, across the whole project. */
+      data: ExperimentSetupSdkProfile | null;
+    }
+
+    export interface ExperimentHealthInputsProject {
+      /** The project's experiment defaults. */
+      team_defaults: ExperimentSetupTeamDefaultsSection;
+      /** Which SDKs call feature flags and where flags are evaluated, across the whole project. Skipped for a reader who may not query events. */
+      sdk_profile: ExperimentSetupSdkProfileSection;
+    }
+
+    export interface ExperimentHealthInputs {
+      /** Whether the experiment has a start date. */
+      is_launched: boolean;
+      /** Whether the experiment is launched and not ended. */
+      is_running: boolean;
+      /** Whether the experiment has an end date. */
+      has_ended: boolean;
+      /** Whether the experiment is paused. */
+      is_paused: boolean;
+      /** Whether the experiment is archived. */
+      archived: boolean;
+      /**
+         * The baseline set in the experiment's settings. Null when unset.
+         * @nullable
+         */
+      baseline_variant_key: string | null;
+      /** The variants the analysis leaves out of the results. The forced-variant check ignores pins to them. */
+      excluded_variant_keys: string[];
+      /** Single-use primary metrics plus shared metrics linked as primary. */
+      primary_metric_count: number;
+      /** Single-use secondary metrics plus shared metrics linked as secondary. */
+      secondary_metric_count: number;
+      /** The experiment's feature flag. Null when it has none. */
+      flag: ExperimentHealthInputsFlag | null;
+      /** The changes of the flag's split since launch. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
+      split_history: ExperimentHealthInputsSplitHistory | null;
+      /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis.
+       *
+       * * `read` - Read
+       * * `not_needed` - Not Needed
+       * * `no_query_access` - No Query Access
+       * * `denied_properties` - Denied Properties
+       * * `no_flag_version` - No Flag Version
+       * * `unknown` - Unknown */
+      condition_set_traffic_status: ExperimentHealthInputsTrafficStatusEnum;
+      /** The flag's recent calls by condition set. Null unless condition_set_traffic_status is 'read'. */
+      condition_set_traffic: ExperimentHealthInputsConditionSetTraffic | null;
+      /** What the reader may read, which decides what the checks can load. */
+      reader_access: ExperimentHealthInputsReaderAccess;
+      /** The exposure query's answer that the exposure checks read, from the cache. */
+      exposures: ExperimentHealthInputsExposures;
+      /** Facts about the project that no check reads yet, from the same providers as the setup context. */
+      project: ExperimentHealthInputsProject;
+    }
+
     /**
      * How the recordings tab's in-session exposure scope reads on this experiment.
      */
@@ -45925,22 +46359,6 @@ export namespace Schemas {
       unique_persons: number | null;
     }
 
-    /**
-     * * `ok` - Ok
-     * * `skipped` - Skipped
-     * * `timed_out` - Timed Out
-     * * `error` - Error
-     */
-    export type SetupContextSectionStatusEnum = typeof SetupContextSectionStatusEnum[keyof typeof SetupContextSectionStatusEnum];
-
-
-    export const SetupContextSectionStatusEnum = {
-      Ok: 'ok',
-      Skipped: 'skipped',
-      TimedOut: 'timed_out',
-      Error: 'error',
-    } as const;
-
     export interface ExperimentSetupCandidateMetricSection {
       /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
        *
@@ -45992,160 +46410,6 @@ export namespace Schemas {
          * @maximum 25
          */
       shared_metrics_limit?: number;
-    }
-
-    export interface ExperimentSetupTeamDefaults {
-      /**
-         * Default statistical method for new experiments: 'bayesian' or 'frequentist'.
-         * @nullable
-         */
-      stats_method: string | null;
-      /**
-         * Default confidence level for new experiments, for example 0.95. Null when unset.
-         * @nullable
-         */
-      confidence_level: number | null;
-      /**
-         * The team's default minimum detectable effect, as a percentage. Null when the team has not set one; product_default_minimum_detectable_effect applies then.
-         * @nullable
-         */
-      minimum_detectable_effect: number | null;
-      /** The minimum detectable effect, as a percentage, that applies when the team has no default. */
-      product_default_minimum_detectable_effect: number;
-      /** The statistical method that applies when the team has no default. */
-      product_default_stats_method: string;
-      /** The confidence level that applies when the team has no default. Both methods use the same one. */
-      product_default_confidence_level: number;
-      /** Default for counting only users whose metric window has fully passed. */
-      only_count_matured_users: boolean;
-      /** Default for CUPED variance reduction on new experiments. */
-      cuped_enabled: boolean;
-      /** Default for sequential testing. Applies only to the frequentist method. */
-      sequential_testing_enabled: boolean;
-      /** Default for persisting flag values across authentication steps on new flags. It becomes the flag's ensure_experience_continuity. */
-      flags_persistence_default: boolean;
-      /** How many filters the team uses to identify internal and test users. */
-      test_account_filter_count: number;
-      /** A new experiment filters test accounts this way unless its own exposure criteria say otherwise. It does not follow the project's insight default. */
-      new_experiments_filter_test_accounts: boolean;
-      /** The exposure event a new experiment launched now counts by default: '$experiment_exposure' or '$feature_flag_called'. */
-      default_exposure_event: string;
-    }
-
-    export interface ExperimentSetupTeamDefaultsSection {
-      /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
-       *
-       * * `ok` - Ok
-       * * `skipped` - Skipped
-       * * `timed_out` - Timed Out
-       * * `error` - Error */
-      status: SetupContextSectionStatusEnum;
-      /** The team's experiment defaults. */
-      data: ExperimentSetupTeamDefaults | null;
-    }
-
-    /**
-     * * `web` - Web
-     * * `mobile` - Mobile
-     * * `server` - Server
-     * * `other` - Other
-     */
-    export type SdkLibCategoryEnum = typeof SdkLibCategoryEnum[keyof typeof SdkLibCategoryEnum];
-
-
-    export const SdkLibCategoryEnum = {
-      Web: 'web',
-      Mobile: 'mobile',
-      Server: 'server',
-      Other: 'other',
-    } as const;
-
-    export interface ExperimentSetupSdkLib {
-      /**
-         * The $lib value of the SDK, for example 'web'.
-         * @nullable
-         */
-      lib: string | null;
-      /** 'web' for the JavaScript web SDK, 'mobile', 'server', or 'other' for libraries not classified.
-       *
-       * * `web` - Web
-       * * `mobile` - Mobile
-       * * `server` - Server
-       * * `other` - Other */
-      category: SdkLibCategoryEnum;
-      /** Multivariate flag calls this SDK sent in the window. */
-      calls: number;
-      /** Distinct ids that sent those calls. */
-      distinct_ids: number;
-      /** Share of calls that carry a $device_id. 0 when this SDK never sends one, as server SDKs don't. */
-      device_id_share: number;
-      /**
-         * Share of calls evaluated locally in the SDK instead of by the flags service. Null when no call from this SDK reported it, as the web SDK doesn't.
-         * @nullable
-         */
-      locally_evaluated_share: number | null;
-      /**
-         * Share of distinct ids that were anonymous, among those that report whether they are identified. Null when no call from this SDK reported it.
-         * @nullable
-         */
-      anonymous_share: number | null;
-    }
-
-    export interface ExperimentSetupLibActivity {
-      /**
-         * The $lib value of the SDK, for example 'web'.
-         * @nullable
-         */
-      lib: string | null;
-      /** 'web', 'mobile', 'server', or 'other'.
-       *
-       * * `web` - Web
-       * * `mobile` - Mobile
-       * * `server` - Server
-       * * `other` - Other */
-      category: SdkLibCategoryEnum;
-      /** Events this SDK sent in the window, of any kind. */
-      events: number;
-      /** Distinct ids that sent those events. */
-      distinct_ids: number;
-    }
-
-    export interface ExperimentSetupSdkProfile {
-      /** Days of flag calls read, ending now. */
-      window_days: number;
-      /** The event read: '$experiment_exposure' when the project receives it, otherwise '$feature_flag_called'. Only one is read, because one copies the other, and only multivariate responses count either way. This says what the project's events carry today, so it can differ from team_defaults.default_exposure_event, which says what a new experiment would count. */
-      source_event: string;
-      /** When the numbers were computed. They are cached for hours. */
-      computed_at: string;
-      /** One row per SDK, most calls first. */
-      libs: ExperimentSetupSdkLib[];
-      /** True when more SDKs sent flag calls than libs lists. */
-      libs_truncated: boolean;
-      /** Distinct multivariate flag keys called in the window. */
-      flags_seen: number;
-      /** How many of those flag keys were called by both a server SDK and the web SDK. */
-      flags_evaluated_on_server_and_web: number;
-      /** True when at least one flag key was called by both a server SDK and the web SDK. The same flag decided on the server and read in the browser can bucket one user into two variants. */
-      evaluated_on_server_and_web: boolean;
-      /**
-         * Up to 10 SDKs seen on any event over the last day, most events first. Set only when libs is empty, so a project creating its first experiment still says which platforms it sends from. Null when flag calls exist, and null when this extra read timed out.
-         * @nullable
-         */
-      libs_on_any_event: ExperimentSetupLibActivity[] | null;
-      /** True when more SDKs sent events than libs_on_any_event lists. False when it is null. */
-      libs_on_any_event_truncated: boolean;
-    }
-
-    export interface ExperimentSetupSdkProfileSection {
-      /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
-       *
-       * * `ok` - Ok
-       * * `skipped` - Skipped
-       * * `timed_out` - Timed Out
-       * * `error` - Error */
-      status: SetupContextSectionStatusEnum;
-      /** Which SDKs send multivariate flag calls, across the whole project. */
-      data: ExperimentSetupSdkProfile | null;
     }
 
     export interface ExperimentSetupLibReach {
@@ -49097,6 +49361,7 @@ export namespace Schemas {
        * * `BlackboardLearn` - BlackboardLearn
        * * `Bling` - Bling
        * * `Bloomerang` - Bloomerang
+       * * `Blueshift` - Blueshift
        * * `Bluesky` - Bluesky
        * * `BolRetailer` - BolRetailer
        * * `Boulevard` - Boulevard
@@ -50519,6 +50784,7 @@ export namespace Schemas {
        * * `BlackboardLearn` - BlackboardLearn
        * * `Bling` - Bling
        * * `Bloomerang` - Bloomerang
+       * * `Blueshift` - Blueshift
        * * `Bluesky` - Bluesky
        * * `BolRetailer` - BolRetailer
        * * `Boulevard` - Boulevard
@@ -68627,26 +68893,6 @@ export namespace Schemas {
       Skipped: 'skipped',
       NotApplicable: 'not_applicable',
     } as const;
-
-    export interface OfflineExperimentItemsRequest {
-      /** `$ai_experiment_id` whose offline-evaluation items to return. */
-      experiment_id: string;
-      /**
-         * Lower bound on `timestamp` (ISO-8601). Omit to leave the lower bound open.
-         * @nullable
-         */
-      date_from?: string | null;
-      /**
-         * Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.
-         * @nullable
-         */
-      date_to?: string | null;
-    }
-
-    export interface OfflineExperimentItemsResponse {
-      /** Tuple-positional rows; positions match `RawOfflineExperimentMetricRow` in the frontend. */
-      results: unknown[][];
-    }
 
     export interface OfflineExperimentRead {
       /** Project tag names assigned to this experiment. */
@@ -104324,6 +104570,7 @@ export namespace Schemas {
        * * `BlackboardLearn` - BlackboardLearn
        * * `Bling` - Bling
        * * `Bloomerang` - Bloomerang
+       * * `Blueshift` - Blueshift
        * * `Bluesky` - Bluesky
        * * `BolRetailer` - BolRetailer
        * * `Boulevard` - Boulevard
@@ -105777,6 +106024,7 @@ export namespace Schemas {
        * * `BlackboardLearn` - BlackboardLearn
        * * `Bling` - Bling
        * * `Bloomerang` - Bloomerang
+       * * `Blueshift` - Blueshift
        * * `Bluesky` - Bluesky
        * * `BolRetailer` - BolRetailer
        * * `Boulevard` - Boulevard
@@ -107197,6 +107445,7 @@ export namespace Schemas {
        * * `BlackboardLearn` - BlackboardLearn
        * * `Bling` - Bling
        * * `Bloomerang` - Bloomerang
+       * * `Blueshift` - Blueshift
        * * `Bluesky` - Bluesky
        * * `BolRetailer` - BolRetailer
        * * `Boulevard` - Boulevard
@@ -122227,9 +122476,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    /**
+     * Only certifications with this review status.
+     */
+    status?: string;
     };
 
     export type DataCatalogMetricsListParams = {
+    /**
+     * Only metrics with this query node kind.
+     */
+    definition_kind?: string;
     /**
      * Number of results to return per page.
      */
@@ -122242,6 +122499,10 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    /**
+     * Only metrics with this review status.
+     */
+    status?: string;
     };
 
     export type DataCatalogMetricsRunCreateParams = {
@@ -122288,6 +122549,10 @@ export namespace Schemas {
      * Filter by proposed/accepted/rejected.
      */
     status?: string;
+    /**
+     * Only relationships involving this table on either side.
+     */
+    table_name?: string;
     };
 
     export type DataColorThemesListParams = {
@@ -127354,10 +127619,6 @@ export namespace Schemas {
       TogetherAi: 'together_ai',
       Zeabur: 'zeabur',
     } as const;
-
-    export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown };
 
     export type LlmAnalyticsParserRecipesListParams = {
     /**

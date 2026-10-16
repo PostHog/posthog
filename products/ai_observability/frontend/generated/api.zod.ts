@@ -2088,18 +2088,6 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         ),
 })
 
-export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PURE__ */ zod.object({
-    experiment_id: zod.string().describe('`$ai_experiment_id` whose offline-evaluation items to return.'),
-    date_from: zod
-        .string()
-        .nullish()
-        .describe('Lower bound on `timestamp` (ISO-8601). Omit to leave the lower bound open.'),
-    date_to: zod
-        .string()
-        .nullish()
-        .describe('Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.'),
-})
-
 export const llmAnalyticsParserRecipesCreateBodyNameMax = 255
 
 export const llmAnalyticsParserRecipesCreateBodySourceMax = 100000

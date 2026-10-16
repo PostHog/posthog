@@ -214,6 +214,31 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.updatingScoutIds).toEqual([])
     })
 
+    it.each([
+        [
+            'a tool list after write access',
+            { write_scopes: ['dashboard:write'] },
+            { allowed_mcp_tools: ['insight-get'] },
+        ],
+        [
+            'write access after a tool preset',
+            { tool_preset: 'read_only' as const },
+            { write_scopes: ['insight:write'] },
+        ],
+    ])('never queues write access and a tool selection into one request, for %s', async (_name, earlier, later) => {
+        // The API rejects a request that carries both, which would drop the later edit too.
+        const firstRequest = deferred<SignalScoutConfigApi>()
+        mockSignalsScoutConfigUpdate.mockReturnValueOnce(firstRequest.promise).mockResolvedValueOnce(BASE_CONFIG)
+
+        logic.actions.updateScoutConfig(BASE_CONFIG.id, { enabled: false })
+        logic.actions.updateScoutConfig(BASE_CONFIG.id, earlier)
+        logic.actions.updateScoutConfig(BASE_CONFIG.id, later)
+        firstRequest.resolve({ ...BASE_CONFIG, enabled: false })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockSignalsScoutConfigUpdate).toHaveBeenNthCalledWith(2, String(MOCK_TEAM_ID), BASE_CONFIG.id, later)
+    })
+
     it('publishes a scout against its canonical project and preserves its tags', async () => {
         const config = { ...BASE_CONFIG, scout_origin: 'custom' as const, tags: ['errors'] }
         logic.actions.loadScoutConfigsSuccess([config])

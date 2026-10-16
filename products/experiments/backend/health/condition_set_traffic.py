@@ -80,7 +80,7 @@ def load_condition_set_traffic(
     """
     if (
         not reader_access.can_query_events
-        or reader_access.denied_event_properties & _SCANNED_PROPERTIES
+        or denied_scanned_properties(reader_access)
         or not needs_condition_set_traffic(ctx)
     ):
         return None
@@ -89,6 +89,11 @@ def load_condition_set_traffic(
     except Exception as error:
         capture_exception(error)
         return None
+
+
+def denied_scanned_properties(reader_access: ExperimentHealthReaderAccess) -> frozenset[str]:
+    """The properties that the scan reads and that the reader is denied. The scan does not run when there are any."""
+    return reader_access.denied_event_properties & _SCANNED_PROPERTIES
 
 
 def query_condition_set_traffic(

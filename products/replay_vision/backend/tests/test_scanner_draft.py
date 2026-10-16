@@ -1,4 +1,5 @@
 import threading
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -31,6 +32,7 @@ from products.replay_vision.backend.scanner_draft import (
     _MAX_OUTPUT_TOKENS,
     DraftError,
     ScannerDraft,
+    UnwatchableExperimentError,
     _build_user_content,
     _build_user_content_v2,
     _business_context,
@@ -616,7 +618,6 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             "sampling_rate": None,
             "model": None,
             "credit_limit": None,
-            "experiment_targeting": None,
             "estimated_monthly_observations": None,
         }
 
@@ -1291,41 +1292,72 @@ class TestFinalizeV2Actions:
 
 class TestFinalizeV2Experiments:
     _EXPERIMENT = _MatchedExperiment(name="AI creation flow", experiment_id=11, variants=("control", "test"))
+    _OTHER = _MatchedExperiment(name="Pricing page test", experiment_id=12, variants=("control", "cheaper"))
 
-    def _finalize(self, **overrides):
+    def _finalize(self, pinned=None, **overrides):
         return _finalize_v2(
             _draft_v2(**overrides),
             allowed_pages=[],
             allowed_events=[],
             team_id=1,
-            allowed_experiments=[self._EXPERIMENT],
+            allowed_experiments=[self._EXPERIMENT, self._OTHER],
+            pinned_experiment=pinned,
         )
 
-    def test_a_grounded_experiment_becomes_targeting_on_the_named_variant(self):
-        # A page filter would scan everyone who reached the same screen, control group included, so
-        # the variant the goal is about has to come through as targeting.
-        draft = self._finalize(filter_experiment="AI creation flow", filter_experiment_variant="test")
+    @parameterized.expand(
+        [
+            ("named_variant", {"filter_experiment_variant": "test"}, ["test"]),
+            ("no_variant_watches_every_variant", {}, None),
+            # The exposure filter refuses a variant the experiment does not define, which would take the
+            # whole scan down; every variant still answers a wider version of the goal.
+            ("invented_variant_watches_every_variant", {"filter_experiment_variant": "treatment"}, None),
+        ]
+    )
+    def test_a_grounded_experiment_becomes_an_experiment_scanner(self, _name, overrides, variants):
+        # A page filter would scan everyone who reached the same screen, control group included, and
+        # only the experiment type tells the scanner what the experiment changes.
+        draft = self._finalize(filter_experiment="AI creation flow", **overrides)
 
-        assert draft.experiment_targeting == {"experiment_id": 11, "variant": "test"}
+        assert draft.scanner_type == "experiment"
+        assert draft.scanner_config == {
+            "prompt": "Did the user give up in billing? Answer yes or no with a one-sentence reason.",
+            "length": "medium",
+            "experiment_id": 11,
+            "variants": variants,
+            "balance_variants": True,
+        }
         # Exposure never rides in the query blob; the API refuses it there.
         assert draft.query is not None and "experiment_exposure" not in draft.query
 
-    def test_no_named_variant_watches_every_variant(self):
-        draft = self._finalize(filter_experiment="AI creation flow")
+    @parameterized.expand(
+        [
+            ("invented_experiment", "monitor", "Some other test", "monitor"),
+            ("experiment_type_without_an_experiment", "experiment", "", "summarizer"),
+        ]
+    )
+    def test_no_grounded_experiment_keeps_a_type_that_needs_none(self, _name, scanner_type, experiment, expected):
+        draft = self._finalize(scanner_type=scanner_type, filter_experiment=experiment)
 
-        assert draft.experiment_targeting == {"experiment_id": 11, "variant": None}
+        assert draft.scanner_type == expected
+        assert "experiment_id" not in draft.scanner_config
 
-    def test_an_invented_experiment_name_is_dropped(self):
-        draft = self._finalize(filter_experiment="Some other test", filter_experiment_variant="test")
+    @parameterized.expand(
+        [
+            ("named_none", {}, None),
+            ("named_another", {"filter_experiment": "Pricing page test"}, None),
+            (
+                "kept_its_variant",
+                {"filter_experiment": "AI creation flow", "filter_experiment_variant": "test"},
+                ["test"],
+            ),
+        ]
+    )
+    def test_a_picked_experiment_wins_over_what_the_model_named(self, _name, overrides, variants):
+        draft = self._finalize(pinned=self._EXPERIMENT, **overrides)
 
-        assert draft.experiment_targeting is None
-
-    def test_an_invented_variant_falls_back_to_every_variant(self):
-        # The exposure filter refuses a variant the experiment does not define, which would take the
-        # whole scan down; every variant still answers a wider version of the goal.
-        draft = self._finalize(filter_experiment="AI creation flow", filter_experiment_variant="treatment")
-
-        assert draft.experiment_targeting == {"experiment_id": 11, "variant": None}
+        assert draft.scanner_type == "experiment"
+        assert draft.scanner_config["experiment_id"] == 11
+        assert draft.scanner_config["variants"] == variants
 
 
 class TestFinalizeV2:
@@ -1685,7 +1717,7 @@ class TestDraftV2(_VisionAPITestCase):
 
         return estimate
 
-    def _drafted_with(self, generate, estimate):
+    def _drafted_with(self, generate, estimate, experiment_id=None):
         with (
             patch(f"{_MODULE}.fetch_visited_paths", return_value=(VisitedPath(pathname="/billing", sessions=10),)),
             # Measure every candidate live, so these tests exercise the estimate-based fallback rather
@@ -1703,6 +1735,7 @@ class TestDraftV2(_VisionAPITestCase):
                 goal="find out where people give up in billing",
                 monthly_credit_budget=10_000,
                 user_access_control=_access_control(allow=True),
+                experiment_id=experiment_id,
             )
 
     def test_an_event_filter_that_matches_nothing_falls_back_to_the_pages(self):
@@ -1907,10 +1940,15 @@ class TestDraftV2(_VisionAPITestCase):
             {"key": "$survey_id", "value": [str(survey.id)], "operator": "exact", "type": "event"}
         ]
 
-    def test_the_experiment_the_goal_named_is_carried_as_targeting_and_counted(self):
-        # The whole point of the targeting: the projection has to count that experiment's
-        # participants, not every session the pages match, while the query the wizard saves stays
-        # the exposure-free blob the API accepts.
+    @parameterized.expand(
+        [
+            ("named_in_the_goal", {"filter_experiment": "Billing upgrade prompt"}, False),
+            ("picked_by_the_user", {}, True),
+        ]
+    )
+    def test_the_watched_experiment_becomes_an_experiment_scanner_and_is_counted(self, _name, overrides, picked):
+        # The projection has to count that experiment's participants, not every session the pages
+        # match, while the query the wizard saves stays the exposure-free blob the API accepts.
         experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
         counted: list[RecordingsQuery] = []
 
@@ -1919,19 +1957,32 @@ class TestDraftV2(_VisionAPITestCase):
             return ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30)
 
         draft = self._drafted_with(
-            _draft_v2(
-                filter_pages=["/billing"],
-                filter_experiment="Billing upgrade prompt",
-                filter_experiment_variant="test",
-            ),
+            _draft_v2(filter_pages=["/billing"], filter_experiment_variant="test", **overrides),
             estimate,
+            experiment_id=experiment.id if picked else None,
         )
 
-        assert draft.experiment_targeting == {"experiment_id": experiment.id, "variant": "test"}
+        assert draft.scanner_type == "experiment"
+        assert draft.scanner_config["experiment_id"] == experiment.id
+        assert draft.scanner_config["variants"] == ["test"]
         assert draft.query is not None and "experiment_exposure" not in draft.query
         assert counted[0].experiment_exposure is not None
         assert counted[0].experiment_exposure.experiment_id == experiment.id
-        assert counted[0].experiment_exposure.variant == "test"
+        assert counted[0].experiment_exposure.variants == ["test"]
+
+    def test_a_picked_experiment_that_never_launched_is_refused_before_the_model_runs(self):
+        experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt", launched=False)
+
+        with patch(_GENERATE_PATH) as generate, pytest.raises(UnwatchableExperimentError):
+            draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal="track my experiment",
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+                experiment_id=experiment.id,
+            )
+        generate.assert_not_called()
 
     def test_solved_dials_reach_the_draft(self):
         draft = self._run(pages=("/billing",), generate=_draft_v2(filter_pages=["/billing"]))
@@ -2031,6 +2082,39 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
         assert body["model"] == "gemini-3.8-flash"
         assert body["credit_limit"] == 5000
         assert body["estimated_monthly_observations"] == 1000
+
+    @parameterized.expand([("not_in_the_project",), ("never_launched",), ("token_without_experiment_read",)])
+    def test_a_picked_experiment_a_scan_cannot_watch_is_a_400(self, case):
+        headers: dict[str, Any] = {}
+        if case == "not_in_the_project":
+            experiment_id = 999_999
+        else:
+            experiment_id = _launched_experiment(
+                self.team, self.user, "Checkout test", launched=case == "token_without_experiment_read"
+            ).id
+        if case == "token_without_experiment_read":
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="draft-scope-test",
+                user=self.user,
+                secure_value=hash_key_value(value),
+                scopes=["replay_scanner:write", "session_recording:read"],
+            )
+            headers["HTTP_AUTHORIZATION"] = f"Bearer {value}"
+        with (
+            patch(f"{_API_MODULE}._goal_flow_enabled", return_value=True),
+            patch(_GENERATE_PATH) as generate,
+        ):
+            resp = self.client.post(
+                self.draft_url,
+                data={"goal": "track my experiment", "monthly_credit_budget": 5000, "experiment_id": experiment_id},
+                format="json",
+                **headers,
+            )
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.json()
+        assert resp.json()["attr"] == "experiment_id"
+        generate.assert_not_called()
 
     def test_budget_with_the_flag_off_degrades_to_the_legacy_draft(self):
         # A client/rollout skew (page loaded before the flag flipped off) must not half-apply the
