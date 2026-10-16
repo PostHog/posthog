@@ -45,6 +45,9 @@ class SlackWebClient(WebClient):
         **kwargs: Any,
     ) -> None:
         super().__init__(token=token, **kwargs)
+        # Kept on the client so callers that need the workspace this token belongs to (e.g. to
+        # namespace a per-workspace cache) can read it back instead of re-resolving it.
+        self.workspace_id = workspace_id or None
         self.retry_handlers.insert(
             0,
             SlackObservabilityHandler(source=source, workspace_id=workspace_id, app_id=app_id),

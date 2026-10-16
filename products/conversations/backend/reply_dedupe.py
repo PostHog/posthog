@@ -19,7 +19,7 @@ replica and report a conflict for a reservation that already resolved. This clie
 import json
 import uuid
 import hashlib
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -30,11 +30,11 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.api.tagged_item import current_tag_names
 from posthog.models.comment import Comment
 from posthog.redis import get_client
 
 from products.conversations.backend.models import Channel, Ticket
+from products.conversations.backend.models.constants import WORKFLOW_DISPATCH_KEY
 
 logger = structlog.get_logger(__name__)
 
@@ -125,11 +125,12 @@ class ReplyFingerprint:
     team_id: int
     scope: str
     item_id: str
-    created_by_id: int
+    created_by_id: int | None
     source_comment_id: str | None
     content: str
     rich_content: Any
     item_context: dict[str, Any]
+    idempotency_key: str | None
 
     @classmethod
     def build(
@@ -170,12 +171,42 @@ class ReplyFingerprint:
             content=content,
             rich_content=rich_content,
             item_context=item_context,
+            idempotency_key=None,
+        )
+
+    @classmethod
+    def for_workflow(
+        cls,
+        *,
+        team_id: int,
+        item_id: str,
+        content: str,
+        item_context: dict[str, Any],
+        idempotency_key: str,
+    ) -> "ReplyFingerprint":
+        """Fingerprint a workflow step by its stable dispatch key."""
+        return cls(
+            team_id=team_id,
+            scope=SUPPORT_TICKET_SCOPE,
+            item_id=str(item_id),
+            created_by_id=None,
+            source_comment_id=None,
+            content=content,
+            rich_content=None,
+            item_context=item_context,
+            idempotency_key=idempotency_key,
         )
 
     @property
     def key(self) -> str:
-        canonical = json.dumps(
+        identity = (
             {
+                "team_id": self.team_id,
+                "scope": self.scope,
+                "idempotency_key": self.idempotency_key,
+            }
+            if self.idempotency_key is not None
+            else {
                 "team_id": self.team_id,
                 "scope": self.scope,
                 "item_id": self.item_id,
@@ -184,7 +215,10 @@ class ReplyFingerprint:
                 "content": self.content,
                 "rich_content": self.rich_content,
                 "item_context": self.item_context,
-            },
+            }
+        )
+        canonical = json.dumps(
+            identity,
             sort_keys=True,
             separators=(",", ":"),
             default=str,
@@ -196,6 +230,14 @@ class ReplyFingerprint:
         """Whether this persisted comment is the message this request asked for."""
         if comment.deleted or comment.version != 0:
             return False
+        if self.idempotency_key is not None:
+            context = comment.item_context or {}
+            return (
+                comment.team_id == self.team_id
+                and comment.scope == self.scope
+                and comment.item_id == self.item_id
+                and context.get(WORKFLOW_DISPATCH_KEY) == self.idempotency_key
+            )
         if (
             comment.team_id != self.team_id
             or comment.scope != self.scope
@@ -223,11 +265,14 @@ class ReplyFingerprint:
             scope=self.scope,
             item_id=self.item_id,
             created_by_id=self.created_by_id,
-            content=self.content,
             deleted=False,
             version=0,
-            created_at__gte=created_after,
-        ).order_by("-created_at")[:20]
+        )
+        if self.idempotency_key is not None:
+            candidates = candidates.filter(item_context__workflow_dispatch_key=self.idempotency_key)
+        else:
+            candidates = candidates.filter(content=self.content, created_at__gte=created_after)
+        candidates = candidates.order_by("-created_at")[:20]
         return next((comment for comment in candidates if self.matches(comment)), None)
 
     def load_replay_target(self, comment_id: str | None) -> Comment | None:
@@ -381,7 +426,7 @@ def _classify_held_value(key: str, held: Any, token: str) -> Reservation:
 
 # Compose opens a brand-new outbound ticket, so it hashes into its own keyspace — a compose retry
 # must never collapse onto a reply, or vice versa. Bump the version when the contents below change.
-_COMPOSE_KEY_PREFIX = "conversations:compose_dedupe:v4:"
+_COMPOSE_KEY_PREFIX = "conversations:compose_dedupe:v5:"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -391,6 +436,9 @@ class ComposeFingerprint:
     Two requests with the same fingerprint open the same outbound ticket: same team, sending
     channel, recipient, subject, first message, and resolved person link. ``build`` returns None
     for anything this guard must not collapse.
+
+    Tags are not part of the identity. The system tags a ticket after it is created (plan tier at
+    creation, then triage), so the ticket's live tags outgrow the request's and cannot identify it.
     """
 
     team_id: int
@@ -406,8 +454,6 @@ class ComposeFingerprint:
     # send identical content to the same recipient are two distinct tickets, so they must not
     # collapse — only a genuine retry from the same author does.
     creator_id: int | None
-    # Two composes that differ only by tags are distinct requests, not a replay of one another.
-    tags: frozenset[str]
 
     @classmethod
     def build(
@@ -421,7 +467,6 @@ class ComposeFingerprint:
         rich_content: Any,
         distinct_id: Any,
         creator_id: int | None,
-        tags: Iterable[str] = (),
     ) -> "ComposeFingerprint | None":
         if not email_config_id or not recipient_email or not isinstance(message, str) or not message:
             return None
@@ -434,7 +479,6 @@ class ComposeFingerprint:
             rich_content=rich_content,
             distinct_id=str(distinct_id or ""),
             creator_id=creator_id,
-            tags=frozenset(tags),
         )
 
     @property
@@ -449,7 +493,6 @@ class ComposeFingerprint:
                 "rich_content": self.rich_content,
                 "distinct_id": self.distinct_id,
                 "creator_id": self.creator_id,
-                "tags": sorted(self.tags),
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -481,9 +524,6 @@ class ComposeFingerprint:
         # The author is the opening comment's creator, so a different agent's identical compose is
         # a distinct ticket even when everything else matches.
         if first.created_by_id != self.creator_id:
-            return False
-        # A retry that adds or drops a tag must not replay a differently-tagged ticket.
-        if current_tag_names(ticket) != self.tags:
             return False
         return True
 

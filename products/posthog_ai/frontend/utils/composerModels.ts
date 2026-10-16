@@ -7,11 +7,14 @@ import {
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
     TaskRunCreateRequestSchemaApi,
+    TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import { normalizeModelId } from 'products/tasks/frontend/modelCatalog'
+import { isOfferedModel, normalizeModelId } from 'products/tasks/frontend/modelCatalog'
 import {
+    CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
     DEFAULT_MODEL_BY_RUNTIME_ADAPTER,
     MODELS,
+    REASONING_EFFORT_LABELS,
     RUNTIME_OPTIONS,
 } from 'products/tasks/frontend/modelCatalog.generated'
 
@@ -31,16 +34,15 @@ const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [
 ]
 
 export const DEFAULT_COMPOSER_MODEL = DEFAULT_MODEL_BY_RUNTIME_ADAPTER.claude
+export const PI_DEFAULT_MODEL = 'gpt-5.6-terra'
+
+/** The model a task runs on when neither the run nor the session names one. */
+export function getDefaultModelForTaskRuntime(taskRuntime: TaskRuntimeEnumApi = TaskRuntimeEnumApi.Acp): string {
+    return taskRuntime === TaskRuntimeEnumApi.Pi ? PI_DEFAULT_MODEL : DEFAULT_COMPOSER_MODEL
+}
 export const DEFAULT_COMPOSER_EFFORT: ReasoningEffortEnumApi = ReasoningEffortEnumApi.High
 
-const EFFORT_LABELS: Record<string, string> = {
-    [ReasoningEffortEnumApi.Low]: 'Low',
-    [ReasoningEffortEnumApi.Medium]: 'Medium',
-    [ReasoningEffortEnumApi.High]: 'High',
-    [ReasoningEffortEnumApi.Xhigh]: 'Extra high',
-    [ReasoningEffortEnumApi.Max]: 'Max',
-    [ReasoningEffortEnumApi.Ultracode]: 'Ultracode',
-}
+const EFFORT_LABELS: Record<string, string> = REASONING_EFFORT_LABELS
 
 // The catalogue is keyed by bare catalog ids, so a provider-qualified id is folded onto the model it names before
 // any lookup. A run stored as `anthropic/claude-opus-5` otherwise reads as an unknown model on this surface alone.
@@ -72,15 +74,41 @@ export function getRuntimeAdapterForModel(
 
 // The harnesses the catalogue actually offers, in the order the models arrive. Derived rather than enumerated, so a
 // runtime the gateway stops serving disappears from the picker on its own.
-export function listRuntimeAdapters(catalogue: ModelChoiceApi[]): RuntimeAdapterEnumApi[] {
+export function listRuntimeAdapters(
+    catalogue: ModelChoiceApi[],
+    taskRuntime: TaskRuntimeEnumApi = TaskRuntimeEnumApi.Acp
+): RuntimeAdapterEnumApi[] {
+    if (taskRuntime === TaskRuntimeEnumApi.Pi) {
+        return []
+    }
     return [...new Set(catalogue.map((option) => option.runtime_adapter))]
 }
 
 export function modelsForRuntimeAdapter(
     catalogue: ModelChoiceApi[],
-    runtimeAdapter: RuntimeAdapterEnumApi
+    runtimeAdapter: RuntimeAdapterEnumApi,
+    taskRuntime: TaskRuntimeEnumApi = TaskRuntimeEnumApi.Acp
 ): ModelChoiceApi[] {
+    if (taskRuntime === TaskRuntimeEnumApi.Pi) {
+        return catalogue
+    }
     return catalogue.filter((option) => option.runtime_adapter === runtimeAdapter)
+}
+
+// Everything still offered, plus the model this run is already on when the catalogue has since retired it — without
+// that entry the picker names the run's own model by its raw id. Call it through `useMemo`: composers re-render on
+// every keystroke.
+export function pickerModels(catalogue: ModelChoiceApi[], selectedModel: string | null | undefined): ModelChoiceApi[] {
+    const selected = catalogueEntry(catalogue, selectedModel)
+    return catalogue.filter((option) => isOfferedModel(option.model) || option.model === selected?.model)
+}
+
+// The model the ladder runs at the default effort. Landing there puts a fresh selection on a slider notch,
+// so the picker opens on Faster/Smarter; a default that sits off the ladder sends it straight to Advanced.
+function ladderDefaultModel(runtimeAdapter: RuntimeAdapterEnumApi): string | undefined {
+    return CAPABILITY_LADDER_BY_RUNTIME_ADAPTER[runtimeAdapter].find(
+        (notch) => notch.effort === DEFAULT_COMPOSER_EFFORT
+    )?.model
 }
 
 export function getDefaultModelForRuntimeAdapter(
@@ -90,11 +118,12 @@ export function getDefaultModelForRuntimeAdapter(
 ): string | null {
     const models = modelsForRuntimeAdapter(catalogue, runtimeAdapter)
     const preferredModel = configuredModel ? normalizeModelId(configuredModel) : null
+    const defaultModel = DEFAULT_MODEL_BY_RUNTIME_ADAPTER[runtimeAdapter]
+    const ladderModel = ladderDefaultModel(runtimeAdapter)
     return (
         models.find((option) => option.model === preferredModel)?.model ??
-        (runtimeAdapter === RuntimeAdapterEnumApi.Codex
-            ? models.find((option) => option.model === 'gpt-5.6-sol')?.model
-            : null) ??
+        models.find((option) => option.model === defaultModel)?.model ??
+        models.find((option) => option.model === ladderModel)?.model ??
         models[0]?.model ??
         null
     )
@@ -106,26 +135,6 @@ export interface CapabilityNotch {
     effort: ReasoningEffortEnumApi
 }
 
-// The curated Faster → Smarter progression per harness, kept in step with the desktop app's ladder in
-// `products/desktop/packages/agent/src/adapters/reasoning-effort.ts` so both surfaces offer the same rungs.
-const CAPABILITY_LADDERS: Record<RuntimeAdapterEnumApi, CapabilityNotch[]> = {
-    [RuntimeAdapterEnumApi.Claude]: [
-        { model: 'claude-sonnet-5', effort: ReasoningEffortEnumApi.Medium },
-        { model: 'claude-sonnet-5', effort: ReasoningEffortEnumApi.High },
-        { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Medium },
-        { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Xhigh },
-        { model: 'claude-fable-5-1', effort: ReasoningEffortEnumApi.Max },
-    ],
-    [RuntimeAdapterEnumApi.Codex]: [
-        { model: 'gpt-5.6-terra', effort: ReasoningEffortEnumApi.Low },
-        { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.Low },
-        { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.Medium },
-        { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.High },
-        { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.Xhigh },
-        { model: 'gpt-6-astra', effort: ReasoningEffortEnumApi.Max },
-    ],
-}
-
 /**
  * The ladder rungs the live catalogue actually serves. A notch naming a model the gateway no longer offers — or an
  * effort that model no longer accepts — drops out rather than becoming a stop that fails on send. The picker falls
@@ -135,7 +144,7 @@ export function getCapabilityLadder(
     catalogue: ModelChoiceApi[],
     runtimeAdapter: RuntimeAdapterEnumApi
 ): CapabilityNotch[] {
-    return (CAPABILITY_LADDERS[runtimeAdapter] ?? []).filter((notch) =>
+    return CAPABILITY_LADDER_BY_RUNTIME_ADAPTER[runtimeAdapter].filter((notch) =>
         catalogue.some((option) => option.model === notch.model && option.supported_efforts.includes(notch.effort))
     )
 }

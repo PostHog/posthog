@@ -25,6 +25,12 @@ import type {
     RescoreResponseApi,
     RunRequestApi,
     SaveRequestApi,
+    ScoringActivateRequestApi,
+    ScoringConfigApi,
+    ScoringConfigListResponseApi,
+    ScoringPreviewRequestApi,
+    ScoringPreviewResponseApi,
+    ScoringSaveRequestApi,
     SdkHealthReportApi,
     SdkHealthReportRetrieveParams,
 } from './api.schemas'
@@ -199,6 +205,67 @@ export const growthEnrichmentRescoreCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(rescoreRequestApi),
+    })
+}
+
+export const getGrowthEnrichmentScoringActivateCreateUrl = () => {
+    return `/api/growth_enrichment_scoring/activate/`
+}
+
+export const growthEnrichmentScoringActivateCreate = async (
+    scoringActivateRequestApi: ScoringActivateRequestApi,
+    options?: RequestInit
+): Promise<ScoringConfigApi> => {
+    return apiMutator<ScoringConfigApi>(getGrowthEnrichmentScoringActivateCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoringActivateRequestApi),
+    })
+}
+
+export const getGrowthEnrichmentScoringConfigsRetrieveUrl = () => {
+    return `/api/growth_enrichment_scoring/configs/`
+}
+
+export const growthEnrichmentScoringConfigsRetrieve = async (
+    options?: RequestInit
+): Promise<ScoringConfigListResponseApi> => {
+    return apiMutator<ScoringConfigListResponseApi>(getGrowthEnrichmentScoringConfigsRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getGrowthEnrichmentScoringPreviewCreateUrl = () => {
+    return `/api/growth_enrichment_scoring/preview/`
+}
+
+export const growthEnrichmentScoringPreviewCreate = async (
+    scoringPreviewRequestApi: ScoringPreviewRequestApi,
+    options?: RequestInit
+): Promise<ScoringPreviewResponseApi> => {
+    return apiMutator<ScoringPreviewResponseApi>(getGrowthEnrichmentScoringPreviewCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoringPreviewRequestApi),
+    })
+}
+
+export const getGrowthEnrichmentScoringSaveCreateUrl = () => {
+    return `/api/growth_enrichment_scoring/save/`
+}
+
+export const growthEnrichmentScoringSaveCreate = async (
+    scoringSaveRequestApi: ScoringSaveRequestApi,
+    options?: RequestInit
+): Promise<ScoringConfigApi> => {
+    return apiMutator<ScoringConfigApi>(getGrowthEnrichmentScoringSaveCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoringSaveRequestApi),
     })
 }
 

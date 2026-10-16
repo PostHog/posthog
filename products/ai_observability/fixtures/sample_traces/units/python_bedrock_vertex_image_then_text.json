@@ -1,0 +1,106 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Mood-board image then itinerary blurb",
+  "scenario": "A travel content pipeline first calls Vertex AI's Imagen model to generate a destination mood-board image from a scene description, then calls a Bedrock Claude model in the same session to write an itinerary blurb matching that mood.",
+  "summary": {
+    "events": {
+      "$ai_generation": 2
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "posthog-python"
+    ],
+    "providers": [
+      "bedrock",
+      "vertex_ai"
+    ],
+    "frameworks": [],
+    "models": [
+      "gemini-3.1-flash-lite-image",
+      "us.anthropic.claude-opus-4-6-v1"
+    ],
+    "content_types": []
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$os_version": "12",
+        "$geoip_disable": true,
+        "$ai_total_cost_usd": 0.03509425,
+        "$ai_latency": 6,
+        "$ai_output_cost_usd": 0.00168,
+        "$lib_version": "7.9.3",
+        "$ai_output_tokens": 1120,
+        "$python_runtime": "CPython",
+        "$ai_provider": "vertex_ai",
+        "$ai_session_id": "f332a752-5d3d-7c43-4022-5f5a1138be03",
+        "$ai_input_cost_usd": 0.00149425,
+        "$ai_input_tokens": 5977,
+        "$os": "Linux",
+        "$lib": "posthog-python",
+        "$ai_trace_id": "trace-8f2a9c3b1e7d6a5f9c3b2a",
+        "$ai_model": "gemini-3.1-flash-lite-image",
+        "$python_version": "3.12.3",
+        "$ai_input": [
+          {
+            "content": "Create a warm, editorial-style travel photo.\nScene: a narrow cobblestone street in Porto at golden hour.\nSubject: pastel townhouses with tiled facades, laundry lines overhead.\nForeground: a wrought-iron balcony with potted geraniums.\nBackground: the Douro river glinting between rooftops.\nStyle: soft film grain, warm highlights, muted teal shadows.\nAspect ratio: 4:5, portrait orientation.\nAvoid: text, watermarks, tourists' faces in focus.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "message": {
+              "content": "data:image/jpeg;base64,⟦media:python_bedrock_vertex_image_then_text__M9677604.jpg⟧",
+              "role": "assistant"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 99614,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_trace_id": "trace-8f2a9c3b1e7d6a5f9c3b2a",
+        "$ai_output_tokens": 4536,
+        "$geoip_disable": true,
+        "$os": "Linux",
+        "$ai_provider": "bedrock",
+        "$ai_total_cost_usd": 0.16515675,
+        "$ai_latency": 90,
+        "$ai_session_id": "f332a752-5d3d-7c43-4022-5f5a1138be03",
+        "$ai_input_tokens": 14679,
+        "$ai_output_cost_usd": 0.12474,
+        "$os_version": "12",
+        "$ai_input_cost_usd": 0.0807345,
+        "$lib": "posthog-python",
+        "$python_version": "3.12.3",
+        "$ai_model": "us.anthropic.claude-opus-4-6-v1",
+        "$lib_version": "7.9.3",
+        "$python_runtime": "CPython",
+        "$ai_input": [
+          {
+            "content": "We just generated a mood-board image for a 3-day Porto weekend trip (golden hour, Ribeira district, pastel townhouses).\nWrite a short itinerary blurb that matches that visual mood.\nInclude:\n- A one-line hook\n- Day 1: arrival and Ribeira waterfront\n- Day 2: Douro valley day trip\n- Day 3: pastry crawl and departure\nTone: warm, sensory, second person.\nKeep it under 200 words.",
+            "role": "user"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "message": {
+              "content": "# A Porto Weekend, Golden and Slow\n\nPicture cobblestones warmed by late sun and laundry lines strung between pastel townhouses. That is the mood we are chasing this trip.\n\n**Day 1 - Ribeira Arrival**\nSettle into the waterfront, wander the tiled alleys, and toast the sunset with a glass of vinho verde.\n\n**Day 2 - Douro Valley**\nTake a day trip upriver through terraced vineyards, then return for a riverside dinner.\n\n**Day 3 - Pastry Crawl**\nHit three bakeries before your flight, starting with a still-warm pastel de nata.",
+              "role": "assistant"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

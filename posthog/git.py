@@ -33,6 +33,16 @@ def get_git_commit_short() -> Optional[str]:
 
 
 @cache
+def get_git_commit_full() -> Optional[str]:
+    if _git_commit_baked_in:
+        return _git_commit_baked_in
+    try:
+        return subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("utf-8").strip()
+    except Exception:
+        return None
+
+
+@cache
 def get_git_branch() -> Optional[str]:
     """Returns the symbolic name of the current active branch. Will return None in case of failure.
 
@@ -60,7 +70,7 @@ _REPO_TOKEN = re.compile(r"[\w.-]+/[\w.-]+")
 _CANDIDATE_SEPARATOR = re.compile(r"[\s|()\[\]<>]+")
 
 
-def _repo_from_github_url(token: str) -> str | None:
+def repo_from_github_url(token: str) -> str | None:
     """`owner/repo` from a GitHub URL token, or None if it isn't one."""
     candidate = token.replace("git@github.com:", "https://github.com/", 1)
     if "//" not in candidate:
@@ -120,7 +130,7 @@ def extract_linked_repo(text: str, all_repos: list[str]) -> str | None:
     linked = {
         match
         for candidate in _candidates(text)
-        if (from_url := _repo_from_github_url(candidate)) and (match := normalized_repos.get(from_url.lower()))
+        if (from_url := repo_from_github_url(candidate)) and (match := normalized_repos.get(from_url.lower()))
     }
     return next(iter(linked)) if len(linked) == 1 else None
 

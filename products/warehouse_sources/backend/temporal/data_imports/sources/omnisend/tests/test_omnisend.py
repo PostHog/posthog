@@ -1,291 +1,254 @@
-import json
 from typing import Any
 
 import pytest
-from unittest import mock
 
-from requests import Response
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.omnisend import (
+    OmnisendSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.omnisend import (
+    OMNISEND_API_BASE_URL,
     OMNISEND_BASE_URL,
+    UNSUPPORTED_ENDPOINT_ERROR,
     OmnisendResumeConfig,
-    omnisend_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.settings import OMNISEND_ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the omnisend module.
-OMNISEND_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.omnisend.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.settings import (
+    OMNISEND_2026_03_15,
+    OMNISEND_ENDPOINTS,
+    OMNISEND_V3,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.source import OmnisendSource
 
 
-def _response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.url = f"{OMNISEND_BASE_URL}/contacts"
-    resp.reason = "OK" if status_code == 200 else "Client Error"
-    resp.headers["Content-Type"] = "application/json"
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(OmnisendSource(), OmnisendSourceConfig(api_key="test-key"))
 
 
-def _page(items: list[dict[str, Any]], next_url: str | None = None, key: str = "contacts") -> Response:
-    return _response({key: items, "paging": {"next": next_url}})
+def _page(items: list[dict[str, Any]], next_url: str | None = None, key: str = "contacts") -> ScriptedResponse:
+    return ScriptedResponse(json={key: items, "paging": {"next": next_url}})
 
 
 def _next_url(offset: int) -> str:
     return f"{OMNISEND_BASE_URL}/contacts?limit=250&offset={offset}"
 
 
-def _make_manager(resume_state: OmnisendResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session; return a list capturing each request's url/params/auth AT SEND TIME.
-
-    ``request.url``/``request.params`` are mutated in place across pages (the next-URL paginator
-    rewrites them), so snapshot a copy when each request is prepared instead of after the run.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {}), "auth": request.auth})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _cursor_page(
+    items: list[dict[str, Any]], after: str | None, has_more: bool, key: str = "contacts"
+) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={key: items, "paging": {"limit": 250, "hasMore": has_more, "cursors": {"after": after}}}
+    )
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_paging_next_until_exhausted(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
-            [
-                _page([{"contactID": "1"}], next_url=_next_url(250)),
-                _page([{"contactID": "2"}], next_url=None),
-            ],
+    def test_follows_paging_next_until_exhausted(self) -> None:
+        result = _driver().run(
+            "contacts",
+            [_page([{"contactID": "1"}], next_url=_next_url(250)), _page([{"contactID": "2"}])],
+            api_version=OMNISEND_V3,
         )
-
-        manager = _make_manager()
-        rows = _rows(omnisend_source("test-key", "contacts", team_id=1, job_id="j", resumable_source_manager=manager))
 
         # First request hits the limit-seeded base path; second follows paging.next verbatim.
-        assert snaps[0]["params"]["limit"] == 250
-        assert "offset" not in snaps[0]["params"]
-        assert snaps[0]["url"] == f"{OMNISEND_BASE_URL}/contacts"
-        assert snaps[1]["url"] == _next_url(250)
-        assert snaps[1]["params"] == {}
-        assert rows == [{"contactID": "1"}, {"contactID": "2"}]
+        assert result.requests[0].param("limit") == "250"
+        assert result.requests[0].param("offset") is None
+        assert result.urls == [f"{OMNISEND_BASE_URL}/contacts?limit=250", _next_url(250)]
+        assert result.rows == [{"contactID": "1"}, {"contactID": "2"}]
+        assert result.raised is None
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_each_non_terminal_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page([{"contactID": "1"}], next_url=_next_url(250)),
-                _page([{"contactID": "2"}], next_url=None),
-            ],
+    def test_missing_paging_block_terminates(self) -> None:
+        result = _driver().run(
+            "contacts", [ScriptedResponse(json={"contacts": [{"contactID": "1"}]})], api_version=OMNISEND_V3
         )
 
-        manager = _make_manager()
-        _rows(omnisend_source("test-key", "contacts", team_id=1, job_id="j", resumable_source_manager=manager))
+        assert len(result.requests) == 1
+        assert result.rows == [{"contactID": "1"}]
+        assert result.saved_states == []
+        assert result.raised is None
 
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [OmnisendResumeConfig(next_url=_next_url(250))]
+    @pytest.mark.parametrize("endpoint", ["contacts", "campaigns"])
+    def test_2026_follows_after_cursor_and_saves_it(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _cursor_page([{"id": "1"}], after="c1", has_more=True, key=endpoint),
+                _cursor_page([{"id": "2"}], after=None, has_more=False, key=endpoint),
+            ],
+            api_version=OMNISEND_2026_03_15,
+        )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_terminal_page_does_not_save_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([{"contactID": "1"}], next_url=None)])
+        assert result.requests[0].path == f"/api/{endpoint}"
+        assert result.requests[0].param("after") is None
+        assert result.requests[1].param("after") == "c1"
+        assert result.rows == [{"id": "1"}, {"id": "2"}]
+        assert result.saved_states == [OmnisendResumeConfig(cursor="c1")]
+        assert result.raised is None
 
-        manager = _make_manager()
-        _rows(omnisend_source("test-key", "contacts", team_id=1, job_id="j", resumable_source_manager=manager))
+    def test_2026_stops_when_has_more_is_false_even_with_a_cursor(self) -> None:
+        result = _driver().run(
+            "contacts", [_cursor_page([{"id": "1"}], after="c1", has_more=False)], api_version=OMNISEND_2026_03_15
+        )
 
-        manager.save_state.assert_not_called()
+        assert len(result.requests) == 1
+        assert result.rows == [{"id": "1"}]
+        assert result.raised is None
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_paging_block_terminates(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"contacts": [{"contactID": "1"}]})])
+    def test_2026_products_follow_paging_next_on_the_api_base(self) -> None:
+        next_url = f"{OMNISEND_API_BASE_URL}/products?limit=250&offset=250"
+        result = _driver().run(
+            "products",
+            [_page([{"id": "p1"}], next_url=next_url, key="products"), _page([{"id": "p2"}], key="products")],
+            api_version=OMNISEND_2026_03_15,
+        )
 
-        manager = _make_manager()
-        rows = _rows(omnisend_source("test-key", "contacts", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert session.send.call_count == 1
-        assert rows == [{"contactID": "1"}]
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_campaigns_rows_read_from_singular_key(self, MockSession) -> None:
-        # Omnisend's `/campaigns` nests rows under the singular `campaign`, unlike every other
-        # endpoint's plural key. Extraction must follow that, or the sync fails loud on 0 rows.
-        session = MockSession.return_value
-        _wire(session, [_page([{"campaignID": "c1"}], next_url=None, key="campaign")])
-
-        manager = _make_manager()
-        rows = _rows(omnisend_source("test-key", "campaigns", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == [{"campaignID": "c1"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([], next_url=None)])
-
-        manager = _make_manager()
-        rows = _rows(omnisend_source("test-key", "contacts", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == []
+        assert result.urls == [f"{OMNISEND_API_BASE_URL}/products?limit=250", next_url]
+        assert result.rows == [{"id": "p1"}, {"id": "p2"}]
+        assert result.raised is None
 
 
 class TestResume:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_seeds_starting_url(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_page([{"contactID": "6"}], next_url=None)])
+    def test_resume_seeds_starting_url(self) -> None:
+        result = _driver().run(
+            "contacts",
+            [_page([{"contactID": "6"}])],
+            resume_state=OmnisendResumeConfig(next_url=_next_url(500)),
+            api_version=OMNISEND_V3,
+        )
 
-        manager = _make_manager(OmnisendResumeConfig(next_url=_next_url(500)))
-        _rows(omnisend_source("test-key", "contacts", team_id=1, job_id="j", resumable_source_manager=manager))
+        assert result.urls == [_next_url(500)]
+        assert result.raised is None
 
-        assert snaps[0]["url"] == _next_url(500)
-        manager.load_state.assert_called_once()
+    def test_resume_seeds_cursor_on_2026(self) -> None:
+        result = _driver().run(
+            "contacts",
+            [_cursor_page([{"id": "6"}], after=None, has_more=False)],
+            resume_state=OmnisendResumeConfig(cursor="c5"),
+            api_version=OMNISEND_2026_03_15,
+        )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_does_not_load_state_when_cannot_resume(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([{"contactID": "1"}], next_url=None)])
+        assert result.requests[0].param("after") == "c5"
+        assert result.raised is None
 
-        manager = _make_manager()
-        _rows(omnisend_source("test-key", "contacts", team_id=1, job_id="j", resumable_source_manager=manager))
+    def test_v3_next_url_is_not_followed_under_2026(self) -> None:
+        result = _driver().run(
+            "products",
+            [_page([{"id": "p1"}], key="products")],
+            resume_state=OmnisendResumeConfig(next_url=f"{OMNISEND_BASE_URL}/products?limit=250&offset=500"),
+            api_version=OMNISEND_2026_03_15,
+        )
 
-        manager.load_state.assert_not_called()
+        assert result.requests[0].path == "/api/products"
+        assert result.requests[0].param("offset") is None
+        assert result.raised is None
+
+    def test_does_not_load_state_when_cannot_resume(self) -> None:
+        result = _driver().run("contacts", [_page([{"contactID": "1"}])], api_version=OMNISEND_V3)
+
+        assert result.requests[0].path == "/v3/contacts"
+        assert result.requests[0].param("offset") is None
+        assert result.raised is None
 
 
 class TestErrors:
     @pytest.mark.parametrize("status_code", [401, 403, 422])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_retryable_status_raises(self, MockSession, status_code: int) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "Forbidden"}, status_code=status_code)])
-
-        manager = _make_manager()
-        with pytest.raises(HTTPError):
-            _rows(omnisend_source("test-key", "contacts", team_id=1, job_id="j", resumable_source_manager=manager))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_envelope_key_raises(self, MockSession) -> None:
-        session = MockSession.return_value
-        # 200 OK with an unexpected body shape must fail loudly, not sync zero rows.
-        _wire(session, [_response({"unexpected": [], "paging": {"next": None}})])
-
-        manager = _make_manager()
-        with pytest.raises(ValueError, match="matched nothing"):
-            _rows(omnisend_source("test-key", "contacts", team_id=1, job_id="j", resumable_source_manager=manager))
-
-    @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_on_429_then_succeeds(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"error": "rate limited"}, status_code=429),
-                _page([{"contactID": "1"}], next_url=None),
-            ],
+    def test_non_retryable_status_raises(self, status_code: int) -> None:
+        result = _driver().run(
+            "contacts", [ScriptedResponse(status=status_code, json={"error": "Forbidden"})], api_version=OMNISEND_V3
         )
 
-        manager = _make_manager()
-        rows = _rows(omnisend_source("test-key", "contacts", team_id=1, job_id="j", resumable_source_manager=manager))
+        assert isinstance(result.raised, HTTPError)
 
-        assert session.send.call_count == 2
-        assert rows == [{"contactID": "1"}]
+    def test_off_host_paging_next_is_not_followed(self) -> None:
+        result = _driver().run(
+            "contacts",
+            [_page([{"contactID": "1"}], next_url="https://attacker.example.com/contacts?offset=250")],
+            api_version=OMNISEND_V3,
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert "disallowed host" in str(result.raised)
+        assert len(result.requests) == 1
+
+    def test_missing_envelope_key_raises(self) -> None:
+        # 200 OK with an unexpected body shape must fail loudly, not sync zero rows.
+        result = _driver().run(
+            "contacts", [ScriptedResponse(json={"unexpected": [], "paging": {"next": None}})], api_version=OMNISEND_V3
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert "matched nothing" in str(result.raised)
 
 
 class TestAuthAndRedaction:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_api_key_is_redacted_and_sent_as_header_auth(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_page([{"contactID": "1"}], next_url=None)])
+    @pytest.mark.parametrize(
+        ("api_version", "base_url", "auth_header", "auth_value", "version_header"),
+        [
+            (OMNISEND_V3, OMNISEND_BASE_URL, "X-API-KEY", "test-key", None),
+            (OMNISEND_2026_03_15, OMNISEND_API_BASE_URL, "Authorization", "Omnisend-API-Key test-key", "2026-03-15"),
+        ],
+    )
+    def test_api_key_is_redacted_and_sent_as_header_auth(
+        self, api_version: str, base_url: str, auth_header: str, auth_value: str, version_header: str | None
+    ) -> None:
+        result = _driver().run("contacts", [_page([{"id": "1"}])], api_version=api_version)
 
-        manager = _make_manager()
-        _rows(omnisend_source("test-key", "contacts", team_id=1, job_id="j", resumable_source_manager=manager))
+        # The client's session is built with the sent credential in redact_values so it's masked in
+        # logs and raised errors.
+        assert any(auth_value in options.get("redact_values", ()) for options in result.session_options)
 
-        # The client's session is built with the api_key in redact_values so it's masked in logs
-        # and raised errors.
-        assert "test-key" in MockSession.call_args.kwargs["redact_values"]
-
-        # The key rides in the X-API-KEY header via framework api_key auth (not a hand-built header).
-        auth = snaps[0]["auth"]
-        assert auth.name == "X-API-KEY"
-        assert auth.location == "header"
-        assert auth.api_key == "test-key"
+        # The key rides in the version-specific header.
+        request = result.requests[0]
+        assert request.headers[auth_header.lower()] == auth_value
+        assert request.path == f"/{'v3' if api_version == OMNISEND_V3 else 'api'}/contacts"
+        assert request.url.startswith(f"{base_url}/contacts")
+        assert request.headers.get("omnisend-version") == version_header
+        assert result.raised is None
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        ("status_code", "expected_ok"),
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    @mock.patch(OMNISEND_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code: int, expected_ok: bool) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        ok, code = validate_credentials("test-key")
-        assert ok is expected_ok
-        assert code == status_code
+    def test_network_error(self) -> None:
+        with scripted_network([ConnectionError("network down")]):
+            ok, code = validate_credentials("test-key", OMNISEND_V3)
 
-    @mock.patch(OMNISEND_SESSION_PATCH)
-    def test_network_error(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("network down")
-        ok, code = validate_credentials("test-key")
         assert ok is False
         assert code is None
 
-
-class TestSourceResponse:
     @pytest.mark.parametrize(
-        ("endpoint", "primary_key", "expects_partition"),
+        ("api_version", "expected_url", "expected_headers"),
         [
-            ("contacts", "contactID", True),
-            ("campaigns", "campaignID", True),
-            ("carts", "cartID", True),
-            ("orders", "orderID", True),
-            ("products", "productID", True),
-            ("categories", "categoryID", False),
+            (OMNISEND_V3, f"{OMNISEND_BASE_URL}/contacts?limit=1", {"X-API-KEY": "test-key"}),
+            (
+                OMNISEND_2026_03_15,
+                f"{OMNISEND_API_BASE_URL}/contacts?limit=1",
+                {"Authorization": "Omnisend-API-Key test-key", "Omnisend-Version": "2026-03-15"},
+            ),
         ],
     )
-    def test_source_response_shape(self, endpoint: str, primary_key: str, expects_partition: bool) -> None:
-        response = omnisend_source(
-            "test-key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
-        )
+    def test_probe_uses_the_versioned_wire(
+        self, api_version: str, expected_url: str, expected_headers: dict[str, str]
+    ) -> None:
+        with scripted_network([ScriptedResponse(json={"contacts": []})]) as network:
+            validate_credentials("test-key", api_version)
 
-        assert response.name == endpoint
-        assert response.primary_keys == [primary_key]
-        assert response.sort_mode == "asc"
+        request = network.requests_log[0]
+        assert request.url == expected_url
+        for name, value in expected_headers.items():
+            assert request.headers[name.lower()] == value
 
-        if expects_partition:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == ["createdAt"]
-            assert response.partition_format == "month"
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
+
+class TestSourceResponse:
+    @pytest.mark.parametrize("endpoint", ["carts", "orders"])
+    def test_endpoints_without_a_2026_list_endpoint_raise(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [], api_version=OMNISEND_2026_03_15)
+
+        assert isinstance(result.raised, ValueError)
+        assert UNSUPPORTED_ENDPOINT_ERROR in str(result.raised)
 
     def test_every_endpoint_partition_key_is_stable(self) -> None:
         # Partition keys must be creation-time fields, never mutable ones.

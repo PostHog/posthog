@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -17,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.decagon import (
     CONTRACT_MISMATCH_ERROR,
+    UNREADABLE_ENVELOPE_ERROR,
     DecagonResumeConfig,
     decagon_source,
     validate_credentials as validate_decagon_credentials,
@@ -30,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DecagonSource(ResumableSource[DecagonSourceConfig, DecagonResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.decagon.ai/api-reference/getting-started"
 
@@ -106,6 +110,15 @@ You can find your API key on the **Developer** page of the [Decagon dashboard](h
                 "Decagon reports rows for this table, but PostHog could not read any of them. This "
                 "is not a problem with your API key. Contact support so we can update the sync to "
                 "match what Decagon now sends."
+            ),
+            # Same cause as above, caught one step earlier: the response holds lists, but none of
+            # them is the row list this table is configured to read. Most endpoints report no total
+            # for the guard above to read, so this failure is what stops an empty full refresh from
+            # replacing the table.
+            UNREADABLE_ENVELOPE_ERROR: (
+                "PostHog could not find this table's rows in Decagon's response. This is not a "
+                "problem with your API key. Contact support so we can update the sync to match "
+                "what Decagon now sends."
             ),
         }
 

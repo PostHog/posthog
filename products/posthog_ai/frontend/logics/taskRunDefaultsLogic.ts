@@ -17,6 +17,7 @@ export interface taskRunDefaultsLogicValues {
     defaultEffort: string | null
     defaultModel: string | null
     defaultRuntimeAdapter: string | null
+    defaultsResolved: boolean
     myConfig: TasksUserConfigResponseApi | null
     myConfigLoading: boolean
     resolvedDefaults: TasksResolvedAIRunDefaultsApi | null
@@ -49,6 +50,7 @@ export interface taskRunDefaultsLogicMeta {
         defaultModel: (acpDefaults: TasksResolvedAIRunDefaultsApi | null) => string | null
         defaultEffort: (acpDefaults: TasksResolvedAIRunDefaultsApi | null) => string | null
         defaultRuntimeAdapter: (acpDefaults: TasksResolvedAIRunDefaultsApi | null) => string | null
+        defaultsResolved: (myConfig: TasksUserConfigResponseApi | null) => boolean
     }
 }
 
@@ -118,6 +120,12 @@ export const taskRunDefaultsLogic = kea<taskRunDefaultsLogicType>([
         defaultRuntimeAdapter: [
             (s) => [s.acpDefaults],
             (defaults: TasksResolvedAIRunDefaultsApi | null): string | null => defaults?.runtime_adapter ?? null,
+        ],
+        // The defaults are null both before the config lands and when nothing is stored. A caller that
+        // would override a stored default by acting on its absence has to tell the two apart.
+        defaultsResolved: [
+            (s) => [s.myConfig],
+            (myConfig: TasksUserConfigResponseApi | null): boolean => myConfig !== null,
         ],
     }),
 

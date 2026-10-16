@@ -21,10 +21,12 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership
+from posthog.models import OrganizationMembership, PropertyDefinition
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.ai_observability.backend.summarization.llm.schema import (
     InterestingNote,
     SummarizationResponse,
@@ -1980,15 +1982,49 @@ class TestReadDataTool(BaseTest):
         mock_summarize.assert_not_called()
         assert artifact is None
 
+    @parameterized.expand([("unrestricted", False), ("restricted", True)])
     @patch("ee.hogai.tools.read_data.tool.django_cache")
     @patch("ee.hogai.tools.read_data.tool.summarize")
     @patch("ee.hogai.tools.read_data.tool.format_trace_text_repr", return_value=("x" * 6000, False))
     @patch("ee.hogai.tools.read_data.tool.llm_trace_to_formatter_format", return_value=({}, []))
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
     async def test_read_llm_trace_calls_summarize_on_cache_miss(
-        self, mock_execute, mock_to_formatter, mock_format_repr, mock_summarize, mock_cache
-    ):
-        mock_cache.get.return_value = None
+        self,
+        _name: str,
+        restricted: bool,
+        mock_execute: AsyncMock,
+        mock_to_formatter: MagicMock,
+        mock_format_repr: MagicMock,
+        mock_summarize: MagicMock,
+        mock_cache: MagicMock,
+    ) -> None:
+        if restricted:
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            ]
+            await self.organization.asave()
+            self.team.organization = self.organization
+            property_definition = await PropertyDefinition.objects.acreate(
+                team=self.team, name="$ai_input", type=PropertyDefinition.Type.EVENT
+            )
+            await PropertyAccessControl.objects.acreate(
+                team=self.team,
+                property_definition=property_definition,
+                organization_member=await OrganizationMembership.objects.aget(
+                    organization=self.organization, user=self.user
+                ),
+                access_level=PropertyAccessLevel.NONE.value,
+            )
+
+        unrestricted_key = f"llm_summary:{self.team.id}:trace:trace-1:minimal:default"
+        unrestricted_summary = _make_summary().model_copy(update={"title": "Unrestricted input summary"})
+        cache_entries = (
+            {unrestricted_key: {"summary": unrestricted_summary.model_dump(), "text_repr": "unrestricted input"}}
+            if restricted
+            else {}
+        )
+        mock_cache.get.side_effect = cache_entries.get
+        mock_cache.set.side_effect = lambda key, value, timeout: cache_entries.update({key: value})
         summary = _make_summary()
         mock_summarize.return_value = summary
         mock_execute.return_value = {"results": [_make_trace_data()]}
@@ -2004,12 +2040,20 @@ class TestReadDataTool(BaseTest):
         result, _ = await tool._arun_impl({"kind": "llm_trace", "trace_id": "trace-1"})
 
         assert "Test Summary Title" in result
+        assert "Unrestricted input summary" not in result
         mock_summarize.assert_called_once()
         mock_cache.set.assert_called_once()
         cache_key, cache_value, timeout = mock_cache.set.call_args[0]
-        assert cache_key == f"llm_summary:{self.team.id}:trace:trace-1:minimal:default"
+        assert (cache_key != unrestricted_key) is restricted
         assert cache_value["summary"] == summary.model_dump()
         assert timeout == 3600
+
+        cached_result, _ = await tool._arun_impl({"kind": "llm_trace", "trace_id": "trace-1"})
+
+        assert cached_result == result
+        mock_summarize.assert_called_once()
+        if restricted:
+            assert cache_entries[unrestricted_key]["summary"] == unrestricted_summary.model_dump()
 
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
     async def test_read_llm_trace_not_found(self, mock_execute):

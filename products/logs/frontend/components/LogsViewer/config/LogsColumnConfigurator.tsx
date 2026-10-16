@@ -42,6 +42,7 @@ function taxonomicSelectionToColumn(group: TaxonomicFilterGroup, value: string):
         return { type: 'custom', expression: value }
     }
     const prefix = TAXONOMIC_GROUP_TO_PREFIX[group.type]
+    // customColumnFilterType matches this exact `<prefix>.<key>` form, so a change here needs a change there
     return prefix ? { type: 'custom', name: value, expression: `${prefix}.${value}` } : null
 }
 

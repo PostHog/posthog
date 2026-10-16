@@ -6,7 +6,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest import mock
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -42,12 +42,11 @@ from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTab
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import can_use_lazy_precompute
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     _VOLUME_FLOOR_LOCAL_CACHE,
-    CHANNEL_MAX_WINDOW_DAYS,
+    LAZY_MAX_WINDOW_DAYS,
     OOM_PIN_TTL_SECONDS,
     REVALIDATION_START_DELAY_SECONDS,
     REVALIDATION_TRIGGER,
     SESSION_SETTLING_SECONDS,
-    STALE_WHILE_REVALIDATE_SECONDS,
     STICKY_WARM_SHAPES_KEY,
     TEAM_SHAPE_SET_TTL_SECONDS,
     VOLUME_FLOOR_READY_KEY,
@@ -60,7 +59,6 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     _oom_pin_key,
     _sticky_team_count_key,
     _team_shape_set_key,
-    channel_ttl_schedule,
     check_common_eligibility,
     compute_filters_eligibility_hash,
     compute_shape_cap_key,
@@ -71,6 +69,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     is_team_above_volume_floor,
     is_team_oom_pinned,
     lazy_precompute_ineligible_reason,
+    lazy_ttl_schedule,
     log_eligibility_outcome,
     pin_team_oom,
     publish_volume_floor_teams,
@@ -143,13 +142,15 @@ class TestChannelModifiersShapeKey(BaseTest):
         assert override_key != default_key
 
 
-class TestChannelTtlSchedule(BaseTest):
+class TestLazyTtlSchedule(BaseTest):
     def test_schedule_caps_job_width_and_holds_old_days(self) -> None:
-        # Without max_window_days, `split_ranges_by_ttl` merges a year-long span's
-        # 90-day-band tail into ONE insert; without the long default hold, annual
-        # shapes re-scan a year of events every three weeks.
-        schedule = channel_ttl_schedule(self.team)
-        assert schedule.max_window_days == CHANNEL_MAX_WINDOW_DAYS
+        # Every family reaches MAX_PRECOMPUTE_DAYS, so both guards must hold for
+        # every family. Without max_window_days, `split_ranges_by_ttl` merges a
+        # year-long span's default-band tail into ONE insert; without the long
+        # default hold, annual shapes re-scan a year of events every time the
+        # band expires.
+        schedule = lazy_ttl_schedule(self.team)
+        assert schedule.max_window_days == LAZY_MAX_WINDOW_DAYS
         assert schedule.default_ttl_seconds == 90 * 24 * 60 * 60
 
 
@@ -375,7 +376,15 @@ class TestCacheKeyVariesWithRolloutState(BaseTest):
             team=self.team,
             query=WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]),
         )
-        return runner.get_cache_key()
+        identity = runner.get_query_identity()
+        return f"{runner.get_cache_key()} {identity.query_hash} {identity.runtime_hash}"
+
+    def _assert_only_the_runtime_changed(self, before: str, after: str) -> None:
+        key_before, query_hash_before, runtime_hash_before = before.split(" ")
+        key_after, query_hash_after, runtime_hash_after = after.split(" ")
+        assert key_before != key_after
+        assert query_hash_before == query_hash_after
+        assert runtime_hash_before != runtime_hash_after
 
     def test_flipping_enrollment_changes_cache_key(self) -> None:
         # With default-on reads, disabling the rollout flag (the kill switch)
@@ -385,7 +394,7 @@ class TestCacheKeyVariesWithRolloutState(BaseTest):
             key_enabled = self._cache_key()
         with mock.patch(f"{self._RUNNER_MOD}.is_precompute_enabled_for_team", return_value=False):
             key_disabled = self._cache_key()
-        assert key_enabled != key_disabled
+        self._assert_only_the_runtime_changed(key_enabled, key_disabled)
 
     def test_crossing_the_volume_floor_changes_cache_key(self) -> None:
         # A team crossing below the floor switches to the live path; the key must
@@ -395,7 +404,7 @@ class TestCacheKeyVariesWithRolloutState(BaseTest):
                 key_above = self._cache_key()
             with mock.patch(f"{self._RUNNER_MOD}.is_team_above_volume_floor", return_value=False):
                 key_below = self._cache_key()
-        assert key_above != key_below
+        self._assert_only_the_runtime_changed(key_above, key_below)
 
 
 class TestHostFilterExpr(BaseTest):
@@ -445,7 +454,7 @@ def _stats(
     )
 
 
-class TestComputeFiltersEligibilityHash(BaseTest):
+class TestComputeFiltersEligibilityHash(SimpleTestCase):
     def test_stable_across_calls_with_identical_query(self) -> None:
         q = _overview()
         assert compute_filters_eligibility_hash(q, "UTC") == compute_filters_eligibility_hash(q, "UTC")
@@ -524,7 +533,7 @@ class TestComputeFiltersEligibilityHash(BaseTest):
         int(h, 16)
 
 
-class TestComputeShapeCapKey(BaseTest):
+class TestComputeShapeCapKey(SimpleTestCase):
     def test_date_range_variants_share_one_slot(self) -> None:
         # Buckets are reused across requested ranges (the namespace sentinelizes time
         # windows), so date-range variants of one shape must map to one cap key —
@@ -793,14 +802,16 @@ class TestWebEnsurePrecomputed(BaseTest):
     def test_stale_while_revalidate_grace_by_trigger(self, _name, tags, mock_ensure):
         mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
         reset_query_tags()
-        if tags is not None:
-            with tags_context(**tags):
+        # Sentinel override proves the grace flows from the setting, not a hardcoded value.
+        with override_settings(WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS=1234):
+            if tags is not None:
+                with tags_context(**tags):
+                    web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+            else:
                 web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
-        else:
-            web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         grace = mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"]
         if tags is None:
-            assert grace == STALE_WHILE_REVALIDATE_SECONDS
+            assert grace == 1234
         else:
             assert grace is None, f"background context {tags} must not be served stale"
 
@@ -813,15 +824,16 @@ class TestWebEnsurePrecomputed(BaseTest):
             ("force_async", ExecutionMode.CALCULATE_ASYNC_ALWAYS.value, None),
             # A normal (non-forced) read must keep the grace, or every read pays a
             # synchronous recompute and the serve-stale optimization is lost.
-            ("blocking", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE.value, STALE_WHILE_REVALIDATE_SECONDS),
+            ("blocking", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE.value, 1234),
         ]
     )
     @mock.patch(f"{_COMMON}.ensure_precomputed")
     def test_forced_refresh_bypasses_stale_grace(self, _name, execution_mode, expected_grace, mock_ensure):
         mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
         reset_query_tags()
-        with tags_context(execution_mode=execution_mode):
-            web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        with override_settings(WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS=1234):
+            with tags_context(execution_mode=execution_mode):
+                web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         assert mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"] == expected_grace
 
     @parameterized.expand(

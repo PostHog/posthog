@@ -187,6 +187,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         return values.verificationResult
                     }
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersVerifyEmailCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         const response = await api.create<PostVerifyResponse>(`api/users/verify_email/`, {
                             uuid,
                             code,
@@ -208,6 +209,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
             {
                 requestVerificationCode: async ({ uuid }: { uuid: string }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersRequestEmailVerificationCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         await api.create(`api/users/request_email_verification/`, { uuid })
                         lemonToast.success('We sent a new code to your email address. Please check your inbox.')
                         // A resend invalidates the previous code, so drop it and its error (the

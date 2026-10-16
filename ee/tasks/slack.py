@@ -51,9 +51,9 @@ def _handle_slack_event(event_payload: Any) -> None:
 
             # First we try and get the sharingconfig for the given link
             try:
-                sharing_config: SharingConfiguration = SharingConfiguration.objects.get(
-                    access_token=share_token, enabled=True
-                )
+                sharing_config: SharingConfiguration = SharingConfiguration.objects.filter(
+                    SharingConfiguration.without_retired_resources_q()
+                ).get(access_token=share_token, enabled=True)
             except SharingConfiguration.DoesNotExist:
                 logger.info("No SharingConfiguration found")
                 continue

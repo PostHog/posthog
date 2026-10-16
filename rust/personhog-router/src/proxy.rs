@@ -29,6 +29,7 @@ const IDENTITY_PREFIX: &str = "/personhog.identity.v1.PersonHogIdentity/";
 const LIFECYCLE_PREFIX: &str = "/personhog.lifecycle.v1.PersonHogLifecycle/";
 
 pub const KNOWN_METHODS: &[&str] = &[
+    "AckPersonTombstones",
     "CheckCohortMembership",
     "CountCohortMembers",
     "CountGroupTypeMappings",
@@ -42,6 +43,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "DeletePersons",
     "DeletePersonsBatchForTeam",
     "DeleteTombstonedPersons",
+    "EnsurePersonVersionFloors",
     "FencePerson",
     "FencePersons",
     "FoldPersonDocument",
@@ -59,6 +61,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "GetPerson",
     "GetPersonByDistinctId",
     "GetPersonByUuid",
+    "GetPersonTombstones",
     "GetPersons",
     "GetPersonsByDistinctIds",
     "GetPersonsByDistinctIdsInTeam",
@@ -66,6 +69,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "InsertCohortMembers",
     "ListCohortMemberIds",
     "ListGroups",
+    "ListPersonTombstoneQueue",
     "ReleaseFence",
     "ReleaseFences",
     "SetPersonDistinctIdVersionFloor",
@@ -810,6 +814,18 @@ impl http_body::Body for ByteCountedBody {
         }
         result
     }
+
+    /// hyper sets END_STREAM on the response HEADERS frame only when this
+    /// returns true. A trailers-only gRPC error needs that flag. Without it,
+    /// grpcio reads the status headers as initial metadata and reports
+    /// UNKNOWN.
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+
+    fn size_hint(&self) -> http_body::SizeHint {
+        self.inner.size_hint()
+    }
 }
 
 impl Drop for ByteCountedBody {
@@ -996,6 +1012,20 @@ mod tests {
                 "wrong status for: {why}"
             );
         }
+    }
+
+    #[test]
+    fn byte_counted_body_reports_the_end_of_a_trailers_only_error() {
+        let inner = grpc_error_response(Code::Unavailable, "Server at capacity").into_body();
+        let body = ByteCountedBody::new(
+            inner,
+            Arc::from("GetPerson"),
+            "replica",
+            Arc::from("test"),
+            Arc::from(""),
+            0,
+        );
+        assert!(http_body::Body::is_end_stream(&body));
     }
 
     #[tokio::test]

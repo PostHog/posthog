@@ -28,6 +28,12 @@ impl AttemptCount {
         Self(u32::try_from(attempts).map_or(1, |count| count.max(1)))
     }
 
+    /// A count kept in memory rather than read from a row, such as a run breaker's openings. Zero
+    /// reads as one, for the same reason as in [`Self::from_row`].
+    pub fn new(count: u32) -> Self {
+        Self(count.max(1))
+    }
+
     pub const fn get(self) -> u32 {
         self.0
     }

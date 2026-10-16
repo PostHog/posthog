@@ -1,0 +1,31 @@
+rules:
+    - id: no-new-uuidt-models
+      message: >-
+          `UUIDTModel` predates the UUIDv7 spec and is not for new models. Its
+          ids do not sort or compare as uuid7 ids do, so a value that travels
+          between systems stops matching one written by anything newer. Inherit
+          from `UUIDModel` instead, which sets a `uuid7` primary key. See
+          `posthog/models/utils.py`.
+      severity: WARNING
+      languages: [python]
+      paths:
+          include:
+              - '**/models.py'
+              - '**/models/**'
+          exclude:
+              - '**/migrations/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/*_test.py'
+              - '**/test_*.py'
+              - '**/conftest*.py'
+      # The match covers only the base class name, so an edit inside an existing
+      # model's body keeps its finding grandfathered in the PR baseline diff.
+      patterns:
+          - pattern: |
+                class $NAME(..., $BASE, ...):
+                    ...
+          - metavariable-regex:
+                metavariable: $BASE
+                regex: ^UUIDTModel$
+          - focus-metavariable: $BASE

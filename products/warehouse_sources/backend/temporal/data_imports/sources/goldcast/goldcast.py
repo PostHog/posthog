@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -25,9 +26,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.goldcast.s
 
 GOLDCAST_BASE_URL = "https://customapi.goldcast.io"
 
-# The parent list every fan-out endpoint iterates over. Its rows only drive the per-event child
-# requests; the `events` schema itself is synced by its own top-level resource.
-_EVENTS_PARENT = "events"
+# Broadcast rows carry live-stream and translation-session credentials. They have no analytics
+# value and would otherwise land in the warehouse in plain text.
+_BROADCAST_SECRET_FIELDS = (
+    "medialive_rtmp_input_details",
+    "youtube_stream_key",
+    "facebook_stream_key",
+    "custom_stream_key",
+    "external_rtmp_push_stream",
+    "wordly_session_key",
+)
 
 
 def _headers() -> dict[str, str]:
@@ -43,23 +51,34 @@ def _auth(access_key: str) -> ApiKeyAuthConfig:
     return {"type": "api_key", "api_key": f"Token {access_key}", "name": "Authorization", "location": "header"}
 
 
-def _require_event_id(row: dict[str, Any]) -> dict[str, Any]:
+def _require_id(parent_name: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
     # `id` is the required fan-out key: a missing or falsy value must raise loudly rather than
-    # silently under-syncing that event's webinars/event_members with no signal in the logs.
-    event_id = row["id"]
-    if not event_id:
-        raise ValueError(f"Goldcast event is missing a valid id: {row}")
+    # silently under-syncing that parent's children with no signal in the logs.
+    def _check(row: dict[str, Any]) -> dict[str, Any]:
+        parent_id = row["id"]
+        if not parent_id:
+            raise ValueError(f"Goldcast {parent_name} row is missing a valid id")
+        return row
+
+    return _check
+
+
+def _strip_broadcast_secrets(row: dict[str, Any]) -> dict[str, Any]:
+    for key in _BROADCAST_SECRET_FIELDS:
+        row.pop(key, None)
     return row
 
 
-def _events_parent_resource() -> EndpointResource:
+def _parent_resource(parent_name: str) -> EndpointResource:
+    # The parent rows only drive the per-parent child requests; the parent schema itself is synced
+    # by its own top-level resource.
     return {
-        "name": _EVENTS_PARENT,
+        "name": parent_name,
         "endpoint": {
-            "path": GOLDCAST_ENDPOINTS["events"].path,
+            "path": GOLDCAST_ENDPOINTS[parent_name].path,
             "paginator": SinglePagePaginator(),
         },
-        "data_map": _require_event_id,
+        "data_map": _require_id(parent_name),
     }
 
 
@@ -67,40 +86,43 @@ def _top_level_resource(config: GoldcastEndpointConfig) -> EndpointResource:
     # Collection endpoints return a bare JSON array; the organization endpoint returns a single
     # object, which the framework wraps as a one-row page. No data_selector, so a dict body is kept
     # as a single row exactly as the old normalization did.
-    return {
+    resource: EndpointResource = {
         "name": config.name,
         "endpoint": {
             "path": config.path,
             "paginator": SinglePagePaginator(),
         },
     }
+    if config.name == "broadcasts":
+        resource["data_map"] = _strip_broadcast_secrets
+    return resource
 
 
-def _fan_out_resource(config: GoldcastEndpointConfig) -> EndpointResource:
-    # One request per event id. `{event}` is bound from the parent event's `id` — for `webinars` it
-    # sits in the URL path, for `event_members` in a query string carried on the path template. The
-    # event id is injected into each child row under `event` to form the composite primary key
-    # (child ids are only unique per parent); for `event_members`, which already carries a possibly
-    # stale `event`, this re-stamps it to the parent id.
+def _fan_out_resource(config: GoldcastEndpointConfig, parent_name: str) -> EndpointResource:
+    # One request per parent id. `{<parent_field>}` is bound from the parent's `id` — in the URL path
+    # for most children, in a query string carried on the path template for `event_members`. The
+    # parent id is injected into each child row under `parent_field` to form the composite primary
+    # key (child ids are only unique per parent); for `event_members`, which already carries a
+    # possibly stale `event`, this re-stamps it to the parent id.
     return {
         "name": config.name,
         "include_from_parent": ["id"],
         "endpoint": {
             "path": config.path,
-            "params": {"event": {"type": "resolve", "resource": _EVENTS_PARENT, "field": "id"}},
+            "params": {config.parent_field: {"type": "resolve", "resource": parent_name, "field": "id"}},
             "paginator": SinglePagePaginator(),
-            # An event with no child resources (or one deleted between enumeration and this fetch)
+            # A parent with no child resources (or one deleted between enumeration and this fetch)
             # can 404. Skip it rather than failing the whole sync; any other error still raises.
             "response_actions": [{"status_code": 404, "action": "ignore"}],
         },
-        "data_map": rename_parent_fields(_EVENTS_PARENT, {"id": "event"}),
+        "data_map": rename_parent_fields(parent_name, {"id": config.parent_field}),
     }
 
 
 def _resources_for(endpoint: str) -> list[str | EndpointResource]:
     config = GOLDCAST_ENDPOINTS[endpoint]
-    if config.fan_out_over_events:
-        return [_events_parent_resource(), _fan_out_resource(config)]
+    if config.fan_out_parent:
+        return [_parent_resource(config.fan_out_parent), _fan_out_resource(config, config.fan_out_parent)]
     return [_top_level_resource(config)]
 
 
@@ -118,6 +140,9 @@ def goldcast_source(
             "headers": _headers(),
             "auth": _auth(access_key),
             "paginator": SinglePagePaginator(),
+            # Broadcast and webinar bodies carry stream keys under field names the name-based sample
+            # scrubber doesn't recognise, so keep all Goldcast bodies out of HTTP sample capture.
+            "capture": False,
         },
         "resource_defaults": {},
         "resources": _resources_for(endpoint),

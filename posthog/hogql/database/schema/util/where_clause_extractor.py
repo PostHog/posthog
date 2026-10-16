@@ -282,6 +282,11 @@ class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
 
     def __init__(self, context: HogQLContext):
         super().__init__(context)
+        buffer_minutes = context.modifiers.sessionTimestampBufferMinutes if context.modifiers else None
+        # Any client can set this modifier, so it may only narrow the default buffer. A wider buffer
+        # would let one query scan the whole sessions table.
+        if buffer_minutes is not None and buffer_minutes < SESSION_BUFFER_DAYS * 24 * 60:
+            self.time_buffer = ast.Call(name="toIntervalMinute", args=[ast.Constant(value=max(buffer_minutes, 0))])
 
     def should_apply_default_limit_bound(self, select_query: ast.SelectQuery) -> bool:
         if (
@@ -654,6 +659,14 @@ def extract_uuid_constants(node: ast.Expr) -> list[ast.Constant]:
     return []
 
 
+def top_level_conjuncts(expr: ast.Expr) -> list[ast.Expr]:
+    if isinstance(expr, ast.And):
+        return [conjunct for sub in expr.exprs for conjunct in top_level_conjuncts(sub)]
+    if isinstance(expr, ast.Call) and expr.name == "and":
+        return [conjunct for sub in expr.args for conjunct in top_level_conjuncts(sub)]
+    return [expr]
+
+
 def build_session_id_literal_pushdown_predicate(
     outer_node: ast.SelectQuery,
     join_to_add: LazyJoinToAdd,
@@ -674,14 +687,7 @@ def build_session_id_literal_pushdown_predicate(
     if events_table_type is None:
         return None
 
-    def flatten_and(expr: ast.Expr) -> list[ast.Expr]:
-        if isinstance(expr, ast.And):
-            return [t for sub in expr.exprs for t in flatten_and(sub)]
-        if isinstance(expr, ast.Call) and expr.name == "and":
-            return [t for sub in expr.args for t in flatten_and(sub)]
-        return [expr]
-
-    for term in flatten_and(outer_node.where):
+    for term in top_level_conjuncts(outer_node.where):
         if not isinstance(term, ast.CompareOperation) or term.op not in (
             CompareOperationOp.In,
             CompareOperationOp.Eq,

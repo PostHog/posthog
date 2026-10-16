@@ -5,10 +5,8 @@
 # tools/infra-scripts/clitools/toolbox.py with --pool flags-cache-jumphost
 # and --auto-delete; all the orphan-relabel-claim logic lives there.
 #
-# The namespace follows the environment while the migration to the posthog-app
-# golden chart is only partly done (PostHog/charts#14843): dev serves the pool
-# from `flags-cache-jumphost`, prod-us and prod-eu still from `posthog`.
-# KUBE_NAMESPACE overrides both.
+# The pool runs on the posthog-app golden chart, in namespace
+# `flags-cache-jumphost`, in every environment. KUBE_NAMESPACE overrides it.
 #
 # Prerequisites:
 #   - kubectl context pointing at the target cluster, or pass
@@ -16,8 +14,8 @@
 #
 # Usage:
 #   bin/rust-jumphost                       # claim + connect
-#   KUBE_CONTEXT=posthog-dev bin/rust-jumphost
-#   KUBE_NAMESPACE=posthog   bin/rust-jumphost
+#   KUBE_CONTEXT=dev-eks bin/rust-jumphost
+#   KUBE_NAMESPACE=<namespace> bin/rust-jumphost   # override the pool namespace
 #   bin/rust-jumphost --claim-duration 4    # 4h claim window
 #
 # Inside the pod:

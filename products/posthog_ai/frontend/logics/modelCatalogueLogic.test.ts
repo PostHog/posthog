@@ -88,6 +88,7 @@ describe('modelCatalogueLogic', () => {
     // access flag fails closed, so a flag left on the catalog row after its rollout finished
     // took them off the composer for anyone the flag service could not answer for.
     it.each([
+        'gpt-6.1-sol',
         'deepseek-ai/deepseek-v4-flash-0731',
         '@cf/zai-org/glm-5.2',
         'zai-org/glm-5.3',
@@ -97,6 +98,19 @@ describe('modelCatalogueLogic', () => {
         mountWithFlags([])
 
         expect(logic.values.catalogue.map((choice) => choice.model)).toContain(model)
+    })
+
+    // A run already on a retired model keeps its name and its full effort range, which it reads off the
+    // catalogue. `pickerModels` is what drops retired models from the list a person picks from.
+    it('keeps a retired model in the catalogue', () => {
+        const retired = MODELS.filter((model) => model.retired)
+        expect(retired.length).toBeGreaterThan(0)
+        mountWithFlags(GATED.map((model) => model.accessFlag as string))
+
+        const known = logic.values.catalogue.map((choice) => choice.model)
+        for (const model of retired) {
+            expect(known).toContain(model.id)
+        }
     })
 
     // An empty effort list is an answer, not missing metadata: the picker renders such a model with no

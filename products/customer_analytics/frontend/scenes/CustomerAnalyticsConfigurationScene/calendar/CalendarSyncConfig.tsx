@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconRewind, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -18,6 +18,17 @@ import { calendarSyncLogic } from './calendarSyncLogic'
 
 const GMAIL_READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
 
+function getSyncIntervalDisabledReason(
+    hasSyncStatus: boolean,
+    statusesLoading: boolean,
+    savingInterval: boolean
+): string | undefined {
+    if (!hasSyncStatus) {
+        return statusesLoading ? 'Loading sync frequency...' : 'Sync frequency unavailable'
+    }
+    return savingInterval ? 'Saving...' : undefined
+}
+
 export function CalendarSyncConfig(): JSX.Element {
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { deleteIntegration } = useActions(integrationsLogic)
@@ -29,9 +40,18 @@ export function CalendarSyncConfig(): JSX.Element {
         backfillEndDate,
         backfillDateError,
         backfillSubmitting,
+        savingIntervalIds,
+        statusesLoading,
     } = useValues(calendarSyncLogic)
-    const { syncNow, openBackfill, closeBackfill, setBackfillStartDate, setBackfillEndDate, submitBackfill } =
-        useActions(calendarSyncLogic)
+    const {
+        syncNow,
+        openBackfill,
+        closeBackfill,
+        setBackfillStartDate,
+        setBackfillEndDate,
+        submitBackfill,
+        saveInterval,
+    } = useActions(calendarSyncLogic)
     const { user } = useValues(userLogic)
     const adminRestrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -101,6 +121,32 @@ export function CalendarSyncConfig(): JSX.Element {
                         // A custom suffix replaces IntegrationView's built-in Disconnect button, so it returns here.
                         suffix={
                             <div className="flex flex-row flex-wrap items-center justify-end gap-2">
+                                {!adminRestrictedReason && (
+                                    <label className="flex items-center gap-2 text-xs whitespace-nowrap">
+                                        Sync every
+                                        <LemonSelect<number>
+                                            data-attr={`google-account-sync-interval-${integration.id}`}
+                                            value={syncStatus?.sync_interval_minutes}
+                                            placeholder={
+                                                statusesLoading
+                                                    ? 'Loading sync frequency...'
+                                                    : 'Sync frequency unavailable'
+                                            }
+                                            options={[
+                                                { value: 5, label: '5 minutes' },
+                                                { value: 15, label: '15 minutes' },
+                                                { value: 30, label: '30 minutes' },
+                                                { value: 60, label: '1 hour' },
+                                            ]}
+                                            disabledReason={getSyncIntervalDisabledReason(
+                                                !!syncStatus,
+                                                statusesLoading,
+                                                savingIntervalIds.includes(integration.id)
+                                            )}
+                                            onChange={(value) => saveInterval(integration.id, value)}
+                                        />
+                                    </label>
+                                )}
                                 <span className="text-xs text-secondary whitespace-nowrap">
                                     {isSyncing ? (
                                         'Syncing Google account...'

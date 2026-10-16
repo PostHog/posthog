@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -11,14 +10,14 @@ from django.db.models import Value
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
+
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 
 if TYPE_CHECKING:
     from products.logs.backend.alert_state_machine import AlertSnapshot
 
-logger = logging.getLogger(__name__)
 
 # Default log attribute key whose value matches a PostHog person's distinct_id. Mirrors
 # the convention documented at https://posthog.com/docs/logs/link-session-replay: the
@@ -164,8 +163,6 @@ class TeamLogsConfig(models.Model):
     )
 
 
-register_team_extension_signal(TeamLogsConfig, logger=logger)
-
 # Upper bound on LogsAlertConfiguration.evaluation_periods. Doubles as the per-alert
 # cap on retained OK event rows — the N-of-M evaluator never reads more than this many
 # non-errored rows per alert, so older OK rows are pruned. Mirrored in the serializer's
@@ -255,6 +252,16 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     consecutive_failures = models.PositiveIntegerField(default=0)
     first_enabled_at = models.DateTimeField(null=True, blank=True)
 
+    # The platform's copy records the same owner, and only the cutover and rollback commands
+    # write the two, so each stack can decide from its own row.
+    owner = models.CharField(
+        max_length=16,
+        choices=PlatformAlertOwner.choices,
+        default=PlatformAlertOwner.SOURCE.value,
+        db_default=PlatformAlertOwner.SOURCE.value,
+    )
+    owner_changed_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         db_table = "logs_logsalertconfiguration"
         indexes = [
@@ -263,6 +270,12 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
                 name="logs_alert_scheduler_idx",
             ),
         ]
+
+    @property
+    def platform_owned(self) -> bool:
+        """The platform evaluates and delivers this alert. The logs stack may still evaluate it to
+        compare, but it sends nothing for it."""
+        return self.owner == PlatformAlertOwner.PLATFORM
 
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
@@ -361,6 +374,8 @@ class LogsAlertEvent(UUIDModel):
         UNSNOOZE = "unsnooze", "Unsnooze"
         THRESHOLD_CHANGE = "threshold_change", "Threshold change"
         BROKEN_CONFIG = "broken_config", "Broken config"
+        # An operator handed the alert back from the alerts platform, carrying its state over.
+        HANDBACK = "handback", "Handback"
 
     alert = models.ForeignKey(
         LogsAlertConfiguration,

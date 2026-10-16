@@ -183,6 +183,14 @@ def _selection_options(config_type: type) -> tuple[str, ...] | None:
     return None
 
 
+def missing_field_error(field_name: str) -> str:
+    """The error `validate_config` reports for a required field that is absent.
+
+    Exposed so a source that replaces one of these with its own copy can match on it without
+    duplicating the wording."""
+    return f"Required field '{field_name}' is missing"
+
+
 def validate_config(
     config_cls: type, d: dict[str, typing.Any], prefixes: tuple[str, ...] | None = None
 ) -> tuple[bool, list[str]]:
@@ -212,7 +220,7 @@ def validate_config(
         if field_flat_key not in d and field_nested_key not in d and field.name not in d:
             # Field not found in dict
             if field.default is dataclasses.MISSING and field.default_factory is dataclasses.MISSING:
-                errors.append(f"Required field '{field.name}' is missing")
+                errors.append(missing_field_error(field.name))
             continue
 
         # Validate nested configs

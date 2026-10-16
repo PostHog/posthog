@@ -9,6 +9,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
@@ -453,7 +454,9 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        mock_first_for_repository.assert_called_once_with(self.team.id, "PostHog/posthog")
+        mock_first_for_repository.assert_called_once_with(
+            self.team.id, "PostHog/posthog", source="signals_reviewers", priority=Priority.NORMAL
+        )
         github.get_pull_request.assert_called_once_with("PostHog/posthog", 123)
         pr = SignalReportPullRequest.objects.for_team(self.team.id).get(repository="posthog/posthog", number=123)
         assert pr.repository == "posthog/posthog"
@@ -552,7 +555,9 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        mock_first_for_repository.assert_called_once_with(self.team.id, "PostHog/posthog")
+        mock_first_for_repository.assert_called_once_with(
+            self.team.id, "PostHog/posthog", source="signals_reviewers", priority=Priority.NORMAL
+        )
         pr = SignalReportPullRequest.objects.for_team(self.team.id).get(repository="posthog/posthog", number=123)
         assert pr.repository == "posthog/posthog"
         assert pr.number == 123
@@ -640,12 +645,28 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert get_active_claim(team_id=self.team.id, report_id=report.id) is not None
         assert not SignalReportAssignment.all_teams.filter(report=report).exists()
 
-    def test_resolved_report_cannot_be_claimed(self):
-        report = self._create_report(report_status=SignalReport.Status.RESOLVED)
+    @parameterized.expand(
+        [
+            ("resolved", SignalReport.Status.RESOLVED, False, "resolved"),
+            ("monitoring_enabled", SignalReport.Status.MONITORING, True, "monitoring"),
+            ("monitoring_disabled", SignalReport.Status.MONITORING, False, "resolved"),
+            ("monitoring_unavailable", SignalReport.Status.MONITORING, RuntimeError("flag unavailable"), "resolved"),
+        ]
+    )
+    def test_resolved_report_cannot_be_claimed(
+        self, _name: str, report_status: str, flag_result: bool | Exception, expected_status: str
+    ) -> None:
+        report = self._create_report(report_status=report_status)
 
-        response = self.client.post(self._claim_url(report), data={}, format="json")
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            return_value=flag_result if isinstance(flag_result, bool) else False,
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+        ):
+            response = self.client.post(self._claim_url(report), data={}, format="json")
 
         assert response.status_code == status.HTTP_409_CONFLICT
+        assert f"status '{expected_status}'" in response.json()["detail"]
         assert not SignalReportAssignment.all_teams.filter(report=report).exists()
 
     def test_suppressed_report_cannot_be_claimed(self):
@@ -678,6 +699,30 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
             pr_number=123,
             pr_state=SignalReportAssignment.PrState.OPEN,
         )
+        merged_assignment = self._create_report(title="Merged assignment")
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=merged_assignment,
+            pr_url="https://github.com/PostHog/posthog/pull/124",
+            repository="posthog/posthog",
+            pr_number=124,
+            pr_state=SignalReportAssignment.PrState.MERGED,
+            pr_merged=True,
+        )
+        linked = {}
+        for number, state in [(125, SignalReportPullRequest.State.OPEN), (126, SignalReportPullRequest.State.MERGED)]:
+            report = self._create_report(title=f"Linked {state}")
+            pr = SignalReportPullRequest.objects.create(
+                team=self.team,
+                repository="posthog/posthog",
+                number=number,
+                url=f"https://github.com/PostHog/posthog/pull/{number}",
+                state=state,
+            )
+            SignalReportArtefact.objects.create(
+                team=self.team, report=report, type=SignalReportArtefact.ArtefactType.PULL_REQUEST, pull_request=pr
+            )
+            linked[state] = report
 
         response = self.client.get(self._list_url(unclaimed="true"))
 
@@ -686,6 +731,9 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert str(unclaimed.id) in ids
         assert str(claimed.id) not in ids
         assert str(in_review.id) not in ids
+        assert str(merged_assignment.id) in ids
+        assert str(linked[SignalReportPullRequest.State.OPEN].id) not in ids
+        assert str(linked[SignalReportPullRequest.State.MERGED].id) in ids
 
     def test_assignee_me_matches_exact_external_agent(self):
         mine = self._create_report(title="Mine")

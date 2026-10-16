@@ -76,6 +76,9 @@ export const INGESTION_WARNING_TYPES = {
     // rather than a JSON batch.
     invalid_ai_event: { category: 'event', severity: 'error', captureProduced: true },
     invalid_ai_payload: { category: 'event', severity: 'error', captureProduced: true },
+    // Non-AI event sent to /i/v1/ai/events. capture-ai can only write the AI topic,
+    // so it drops that event and keeps the rest of the batch.
+    misrouted_event: { category: 'event', severity: 'error', captureProduced: true },
     // Severity is 'warning', not 'error': the OTLP export succeeded and only
     // non-AI spans were in it, so nothing the AI pipeline owns was dropped. The
     // customer still needs to know their export produced no AI events.
@@ -87,6 +90,9 @@ export const INGESTION_WARNING_TYPES = {
     invalid_group_set: { category: 'event', severity: 'error' },
     invalid_process_person_profile: { category: 'event', severity: 'warning' },
     invalid_event_when_process_person_profile_is_false: { category: 'event', severity: 'error' },
+    // 'info' because the team opted out of person processing, so this drop is the
+    // configured outcome and not a fault in the customer's payload.
+    event_dropped_person_processing_disabled: { category: 'event', severity: 'info' },
     event_dropped_too_old: { category: 'event', severity: 'info' },
 
     cookieless_team_disabled: { category: 'event', severity: 'error' },

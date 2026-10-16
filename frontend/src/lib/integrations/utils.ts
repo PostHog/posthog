@@ -41,8 +41,24 @@ import IconSnowflake from 'public/services/snowflake.png'
 import IconStripe from 'public/services/stripe.png'
 import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
+import IconTwitterAds from 'public/services/twitter_ads.png'
 import IconVercel from 'public/services/vercel.png'
 import IconYouTubeAnalytics from 'public/services/youtube_analytics.png'
+
+/**
+ * What a "link an existing installation" banner offered, reported as counts on
+ * `integration_link_existing_offered`. `unnamed` counts entries shown by installation id because
+ * their account name is missing, which is the case a reader cannot recognize.
+ */
+export interface IntegrationLinkExistingCounts {
+    discoveryId?: string
+    installationIds?: string[]
+    responseAgeMs?: number
+    total: number
+    sibling: number
+    orphan: number
+    unnamed: number
+}
 
 /**
  * Where a user started an integration connect flow. Reported as the `surface` property on
@@ -96,6 +112,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     twilio: IconTwilio,
     clickup: IconClickUp,
     'reddit-ads': IconReddit,
+    'twitter-ads': IconTwitterAds,
     databricks: IconDatabricks,
     'tiktok-ads': IconTikTok,
     'bing-ads': IconBingAds,
@@ -109,6 +126,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'customerio-webhook': IconCustomerIO,
     'customerio-track': IconCustomerIO,
     apns: IconApple,
+    'apple-ads': IconApple,
     postgresql: IconPostgres,
     'aws-s3': IconAwsS3,
     'aws-redshift': IconRedshift,
@@ -119,7 +137,7 @@ export const ICONS: Record<IntegrationKind, any> = {
 
 // Brand marks that are solid black/monochrome on a transparent background — they vanish against a dark
 // surface, so invert them in dark mode (`dark:invert`) wherever the integration icon is rendered.
-export const DARK_MODE_INVERT_ICON_KINDS = new Set<IntegrationKind>(['apns', 'github'])
+export const DARK_MODE_INVERT_ICON_KINDS = new Set<IntegrationKind>(['apns', 'apple-ads', 'github'])
 
 export const getIntegrationNameFromKind = (kind: string): string => {
     switch (kind) {
@@ -137,10 +155,14 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Google Search Console'
         case 'google-cloud-service-account':
             return 'Google Cloud service account'
+        case 'apple-ads':
+            return 'Apple Ads'
         case 'linkedin-ads':
             return 'LinkedIn Ads'
         case 'reddit-ads':
             return 'Reddit Ads'
+        case 'twitter-ads':
+            return 'X Ads'
         case 'tiktok-ads':
             return 'TikTok Ads'
         case 'bing-ads':

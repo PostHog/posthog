@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { supportLogic } from 'lib/components/Support/supportLogic'

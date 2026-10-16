@@ -3,8 +3,8 @@
 The provisioning views serve three distinct wire contracts, so DRF's default
 error rendering can never leak out of these endpoints:
 
-- ``typed``:  ``{"type": "error", "error": {...}}`` — account requests and
-  GitHub grants, where "type" is the discriminator partners switch on
+- ``typed``:  ``{"type": "error", "error": {...}}`` — account requests,
+  where "type" is the discriminator partners switch on
   ("oauth" | "requires_auth" | "registering" | "error").
 - ``status``: ``{"status": "error", "id": ..., "error": {...}}`` — the
   resource endpoints, whose success envelope carries "status" (provisioning

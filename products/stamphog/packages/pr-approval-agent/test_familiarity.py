@@ -1,6 +1,7 @@
 """Tests for the author-familiarity signal and its policy wiring."""
 
 import os
+import re
 import sys
 import json
 import subprocess
@@ -25,7 +26,8 @@ from policy import (  # noqa: E402
     FamiliarityPolicy,
     FamiliarityStrong,
     PolicyError,
-    default_policy_path,
+    bundled_defaults_dir,
+    load_effective_policy,
     load_policy,
 )
 
@@ -200,6 +202,18 @@ def test_capped_flag_set_when_file_exceeds_line_bound(tmp_path: Path, monkeypatc
     assert fam.modified_lines_total == 0
 
 
+def test_lockfiles_are_left_out_of_blame_without_capping() -> None:
+    lockfile = familiarity._FileDiff(
+        old_path="frontend/pnpm-lock.yaml", new_path="frontend/pnpm-lock.yaml", changed_lines=5000
+    )
+    source = familiarity._FileDiff(old_path="src/app.py", new_path="src/app.py", changed_lines=4)
+
+    considered, capped = familiarity._select_considered_files([lockfile, source])
+
+    assert considered == [source]
+    assert capped is False
+
+
 def test_failed_blame_counts_its_lines_as_not_owned(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -269,6 +283,113 @@ def test_files_previously_modified_counts_renamed_file_by_old_path(
     assert fam.files_total == 1
 
 
+# ── Server facts (hosted runtime) ────────────────────────────────
+
+
+def _server_facts(repo: Path, base_sha: str, author: str, blamed_paths: list[str], directories: list[str]) -> dict:
+    """The facts the hosted server would read from GitHub, built from local git instead.
+
+    Each git author name stands in for a linked GitHub login, and history is filtered by author, as
+    the server's GraphQL `history(author:)` query does.
+    """
+    commits: dict[str, dict] = {}
+
+    def remember(oid: str) -> None:
+        name, committed_at, subject = (
+            _git(repo, "show", "-s", "--format=%an%x09%ct%x09%s", oid).stdout.strip().split("\t", 2)
+        )
+        commits[oid] = {"login": name, "name": name, "subject": subject, "committed_at": int(committed_at)}
+
+    blame: dict[str, list[dict]] = {}
+    for path in blamed_paths:
+        blame[path] = []
+        for line in _git(repo, "blame", "--porcelain", base_sha, "--", path).stdout.splitlines():
+            match = re.match(r"^([0-9a-f]{40}) \d+ (\d+)", line)
+            if match:
+                blame[path].append({"start": int(match[2]), "end": int(match[2]), "oid": match[1]})
+                remember(match[1])
+
+    def author_log(*paths: str) -> list[str]:
+        return _git(repo, "log", f"--author={author}", "--format=%H", base_sha, "--", *paths).stdout.split()
+
+    path_history = author_log(*directories)
+    file_history = {path: author_log(path)[:1] for path in blamed_paths}
+    for oid in {*path_history, *(oid for oids in file_history.values() for oid in oids)}:
+        remember(oid)
+    return {"commits": commits, "blame": blame, "path_history": path_history, "file_history": file_history}
+
+
+@pytest.mark.parametrize(
+    "author, pr_numbers, expected_band",
+    [
+        pytest.param("authora", {1}, "STRONG", id="blame-overlap"),
+        pytest.param("authorb", {2, 3, 4}, "MODERATE", id="prior-prs-in-paths"),
+    ],
+)
+def test_server_facts_yield_the_same_signal_as_git(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, author: str, pr_numbers: set[int], expected_band: str
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    original = _numbered_lines("line", 10)
+    _commit(repo, "src/foo.py", original, "feat: add foo (#1)", "authora")
+    for number in (2, 3, 4):
+        _commit(repo, f"src/other_{number}.py", "x\n", f"feat: other (#{number})", "authorb")
+    base_sha = _head(repo)
+    (repo / "src/foo.py").write_text(original.replace("line 3\n", "line 3 changed\n"))
+    diff_path = tmp_path / "pr.diff"
+    diff_path.write_text(_git(repo, "diff").stdout)
+
+    _patch_gh(monkeypatch, pr_numbers=pr_numbers)
+    from_git = compute_familiarity(
+        author_login=author,
+        diff_path=diff_path,
+        base_sha=base_sha,
+        head_sha="HEAD",
+        repo="PostHog/posthog",
+        repo_root=repo,
+        thresholds=_THRESHOLDS,
+    )
+    from_facts = familiarity.familiarity_from_facts(
+        _server_facts(repo, base_sha, author, ["src/foo.py"], ["src"]), author, pr_numbers, diff_path, _THRESHOLDS
+    )
+
+    assert from_git is not None
+    assert from_git.band == expected_band
+    assert from_facts == from_git
+
+
+@pytest.mark.parametrize(
+    "login, pr_numbers, owned",
+    [
+        pytest.param("authora", set(), 1, id="login-match-needs-no-pr-numbers"),
+        pytest.param("AuthorA", set(), 1, id="login-match-ignores-case"),
+        pytest.param("someone-else", {1}, 0, id="another-login-wins-over-the-pr-number"),
+        pytest.param(None, {1}, 1, id="no-login-falls-back-to-the-pr-number"),
+        pytest.param(None, set(), 0, id="no-login-and-no-pr-match"),
+    ],
+)
+def test_server_facts_match_the_author_by_login_then_pr_number(
+    tmp_path: Path, login: str | None, pr_numbers: set[int], owned: int
+) -> None:
+    diff_path = tmp_path / "pr.diff"
+    diff_path.write_text(
+        "diff --git a/src/foo.py b/src/foo.py\n--- a/src/foo.py\n+++ b/src/foo.py\n@@ -2 +2 @@\n-old\n+new\n"
+    )
+    facts = {
+        "commits": {"c1": {"login": login, "name": "Someone", "subject": "feat: foo (#1)", "committed_at": 0}},
+        "blame": {"src/foo.py": [{"start": 1, "end": 5, "oid": "c1"}]},
+        "path_history": [],
+        "file_history": {},
+    }
+
+    fam = familiarity.familiarity_from_facts(facts, "authora", pr_numbers, diff_path, _THRESHOLDS)
+
+    assert fam.modified_lines_total == 1
+    assert fam.modified_lines_owned == owned
+    assert fam.blame_incomplete_files == 0
+
+
 # ── Band thresholds (pure) ───────────────────────────────────────
 
 
@@ -291,11 +412,11 @@ def test_band_thresholds(blame: float, prior: int, days: int | None, expected: s
 
 
 def _valid_policy_dict() -> dict:
-    return yaml.safe_load(default_policy_path().read_text())
+    return yaml.safe_load((bundled_defaults_dir() / "policy.yml").read_text())
 
 
 def test_familiarity_section_loaded() -> None:
-    policy = load_policy(lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+    policy = load_effective_policy(lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
     assert policy.familiarity.strong.min_blame_overlap_pct == 70
     assert policy.familiarity.moderate.min_prior_prs == 5
     assert policy.familiarity.moderate.max_days_since_touch == 180

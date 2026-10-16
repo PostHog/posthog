@@ -1,21 +1,39 @@
-from enum import Enum
-
-from django.db import models
+from posthog.enums import LabeledStrEnum
 
 
-class AccountPropertyPinKind(str, Enum):
-    CUSTOM_PROPERTY = "custom_property"
-    RELATIONSHIP = "relationship"
+class AccountPropertyPinKind(LabeledStrEnum):
+    CUSTOM_PROPERTY = "custom_property", "Custom property"
+    RELATIONSHIP = "relationship", "Relationship"
 
 
-class TaskDigestCadence(models.TextChoices):
+# Mirrors OPTION_COLOR_TOKENS in the frontend's customPropertyTypes.ts (DataColorToken presets).
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class CustomPropertyOptionColor(LabeledStrEnum):
+    PRESET_1 = "preset-1", "preset-1"
+    PRESET_2 = "preset-2", "preset-2"
+    PRESET_3 = "preset-3", "preset-3"
+    PRESET_4 = "preset-4", "preset-4"
+    PRESET_5 = "preset-5", "preset-5"
+    PRESET_6 = "preset-6", "preset-6"
+    PRESET_7 = "preset-7", "preset-7"
+    PRESET_8 = "preset-8", "preset-8"
+    PRESET_9 = "preset-9", "preset-9"
+    PRESET_10 = "preset-10", "preset-10"
+
+
+class AccountViewVisibility(LabeledStrEnum):
+    PRIVATE = "private", "Personal"
+    TEAM = "team", "Team"
+
+
+class TaskDigestCadence(LabeledStrEnum):
     """How often a user's customer task digest email is sent."""
 
     WEEKDAYS = "weekdays", "Weekdays"
     EVERY_DAY = "every_day", "Every day"
 
 
-class AccountRelationshipSource(models.TextChoices):
+class AccountRelationshipSource(LabeledStrEnum):
     """Which kind of writer created or ended a relationship row. Rows written before provenance
     was recorded carry NULL."""
 
@@ -26,7 +44,7 @@ class AccountRelationshipSource(models.TextChoices):
     MIGRATION = "migration", "Migration"
 
 
-class OwnershipRoleState(models.TextChoices):
+class OwnershipRoleState(LabeledStrEnum):
     """What a consumer may conclude about a controlled relationship on one account."""
 
     # No control row: legacy authority holds, whatever the relationship rows say.
@@ -38,7 +56,7 @@ class OwnershipRoleState(models.TextChoices):
     BLOCKED = "blocked", "Blocked"
 
 
-class OwnershipRoleDiagnostic(models.TextChoices):
+class OwnershipRoleDiagnostic(LabeledStrEnum):
     HOLDER_MISSING = "holder_missing", "The active relationship has no user"
     HOLDER_INACTIVE = "holder_inactive", "The holder's user account is deactivated"
     HOLDER_NOT_IN_ORGANIZATION = "holder_not_in_organization", "The holder is not a member of the organization"
@@ -47,6 +65,8 @@ class OwnershipRoleDiagnostic(models.TextChoices):
 
 __all__ = [
     "AccountPropertyPinKind",
+    "AccountViewVisibility",
+    "CustomPropertyOptionColor",
     "AccountRelationshipSource",
     "OwnershipRoleDiagnostic",
     "OwnershipRoleState",

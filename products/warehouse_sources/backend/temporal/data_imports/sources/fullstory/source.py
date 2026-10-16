@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -19,10 +22,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.fullstory.fullstory import (
-    ENDPOINTS,
     FullStoryResumeConfig,
     fullstory_source,
     validate_credentials as validate_fullstory_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.fullstory.settings import (
+    APPEND_ONLY_ENDPOINTS,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fullstory import (
     FullStorySourceConfig,
@@ -32,6 +39,51 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FullStorySource(ResumableSource[FullStorySourceConfig, FullStoryResumeConfig]):
+    codebase_detection = detect(
+        env=("^FULLSTORY_", "^REACT_APP_FULLSTORY_ORG$"),
+        script_hosts=(
+            "edge.fullstory.com",
+            "edge.eu1.fullstory.com",
+            "rs.fullstory.com",
+            "rs.eu1.fullstory.com",
+            "guides.fullstory.com",
+            "guides-cdn.fullstory.com",
+            "guides.eu1.fullstory.com",
+            "guides-cdn.eu1.fullstory.com",
+        ),
+        npm=(
+            "@fullstory/browser",
+            "@fullstory/react-native",
+            "@fullstory/snippet",
+            "@fullstory/babel-plugin-react-native",
+            "@fullstory/babel-plugin-annotate-react",
+            "@fullstory/server-api-client",
+            "@fullstory/cordova-plugin",
+            "@fullstory/segment-react-native-plugin-fullstory",
+            "@fullstory/guides-and-surveys-react-native",
+            "@fullstory/react-library",
+            "@fullstory/form-core",
+            "@fullstory/form-react",
+            "@fullstory/eslint-plugin-annotate-react",
+            "react-fullstory",
+            "@sentry/fullstory",
+        ),
+        cocoapods=("FullStory",),
+        maven=(
+            "com.fullstory:gradle-plugin-local",
+            "com.fullstory:instrumentation-full",
+            "com.fullstory:guides-and-surveys",
+            "com.github.fullstorydev:fullstory-segment-middleware-android",
+        ),
+        pub=("fullstory_flutter", "fullstory_guides_and_surveys_flutter"),
+        swiftpm=(
+            "github.com/fullstorydev/fullstory-swift-package-ios",
+            "github.com/fullstorydev/fullstory-guides-and-surveys-swift-package-ios",
+            "github.com/fullstorydev/fullstory-swiftui-selectors-ios",
+        ),
+        alternative_to=(ProductKey.SESSION_REPLAY,),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developer.fullstory.com"
@@ -61,9 +113,9 @@ class FullStorySource(ResumableSource[FullStorySourceConfig, FullStoryResumeConf
             name=ExternalDataSourceType.FULLSTORY,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Fullstory",
-            caption="""Enter your Fullstory API key to pull your Fullstory user data into the PostHog Data warehouse.
+            caption="""Enter your Fullstory API key to pull your Fullstory users, segments, sessions, and events into the PostHog Data warehouse.
 
-You can create an API key in Fullstory under Settings > Integrations & API Keys > API Keys. A key with at least the Viewer permission level is sufficient for syncing.""",
+You can create an API key in Fullstory under Settings > Integrations & API Keys > API Keys. A key with the Viewer permission level can sync users and segments. The sessions table needs the Admin or Architect level, and the events table needs the Segment Export add-on on your Fullstory plan.""",
             iconPath="/static/services/fullstory.png",
             docsUrl="https://posthog.com/docs/cdp/sources/fullstory",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -91,9 +143,7 @@ You can create an API key in Fullstory under Settings > Integrations & API Keys 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # The users listing has no updated-since filter (no incremental fields), so it is
-        # full-refresh only; session/event data only exists behind async Data Export jobs (a follow-up).
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, append_only=APPEND_ONLY_ENDPOINTS)
 
     def validate_credentials(
         self,
@@ -122,4 +172,7 @@ You can create an API key in Fullstory under Settings > Integrations & API Keys 
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )

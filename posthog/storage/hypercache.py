@@ -6,10 +6,10 @@ from typing import Optional
 
 from django.conf import settings
 from django.core.cache import cache, caches
+from django.core.cache.backends.base import BaseCache
 
 import structlog
 import redis.exceptions
-from botocore.exceptions import BotoCoreError, ClientError
 from django_redis.exceptions import ConnectionInterrupted
 from posthoganalytics import capture_exception
 from prometheus_client import Counter, Histogram
@@ -266,6 +266,13 @@ class HyperCache:
         return data
 
     def get_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str]:
+        # Call-time import: hypercache loads at django.setup() (via group_type_mapping) and botocore
+        # is only needed to classify S3 read failures.
+        from botocore.exceptions import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+            BotoCoreError,
+            ClientError,
+        )
+
         cache_key = self.get_cache_key(key)
         try:
             data = self.cache_client.get(cache_key)
@@ -599,34 +606,58 @@ class HyperCache:
         """Test helper alias for delete_cache_entry."""
         return self.delete_cache_entry(key, kinds)
 
-    def delete_cache_entry(self, key: KeyType, kinds: Optional[list[str]] = None):
+    def delete_cache_entry(self, key: KeyType, kinds: Optional[list[str]] = None, *, strict_mirror: bool = False):
         """Hard-delete an entry from the given tiers (default redis + s3).
 
         Production-safe: the gateway credential projection uses this to revoke a
         credential's blob immediately — a missing key fails closed at the gateway.
+
+        A failed Redis delete raises after the object-storage delete ran. With strict_mirror,
+        a failed delete on the secondary cache raises too. Otherwise the secondary delete is
+        best-effort.
         """
         kinds = kinds or ["redis", "s3"]
+        redis_error: Exception | None = None
         try:
             cache_key = self.get_cache_key(key)
             if "redis" in kinds:
-                # One DEL per cache drops the payload and its ETag together. A reader that
-                # checks the ETag first would otherwise answer 304 for a payload that is
-                # already gone. The ETag key goes even when enable_etag is off, to clear a
-                # stale ETag from when it was on.
-                redis_keys = [cache_key, self.get_etag_key(key)]
-                # Mirror the delete so the secondary never serves an entry the primary dropped,
-                # and mirror first so a primary failure cannot block it.
-                self._mirror_to_secondary(lambda c: c.delete_many(redis_keys))
-                self.cache_client.delete_many(redis_keys)
+                # Single-key DELs: the keys can hash to different cluster slots. The ETag is deleted before
+                # and after the payload so a reader or racing write never sees an ETag without its payload,
+                # and even with enable_etag off, to clear a stale one.
+                etag_key = self.get_etag_key(key)
+                redis_keys = (etag_key, cache_key, etag_key)
+
+                def delete_each(client: BaseCache) -> None:
+                    # Every key is attempted, so a failed ETag DEL cannot leave the payload behind.
+                    first_error: Exception | None = None
+                    for redis_key in redis_keys:
+                        try:
+                            client.delete(redis_key)
+                        except Exception as e:
+                            first_error = first_error or e
+                    if first_error is not None:
+                        raise first_error
+
+                # Mirror first so a primary failure cannot block the secondary.
+                mirror_error = self._mirror_to_secondary(delete_each)
+                try:
+                    delete_each(self.cache_client)
+                except Exception as e:
+                    redis_error = e
+                else:
+                    redis_error = mirror_error if strict_mirror else None
+            # The object-storage copy has no TTL, so a Redis failure must not skip its delete.
             if "s3" in kinds and self.s3_enabled:
                 object_storage.delete(cache_key)
+            if redis_error is not None:
+                raise redis_error
         finally:
             self._remove_expiry_tracking(key)
 
-    def _mirror_to_secondary(self, op: Callable[..., None]) -> None:
-        """Best-effort mirror op; failures are logged and captured, never propagated."""
+    def _mirror_to_secondary(self, op: Callable[..., None]) -> Exception | None:
+        """Best-effort mirror op; failures are logged, captured and returned, never raised."""
         if self.secondary_cache_client is None:
-            return
+            return None
         try:
             op(self.secondary_cache_client)
         except Exception as e:
@@ -640,6 +671,8 @@ class HyperCache:
                 exc_info=True,
             )
             capture_exception(e)
+            return e
+        return None
 
     def _set_cache_value_redis(
         self,

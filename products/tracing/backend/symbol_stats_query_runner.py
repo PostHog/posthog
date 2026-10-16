@@ -50,6 +50,7 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.models.filters.mixins.utils import cached_property
 
 from products.tracing.backend.logic import TIME_BUCKET_DATE_RANGE_WHERE
+from products.tracing.backend.span_identity import str_attr_field
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -72,20 +73,14 @@ _BUSY_KEY = "busy_ns"
 _MAX_RESULT_ROWS = 5000
 
 
-def _str_attr_field(key: str) -> ast.Field:
-    # Span attributes live in the typed str map; the property-group resolver rewrites a
-    # `__str`-suffixed key into a Map read. A bare key falls through to an illegal JSON read.
-    return ast.Field(chain=["attributes", f"{key}__str"])
-
-
 def _first_nonempty_str_attr(keys: list[str]) -> ast.Expr:
     # Map access returns '' for a missing key (not NULL), so coalesce() can't merge generations.
     # Fold right with if(notEmpty(...)) instead, taking the first key that actually carries a value.
-    expr: ast.Expr = _str_attr_field(keys[-1])
+    expr: ast.Expr = str_attr_field(keys[-1])
     for key in reversed(keys[:-1]):
         expr = ast.Call(
             name="if",
-            args=[ast.Call(name="notEmpty", args=[_str_attr_field(key)]), _str_attr_field(key), expr],
+            args=[ast.Call(name="notEmpty", args=[str_attr_field(key)]), str_attr_field(key), expr],
         )
     return expr
 
@@ -256,7 +251,7 @@ class TraceSpansSymbolStatsQueryRunner(AnalyticsQueryRunner[TraceSpansSymbolStat
         # `line` and percentiles are computed at that granularity (never composed across buckets).
         bucket_key = _range_key_expr(self.query.symbols) if self.query.symbols else ast.Field(chain=["raw_line"])
 
-        busy_field = _str_attr_field(_BUSY_KEY)
+        busy_field = str_attr_field(_BUSY_KEY)
         query = parse_select(
             """
             SELECT
@@ -314,7 +309,7 @@ class TraceSpansSymbolStatsQueryRunner(AnalyticsQueryRunner[TraceSpansSymbolStat
                 # Derive presence from the parsed float, not `!= ''`: a missing Map key resolves
                 # inconsistently under OPTIMIZED property groups, but toFloatOrZero('') is reliably 0.
                 "has_busy_expr": parse_expr(
-                    "toFloatOrZero({busy}) > 0", placeholders={"busy": _str_attr_field(_BUSY_KEY)}
+                    "toFloatOrZero({busy}) > 0", placeholders={"busy": str_attr_field(_BUSY_KEY)}
                 ),
                 "current_start": ast.Constant(value=current_start),
                 "inner_where": inner_where,

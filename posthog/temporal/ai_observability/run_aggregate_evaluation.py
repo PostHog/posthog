@@ -138,6 +138,7 @@ def check_trace_settled_activity(inputs: CheckTraceSettledInputs) -> str:
         },
         team=team,
         query_type="TraceSettlePoll",
+        posthog_tables_only=True,
         fall_back_to_events=False,
         workload=Workload.OFFLINE,
     )
@@ -218,6 +219,7 @@ def check_session_settled_activity(inputs: CheckSessionSettledInputs) -> str:
             },
             team=team,
             query_type="SessionSettlePoll",
+            posthog_tables_only=True,
             fall_back_to_events=False,
             workload=Workload.OFFLINE,
         )
@@ -321,6 +323,7 @@ def find_evaluation_quiet_point_activity(inputs: FindQuietPointInputs) -> str:
             },
             team=team,
             query_type="EvaluationBackfillQuietPoint",
+            posthog_tables_only=True,
             fall_back_to_events=False,
             workload=Workload.OFFLINE,
         )
@@ -597,12 +600,13 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
         # bail out instead of running against config the user just turned off.
         if evaluation["deleted"] or not evaluation["enabled"]:
             disabled_result: WorkflowResult = {
-                "verdict": None,
                 "skipped": True,
                 "skip_reason": "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
                 "evaluation_id": inputs.evaluation_id,
                 "evaluation_type": evaluation_type,
             }
+            if evaluation.get("output_type") not in ("numeric", "categorical"):
+                disabled_result["verdict"] = None
             return disabled_result
 
         if is_session and inputs.ai_session_id is not None:
@@ -709,13 +713,18 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
             )
 
         workflow_result: WorkflowResult = {
-            "verdict": result["verdict"],
             "reasoning": result["reasoning"],
             "evaluation_id": evaluation["id"],
             "evaluation_type": evaluation_type,
             "is_byok": result.get("is_byok", False),
             "skipped": result.get("skipped", False),
         }
+        if "verdict" in result:
+            workflow_result["verdict"] = result["verdict"]
+        if "score" in result:
+            workflow_result["score"] = result["score"]
+        if "categories" in result:
+            workflow_result["categories"] = result["categories"]
         if result.get("skipped"):
             skip_reason = result.get("skip_reason")
             if skip_reason is not None:

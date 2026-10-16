@@ -14,7 +14,7 @@ import type {
 
 import { nextRunAt } from '../../../utils/scoutGroups'
 import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
-import { ScoutLifecycleBadge } from './ScoutBadges'
+import { ScoutDeprecationBadge, ScoutLifecycleBadge } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
@@ -61,6 +61,7 @@ export function ScoutSummaryRow({
                         </LemonTag>
                     )}
                     <ScoutLifecycleBadge config={config} />
+                    <ScoutDeprecationBadge config={config} />
                 </div>
                 <span className="text-[11px] text-muted">
                     <ScoutCadenceLabel config={config} />

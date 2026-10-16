@@ -1,6 +1,6 @@
-import { harnessLogo } from './harnessRegistry'
+import { BrandMark } from '../components/BrandMark'
+import { harnessMark } from './harnessRegistry'
 
-// A single harness logo (or a neutral dot when no logo is known for the category).
 export function HarnessLogo({
     category,
     className = 'h-4 w-4',
@@ -8,11 +8,7 @@ export function HarnessLogo({
     category: string
     className?: string
 }): JSX.Element {
-    const logo = harnessLogo(category)
-    if (logo) {
-        return <img src={logo.src} alt={category} title={category} className={`${className} shrink-0 object-contain`} />
-    }
-    return <span title={category} className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-secondary" aria-hidden />
+    return <BrandMark name={harnessMark(category)} className={className} />
 }
 
 export function HarnessPill({ category, title }: { category: string; title?: string }): JSX.Element {

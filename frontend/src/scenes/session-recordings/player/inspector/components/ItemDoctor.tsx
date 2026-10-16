@@ -21,6 +21,7 @@ export function ItemDoctorDetail({ item }: ItemDoctorProps): JSX.Element {
             {['posthog config', 'session options'].includes(item.tag) ? (
                 <div className="px-2 py-1 text-xs border-t flex justify-end">
                     <CopyToClipboardInline
+                        data-attr="inspector-doctor-copy"
                         explicitValue={JSON.stringify(item.data, null, 2)}
                         iconSize="xsmall"
                         iconPosition="end"

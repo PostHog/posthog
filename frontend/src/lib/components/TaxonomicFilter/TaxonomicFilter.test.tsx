@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -6,8 +8,10 @@ import { Provider, getContext } from 'kea'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import * as featureFlagLogicModule from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo } from '~/mocks/utils'
 import { actionsModel } from '~/models/actionsModel'
@@ -43,6 +47,20 @@ jest.mock('lib/components/AutoSizer', () => ({
         return <div ref={ref}>{renderProp({ height: visible ? 400 : 0, width: visible ? 400 : 0 })}</div>
     },
 }))
+
+function setFlagEvaluationsMode(mode: FlagEvaluationsModeEnumApi): void {
+    teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+}
+
+const ANNOUNCEMENT_URL = 'https://example.com/announcement'
+
+function setMoveNotices(enabled: boolean, url: string | null): void {
+    featureFlagLogicModule.featureFlagLogic.mount()
+    featureFlagLogicModule.featureFlagLogic.actions.setFeatureFlags([], {
+        [FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES]: enabled,
+    })
+    jest.spyOn(featureFlagLogicModule, 'getFeatureFlagPayload').mockReturnValue({ url })
+}
 
 describe('TaxonomicFilter', () => {
     let onChangeMock: jest.Mock
@@ -107,6 +125,36 @@ describe('TaxonomicFilter', () => {
             </Provider>
         )
     }
+
+    it.each(['mouse', 'keyboard'] as const)(
+        'selects a custom event name with neutral copy using the %s',
+        async (input) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => [200, { results: [], count: 0 }],
+                },
+            })
+            taxonomicFilterCategoryLayoutLogic.actions.setCategoryRailPinned(input === 'keyboard')
+            renderFilter({ allowNonCapturedEvents: true })
+            await withoutDebounceDelay(async (user) => {
+                await user.type(screen.getByTestId('taxonomic-filter-searchfield'), 'purchase_confirmed')
+            })
+
+            const option = await screen.findByTestId('prop-filter-event-option-custom')
+            expect(option).toHaveTextContent(/Use event name:\s*purchase_confirmed/)
+            expect(screen.queryByText('Not seen yet')).not.toBeInTheDocument()
+            if (input === 'mouse') {
+                await userEvent.click(option)
+            } else {
+                fireEvent.keyDown(screen.getByTestId('taxonomic-filter-searchfield'), { key: 'Enter' })
+            }
+            expect(onChangeMock).toHaveBeenCalledWith(
+                expect.objectContaining({ type: TaxonomicFilterGroupType.Events }),
+                'purchase_confirmed',
+                expect.objectContaining({ name: 'purchase_confirmed', isNonCaptured: true })
+            )
+        }
+    )
 
     function expectActiveTab(activeTestId: string, inactiveTestId?: string): void {
         expect(screen.getByTestId(activeTestId)).toHaveClass('LemonTag--primary')
@@ -210,6 +258,27 @@ describe('TaxonomicFilter', () => {
     }
 
     describe('rendering', () => {
+        it('does not tag the $pageview primary property as "Not seen" in Suggested filters', async () => {
+            // Real timers: this scenario includes SuggestedFilters, whose reveal-barrier state
+            // doesn't survive the fake->real timer switch withoutDebounceDelay performs. See
+            // the "collapses URLs" test in this describe for the same pattern.
+            renderFilter({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.Events,
+                ],
+                eventNames: ['$pageview'],
+            })
+
+            // $pageview's taxonomy primary property ($pathname) is promoted into Suggested
+            // filters as a synthesized row with no per-event seen flag, so it must not be
+            // tagged "Not seen" even though it fires on $pageview.
+            const firstRow = await waitFor(() => screen.getByTestId('prop-filter-suggested_filters-0'))
+            expect(firstRow).toHaveTextContent('Path name')
+            expect(firstRow).not.toHaveTextContent('Not seen')
+        })
+
         it('renders search input and loads results from the API', async () => {
             renderFilter()
 
@@ -413,7 +482,7 @@ describe('TaxonomicFilter', () => {
             await userEvent.click(screen.getByTestId(testId))
         }
 
-        it('offers a button to jump to the all section when another group has matches', async () => {
+        it('offers jumps to the matching group and to the all section when another group has matches', async () => {
             renderFilter({
                 taxonomicGroupTypes: [
                     TaxonomicFilterGroupType.SuggestedFilters,
@@ -437,6 +506,10 @@ describe('TaxonomicFilter', () => {
                 expect(switchButton).toBeTruthy()
             })
             expect(switchButton).toHaveTextContent(/See results from other categories/i)
+            // The named jump says where the match is, so it shows too, above the "all" fallback.
+            const eventsButton = inVisibleTab(screen.getAllByTestId('taxonomic-switch-to-events'))
+            expect(eventsButton).toHaveTextContent(/See results in Events/i)
+            expect(eventsButton!.compareDocumentPosition(switchButton!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
 
             await userEvent.click(switchButton!)
 
@@ -493,34 +566,37 @@ describe('TaxonomicFilter', () => {
         // reporting "no results" tells someone who knows the event exists that it never did.
         // The rebuild's half of this lives in menu/Combobox.test.tsx.
         describe('an event hidden because its data is moving', () => {
-            let unmountFeatureFlagLogic: (() => void) | null = null
-
             beforeEach(() => {
-                unmountFeatureFlagLogic = featureFlagLogic.mount()
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS], {
-                    [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true,
-                })
+                setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
             })
 
             afterEach(() => {
-                featureFlagLogic.actions.setFeatureFlags([], {})
-                unmountFeatureFlagLogic?.()
-                unmountFeatureFlagLogic = null
+                jest.restoreAllMocks()
             })
 
-            it('explains the absence instead of reporting no results', async () => {
-                renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events] })
+            it.each([
+                ['links the announcement', true, ANNOUNCEMENT_URL, ANNOUNCEMENT_URL],
+                ['has no link while the announcement has no URL', true, null, undefined],
+                ['has no link while the move notices are off', false, ANNOUNCEMENT_URL, undefined],
+            ])(
+                'explains the absence instead of reporting no results, and %s',
+                async (_label, moveNoticesOn, url, expectedHref) => {
+                    setMoveNotices(moveNoticesOn, url)
+                    renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events] })
 
-                await activateGroupWithResults('taxonomic-tab-events')
-                await withoutDebounceDelay((user) =>
-                    user.type(screen.getByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
-                )
+                    await activateGroupWithResults('taxonomic-tab-events')
+                    await withoutDebounceDelay((user) =>
+                        user.type(screen.getByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
+                    )
 
-                await waitFor(() => {
-                    expect(inVisibleTab(screen.getAllByTestId('taxonomic-hidden-event'))).toBeTruthy()
-                })
-                expect(screen.queryByText(/No results for/)).not.toBeInTheDocument()
-            })
+                    await waitFor(() => {
+                        expect(inVisibleTab(screen.getAllByTestId('taxonomic-hidden-event'))).toBeTruthy()
+                    })
+                    expect(screen.queryByText(/No results for/)).not.toBeInTheDocument()
+                    const link = inVisibleTab(screen.queryAllByTestId('taxonomic-hidden-event-announcement'))
+                    expect(link?.getAttribute('href')).toBe(expectedHref)
+                }
+            )
 
             // The aggregated tab's own group carries no exclusions, so reading the active list's
             // group instead of the Events group leaves this arm silent.
@@ -541,8 +617,8 @@ describe('TaxonomicFilter', () => {
                 })
             })
 
-            it('reports no results as usual once the kill switch is off', async () => {
-                featureFlagLogic.actions.setFeatureFlags([], {})
+            it('reports no results as usual for a team on the Events mode', async () => {
+                setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number0)
                 renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events] })
 
                 await activateGroupWithResults('taxonomic-tab-events')
@@ -556,9 +632,8 @@ describe('TaxonomicFilter', () => {
                 expect(screen.queryByTestId('taxonomic-hidden-event')).not.toBeInTheDocument()
             })
 
-            // A picker on a live-event surface (the survey and product-tour event triggers, live
-            // events, ingestion triggers) opts in with `includeHiddenEvents`, so the flag must not
-            // hide the event or explain an absence there.
+            // Live-event surfaces (the survey and product-tour event triggers, live events, ingestion
+            // triggers) opt in with `includeHiddenEvents`.
             it('keeps offering the event when the picker opts in', async () => {
                 renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events], includeHiddenEvents: true })
 
@@ -1284,11 +1359,11 @@ describe('TaxonomicFilter', () => {
             })
 
             const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            await withoutDebounceDelay((fakeTimerUser) => fakeTimerUser.type(searchInput, 'pricing'))
+            await withoutDebounceDelay((fakeTimerUser) => fakeTimerUser.type(searchInput, '/pricing'))
 
             const firstRow = await waitFor(() => screen.getByTestId('prop-filter-pageview_urls-0'))
             // The two matching URLs collapse into one row, which is the contains shortcut.
-            expect(firstRow.querySelector('[data-attr="taxonomic-shortcut-pricing-property"]')).not.toBeNull()
+            expect(firstRow.querySelector('[data-attr="taxonomic-shortcut-/pricing-property"]')).not.toBeNull()
             expect(screen.queryByTestId('prop-filter-pageview_urls-1')).not.toBeInTheDocument()
         })
 
@@ -1301,10 +1376,10 @@ describe('TaxonomicFilter', () => {
             })
 
             const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            await withoutDebounceDelay((fakeTimerUser) => fakeTimerUser.type(searchInput, 'pricing'))
+            await withoutDebounceDelay((fakeTimerUser) => fakeTimerUser.type(searchInput, '/pricing'))
 
             const row = await waitFor(() => {
-                const el = document.querySelector('[data-attr="taxonomic-shortcut-pricing-property"]')
+                const el = document.querySelector('[data-attr="taxonomic-shortcut-/pricing-property"]')
                 expect(el).not.toBeNull()
                 return el as HTMLElement
             })
@@ -1312,12 +1387,12 @@ describe('TaxonomicFilter', () => {
 
             expect(onChangeMock).toHaveBeenCalledWith(
                 expect.objectContaining({ type: TaxonomicFilterGroupType.PageviewUrls }),
-                'pricing',
+                '/pricing',
                 expect.objectContaining({
                     _type: 'quick_filter',
                     propertyKey: '$current_url',
                     operator: PropertyOperator.IContains,
-                    filterValue: 'pricing',
+                    filterValue: '/pricing',
                     propertyFilterType: PropertyFilterType.Event,
                     // Tagged so commit telemetry can distinguish the URL-contains shortcut
                     // from keyword shortcuts (parity with the rebuild's wasUrlContainsShortcut).
@@ -1336,7 +1411,7 @@ describe('TaxonomicFilter', () => {
             useMockPageviewUrls(['https://example.com/pricing', 'https://example.com/pricing/teams'])
             renderFilter({
                 // Two substantive groups so the aggregated "All" tab survives (a single
-                // substantive group drops it); Events has no 'pricing' match so the URL
+                // substantive group drops it); Events has no '/pricing' match so the URL
                 // shortcut is still the only aggregated row.
                 taxonomicGroupTypes: [
                     TaxonomicFilterGroupType.SuggestedFilters,
@@ -1347,12 +1422,12 @@ describe('TaxonomicFilter', () => {
             })
 
             const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            await user.type(searchInput, 'pricing')
+            await user.type(searchInput, '/pricing')
 
             // The Suggested filters tab is the default and aggregates each group's top matches —
             // the URL group must contribute the single shortcut there, not raw URLs.
             const firstRow = await waitFor(() => screen.getByTestId('prop-filter-suggested_filters-0'))
-            expect(firstRow.querySelector('[data-attr="taxonomic-shortcut-pricing-property"]')).not.toBeNull()
+            expect(firstRow.querySelector('[data-attr="taxonomic-shortcut-/pricing-property"]')).not.toBeNull()
             expect(screen.queryByTestId('prop-filter-suggested_filters-1')).not.toBeInTheDocument()
         })
 
@@ -1394,12 +1469,12 @@ describe('TaxonomicFilter', () => {
             // A query unique to this test, so this stays sound even if the `apiCache` reset in
             // beforeEach ever goes away — a cached non-empty response under the same URL would
             // make the negative assertions below pass for the wrong reason.
-            await withoutDebounceDelay((user) => user.type(searchInput, 'nomatchquery'))
+            await withoutDebounceDelay((user) => user.type(searchInput, '/nomatchquery'))
 
             await waitFor(() => expect(valuesFetched).toBe(true))
             await waitFor(() => {
-                expect(screen.queryByText('URL contains "nomatchquery"')).not.toBeInTheDocument()
-                expect(document.querySelector('[data-attr="taxonomic-shortcut-nomatchquery-property"]')).toBeNull()
+                expect(screen.queryByText('URL contains "/nomatchquery"')).not.toBeInTheDocument()
+                expect(document.querySelector('[data-attr="taxonomic-shortcut-/nomatchquery-property"]')).toBeNull()
             })
         })
     })
@@ -1711,6 +1786,29 @@ describe('TaxonomicFilter', () => {
                 parseInt(deploymentIdx.split('-').pop() as string)
             )
         })
+    })
+
+    it('sends endpoint filters with the remote attribute request', async () => {
+        const requests: URLSearchParams[] = []
+        const captureRequest = (info: MockResolverInfo): [number, unknown] => {
+            requests.push(new URL(info.request.url).searchParams)
+            return [200, { results: [], count: 0 }]
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team/metrics/attributes': captureRequest,
+                '/api/environments/:team/metrics/attributes': captureRequest,
+            },
+        })
+
+        renderFilter({
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.MetricAttributes],
+            endpointFilters: { metricName: 'http_requests', dateFrom: '2026-01-01T00:00:00Z' },
+        })
+
+        await waitFor(() => expect(requests.length).toBeGreaterThan(0))
+        expect(requests[0].get('metricName')).toBe('http_requests')
+        expect(requests[0].get('dateFrom')).toBe('2026-01-01T00:00:00Z')
     })
 
     describe('excludedOperators', () => {

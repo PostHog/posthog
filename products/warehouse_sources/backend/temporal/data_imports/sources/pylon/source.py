@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PylonSource(ResumableSource[PylonSourceConfig, PylonResumeConfig]):
+    codebase_detection = detect(env=("^PYLON_",), script_hosts=("widget.usepylon.com", "widget.eu.usepylon.com"))
+
     api_docs_url = "https://docs.usepylon.com"
 
     @property
@@ -46,7 +49,7 @@ class PylonSource(ResumableSource[PylonSourceConfig, PylonResumeConfig]):
             name=ExternalDataSourceType.PYLON,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Pylon",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Pylon API token to pull your Pylon support data into the PostHog Data warehouse.
 
 You can create an API token from your Pylon dashboard under **Settings > API tokens** (admin only). US and EU workspaces are detected from the token, so there is no region to pick.""",

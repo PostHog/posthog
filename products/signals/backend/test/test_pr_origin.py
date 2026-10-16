@@ -192,7 +192,7 @@ class TestPullRequestOrigin(BaseTest):
             ).render()
 
         project = f"/project/{self.team.id}"
-        assert f"[issue 1](http://localhost:8010{project}/error_tracking/01a0a561-54a4)" in section
+        assert f"[issue 1](http://localhost:8010{project}/error-tracking/01a0a561-54a4)" in section
         assert "settings?x=1" not in section
         assert "run:1:finding:2" not in section
         assert "- Scout: `signals-scout-error-tracking`" in section
@@ -232,9 +232,7 @@ class TestPullRequestOrigin(BaseTest):
                 "first_for_team_repository",
                 return_value=GitHubIntegration.__new__(GitHubIntegration),
             ),
-            patch.object(
-                GitHubIntegration, "get_pull_request", return_value={"success": True, "body": "", "etag": "e"}
-            ),
+            patch.object(GitHubIntegration, "get_pull_request", return_value={"success": True, "body": ""}),
             patch.object(GitHubIntegration, "update_pull_request_body", return_value={"success": True}) as update,
         ):
             outcome = write_origin_section(

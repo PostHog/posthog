@@ -19,7 +19,7 @@ from ..facade.contracts import CreateRunInput
 from ..facade.enums import RunStatus, SnapshotResult
 from ..models import Repo, Run, RunSnapshot, ToleratedHash
 from ..storage import ArtifactStorage
-from . import artifact_store, baselines, ci_status, errors, gating, repos, run_queries, uploads
+from . import artifact_store, baselines, ci_status, errors, gating, quarantine_lifts, repos, run_queries, uploads
 
 logger = structlog.get_logger(__name__)
 
@@ -209,6 +209,21 @@ def mark_run_processing(run_id: UUID) -> Run:
     return run
 
 
+def record_completing_job(run_id: UUID, check_run_id: str) -> None:
+    """Point recompute's CI rerun at the job that completes the run.
+
+    `run create` records the job that captures the snapshots. GitHub re-runs a job
+    together with every job that depends on it, so a rerun of that job captures every
+    snapshot again and creates a new run. The completing job only reads the server
+    verdict, and the required check depends on it. It runs on every complete call, also
+    on a completed run, because a re-run of the completing job has a new job ID.
+    """
+    with transaction.atomic(using=WRITER_DB):
+        run = Run.objects.using(WRITER_DB).select_for_update().get(id=run_id)
+        run.metadata["github_check_run_id"] = check_run_id
+        run.save(using=WRITER_DB, update_fields=["metadata"])
+
+
 def complete_run(run_id: UUID) -> Run:
     """
     Complete a run: detect removals, classify snapshots, hand off to the diff task.
@@ -258,6 +273,13 @@ def complete_run(run_id: UUID) -> Run:
         # Roll back to PENDING so the caller can retry after the limit resets
         Run.objects.filter(id=run_id).update(status=RunStatus.PENDING)
         raise
+    except errors.BaselineEntriesLostError as e:
+        from ..tasks.tasks import emit_run_processing_metrics  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+        logger.warning("visual_review.baseline_entries_lost", run_id=str(run_id), count=len(e.identifiers))
+        finish_processing(run_id, error_message=str(e))
+        emit_run_processing_metrics.delay(run.team_id, str(run_id), "baseline_entries_lost", 0)
+        return run_queries.get_run(run_id)
     if healed_count:
         run.metadata["baseline_healed_from_merge_base"] = healed_count
         run.save(using=WRITER_DB, update_fields=["metadata"])
@@ -373,8 +395,28 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     run.save(update_fields=["status", "error_message", "completed_at", *gating.COUNT_FIELDS])
 
     gating._post_status(run, snapshots)
+    _enqueue_quarantine_lift_check(run)
 
     return run
+
+
+def _enqueue_quarantine_lift_check(run: Run) -> None:
+    """Hand a completed full run to the task that applies pending lift requests.
+
+    Only a run without a pull request can prove a merge landed, and only a full run renders every
+    story. The task decides whether the run is on the default branch, because that needs GitHub.
+    A failure here must never fail the run: the next default-branch run checks again.
+    """
+    if run.is_partial or run.pr_number is not None:
+        return
+    try:
+        if not quarantine_lifts.has_pending_lift_requests(run.repo_id, run.team_id, run.run_type):
+            return
+        from ..tasks.tasks import reconcile_quarantine_lifts  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+        reconcile_quarantine_lifts.delay(run.team_id, str(run.id))
+    except Exception:
+        logger.warning("visual_review.quarantine_lift_enqueue_failed", run_id=str(run.id), exc_info=True)
 
 
 def capture_run_processing_metrics(run_id: UUID, *, outcome: str, diffed_count: int) -> None:

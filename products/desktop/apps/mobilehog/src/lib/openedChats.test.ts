@@ -1,0 +1,132 @@
+import type { Task } from "@posthog/shared/domain-types";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => {
+  const stores = new Map<string, Map<string, string>>();
+  const session = {
+    region: "us",
+    host: "https://us.posthog.com",
+    apiKey: "key",
+    projectId: 1,
+    projectName: "Project",
+    userId: 7,
+    userName: "Max",
+  };
+  const auth = { session: session as typeof session | null };
+
+  // One store per account, like accountStore in cache.ts.
+  function accountStore({ host, userId }: { host: string; userId: number }) {
+    const id = `${host}-${userId}`;
+    let data = stores.get(id);
+    if (!data) {
+      data = new Map();
+      stores.set(id, data);
+    }
+    const values = data;
+    return {
+      getString: (key: string) => values.get(key),
+      set: (key: string, value: string) => values.set(key, value),
+    };
+  }
+
+  return { accountStore, auth, session, stores };
+});
+
+vi.mock("@/lib/cache", () => ({ accountStore: mocks.accountStore }));
+vi.mock("@/lib/auth", () => ({
+  useAuth: { getState: () => mocks.auth },
+}));
+
+import { lastOpened, loadOpened, recordOpened } from "./openedChats";
+
+function task(id: string): Task {
+  return { id } as Task;
+}
+
+beforeEach(() => {
+  mocks.stores.clear();
+  mocks.auth.session = { ...mocks.session };
+});
+
+describe("opened chats", () => {
+  it("keeps the most recently opened first without duplicates", () => {
+    recordOpened("a");
+    recordOpened("b");
+    recordOpened("a");
+
+    expect(loadOpened()).toEqual(["a", "b"]);
+  });
+
+  it("keeps each project and account separate", () => {
+    recordOpened("a");
+    mocks.auth.session = { ...mocks.session, projectId: 2 };
+    recordOpened("b");
+    mocks.auth.session = { ...mocks.session, userId: 8 };
+    recordOpened("c");
+
+    expect(loadOpened()).toEqual(["c"]);
+    mocks.auth.session = { ...mocks.session, projectId: 2 };
+    expect(loadOpened()).toEqual(["b"]);
+    mocks.auth.session = { ...mocks.session };
+    expect(loadOpened()).toEqual(["a"]);
+  });
+
+  it("drops the oldest past the limit", () => {
+    for (let index = 0; index < 60; index++) recordOpened(`task-${index}`);
+
+    const opened = loadOpened();
+    expect(opened).toHaveLength(50);
+    expect(opened[0]).toBe("task-59");
+    expect(opened).not.toContain("task-9");
+  });
+
+  it("does nothing while signed out", () => {
+    mocks.auth.session = null;
+    recordOpened("a");
+    mocks.auth.session = { ...mocks.session };
+
+    expect(loadOpened()).toEqual([]);
+  });
+});
+
+describe("lastOpened", () => {
+  const recent = ["r1", "r2", "r3", "r4"].map(task);
+
+  it.each([
+    {
+      name: "fills with recent tasks after the opened ones",
+      opened: ["r3"],
+      limit: 3,
+      expected: ["r3", "r1", "r2"],
+    },
+    {
+      name: "skips opened ids whose task is gone",
+      opened: ["deleted", "r4"],
+      limit: 2,
+      expected: ["r4", "r1"],
+    },
+    {
+      name: "stops at the limit",
+      opened: ["r4", "r3", "r2"],
+      limit: 2,
+      expected: ["r4", "r3"],
+    },
+    {
+      name: "shows recent tasks when nothing was opened",
+      opened: [],
+      limit: 8,
+      expected: ["r1", "r2", "r3", "r4"],
+    },
+    {
+      name: "finds an opened task outside the recent page",
+      opened: ["old", "r2"],
+      known: ["old"],
+      limit: 3,
+      expected: ["old", "r2", "r1"],
+    },
+  ])("$name", ({ opened, known = [], limit, expected }) => {
+    expect(
+      lastOpened(opened, recent, known.map(task), limit).map(({ id }) => id),
+    ).toEqual(expected);
+  });
+});

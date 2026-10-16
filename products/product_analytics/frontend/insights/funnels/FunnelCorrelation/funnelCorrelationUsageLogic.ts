@@ -129,7 +129,7 @@ export interface funnelCorrelationUsageLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | null
-            | undefined,
+            | import('~/queries/schema').TraceSpansTreeQueryResponse,
         payload?:
             | {
                   overrideQuery: DataNode<Record<string, any>> | undefined
@@ -160,7 +160,7 @@ export interface funnelCorrelationUsageLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | null
-            | undefined
+            | import('~/queries/schema').TraceSpansTreeQueryResponse
     } // insightVizDataLogic
 }
 

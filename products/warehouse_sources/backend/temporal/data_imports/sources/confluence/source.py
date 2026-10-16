@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ConfluenceSource(ResumableSource[ConfluenceSourceConfig, ConfluenceResumeConfig]):
+    codebase_detection = detect(env=("^CONFLUENCE_",), npm=("confluence.js",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v2",)
@@ -57,7 +60,7 @@ class ConfluenceSource(ResumableSource[ConfluenceSourceConfig, ConfluenceResumeC
             name=ExternalDataSourceType.CONFLUENCE,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Confluence",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Atlassian Confluence Cloud credentials to pull your Confluence content into the PostHog Data warehouse.
 
 Create an API token from your [Atlassian account settings](https://id.atlassian.com/manage-profile/security/api-tokens), then connect using the email address tied to that account.

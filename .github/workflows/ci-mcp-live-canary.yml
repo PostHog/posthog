@@ -1,0 +1,75 @@
+# Canary for the upstream artifacts the MCP server downloads at runtime.
+#
+# The MCP unit and integration suites never reach a third party, so a slow or broken GitHub
+# release cannot fail the required `MCP Tests Pass` check. This workflow is the safety net:
+# it runs services/mcp/tests/live against the real context-mill release on a schedule, and
+# posts to Slack when the test itself fails. It is not a required check and is not in the
+# master-red alerter's lanes.
+
+name: MCP live canary
+
+on:
+    schedule:
+        - cron: '37 */6 * * *'
+    workflow_dispatch:
+    pull_request:
+        paths:
+            - '.github/workflows/ci-mcp-live-canary.yml'
+            - 'services/mcp/vitest.live.config.mts'
+            - 'services/mcp/tests/live/**'
+            - 'services/mcp/src/resources/internals.ts'
+            - 'services/mcp/src/resources/manifest-loader.ts'
+            - 'services/mcp/src/resources/manifest-types.ts'
+
+env:
+    SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    canary:
+        name: Live context-mill manifest
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/mcp... install --frozen-lockfile
+
+            - name: Run live tests
+              id: live
+              run: pnpm --filter=@posthog/mcp run test:live
+
+            # Only the live test failing means the upstream artifact is unreachable or no longer
+            # parses. Checkout and install failures are CI noise, so they do not post. A PR run
+            # has an author watching it, so only unattended runs post.
+            - name: Notify Slack on canary failure
+              if: failure() && steps.live.outcome == 'failure' && github.event_name == 'schedule'
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: ":red_circle: MCP live canary failed: the context-mill release may be unreachable or invalid"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":red_circle: *MCP live canary failed*. The latest context-mill release could not be downloaded or did not parse. The MCP server loads its skills resources from this release. Owner: team-context-mcp."
+                        - type: "actions"
+                          elements:
+                            - type: "button"
+                              text:
+                                type: "plain_text"
+                                text: "View run"
+                              url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

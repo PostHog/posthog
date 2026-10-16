@@ -1,5 +1,5 @@
 import { PRTimelineApi, PRTimelineSegmentKindEnumApi as Kind } from '../generated/api.schemas'
-import { axisDays, groupTimelines, redTimeByCause } from './pullRequestDayView'
+import { axisDays, groupTimelines } from './pullRequestDayView'
 
 const HOUR = 3600 * 1000
 const T0 = Date.parse('2026-07-01T10:00:00Z')
@@ -84,24 +84,5 @@ describe('pullRequestDayView', () => {
     ] as const)('%s', (_name, alignment, lengths, expectedDays) => {
         const items = lengths.map((length, index) => pr(index, [[Kind.CiRunning, 0, length]], { merged: true }))
         expect(axisDays(items, alignment)).toBe(expectedDays)
-    })
-
-    it('averages red time by cause over merged pull requests only', () => {
-        const red = redTimeByCause([
-            pr(
-                1,
-                [
-                    [Kind.CiRunning, 0, 1],
-                    [Kind.RedPassedOnRerun, 1, 3],
-                ],
-                { merged: true }
-            ),
-            pr(2, [[Kind.WaitingForReview, 0, 4]], { merged: true }),
-            pr(3, [[Kind.RedNotProvable, 0, 50]]),
-        ])
-
-        expect(red.mergedCount).toBe(2)
-        expect(red.totalSecondsPerMergedPr).toBe(3600)
-        expect(red.secondsPerMergedPr.find((entry) => entry.kind === Kind.RedPassedOnRerun)?.seconds).toBe(3600)
     })
 })

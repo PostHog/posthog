@@ -241,6 +241,7 @@ export const annotationsModel = kea<annotationsModelType>([
         loadAnnotationsNext: async () => {
             let results: RawAnnotationType[] = []
             if (values.next) {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 const response = await api.get(values.next)
                 actions.setNext(response.next)
                 results = response.results

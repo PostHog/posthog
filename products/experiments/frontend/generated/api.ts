@@ -19,11 +19,14 @@ import type {
     ExperimentApi,
     ExperimentFlagCleanupTargetApi,
     ExperimentFlagCleanupTaskApi,
+    ExperimentHealthApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
     ExperimentInSessionExposureApi,
     ExperimentMatchingIdsResponseApi,
-    ExperimentMetricsRecalculationApi,
+    ExperimentMetricsRecalculationJobApi,
+    ExperimentMetricsRecalculationLatestApi,
+    ExperimentMetricsRecalculationRunApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
     ExperimentSessionBucketRequestApi,
@@ -689,6 +692,35 @@ export const experimentsFreezeExposureCreate = async (
     })
 }
 
+export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/health/`
+}
+
+/**
+ * Health check findings for this experiment: problems in its configuration and its feature flag
+ * that keep it from producing trustworthy results, each with a fix.
+ *
+ * The checks here read the experiment, its flag, its linked metrics, and the changes of the
+ * flag's variant split since launch. The checks that read exposure counts come with the
+ * exposure query. The split-change check compares the split changes with the exposures only
+ * for exposure criteria that name an event without property filters. When the split changed
+ * after launch and the criteria have filters or an action, or an API key lacks `query:read`,
+ * it returns an info finding with the subcode `not_checked` and the cause in
+ * `evidence.reason`. A caller who can't view the linked flag's history (viewer access to the
+ * flag and, with an API key, `activity_log:read`) gets that finding for every running
+ * experiment, because the changes are not read.
+ */
+export const experimentsHealthRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentHealthApi> => {
+    return apiMutator<ExperimentHealthApi>(getExperimentsHealthRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExperimentsInSessionExposureRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/in_session_exposure/`
 }
@@ -743,7 +775,8 @@ export const getExperimentsMetricsRecalculationCreateUrl = (projectId: string, i
  * Trigger a batch recalculation of all metrics for this experiment.
  *
  * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
- * already pending or in progress for this experiment. The response payload intentionally does not
+ * already pending or in progress for this experiment. A manual trigger within five minutes after the latest
+ * completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
  * include the `results` array — at POST time the workflow has just been queued and no per-metric
  * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
  * progresses.
@@ -753,13 +786,16 @@ export const experimentsMetricsRecalculationCreate = async (
     id: number,
     recalculateMetricsRequestApi?: RecalculateMetricsRequestApi,
     options?: RequestInit
-): Promise<ExperimentMetricsRecalculationApi> => {
-    return apiMutator<ExperimentMetricsRecalculationApi>(getExperimentsMetricsRecalculationCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(recalculateMetricsRequestApi),
-    })
+): Promise<ExperimentMetricsRecalculationJobApi> => {
+    return apiMutator<ExperimentMetricsRecalculationJobApi>(
+        getExperimentsMetricsRecalculationCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(recalculateMetricsRequestApi),
+        }
+    )
 }
 
 export const getExperimentsMetricsRecalculationRetrieveUrl = (
@@ -782,8 +818,8 @@ export const experimentsMetricsRecalculationRetrieve = async (
     id: number,
     recalculationId: string,
     options?: RequestInit
-): Promise<ExperimentMetricsRecalculationApi> => {
-    return apiMutator<ExperimentMetricsRecalculationApi>(
+): Promise<ExperimentMetricsRecalculationRunApi> => {
+    return apiMutator<ExperimentMetricsRecalculationRunApi>(
         getExperimentsMetricsRecalculationRetrieveUrl(projectId, id, recalculationId),
         {
             ...options,
@@ -807,14 +843,46 @@ export const experimentsMetricsRecalculationLatestRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<ExperimentMetricsRecalculationApi> => {
-    return apiMutator<ExperimentMetricsRecalculationApi>(
+): Promise<ExperimentMetricsRecalculationLatestApi> => {
+    return apiMutator<ExperimentMetricsRecalculationLatestApi>(
         getExperimentsMetricsRecalculationLatestRetrieveUrl(projectId, id),
         {
             ...options,
             method: 'GET',
         }
     )
+}
+
+export const getExperimentsMigrateCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/migrate/`
+}
+
+/**
+ * Move a legacy experiment onto the new experiments engine.
+ *
+ * Creates a new experiment with the same configuration and its metrics converted
+ * to the new format, and returns it. Legacy experiments no longer show results,
+ * so this is how to get results for one. The legacy experiment is left untouched,
+ * so the project ends up with two experiments. Both point at the same feature
+ * flag, so no new rollout is needed and users keep the variant they already have.
+ *
+ * Legacy shared metrics used by the experiment are converted as part of the same
+ * call. Each one gets a new shared metric, and the new experiment links to that.
+ *
+ * Calling this again returns the experiment created the first time instead of
+ * making another copy.
+ *
+ * Returns 400 if the experiment already uses the new engine.
+ */
+export const experimentsMigrateCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsMigrateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
 }
 
 export const getExperimentsPauseCreateUrl = (projectId: string, id: number) => {

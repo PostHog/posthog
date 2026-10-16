@@ -5,7 +5,7 @@ import {
   mergeMarqueeSelection,
   rowsInMarquee,
 } from "@posthog/core/sidebar/marquee";
-import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
+import { useScopedTaskSelectionStore } from "@posthog/ui/features/sidebar/TaskSelectionScope";
 import { type RefObject, useEffect, useState } from "react";
 
 /** Marks a row as a session the marquee can sweep up; the value is its task id. */
@@ -32,8 +32,10 @@ export interface MarqueeRect {
  */
 export function useMarqueeSelection(
   anchorRef: RefObject<HTMLElement | null>,
+  { startOnRows = false }: { startOnRows?: boolean } = {},
 ): MarqueeRect | null {
   const [rect, setRect] = useState<MarqueeRect | null>(null);
+  const selectionStore = useScopedTaskSelectionStore();
 
   useEffect(() => {
     const anchor = anchorRef.current;
@@ -55,9 +57,23 @@ export function useMarqueeSelection(
         return [{ id, top: box.top, bottom: box.bottom }];
       });
 
+    const swallowClick = (e: MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+    };
+
     const stop = () => {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", stop);
+      if (dragging) {
+        window.addEventListener("click", swallowClick, {
+          capture: true,
+          once: true,
+        });
+        window.setTimeout(() =>
+          window.removeEventListener("click", swallowClick, { capture: true }),
+        );
+      }
       origin = null;
       dragging = false;
       setRect(null);
@@ -79,7 +95,7 @@ export function useMarqueeSelection(
         top: span.top - anchorTop,
         height: span.bottom - span.top,
       });
-      useTaskSelectionStore
+      selectionStore
         .getState()
         .setSelectedTaskIds(
           mergeMarqueeSelection(
@@ -95,12 +111,12 @@ export function useMarqueeSelection(
       const target = e.target as Element | null;
       if (!target) return;
       const onRow = target.closest(ROW_SELECTOR);
-      if (onRow && !e.altKey) return;
+      if (onRow && !e.altKey && !startOnRows) return;
       if (!onRow && target.closest(CONTROL_SELECTOR)) return;
 
       origin = { x: e.clientX, y: e.clientY };
       additive = e.metaKey || e.ctrlKey;
-      baseSelection = useTaskSelectionStore.getState().selectedTaskIds;
+      baseSelection = selectionStore.getState().selectedTaskIds;
       dragging = false;
       window.addEventListener("pointermove", onPointerMove);
       window.addEventListener("pointerup", stop);
@@ -111,7 +127,7 @@ export function useMarqueeSelection(
       anchor.removeEventListener("pointerdown", onPointerDown);
       stop();
     };
-  }, [anchorRef]);
+  }, [anchorRef, selectionStore, startOnRows]);
 
   return rect;
 }

@@ -4794,7 +4794,7 @@ export const ErrorTrackingExternalReferencesCreateBody = () => zod
         config: zod
             .record(zod.string(), zod.string())
             .describe(
-                'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
+                'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}. Every kind also accepts an optional assignee key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID.'
             ),
         issue: zod.string().describe('ID of the error tracking issue to link the reference to.'),
     })
@@ -8091,7 +8091,7 @@ export const ErrorTrackingIssuesSplitCreateBody = () => zod.object({
 })
 
 /**
- * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline.
+ * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline and event breakdown.
  * @summary Get compact error tracking issue details
  */
 export const ErrorTrackingQueryIssueCreateParams = () => zod.object({
@@ -8108,6 +8108,7 @@ export const errorTrackingQueryIssueCreateBodyVolumeResolutionMin = 0
 export const errorTrackingQueryIssueCreateBodyVolumeResolutionMax = 200
 
 export const errorTrackingQueryIssueCreateBodyIncludeSparklineDefault = false
+export const errorTrackingQueryIssueCreateBodyIncludeBreakdownDefault = false
 
 export const ErrorTrackingQueryIssueCreateBody = () => zod.object({
     issueId: zod.string().describe('Error tracking issue ID.'),
@@ -8133,11 +8134,19 @@ export const ErrorTrackingQueryIssueCreateBody = () => zod.object({
         .min(errorTrackingQueryIssueCreateBodyVolumeResolutionMin)
         .max(errorTrackingQueryIssueCreateBodyVolumeResolutionMax)
         .default(errorTrackingQueryIssueCreateBodyVolumeResolutionDefault)
-        .describe('Volume buckets. Maximum 200.'),
+        .describe(
+            "Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, or to 12 when includeSparkline is true."
+        ),
     includeSparkline: zod
         .boolean()
         .default(errorTrackingQueryIssueCreateBodyIncludeSparklineDefault)
         .describe('Set true to include a compact numeric occurrence sparkline. Defaults to false.'),
+    includeBreakdown: zod
+        .boolean()
+        .default(errorTrackingQueryIssueCreateBodyIncludeBreakdownDefault)
+        .describe(
+            'Set true to include the issue page breakdowns: the most common paths (or URLs when events have no path), screens, browsers, OS, libraries, library versions, and app versions, each with a count, plus the sessions with the most events. Covers at most the last 30 days of dateRange. Adds one aggregate query, so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false.'
+        ),
 })
 
 /**
@@ -8347,7 +8356,7 @@ export const errorTrackingQueryIssuesListCreateBodyFilterGroupItemOperatorDefaul
 export const errorTrackingQueryIssuesListCreateBodyFilterGroupItemTypeDefault = `event`
 export const errorTrackingQueryIssuesListCreateBodyOrderByDefault = `occurrences`
 export const errorTrackingQueryIssuesListCreateBodyOrderDirectionDefault = `DESC`
-export const errorTrackingQueryIssuesListCreateBodyLimitDefault = 25
+export const errorTrackingQueryIssuesListCreateBodyLimitDefault = 10
 export const errorTrackingQueryIssuesListCreateBodyLimitMax = 100
 
 export const errorTrackingQueryIssuesListCreateBodyOffsetDefault = 0
@@ -8525,7 +8534,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = () => zod.object({
         .min(1)
         .max(errorTrackingQueryIssuesListCreateBodyLimitMax)
         .default(errorTrackingQueryIssuesListCreateBodyLimitDefault)
-        .describe('Page size.'),
+        .describe('Page size. Defaults to 10. Use nextOffset to fetch more rows instead of a large page.'),
     offset: zod
         .number()
         .min(errorTrackingQueryIssuesListCreateBodyOffsetMin)
@@ -8536,7 +8545,9 @@ export const ErrorTrackingQueryIssuesListCreateBody = () => zod.object({
         .min(errorTrackingQueryIssuesListCreateBodyVolumeResolutionMin)
         .max(errorTrackingQueryIssuesListCreateBodyVolumeResolutionMax)
         .default(errorTrackingQueryIssuesListCreateBodyVolumeResolutionDefault)
-        .describe('Number of volume buckets. Defaults to 0 for compact aggregate counts.'),
+        .describe(
+            "Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, which returns only aggregate counts without volume buckets."
+        ),
     library: zod
         .union([zod.string(), zod.array(zod.string()).min(1)])
         .optional()

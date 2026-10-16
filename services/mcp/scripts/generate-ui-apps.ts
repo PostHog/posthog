@@ -122,6 +122,7 @@ function resolveCustomApp(raw: Extract<UiAppConfig, { type: 'custom' }>): Resolv
         type: 'custom',
         app_name: raw.app_name,
         description: raw.description,
+        ...(raw.resource_domains ? { resource_domains: raw.resource_domains } : {}),
         ...(raw.render_ui ? { render_ui: raw.render_ui } : {}),
     }
 }
@@ -341,6 +342,7 @@ interface RegistryEntry {
     uri: string
     name: string
     description: string
+    resourceDomains?: string[]
 }
 
 function toConstName(appKey: string): string {
@@ -361,7 +363,7 @@ function generateRegistry(entries: RegistryEntry[], dispatchableKeys: string[]):
     const appEntries = entries
         .map(
             (e) =>
-                `    {\n        name: '${e.name}',\n        uri: ${e.constName},\n        description: '${e.description}',\n        appDir: '${e.appDir}',\n    }`
+                `    {\n        name: '${e.name}',\n        uri: ${e.constName},\n        description: '${e.description}',\n        appDir: '${e.appDir}',${e.resourceDomains ? `\n        resourceDomains: ${JSON.stringify(e.resourceDomains)},` : ''}\n    }`
         )
         .join(',\n')
 
@@ -392,6 +394,7 @@ export const UI_APPS: Array<{
     uri: string
     description: string
     appDir: string
+    resourceDomains?: string[]
 }> = [
 ${appEntries},
 ]
@@ -519,6 +522,7 @@ function main(): void {
                     uri,
                     name: appConfig.app_name,
                     description: appConfig.description,
+                    resourceDomains: resolved.resource_domains,
                 })
             }
         }

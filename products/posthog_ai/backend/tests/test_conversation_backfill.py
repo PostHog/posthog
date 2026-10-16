@@ -29,8 +29,10 @@ class TestListCandidates(APIBaseTest):
         fields.update(overrides)
         return Conversation.objects.create(**fields)
 
-    def _page(self, start_after: str | None = None, limit: int = 10) -> ListCandidatesOutput:
-        return list_candidates(ListCandidatesInputs(start_after=start_after, limit=limit))
+    def _page(
+        self, start_after: str | None = None, limit: int = 10, end_before: str | None = None
+    ) -> ListCandidatesOutput:
+        return list_candidates(ListCandidatesInputs(start_after=start_after, limit=limit, end_before=end_before))
 
     def test_lists_only_langgraph_assistant_chats_without_a_task(self) -> None:
         eligible = self._conversation()
@@ -68,6 +70,10 @@ class TestListCandidates(APIBaseTest):
         assert empty.next_cursor == ids[2]
         assert empty.exhausted is True
 
+        bounded = self._page(start_after=ids[0], limit=10, end_before=ids[2])
+        assert [c.conversation_id for c in bounded.candidates] == ids[1:2]
+        assert bounded.exhausted is True
+
 
 @dataclass(frozen=False)
 class FakeCopies:
@@ -77,12 +83,14 @@ class FakeCopies:
     copied_ids: list[str] = field(default_factory=list)
     in_flight: int = 0
     max_in_flight: int = 0
+    list_bounds: list[str | None] = field(default_factory=list)
 
     def activities(self) -> list:
         fake = self
 
         @activity.defn(name="list_conversations_to_backfill_activity")
         async def list_activity(inputs: ListCandidatesInputs) -> ListCandidatesOutput:
+            fake.list_bounds.append(inputs.end_before)
             page_index = 0 if inputs.start_after is None else fake._page_after(inputs.start_after)
             ids = fake.pages[page_index] if page_index < len(fake.pages) else []
             candidates = [BackfillCandidate(conversation_id=i, team_id=1, user_id=1) for i in ids]
@@ -140,9 +148,10 @@ async def _run(fake: FakeCopies, inputs: ConversationBackfillInputs):
 async def test_walks_every_page_and_counts_each_outcome() -> None:
     fake = FakeCopies(pages=[["a", "b"], ["c", "d"], ["e"]], outcomes={"b": "no_messages", "d": "error"})
 
-    summary = await _run(fake, ConversationBackfillInputs(batch_size=2, concurrency=2))
+    summary = await _run(fake, ConversationBackfillInputs(batch_size=2, concurrency=2, end_before="z"))
 
     assert sorted(fake.copied_ids) == ["a", "b", "c", "d", "e"]
+    assert fake.list_bounds == ["z", "z", "z"]
     assert (summary.seen, summary.copied, summary.skipped, summary.failed) == (5, 3, 1, 1)
     assert summary.last_cursor == "e"
     assert summary.stopped_because == "exhausted"

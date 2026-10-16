@@ -80,8 +80,34 @@ class TestClassifyPostgresCDCError:
                 CDCErrorCategory.HOST_UNREACHABLE,
             ),
             (
+                "provider_ip_allow_list_rejection_is_non_retryable_host",
+                psycopg.OperationalError(
+                    "connection to server at example.invalid, port 5432 failed: ERROR:  This IP address "
+                    "198.51.100.7 is not allowed to connect to this endpoint."
+                ),
+                CDCErrorCategory.HOST_UNREACHABLE,
+            ),
+            (
+                "provider_blocked_network_rejection_is_non_retryable_host",
+                psycopg.OperationalError(
+                    "connection to server at example.invalid, port 5432 failed: ERROR:  This connection is "
+                    "trying to access this endpoint from a blocked network."
+                ),
+                CDCErrorCategory.HOST_UNREACHABLE,
+            ),
+            (
                 "database_host_not_allowed_is_non_retryable_host",
                 HostNotAllowedError("Database host not allowed: resolves to a private address"),
+                CDCErrorCategory.HOST_UNREACHABLE,
+            ),
+            (
+                # ConnectionTimeout only ever reaches here after _connect_with_dropped_retry has
+                # already exhausted its in-process reconnect attempts, so it means the host is
+                # persistently unreachable, not a transient blip. Must not fall through to the
+                # retryable CONNECTION_FAILED bucket, or the workflow retries into the same wall
+                # forever instead of surfacing an actionable message.
+                "connect_timeout_exhausted_is_non_retryable_host",
+                psycopg.errors.ConnectionTimeout("connection timeout expired"),
                 CDCErrorCategory.HOST_UNREACHABLE,
             ),
             (

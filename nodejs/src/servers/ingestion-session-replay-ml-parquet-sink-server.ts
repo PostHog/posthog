@@ -5,6 +5,11 @@ import { logger } from '~/common/utils/logger'
 import { BlockMetadataBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-batcher'
 import { BlockMetadataParquetStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-parquet-store'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
+import {
+    CaptureWatermark,
+    capturedRecords,
+    releasingOffsetStore,
+} from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 
 import { CleanupResources } from './base-server'
@@ -55,9 +60,10 @@ export class IngestionSessionReplayMlParquetSinkServer extends MlMirrorConsumerS
         )
 
         const consumer = new KafkaConsumer(buildSinkConsumerConfig(this.config))
+        const watermark = new CaptureWatermark('parquet_sink')
         const batcher = new BlockMetadataBatcher(
             store,
-            consumer,
+            releasingOffsetStore(consumer, watermark),
             {
                 flushIntervalMs: this.config.SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS,
                 maxRows: this.config.SESSION_RECORDING_ML_PARQUET_MAX_ROWS,
@@ -65,10 +71,17 @@ export class IngestionSessionReplayMlParquetSinkServer extends MlMirrorConsumerS
             Date.now(),
             this.keyManager?.kafka
         )
-        await consumer.connect((messages) => {
-            consumer.heartbeat()
-            return batcher.handleBatch(messages, Date.now())
-        })
+        await consumer.connect(
+            (messages) => {
+                consumer.heartbeat()
+                watermark.hold(capturedRecords(messages, () => 'event_metadata'))
+                return batcher.handleBatch(messages, Date.now())
+            },
+            (partitions) => {
+                watermark.forget(partitions)
+                return Promise.resolve()
+            }
+        )
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-parquet-sink',

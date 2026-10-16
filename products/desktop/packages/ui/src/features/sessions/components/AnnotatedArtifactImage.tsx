@@ -1,5 +1,8 @@
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
-import type { RegionCommentAnchor } from "@posthog/core/comments/anchors";
+import type {
+  CommentAnchor,
+  RegionCommentAnchor,
+} from "@posthog/core/comments/anchors";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import type { EditorSelection } from "@posthog/ui/features/code-editor/components/CodeMirrorEditor";
@@ -24,6 +27,7 @@ function ImageCommentCreationLayer({
   name,
   members,
   onCreate,
+  onSendToAgent,
   onCancel,
 }: {
   name: string;
@@ -33,6 +37,11 @@ function ImageCommentCreationLayer({
     content: string,
     mentions?: number[],
   ) => void | Promise<void>;
+  onSendToAgent?: (
+    anchor: CommentAnchor,
+    content: string,
+    screenshot: string | null,
+  ) => void;
   onCancel: () => void;
 }) {
   const [pendingAnchor, setPendingAnchor] =
@@ -81,6 +90,12 @@ function ImageCommentCreationLayer({
         onSubmit={async (_start, _end, content, mentions) => {
           if (pendingAnchor) await onCreate(pendingAnchor, content, mentions);
         }}
+        onSendToAgent={
+          onSendToAgent && pendingAnchor
+            ? (content, screenshot) =>
+                onSendToAgent(pendingAnchor, content, screenshot)
+            : undefined
+        }
       />
     </>
   );
@@ -97,6 +112,7 @@ export function AnnotatedArtifactImage({
   onCommentingChange,
   onActivateThread,
   onCreate,
+  onSendToAgent,
   onError,
 }: {
   src: string;
@@ -113,6 +129,11 @@ export function AnnotatedArtifactImage({
     content: string,
     mentions?: number[],
   ) => void | Promise<void>;
+  onSendToAgent?: (
+    anchor: CommentAnchor,
+    content: string,
+    screenshot: string | null,
+  ) => void;
   onError: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -146,6 +167,7 @@ export function AnnotatedArtifactImage({
           name={name}
           members={members}
           onCreate={onCreate}
+          onSendToAgent={onSendToAgent}
           onCancel={() => onCommentingChange(false)}
         />
       )}

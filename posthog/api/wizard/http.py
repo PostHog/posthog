@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import NoReturn, cast
+from typing import Any, NoReturn, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -27,6 +27,7 @@ from posthog.llm.wizard_gateway_token import (
     mint_wizard_gateway_token,
     wizard_gateway_base_url,
     wizard_gateway_configured,
+    wizard_gateway_policy,
     wizard_limit_override,
     wizard_posture,
     wizard_product_node,
@@ -46,7 +47,11 @@ from posthog.storage.gateway_credential_cache import (
     oauth_credential_authorized,
 )
 from posthog.user_permissions import UserPermissions
+from posthog.utils import get_trusted_client_ip
 
+from products.security.backend.facade.api import access_refused as security_access_refused
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -164,10 +169,11 @@ class SetupWizardViewSet(viewsets.ViewSet):
         no other gateway: every refusal ends the run, with the body's `detail`
         shown to the user and its `code` naming the outcome.
         """
-        # Resolved above the first gate so every refusal names the program.
+        # Resolved above the first gate so every refusal names the program. The
+        # product node waits for the policy, which is read after authentication.
         body = request.data if isinstance(request.data, dict) else {}
         program = body.get("program")
-        product = wizard_product_node(program)
+        product: str | None = None
         # Only a literal true: any other truthy shape keeps the 404 a fallback needs.
         reads_reason = body.get("reads_refusal_reason") is True
 
@@ -254,6 +260,24 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # Ahead of the rollout gate, so a ban reads as a ban whatever the flag says.
             refuse("blocked", exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL), user=user)
 
+        try:
+            refused = security_access_refused(
+                SecuritySubject(
+                    email=user.email,
+                    user_uuid=str(user.uuid),
+                    organization_ids=(str(team.organization_id),),
+                    ip=get_trusted_client_ip(getattr(request, "_request", request)),
+                ),
+                SecuritySurface.AI_GATEWAY,
+                call_site="wizard_gateway_token",
+            )
+        except Exception:
+            logger.exception("security_access_check_site_failed", call_site="wizard_gateway_token")
+            refused = False
+        if refused:
+            # The flag's refusal, word for word, so a client cannot tell which blocklist matched.
+            refuse("blocked", exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL), user=user)
+
         # A kill switch, not a rollout gate: only a literal False refuses. With the
         # legacy product off there is no second path, so reading an outage as "not
         # rolled out" turns a flag-service blip into a global wizard outage.
@@ -277,7 +301,18 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 "not_rolled_out", "Wizard gateway tokens are switched off for this organization.", user=user
             )
 
+        # Read once, after every gate that needs no flag, so an unauthenticated or
+        # refused request costs no flag read. A policy flag that is off or broken
+        # degrades the pin and never refuses the mint.
+        policy = wizard_gateway_policy(
+            distinct_id=distinct_id,
+            email=user.email,
+            organization_id=str(team.organization_id),
+            team_id=team.id,
+        )
+
         # A closed set: refusing keeps every pinned node one that carries a budget.
+        product = wizard_product_node(program, policy)
         if product is None:
             refuse_absent_gateway(
                 "program_unknown", "Unrecognized wizard program. Upgrade with: npx @posthog/wizard@latest", user=user
@@ -302,6 +337,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             minted = mint_wizard_gateway_token(
                 obo=str(team.id),
                 user=distinct_id,
+                policy=policy,
                 product=product,
                 cap_usd=override.cap_usd,
                 program=program,
@@ -316,17 +352,15 @@ class SetupWizardViewSet(viewsets.ViewSet):
             return Response({"error": "Gateway token mint failed."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="minted").inc()
-        return Response(
-            {
-                "token": minted["token"],
-                "expires_at": minted["expires_at"],
-                "cap_usd": minted.get("cap_usd"),
-                "gateway_url": wizard_gateway_base_url(),
-                # The CLI stamps this on each generation as `team_id`.
-                "team_id": team.id,
-            },
-            status=status.HTTP_201_CREATED,
-        )
+        payload: dict[str, Any] = {
+            "token": minted["token"],
+            "expires_at": minted["expires_at"],
+            "cap_usd": minted.get("cap_usd"),
+            "gateway_url": wizard_gateway_base_url(),
+            # The CLI stamps this on each generation as `team_id`.
+            "team_id": team.id,
+        }
+        return Response(payload, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         request=SetupWizardCloudRunSerializer,
@@ -422,6 +456,23 @@ class SetupWizardViewSet(viewsets.ViewSet):
         ):
             # No outcome label: `cloud_run` already counts every PermissionDenied as
             # permission_denied.
+            raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
+
+        try:
+            refused = security_access_refused(
+                SecuritySubject(
+                    email=user.email,
+                    user_uuid=str(user.uuid),
+                    organization_ids=(str(project.organization_id),),
+                    ip=get_trusted_client_ip(getattr(request, "_request", request)),
+                ),
+                SecuritySurface.AI_GATEWAY,
+                call_site="wizard_cloud_run",
+            )
+        except Exception:
+            logger.exception("security_access_check_site_failed", call_site="wizard_cloud_run")
+            refused = False
+        if refused:
             raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
 
         self._reserve_cloud_run_attempt(user.id)

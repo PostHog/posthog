@@ -2,7 +2,15 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconClock, IconInfo, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
+import {
+    IconChevronRight,
+    IconClock,
+    IconInfo,
+    IconPulse,
+    IconThumbsDown,
+    IconThumbsUp,
+    IconWarning,
+} from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -48,9 +56,11 @@ import { urls } from 'scenes/urls'
 import { insightsModel } from '~/models/insightsModel'
 import { queryScanHasActionableFinding } from '~/queries/nodes/DataNode/queryScan'
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
+import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
+import { outOfDateSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
 import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
-import { Node, ProductKey } from '~/queries/schema/schema-general'
+import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     isDataVisualizationNode,
     isDataVisualizationNodeWithHogQLQuery,
@@ -66,7 +76,7 @@ import {
     InsightColor,
     InsightLogicProps,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import {
@@ -112,11 +122,14 @@ interface InsightMetaProps extends Pick<
     | 'placement'
     | 'surveyOpportunity'
     | 'showCreateAnomalyAlertButton'
+    | 'projectId'
+    | 'contextHeading'
 > {
     /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
-    tile?: DashboardTile<QueryBasedInsightModel>
-    insight: QueryBasedInsightModel
+    tile?: DashboardTile
+    insight: InsightModel
+    refreshDisabledReason?: string
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     persistDisplayOptions?: (node: Node) => void
@@ -138,6 +151,7 @@ export function InsightMeta({
     removeFromDashboard,
     deleteWithUndo,
     refresh,
+    refreshDisabledReason: capacityDisabledReason,
     refreshAfterDisplayOptionsChange,
     loading,
     loadingQueued,
@@ -159,6 +173,8 @@ export function InsightMeta({
     onCreateAlert,
     onEditAlert,
     onCreateAnomalyAlert,
+    projectId,
+    contextHeading,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const tileFiltersOverride = tile?.filters_overrides
@@ -197,7 +213,6 @@ export function InsightMeta({
     const dashboardWidgetMenusLogicProps = {
         instanceKey: insight.short_id,
         dashboardId,
-        dashboards: insight.dashboards,
         dashboard_tiles: insight.dashboard_tiles,
     }
     const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
@@ -260,18 +275,27 @@ export function InsightMeta({
             : true
 
     // A killed run has no result to carry the scan, so it arrives on the query status instead.
-    const queryScan: QueryBasedInsightModel['query_scan'] = insight.query_scan ?? insight.query_status?.query_scan
+    const queryScan: InsightModel['query_scan'] = insight.query_scan ?? insight.query_status?.query_scan
     const scanFindings = queryScan?.analysis?.findings ?? []
     const queryScanTooltip =
         canEditInsight && queryScan && scanFindings.length > 0 ? (
             <QueryScanTileTooltip summary={queryScan} findings={scanFindings} />
         ) : null
+    const syncWarnings = outOfDateSyncWarnings(insight.warnings)
+    const warehouseSyncTooltip =
+        syncWarnings.length > 0 ? (
+            <div className="flex flex-col gap-1">
+                <span>
+                    Some warehouse tables this insight reads are out of date, so its results may not be current:
+                </span>
+                <WarehouseSyncWarningList warnings={syncWarnings} />
+            </div>
+        ) : null
 
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
-        metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
-    })
-    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
+    const alertSupportOptions = { metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS] }
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, alertSupportOptions)
+    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query, alertSupportOptions)
 
     const showCopyTableData = isInsightVizNode(query) && isTrendsQuery(query.source)
     const copyTableAdapter = useMemo(() => getInsightExportAdapter(insightDataRaw, query), [insightDataRaw, query])
@@ -372,9 +396,11 @@ export function InsightMeta({
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? dayjs(nextAllowedClientRefresh).fromNow()
             : null
-    const refreshDisabledReason = nextRefreshFromNow
-        ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
-        : undefined
+    const refreshDisabledReason =
+        capacityDisabledReason ??
+        (nextRefreshFromNow
+            ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
+            : undefined)
     // The always-visible "⋯" menu keeps refresh reachable on touch/keyboard. Unlike the hover
     // icon (which hides while this tile refreshes) the menu item stays but disables.
     const refreshMenuDisabledReason = tileRefreshing ? 'Refreshing…' : refreshDisabledReason
@@ -442,15 +468,16 @@ export function InsightMeta({
         : undefined
 
     // Carries the dashboard's filters and variables, so the link opens exactly what the tile shows
-    const insightViewUrl = urls.insightView(
-        short_id,
-        dashboardId,
-        variablesOverride,
-        filtersOverride,
-        tileFiltersOverride
+    // A card showing another project's insight must link into that project, not the current one.
+    const inInsightProject = (path: string): string => (projectId ? urls.project(projectId, path) : path)
+    const insightViewUrl = inInsightProject(
+        urls.insightView(short_id, dashboardId, variablesOverride, filtersOverride, tileFiltersOverride)
     )
     const copyInsightLink = (): void => {
-        void copyToClipboard(urls.absolute(urls.currentProject(insightViewUrl)), 'insight link')
+        void copyToClipboard(
+            urls.absolute(projectId ? insightViewUrl : urls.currentProject(insightViewUrl)),
+            'insight link'
+        )
     }
 
     return (
@@ -464,7 +491,16 @@ export function InsightMeta({
                 areDetailsShown={areDetailsShown}
                 detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
                 onMouseDown={onDragHandleMouseDown}
-                topHeading={topHeadingEl}
+                topHeading={
+                    contextHeading ? (
+                        <span className="flex items-center gap-2 min-w-0">
+                            {contextHeading}
+                            {topHeadingEl}
+                        </span>
+                    ) : (
+                        topHeadingEl
+                    )
+                }
                 popoverTopHeading={popoverTopHeadingEl}
                 content={
                     <InsightMetaContent
@@ -479,6 +515,7 @@ export function InsightMeta({
                         showDescription={tile?.show_description !== false}
                         dataRetentionWarning={dataRetentionWarning}
                         queryScanTooltip={queryScanTooltip}
+                        warehouseSyncTooltip={warehouseSyncTooltip}
                         queryScanActionable={queryScanHasActionableFinding(scanFindings)}
                         infoPopover={
                             showCompactTile ? (
@@ -523,22 +560,29 @@ export function InsightMeta({
                         {canEditInsight && (
                             <>
                                 <LemonButton
-                                    to={
-                                        isDataVisualizationNode(insight.query)
+                                    to={inInsightProject(
+                                        isDataVisualizationNode(insight.query) &&
+                                            insight.query.kind !== NodeKind.BIVisualizationNode
                                             ? urls.sqlEditor({
                                                   insightShortId: short_id,
                                                   dashboard: dashboardId ?? undefined,
                                               })
                                             : urls.insightEdit(short_id, dashboardId)
-                                    }
+                                    )}
                                     fullWidth
-                                    {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}
+                                    {...getOverrideWarningPropsForButton(
+                                        insight.query,
+                                        filtersOverride,
+                                        variablesOverride
+                                    )}
                                 >
                                     Edit
                                 </LemonButton>
-                                <LemonButton onClick={rename} fullWidth>
-                                    Rename
-                                </LemonButton>
+                                {rename && (
+                                    <LemonButton onClick={rename} fullWidth>
+                                        Rename
+                                    </LemonButton>
+                                )}
                                 {tile && (
                                     <LemonButton onClick={setOverride} fullWidth>
                                         Set override
@@ -546,17 +590,19 @@ export function InsightMeta({
                                 )}
                             </>
                         )}
-                        <LemonButton
-                            onClick={duplicate}
-                            fullWidth
-                            data-attr={
-                                dashboardId
-                                    ? 'duplicate-insight-from-dashboard'
-                                    : 'duplicate-insight-from-card-list-view'
-                            }
-                        >
-                            Duplicate
-                        </LemonButton>
+                        {duplicate && (
+                            <LemonButton
+                                onClick={duplicate}
+                                fullWidth
+                                data-attr={
+                                    dashboardId
+                                        ? 'duplicate-insight-from-dashboard'
+                                        : 'duplicate-insight-from-card-list-view'
+                                }
+                            >
+                                Duplicate
+                            </LemonButton>
+                        )}
                         {showDashboardAlertsMenuItem && insight.id ? (
                             <LemonButton
                                 onClick={() => {
@@ -621,7 +667,9 @@ export function InsightMeta({
                                         fallbackPlacements={['left-start']}
                                         closeParentPopoverOnClickInside
                                     >
-                                        <LemonButton fullWidth>Set color</LemonButton>
+                                        <LemonButton fullWidth sideIcon={<IconChevronRight className="size-3" />}>
+                                            Set color
+                                        </LemonButton>
                                     </LemonMenu>
                                 )}
                                 {hasDashboardPlacementActions && (
@@ -671,6 +719,7 @@ export function InsightMeta({
                                 <LemonDivider />
                                 <ExportButton
                                     fullWidth
+                                    sideIcon={<IconChevronRight className="size-3" />}
                                     items={[
                                         {
                                             export_format: ExporterFormat.PNG,
@@ -839,6 +888,7 @@ export function InsightMetaContent({
     dataRetentionWarning,
     queryScanTooltip,
     queryScanActionable,
+    warehouseSyncTooltip,
 }: {
     title: string
     fallbackTitle?: string
@@ -854,6 +904,7 @@ export function InsightMetaContent({
     queryScanTooltip?: JSX.Element | null
     /** Whether the person can act on a finding. Without one the tile only notes that the query is slow. */
     queryScanActionable?: boolean
+    warehouseSyncTooltip?: JSX.Element | null
 }): JSX.Element {
     const dataRetentionIndicator = dataRetentionWarning ? (
         <Tooltip title={dataRetentionWarning}>
@@ -874,14 +925,17 @@ export function InsightMetaContent({
             )}
         </Tooltip>
     ) : null
+    const warehouseSyncIndicator = warehouseSyncTooltip ? (
+        <Tooltip title={warehouseSyncTooltip} interactive>
+            <LemonTag type="warning" size="small" className="ml-1.5 shrink-0" data-attr="insight-card-warehouse-sync">
+                Out of date
+            </LemonTag>
+        </Tooltip>
+    ) : null
+    const hasTitleIndicator = !!(infoPopover || dataRetentionIndicator || queryScanIndicator || warehouseSyncIndicator)
     const titleContent = (
         <>
-            <span
-                className={clsx(
-                    'text-primary',
-                    (infoPopover || dataRetentionIndicator || queryScanIndicator) && 'truncate'
-                )}
-            >
+            <span className={clsx('text-primary', hasTitleIndicator && 'truncate')}>
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (
@@ -897,10 +951,7 @@ export function InsightMetaContent({
         <h4
             title={!compact ? title : undefined}
             data-attr="insight-card-title"
-            className={clsx(
-                (infoPopover || dataRetentionIndicator || queryScanIndicator) &&
-                    'inline-flex items-center overflow-visible'
-            )}
+            className={clsx(hasTitleIndicator && 'inline-flex items-center overflow-visible')}
         >
             {link ? (
                 <Link to={link} className="max-w-full truncate">
@@ -911,6 +962,7 @@ export function InsightMetaContent({
             )}
             {dataRetentionIndicator}
             {queryScanIndicator}
+            {warehouseSyncIndicator}
             {infoPopover}
         </h4>
     )

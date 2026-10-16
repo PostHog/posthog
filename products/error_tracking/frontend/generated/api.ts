@@ -1211,7 +1211,7 @@ export const getErrorTrackingQueryIssueCreateUrl = (projectId: string) => {
 }
 
 /**
- * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline.
+ * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline and event breakdown.
  * @summary Get compact error tracking issue details
  */
 export const errorTrackingQueryIssueCreate = async (

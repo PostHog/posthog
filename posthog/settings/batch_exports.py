@@ -121,6 +121,9 @@ BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT: str = os.getenv(
 )
 BATCH_EXPORT_OBJECT_STORAGE_REGION: str = os.getenv("BATCH_EXPORT_OBJECT_STORAGE_REGION", "us-east-1")
 BATCH_EXPORT_INTERNAL_STAGING_BUCKET: str = os.getenv("BATCH_EXPORT_INTERNAL_STAGING_BUCKET", "posthog")
+BATCH_EXPORT_ARROW_COMPRESSION_METHOD: str = get_from_env("BATCH_EXPORT_ARROW_COMPRESSION_METHOD", "zstd")
+BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS: list[str] = get_list(os.getenv("BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS", ""))
+
 # The number of partitions controls how many files ClickHouse writes to concurrently. Used as the fallback
 # when we have no size estimate to drive a dynamic partition count (e.g. the first ever run of an export).
 BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS: int = get_from_env("BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS", 10, type_cast=int)
@@ -177,6 +180,9 @@ BATCH_EXPORTS_FILE_DOWNLOAD_EXPIRATION_SECONDS: int = get_from_env(
 BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME: int = get_from_env(
     "BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME", 900, type_cast=int
 )  # 15 minutes (deliberately under the file-download stage timeout of 20 minutes)
+BATCH_EXPORT_HOGQL_ON_DEMAND_MAIN_TIMEOUT_SECONDS: int = get_from_env(
+    "BATCH_EXPORT_HOGQL_ON_DEMAND_MAIN_TIMEOUT_SECONDS", 6 * 60 * 60, type_cast=int
+)
 BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE: int = get_from_env(
     "BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE", 50 * 1024**3, type_cast=int
 )  # 50GiB (rather arbitrary for now, can always increase later)

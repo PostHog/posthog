@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { type ComponentType, isValidElement } from 'react'
 
+import * as errorPng from '@posthog/brand/hoggies/png/error'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
-import { WarningHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import {
     ProductIntroduction,
     type ProductIntroductionProps,
@@ -24,6 +25,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { exceptionIngestionLogic } from './exceptionIngestionLogic'
+
+const HedgehogError = pngHoggie(errorPng)
 
 export const ERROR_TRACKING_FRAMEWORK_LINKS: {
     name: string
@@ -110,7 +113,7 @@ export function ErrorTrackingIngestionPrompt({
             isEmpty={true}
             className={cn(introductionClassName, className)}
             {...(introductionStacked !== undefined ? { stacked: introductionStacked } : {})}
-            customHog={WarningHog}
+            customHog={HedgehogError}
             actionElementOverride={
                 <div className={actionElementClassName}>
                     <p className="text-sm text-secondary m-0">

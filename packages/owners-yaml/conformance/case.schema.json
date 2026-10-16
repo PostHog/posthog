@@ -61,7 +61,12 @@
                 "source": { "type": ["string", "null"] },
                 "slack": {
                     "oneOf": [{ "type": "string", "pattern": "^#" }, { "type": "null" }]
-                }
+                },
+                "additions": {
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 }
+                },
+                "sensitive": { "type": "boolean" }
             }
         }
     }

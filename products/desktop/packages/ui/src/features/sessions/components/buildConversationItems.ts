@@ -5,6 +5,7 @@ import type {
 import {
   isNotification,
   POSTHOG_NOTIFICATIONS,
+  type ProcessKilledParams,
 } from "@posthog/agent/acp-extensions";
 import { extractPromptDisplayContent } from "@posthog/core/sessions/promptContent";
 import { isSteerPromptParams } from "@posthog/core/sessions/sessionEvents";
@@ -12,6 +13,7 @@ import { isSessionStartupPhase } from "@posthog/core/sessions/sessionStartup";
 import {
   type AcpMessage,
   type AgentConversationEvent,
+  agentConversationEventToSessionUpdate,
   isJsonRpcNotification,
   isJsonRpcRequest,
   isJsonRpcResponse,
@@ -43,6 +45,8 @@ export interface TurnContext {
   turnComplete: boolean;
   /** From the prompt response; null when the agent reported no gateway trace. */
   traceId?: string | null;
+  /** True for a turn with no user prompt behind it (e.g. background setup activity). */
+  isImplicit?: boolean;
 }
 
 export type ConversationItem =
@@ -449,49 +453,13 @@ export function processAgentConversationEvent(
     return;
   }
 
-  if (event.type === "assistant_message_chunk") {
+  const sessionUpdate = agentConversationEventToSessionUpdate(event);
+  if (sessionUpdate) {
     processSessionUpdate(
       b,
-      { sessionUpdate: "agent_message_chunk", content: event.content },
+      sessionUpdate as ConversationSessionUpdate,
       event.timestamp,
     );
-    return;
-  }
-
-  if (event.type === "assistant_thought_chunk") {
-    processSessionUpdate(
-      b,
-      { sessionUpdate: "agent_thought_chunk", content: event.content },
-      event.timestamp,
-    );
-    return;
-  }
-
-  if (event.type === "tool_call_started") {
-    const { id, parentId, ...toolCall } = event.toolCall;
-    const update: ConversationSessionUpdate = {
-      sessionUpdate: "tool_call",
-      toolCallId: id,
-      ...toolCall,
-      ...(parentId
-        ? { _meta: { claudeCode: { parentToolCallId: parentId } } }
-        : {}),
-    };
-    processSessionUpdate(b, update, event.timestamp);
-    return;
-  }
-
-  if (event.type === "tool_call_updated") {
-    const { id, parentId, ...toolCall } = event.toolCall;
-    const update: ConversationSessionUpdate = {
-      sessionUpdate: "tool_call_update",
-      toolCallId: id,
-      ...toolCall,
-      ...(parentId
-        ? { _meta: { claudeCode: { parentToolCallId: parentId } } }
-        : {}),
-    };
-    processSessionUpdate(b, update, event.timestamp);
     return;
   }
 
@@ -770,6 +738,29 @@ function completePromptTurn(
   }
 }
 
+const BYTES_PER_GIB = 1024 ** 3;
+
+function formatGib(bytes: number): string {
+  return `${(bytes / BYTES_PER_GIB).toFixed(1)} GiB`;
+}
+
+export function formatProcessKilledNotice(params: unknown): string | null {
+  const { comm, treeRssBytes, memoryLimitBytes } = (params ?? {}) as Partial<
+    Record<keyof ProcessKilledParams, unknown>
+  >;
+  if (
+    typeof comm !== "string" ||
+    !comm ||
+    typeof treeRssBytes !== "number" ||
+    !Number.isFinite(treeRssBytes) ||
+    typeof memoryLimitBytes !== "number" ||
+    !Number.isFinite(memoryLimitBytes)
+  ) {
+    return null;
+  }
+  return `The sandbox stopped ${comm} because it was using ${formatGib(treeRssBytes)} of the ${formatGib(memoryLimitBytes)} available. The agent is still running.`;
+}
+
 function handleNotification(
   b: ItemBuilder,
   msg: { method: string; params?: unknown },
@@ -847,6 +838,14 @@ function handleNotification(
       stopReason: params?.stopReason,
       traceId: params?.traceId,
     });
+    return;
+  }
+
+  if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.PROCESS_KILLED)) {
+    const message = formatProcessKilledNotice(msg.params);
+    if (!message) return;
+    ensureImplicitTurn(b, ts);
+    pushItem(b, { sessionUpdate: "status", status: "process_killed", message });
     return;
   }
 
@@ -1161,6 +1160,7 @@ function ensureImplicitTurn(b: ItemBuilder, ts: number) {
     childItems,
     turnCancelled: false,
     turnComplete: false,
+    isImplicit: true,
   };
 
   b.currentTurn = {

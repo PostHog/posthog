@@ -1,5 +1,3 @@
-from typing import Any
-
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
@@ -9,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     HoneycombSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.settings import (
-    ENDPOINTS,
     HONEYCOMB_ENDPOINTS,
     HoneycombScope,
 )
@@ -38,39 +35,9 @@ class TestHoneycombSource:
         self.source = HoneycombSource()
         self.team_id = 1
 
-    def test_generated_config_parses_fields(self) -> None:
-        # Guards the generated_configs.py wiring: the form fields must map to `api_key` and
-        # `region`, with the region defaulting to US for configs saved before the field existed.
-        config = HoneycombSourceConfig.from_dict({"api_key": "hcaik_123"})
-        assert config.api_key == "hcaik_123"
-        assert config.region == "us"
-        assert HoneycombSourceConfig.from_dict({"api_key": "k", "region": "eu"}).region == "eu"
-
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_all_schemas_are_full_refresh(self) -> None:
-        # Honeycomb's v1 config endpoints have no server-side timestamp filter, so advertising
-        # incremental would silently re-walk history every run while claiming a delta sync.
-        for schema in self.source.get_schemas(MagicMock(), team_id=self.team_id):
-            assert schema.supports_incremental is False, schema.name
-            assert schema.supports_append is False, schema.name
-
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id, names=["datasets", "slos"])
         assert {s.name for s in schemas} == {"datasets", "slos"}
-
-    def test_publishes_table_catalog_for_public_docs(self) -> None:
-        # `lists_tables_without_credentials` gates whether the static endpoint catalog reaches
-        # the posthog.com "Supported tables" section. Dropping the flag (or making get_schemas
-        # require credentials) would silently empty that section.
-        tables = self.source.get_documented_tables()
-        names = {t["name"] for t in tables}
-        assert set(ENDPOINTS).issubset(names)
-        datasets = next(t for t in tables if t["name"] == "datasets")
-        assert "Full refresh" in datasets["sync_methods"]
-        assert datasets["description"]
 
     @parameterized.expand(
         [
@@ -132,10 +99,3 @@ class TestHoneycombSource:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-    def test_canonical_description_keys_are_real_endpoints(self) -> None:
-        # Canonical descriptions are keyed by schema name; a typo'd key would silently never apply.
-        descriptions: dict[str, Any] = self.source.get_canonical_descriptions()
-        assert set(descriptions) == set(ENDPOINTS)
-        for endpoint, entry in descriptions.items():
-            assert entry["description"], endpoint

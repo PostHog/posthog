@@ -1,17 +1,29 @@
-from datetime import datetime
+import json
+import uuid
+from datetime import datetime, timedelta
 
 import time_machine
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, Mock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone as tz
 
+from clickhouse_driver.errors import UnknownPacketFromServerError
+from parameterized import parameterized
 from prometheus_client import REGISTRY
+from redis.exceptions import ConnectionError as RedisConnectionError
 
+from posthog.clickhouse.client import sync_execute
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManyBytes, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models.event.sql import EVENTS_RECENT_DATA_TABLE, SHARDED_EVENTS_RECENT_DATA_TABLE
+from posthog.models.flag_evaluations.sql import (
+    FLAG_EVALUATIONS_DATA_TABLE,
+    FLAG_EVALUATIONS_SOURCE_EVENT,
+    FLAG_EVALUATIONS_WRITABLE_TABLE,
+)
 from posthog.tasks.tasks import sync_feature_flag_last_called
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -22,7 +34,8 @@ def mock_redis_client() -> Mock:
     mock = Mock()
     mock.storage = {}
     mock.get = lambda k: mock.storage.get(k)
-    mock.set = lambda k, v: mock.storage.update({k: v}) or None
+    # redis-py encodes a str value on write, so the real client stores and returns bytes
+    mock.set = lambda k, v: mock.storage.update({k: v.encode() if isinstance(v, str) else v}) or None
     return mock
 
 
@@ -237,13 +250,13 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
-    def test_redis_error_falls_back_to_lookback_days(
+    def test_unparseable_checkpoint_falls_back_to_lookback_days(
         self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
     ) -> None:
-        """When checkpoint cannot be retrieved, fall back to lookback_days"""
+        """When the stored checkpoint cannot be parsed, fall back to lookback_days"""
         redis_mock = mock_redis_client()
-        # Make redis.get() raise an exception
-        redis_mock.get = Mock(side_effect=Exception("Redis error"))
+        # A malformed stored value, not a transport failure: those have to raise and retry instead
+        redis_mock.storage["posthog:feature_flag_last_called_sync:last_timestamp"] = b"not-a-timestamp"
         mock_get_client.return_value = redis_mock
         mock_sync_execute.return_value = []
 
@@ -257,6 +270,26 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         assert last_sync.year == 2024
         assert last_sync.month == 6
         assert last_sync.day == 14
+
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
+    def test_checkpoint_read_transport_error_raises_and_keeps_checkpoint(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        redis_mock = mock_redis_client()
+        checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
+        checkpoint_time = tz.make_aware(datetime(2024, 6, 13, 12, 0, 0))
+        redis_mock.storage[checkpoint_key] = checkpoint_time.isoformat().encode()
+        redis_mock.get = Mock(side_effect=RedisConnectionError("redis is down"))
+        mock_get_client.return_value = redis_mock
+        mock_sync_execute.return_value = []
+
+        with self.assertRaises(RedisConnectionError):
+            sync_feature_flag_last_called()
+
+        mock_sync_execute.assert_not_called()
+        assert redis_mock.storage[checkpoint_key] == checkpoint_time.isoformat().encode()
 
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.tasks.tasks.get_client")
@@ -308,6 +341,19 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
+    def test_failed_lock_release_does_not_mask_original_error(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        mock_get_client.return_value = mock_redis_client()
+        mock_sync_execute.side_effect = ClickHouseAtCapacity()
+
+        with patch("django.core.cache.cache.delete", side_effect=RedisConnectionError("redis is down")):
+            with self.assertRaises(ClickHouseAtCapacity):
+                sync_feature_flag_last_called()
+
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
     def test_handles_invalid_timestamps(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
         """Should handle None or invalid timestamps from ClickHouse"""
         redis_mock = mock_redis_client()
@@ -353,8 +399,8 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
         stored_timestamp = redis_mock.storage.get(checkpoint_key)
         assert stored_timestamp is not None
-        assert "2024-06-15" in stored_timestamp
-        assert "2024-06-15T11:59:00" in stored_timestamp
+        assert b"2024-06-15" in stored_timestamp
+        assert b"2024-06-15T11:59:00" in stored_timestamp
 
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
@@ -488,7 +534,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         # Checkpoint stops at the end of the first chunk, so the unread window from 11:50
         # onwards is retried next run rather than skipped
         stored = redis_mock.storage.get(checkpoint_key)
-        assert stored == tz.make_aware(datetime(2024, 6, 15, 11, 50, 0)).isoformat()
+        assert stored == tz.make_aware(datetime(2024, 6, 15, 11, 50, 0)).isoformat().encode()
 
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
@@ -515,11 +561,21 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         assert mock_sync_execute.call_count == 1
         assert redis_mock.storage.get(checkpoint_key) == checkpoint_time.isoformat().encode()
 
+    @parameterized.expand(
+        [
+            ("at_capacity", ClickHouseAtCapacity),
+            ("unknown_packet", UnknownPacketFromServerError),
+        ]
+    )
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
     def test_transient_error_propagates_instead_of_being_tolerated(
-        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+        self,
+        _name: str,
+        error_cls: type[Exception],
+        mock_get_client: MagicMock,
+        mock_sync_execute: MagicMock,
     ) -> None:
         redis_mock = mock_redis_client()
         checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
@@ -531,13 +587,14 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         called_at = tz.make_aware(datetime(2024, 6, 15, 11, 47, 0))
         mock_sync_execute.side_effect = [
             [(self.team.pk, self.flag1.key, called_at, 5)],
-            ClickHouseAtCapacity(),
+            error_cls("boom"),
             [],
         ]
 
-        # A cluster shedding load is what autoretry_for handles, so the error has to escape
-        # the chunk loop. Tolerating it would report a successful sync and skip the retry.
-        with self.assertRaises(ClickHouseAtCapacity):
+        # A cluster shedding load, or a desynced pooled socket, is what autoretry_for handles,
+        # so the error has to escape the chunk loop. Tolerating it would report a successful
+        # sync and skip the retry.
+        with self.assertRaises(error_cls):
             sync_feature_flag_last_called()
 
         # The run stops at the failing chunk rather than querying the rest of the window
@@ -622,14 +679,13 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         # Checkpoint should still be updated
         stored = redis_mock.storage.get(checkpoint_key)
         assert stored is not None
-        assert "2024-06-15T11:59:00" in stored
+        assert b"2024-06-15T11:59:00" in stored
 
         # Flag should remain unchanged
         self.flag1.refresh_from_db()
         assert self.flag1.last_called_at is None
 
     def test_autoretry_for_membership(self) -> None:
-        """CHQueryErrorTooManyBytes should not be in the autoretry_for tuple"""
         autoretry_for = sync_feature_flag_last_called.autoretry_for
         assert CHQueryErrorTooManyBytes not in autoretry_for
         # Transient errors should still be retried
@@ -638,3 +694,196 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         # sync_execute wraps capacity errors (code 202) into ClickHouseAtCapacity,
         # so the wrapped form must be retryable too
         assert ClickHouseAtCapacity in autoretry_for
+        # The lock and the checkpoint live in Redis. Celery retries the run on a Redis error instead of
+        # waiting for the next scheduled run
+        assert issubclass(RedisConnectionError, autoretry_for)
+        # A desynced pooled socket is retryable for this task, which only reads from ClickHouse,
+        # but it has to stay out of the shared tuple: the driver can raise it after the server ran
+        # the query, so a write caller retrying it would land the write twice
+        assert UnknownPacketFromServerError in autoretry_for
+        assert UnknownPacketFromServerError not in CH_TRANSIENT_ERRORS
+
+    @parameterized.expand(
+        [
+            (
+                "unknown_packet",
+                UnknownPacketFromServerError,
+                "sync_feature_flag_last_called.UnknownPacketFromServerError",
+            ),
+            ("unknown_table", CHQueryErrorUnknownTable, None),
+        ]
+    )
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.tasks.tasks.capture_exception")
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
+    def test_failure_fingerprint_is_set_only_for_the_desynced_socket(
+        self,
+        _name: str,
+        error_cls: type[Exception],
+        expected_fingerprint: str | None,
+        mock_get_client: MagicMock,
+        mock_sync_execute: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        mock_get_client.return_value = mock_redis_client()
+        # The driver names the packet it did not expect, and the number moves between
+        # occurrences. Without a fixed fingerprint every occurrence opens its own issue.
+        # Every other failure keeps the automatic grouping, so one triaged issue cannot
+        # swallow an unrelated one.
+        mock_sync_execute.side_effect = error_cls("boom")
+
+        with self.assertRaises(error_cls):
+            sync_feature_flag_last_called()
+
+        properties = mock_capture_exception.call_args.kwargs["additional_properties"]
+        assert properties.get("$exception_fingerprint") == expected_fingerprint
+
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
+    def test_run_that_completes_on_a_retry_is_counted(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        redis_mock = mock_redis_client()
+        mock_get_client.return_value = redis_mock
+        mock_sync_execute.return_value = []
+        recoveries_metric = "posthog_feature_flag_last_called_at_sync_retry_recoveries_total"
+        recoveries_before = REGISTRY.get_sample_value(recoveries_metric) or 0.0
+
+        sync_feature_flag_last_called()
+
+        # A first attempt that succeeds is not a recovery
+        assert (REGISTRY.get_sample_value(recoveries_metric) or 0.0) == recoveries_before
+
+        cache.clear()
+        sync_feature_flag_last_called.push_request(retries=1)
+        try:
+            sync_feature_flag_last_called()
+        finally:
+            sync_feature_flag_last_called.pop_request()
+
+        assert (REGISTRY.get_sample_value(recoveries_metric) or 0.0) == recoveries_before + 1
+
+        cache.clear()
+        # The run before moved the checkpoint to the frozen now. Without a reset, this run has no chunk
+        # to query and never reaches the error
+        redis_mock.storage.clear()
+        mock_sync_execute.side_effect = CHQueryErrorUnknownTable("boom")
+        sync_feature_flag_last_called.push_request(retries=1)
+        try:
+            with self.assertRaises(CHQueryErrorUnknownTable):
+                sync_feature_flag_last_called()
+        finally:
+            sync_feature_flag_last_called.pop_request()
+
+        # A retry that fails is not a recovery
+        assert (REGISTRY.get_sample_value(recoveries_metric) or 0.0) == recoveries_before + 1
+
+
+FLAG_CALL_INSERT_TABLE = {"events": EVENTS_RECENT_DATA_TABLE(), "flag_evaluations": FLAG_EVALUATIONS_WRITABLE_TABLE}
+
+
+@override_settings(
+    FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES=1440,
+    FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS=24,
+)
+class TestSyncFeatureFlagLastCalledSource(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        redis_patcher = patch("posthog.tasks.tasks.get_client", return_value=mock_redis_client())
+        redis_patcher.start()
+        self.addCleanup(redis_patcher.stop)
+
+        # The task reads every team, so rows that earlier tests left in these tables compete for the row limit.
+        sync_execute(f"TRUNCATE TABLE {SHARDED_EVENTS_RECENT_DATA_TABLE()}")
+        sync_execute(f"TRUNCATE TABLE {FLAG_EVALUATIONS_DATA_TABLE}")
+
+        FeatureFlag.objects.create(team=self.team, key="called-in-events", created_by=self.user)
+        FeatureFlag.objects.create(team=self.team, key="called-in-flag-evaluations", created_by=self.user)
+
+    def tearDown(self) -> None:
+        cache.clear()
+        super().tearDown()
+
+    def _insert_flag_call(self, source: str, flag_key: str, called_at: datetime, inserted_at: datetime) -> None:
+        sync_execute(
+            f"INSERT INTO {FLAG_CALL_INSERT_TABLE[source]} (uuid, event, properties, timestamp, team_id, distinct_id, inserted_at) VALUES",
+            [
+                (
+                    str(uuid.uuid4()),
+                    FLAG_EVALUATIONS_SOURCE_EVENT,
+                    json.dumps({"$feature_flag": flag_key}),
+                    called_at,
+                    self.team.pk,
+                    "some-distinct-id",
+                    inserted_at,
+                )
+            ],
+        )
+
+    def _last_called_at_by_key(self) -> dict[str, datetime | None]:
+        return dict(FeatureFlag.objects.filter(team=self.team).values_list("key", "last_called_at"))
+
+    @parameterized.expand(
+        [
+            ("default_setting", {}, "events"),
+            ("flag_evaluations", {"FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE": "flag_evaluations"}, "flag_evaluations"),
+            ("unknown_value", {"FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE": "not-a-source"}, "events"),
+        ]
+    )
+    def test_reads_flag_calls_from_the_configured_source(
+        self, _name: str, source_settings: dict[str, str], read_source: str
+    ) -> None:
+        now = tz.now()
+        # The call happened before the scan window opened and reached ClickHouse inside it.
+        # Only a filter on inserted_at reads it.
+        called_at = (now - timedelta(days=2)).replace(microsecond=0)
+        inserted_at = now - timedelta(minutes=20)
+        self._insert_flag_call("events", "called-in-events", called_at, inserted_at)
+        self._insert_flag_call("flag_evaluations", "called-in-flag-evaluations", called_at, inserted_at)
+
+        with self.settings(**source_settings):
+            sync_feature_flag_last_called()
+
+        assert self._last_called_at_by_key() == {
+            "called-in-events": called_at if read_source == "events" else None,
+            "called-in-flag-evaluations": called_at if read_source == "flag_evaluations" else None,
+        }
+
+    @parameterized.expand([("events", "called-in-events"), ("flag_evaluations", "called-in-flag-evaluations")])
+    def test_call_without_a_flag_key_does_not_take_the_row_limit(self, source: str, flag_key: str) -> None:
+        now = tz.now()
+        called_at = (now - timedelta(minutes=30)).replace(microsecond=0)
+        inserted_at = now - timedelta(minutes=20)
+        self._insert_flag_call(source, flag_key, called_at, inserted_at)
+        # The query sorts the newest call first. Without the empty-key filter, this call takes the only row.
+        self._insert_flag_call(source, "", now - timedelta(minutes=25), inserted_at)
+
+        with self.settings(
+            FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE=source,
+            FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT=1,
+        ):
+            sync_feature_flag_last_called()
+
+        assert self._last_called_at_by_key()[flag_key] == called_at
+
+    @parameterized.expand(
+        [("events", "called-in-events", True), ("flag_evaluations", "called-in-flag-evaluations", False)]
+    )
+    def test_call_inside_the_buffer_waits_for_a_later_run(
+        self, source: str, flag_key: str, read_on_first_run: bool
+    ) -> None:
+        now = tz.now()
+        called_at = (now - timedelta(minutes=5)).replace(microsecond=0)
+        self._insert_flag_call(source, flag_key, called_at, now - timedelta(minutes=5))
+
+        with self.settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE=source):
+            sync_feature_flag_last_called()
+            assert self._last_called_at_by_key()[flag_key] == (called_at if read_on_first_run else None)
+
+            with time_machine.travel(now + timedelta(minutes=16)):
+                sync_feature_flag_last_called()
+
+        assert self._last_called_at_by_key()[flag_key] == called_at

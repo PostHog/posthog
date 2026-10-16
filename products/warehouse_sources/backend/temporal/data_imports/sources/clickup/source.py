@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ClickUpSource(ResumableSource[ClickUpSourceConfig, ClickUpResumeConfig]):
+    codebase_detection = detect(env=("^CLICKUP_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = ("v2",)
@@ -59,12 +62,12 @@ class ClickUpSource(ResumableSource[ClickUpSourceConfig, ClickUpResumeConfig]):
             name=ExternalDataSourceType.CLICKUP,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="ClickUp",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your ClickUp personal API token to pull your ClickUp data into the PostHog Data warehouse.
 
 You can generate a personal token (starts with `pk_`) under **Settings → Apps** in ClickUp.
 
-The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup.com/{workspace_id}/...`.
+The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup.com/{workspace_id}/...`. You can paste the full URL.
 """,
             iconPath="/static/services/clickup.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/clickup",

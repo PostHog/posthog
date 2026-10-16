@@ -1,11 +1,11 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.schema import AssistantStickinessQuery
 
 from .. import StickinessResultsFormatter
 
 
-class TestStickinessResultsFormatter(BaseTest):
+class TestStickinessResultsFormatter(SimpleTestCase):
     def test_stickiness_single_series(self):
         results = [
             {

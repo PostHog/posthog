@@ -2,8 +2,8 @@
 
 Idempotent and resumable — a killed or re-run pass skips any (org, label, version, fetch)
 already computed, so partial progress is never redone and a re-enriched org naturally
-recomputes under the same version. Nothing here is consumed downstream; results are
-queryable in Postgres only.
+recomputes under the same version. Configured AI labels also update the ICP fit
+score; stored results remain available for retry when score projection fails.
 """
 
 import time
@@ -12,11 +12,14 @@ import threading
 from collections import deque
 from collections.abc import Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import close_old_connections, connection, transaction
+from django.db.models import Q
 
 import structlog
 
@@ -25,6 +28,9 @@ from posthog.llm.gateway_client import get_llm_client
 from posthog.ph_client import ph_scoped_capture
 from posthog.utils import get_instance_region
 
+from products.growth.backend.enrichment import gates
+from products.growth.backend.enrichment.fit_recomputation import apply_enrichment_result, label_needs_application
+from products.growth.backend.enrichment.icp_lists import load_active_lists
 from products.growth.backend.enrichment.labels import (
     PromptConfigError,
     TransientToolError,
@@ -32,11 +38,12 @@ from products.growth.backend.enrichment.labels import (
     classify_payload,
     get_active_config,
     is_unknown_output,
-    latest_fetches_qs,
+    recent_latest_fetches_qs,
     signup_domain_for_organization,
     validate_input_fields,
     validate_output_fields,
 )
+from products.growth.backend.enrichment.tools import FirecrawlPacer
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
@@ -66,6 +73,9 @@ def _report_batch_run(*, label: str, version: str, counts: dict[str, int]) -> No
                     "failed": counts["failed"],
                     "tool_calls": counts["tool_calls"],
                     "tools_deferred": counts["tools_deferred"],
+                    "scores_projected": counts["scores_projected"],
+                    "score_failures": counts["score_failures"],
+                    "score_attempted": counts["score_attempted"],
                 },
             )
     except Exception as e:
@@ -87,13 +97,27 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--label", required=True, help="EnrichmentPromptConfig.name to run")
-        parser.add_argument("--limit", type=int, default=None, help="Attempt at most this many (non-skipped) orgs")
+        parser.add_argument(
+            "--limit",
+            type=int,
+            default=None,
+            help="Classify at most this many new orgs and repair at most this many stored scores",
+        )
+        parser.add_argument(
+            "--lookback-days",
+            type=int,
+            default=None,
+            help=(
+                "Consider only orgs whose latest fetch is at most this many days old, for new labels and "
+                "score repairs alike. Omit to walk the full archive."
+            ),
+        )
         parser.add_argument("--workers", type=int, default=5, help="Bounded concurrency for LLM calls")
         parser.add_argument(
             "--max-failures",
             type=int,
             default=25,
-            help="Abort the run once this many consecutive fetches fail in a row (circuit breaker)",
+            help="Abort the run once this many consecutive fetches fail or defer on a web tool (circuit breaker)",
         )
         parser.add_argument(
             "--min-success-rate",
@@ -114,6 +138,7 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         label: str = options["label"]
         limit: int | None = options["limit"]
+        lookback_days: int | None = options["lookback_days"]
         workers: int = options["workers"]
         max_failures: int = options["max_failures"]
         min_success_rate: float = options["min_success_rate"]
@@ -122,6 +147,8 @@ class Command(BaseCommand):
             raise CommandError("--workers must be at least 1")
         if limit is not None and limit < 1:
             raise CommandError("--limit must be at least 1")
+        if lookback_days is not None and lookback_days < 1:
+            raise CommandError("--lookback-days must be at least 1")
         if max_failures < 1:
             raise CommandError("--max-failures must be at least 1")
 
@@ -138,6 +165,11 @@ class Command(BaseCommand):
             validate_output_fields(config)
         except PromptConfigError as e:
             raise CommandError(str(e)) from e
+        if gates.region_allowed() and not settings.FIRECRAWL_API_KEY:
+            raise CommandError(
+                "FIRECRAWL_API_KEY is not configured, so every org whose model turn calls a web tool would be "
+                "deferred after a paid model call; aborting before any spend"
+            )
 
         lock_key = _advisory_lock_key(label)
         with connection.cursor() as cursor:
@@ -147,7 +179,7 @@ class Command(BaseCommand):
             raise CommandError(f"Another enrichment_label_batch run already holds the lock for label {label!r}")
 
         try:
-            self._run(label, config, limit, workers, max_failures, min_success_rate)
+            self._run(label, config, limit, lookback_days, workers, max_failures, min_success_rate)
         finally:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT pg_advisory_unlock(%s)", [lock_key])
@@ -157,6 +189,7 @@ class Command(BaseCommand):
         label: str,
         config: EnrichmentPromptConfig,
         limit: int | None,
+        lookback_days: int | None,
         workers: int,
         max_failures: int,
         min_success_rate: float,
@@ -166,6 +199,7 @@ class Command(BaseCommand):
         # internal retries underneath would multiply that budget nine-fold per fetch and actively
         # worsen a 429 the tenacity layer is already backing off from.
         client = get_llm_client(product="growth").with_options(max_retries=0)
+        pacer = FirecrawlPacer()
 
         counts: dict[str, int] = {
             "attempted": 0,
@@ -178,6 +212,9 @@ class Command(BaseCommand):
             "completion_tokens": 0,
             "tool_calls": 0,
             "tools_deferred": 0,
+            "scores_projected": 0,
+            "score_failures": 0,
+            "score_attempted": 0,
             # Enumerated (counted into "attempted") but never processed because the circuit
             # breaker had already tripped — excluded from success_rate's denominator below so an
             # aborted run's ratio reflects what was actually tried, not what was merely queued.
@@ -192,15 +229,48 @@ class Command(BaseCommand):
         }
         counts_lock = threading.Lock()
         failure_streak = 0
+        score_failure_streak = 0
+        repair_attempted = 0
         circuit_open = threading.Event()
 
-        def _result_exists(fetch: OrganizationEnrichmentFetch, label_name: str) -> bool:
+        def _existing_result(fetch: OrganizationEnrichmentFetch, label_name: str) -> EnrichmentLabelResult | None:
             return EnrichmentLabelResult.objects.filter(
                 organization_id=fetch.organization_id,
                 label_name=label_name,
                 prompt_version=config.version,
                 fetch=fetch,
-            ).exists()
+            ).first()
+
+        def _apply_score(result: EnrichmentLabelResult, *, repair: bool) -> None:
+            nonlocal score_failure_streak, repair_attempted
+            lists = load_active_lists()
+            if (
+                lists is None
+                or not gates.region_allowed()
+                or not gates.enrichment_enabled()
+                or not label_needs_application(result)
+            ):
+                return
+            with counts_lock:
+                if circuit_open.is_set() or (repair and limit is not None and repair_attempted >= limit):
+                    return
+                if repair:
+                    repair_attempted += 1
+                counts["score_attempted"] += 1
+            try:
+                applied = apply_enrichment_result(result)
+            except Exception as error:
+                capture_exception(error, {"label_result_id": str(result.id), "path": "enrichment_score"})
+                with counts_lock:
+                    counts["score_failures"] += 1
+                    score_failure_streak += 1
+                    if score_failure_streak >= max_failures:
+                        circuit_open.set()
+            else:
+                with counts_lock:
+                    counts["scores_projected"] += int(applied)
+                    if applied:
+                        score_failure_streak = 0
 
         def _live_label_name() -> str:
             # A rename leaves content_hash alone, so the mid-run config check can't catch it. The
@@ -223,13 +293,15 @@ class Command(BaseCommand):
                     # Thread-local DB connections: drop any stale one before ORM work on this
                     # thread. Kept inside the guarded region so a failure here counts as an
                     # ordinary failure instead of escaping through future.result() and killing
-                    # the run — and closed again below, since pool threads are reused and
-                    # otherwise sit on a held connection for the full 60s of every LLM call.
+                    # the run. Pool threads are reused, so the connection is closed again before
+                    # the model call and in the finally block below.
                     close_old_connections()
                 # Re-check right before spending: another run may have computed this since the
                 # target was enumerated.
                 live_label = _live_label_name()
-                if _result_exists(fetch, live_label):
+                existing = _existing_result(fetch, live_label)
+                if existing is not None:
+                    _apply_score(existing, repair=True)
                     with counts_lock:
                         counts["skipped_existing"] += 1
                     return
@@ -242,14 +314,18 @@ class Command(BaseCommand):
                         counts["consent_revoked_after_attempt"] += 1
                     return
                 signup_domain = signup_domain_for_organization(fetch.organization)
-                output = classify_payload(config, fetch.payload, signup_domain, client)
+                if threaded:
+                    # The model call and its paced tool calls can take minutes, and an idle
+                    # connection held through them can be dropped before the write below.
+                    connection.close()
+                output = classify_payload(config, fetch.payload, signup_domain, client, pacer=pacer)
                 # Popped rather than left inline: output is stored as-is, and duplicating the
                 # inputs snapshot inside it would double-store and bloat every row.
                 inputs = output.pop("inputs", {})
                 with transaction.atomic():
                     # Re-read: a rename can land while the LLM call is in flight, and stamping the
                     # name captured before it would strand this verdict under a retired label.
-                    EnrichmentLabelResult.objects.get_or_create(
+                    result, _ = EnrichmentLabelResult.objects.get_or_create(
                         organization_id=fetch.organization_id,
                         fetch=fetch,
                         label_name=_live_label_name(),
@@ -261,9 +337,15 @@ class Command(BaseCommand):
                             "inputs": inputs,
                         },
                     )
+                _apply_score(result, repair=False)
             except TransientToolError:
+                # A deferral follows a model call that is already paid for, so a run of them must
+                # stop the spend the same way a run of failures does.
                 with counts_lock:
                     counts["tools_deferred"] += 1
+                    failure_streak += 1
+                    if failure_streak >= max_failures:
+                        circuit_open.set()
                 return
             except Exception as e:
                 capture_exception(
@@ -293,8 +375,8 @@ class Command(BaseCommand):
                 if is_unknown_output(output):
                     counts["unknown"] += 1
 
-        def _id_batches() -> Iterator[list[tuple[UUID, UUID]]]:
-            """Keyset-paginate latest_fetches_qs() over the full archive by organization_id in
+        def _id_batches() -> Iterator[list[tuple[UUID, datetime]]]:
+            """Keyset-paginate recent_latest_fetches_qs() newest first by (fetched_at, id) in
             bounded chunks, so a multi-hour run never holds more than one page of full (payload +
             joined Organization) rows in memory. .iterator() alone doesn't guarantee that:
             DISABLE_SERVER_SIDE_CURSORS is true under pgbouncer, which silently degrades
@@ -304,30 +386,36 @@ class Command(BaseCommand):
             --limit is deliberately NOT enforced here: it bounds attempted (non-skipped) orgs, not
             enumerated ones, so it's applied in _attempt_targets instead. Capping the page query
             itself would make a resumed run re-enumerate the same already-processed prefix and
-            attempt 0 forever whenever the first --limit orgs by organization_id already have a
-            result."""
-            last_org_id: UUID | None = None
+            attempt 0 forever whenever the newest --limit candidates already have a result."""
+            candidates = (
+                recent_latest_fetches_qs(lookback_days).order_by("-fetched_at", "-id").values_list("id", "fetched_at")
+            )
+            id_qs = candidates
             while True:
-                id_qs = latest_fetches_qs().values_list("id", "organization_id")
-                if last_org_id is not None:
-                    id_qs = id_qs.filter(organization_id__gt=last_org_id)
                 page = list(id_qs[:_ID_BATCH_SIZE])
                 if not page:
                     return
                 yield page
-                last_org_id = page[-1][1]
+                last_id, last_fetched_at = page[-1]
+                id_qs = candidates.filter(
+                    Q(fetched_at__lt=last_fetched_at) | Q(fetched_at=last_fetched_at, id__lt=last_id)
+                )
 
         def _attempt_targets() -> Iterator[OrganizationEnrichmentFetch]:
             for page in _id_batches():
                 if circuit_open.is_set():
                     return
-                fetches = OrganizationEnrichmentFetch.objects.filter(
-                    id__in=[fetch_id for fetch_id, _ in page]
-                ).select_related("organization")
+                fetches = (
+                    OrganizationEnrichmentFetch.objects.filter(id__in=[fetch_id for fetch_id, _ in page])
+                    .select_related("organization")
+                    .order_by("-fetched_at", "-id")
+                )
                 for fetch in fetches:
                     if circuit_open.is_set():
                         return
-                    if _result_exists(fetch, label):
+                    existing = _existing_result(fetch, label)
+                    if existing is not None:
+                        _apply_score(existing, repair=True)
                         with counts_lock:
                             counts["skipped_existing"] += 1
                         continue
@@ -372,14 +460,14 @@ class Command(BaseCommand):
         # succeeded/tried rather than a raw count: an alert can fire on the ratio, and on a run
         # that attempted nothing at all, which is what a silently broken input source looks like.
         # "tried" excludes aborted items so a circuit-broken run doesn't dilute the ratio with
-        # work that was queued but never actually attempted. Consent skips and tool deferrals are
-        # excluded for the same reason (an archive of orgs that all declined, or that all hit a
-        # transient Firecrawl outage, is a correct empty run, not a failed one), but only
-        # "consent_revoked_after_attempt" and "tools_deferred" need subtracting here - a declined
-        # org caught at enumeration time never incremented "attempted" to begin with (see
+        # work that was queued but never actually attempted. Consent skips are excluded for the
+        # same reason (an archive of orgs that all declined is a correct empty run, not a failed
+        # one), but only "consent_revoked_after_attempt" needs subtracting here - a declined org
+        # caught at enumeration time never incremented "attempted" to begin with (see
         # _attempt_targets), so subtracting the full skipped_no_ai_consent count here would
-        # double-subtract and could push "tried" negative.
-        not_tried = counts["aborted"] + counts["consent_revoked_after_attempt"] + counts["tools_deferred"]
+        # double-subtract and could push "tried" negative. Tool deferrals stay in "tried": each
+        # one paid for a model call and produced no verdict.
+        not_tried = counts["aborted"] + counts["consent_revoked_after_attempt"]
         tried = counts["attempted"] - not_tried
         success_rate = counts["succeeded"] / tried if tried else None
         elapsed_seconds = time.monotonic() - started_at
@@ -389,6 +477,8 @@ class Command(BaseCommand):
             f"skipped_no_ai_consent {counts['skipped_no_ai_consent']}, unknown {counts['unknown']}, "
             f"failed {counts['failed']}, aborted {counts['aborted']}, "
             f"tool_calls {counts['tool_calls']}, tools_deferred {counts['tools_deferred']}, "
+            f"scores_projected {counts['scores_projected']}, score_failures {counts['score_failures']}, "
+            f"score_attempted {counts['score_attempted']}, "
             f"prompt_tokens {counts['prompt_tokens']}, completion_tokens {counts['completion_tokens']}, "
             f"elapsed_seconds {elapsed_seconds:.1f}"
         )
@@ -406,10 +496,12 @@ class Command(BaseCommand):
         # Written unconditionally, before any failure decision below: a wrapper parsing stdout
         # for these counts needs them most on the run that fails, not just on a clean one.
         self.stdout.write(summary)
+        if counts["score_failures"]:
+            raise CommandError(f"failed to apply {counts['score_failures']} stored AI labels ({summary})")
         if circuit_open.is_set():
-            raise CommandError(f"aborted after {max_failures} consecutive failures ({summary})")
+            raise CommandError(f"aborted after {max_failures} consecutive failures or tool deferrals ({summary})")
         if tried > 0 and counts["succeeded"] == 0:
-            raise CommandError(f"every attempted org failed ({summary})")
+            raise CommandError(f"no attempted org succeeded ({summary})")
         if success_rate is not None and success_rate < min_success_rate:
             raise CommandError(
                 f"success_rate {success_rate:.2f} is below --min-success-rate {min_success_rate} ({summary})"

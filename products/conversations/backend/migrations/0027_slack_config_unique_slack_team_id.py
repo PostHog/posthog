@@ -4,8 +4,8 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     """Create partial unique index concurrently (non-blocking) on slack_team_id.
 
-    Excludes NULL rows since every team gets an auto-created config via
-    register_team_extension_signal with slack_team_id=NULL.
+    Excludes NULL rows because every config row starts with slack_team_id=NULL
+    until the team connects Slack.
     """
 
     atomic = False

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NetlifySource(ResumableSource[NetlifySourceConfig, NetlifyResumeConfig]):
+    codebase_detection = detect(
+        env=("^NETLIFY_",),
+        npm=("@netlify/functions", "netlify", "netlify-cli", "@netlify/blobs"),
+        go=(
+            "github.com/netlify/open-api",
+            "github.com/netlify/netlify-commons",
+            "github.com/netlify/netlify-credential-helper",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -119,10 +130,7 @@ Create a personal access token under **User settings > Applications > Personal a
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_netlify_credentials(config.api_token):
-            return True, None
-
-        return False, "Invalid Netlify personal access token"
+        return validate_netlify_credentials(config.api_token)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[NetlifyResumeConfig]:
         return ResumableSourceManager[NetlifyResumeConfig](inputs, NetlifyResumeConfig)

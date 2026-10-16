@@ -116,10 +116,11 @@ class HeartbeatDetails:
         return HeartbeatDetails(last_uploaded_timestamp)
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class HttpInsertInputs(BatchExportInsertInputs):
     """Inputs for HTTP insert activity."""
 
+    data_interval_end: str
     url: str
     token: str
 
@@ -202,9 +203,6 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        if inputs.batch_export_schema is not None:
-            raise NotImplementedError("Batch export schema is not supported for HTTP export")
-
         if inputs.batch_export_model is not None:
             if inputs.batch_export_model.name != "events":
                 raise NotImplementedError("HTTP export only supports the events model")
@@ -219,16 +217,15 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
         # Only the native source projects the mutation columns; a legacy table carries the same keys
         # in its `properties`.
-        fields = http_default_fields(
-            reads_native_events_source(
-                use_new_events_schema=use_native_schema,
-                team_id=inputs.team_id,
-                interval_start=interval_start,
-                interval_end=inputs.data_interval_end,
-                is_backfill=is_backfill,
-                backfill_details=inputs.backfill_details,
-            )
+        native_source = reads_native_events_source(
+            use_new_events_schema=use_native_schema,
+            team_id=inputs.team_id,
+            interval_start=interval_start,
+            interval_end=inputs.data_interval_end,
+            is_backfill=is_backfill,
+            backfill_details=inputs.backfill_details,
         )
+        fields = http_default_fields(native_source)
         columns = [field["alias"] for field in fields]
 
         filters = inputs.batch_export_model.filters if inputs.batch_export_model is not None else None
@@ -422,7 +419,6 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,

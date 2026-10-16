@@ -4,6 +4,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from django.utils import timezone
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
 
 from ee.partners.stripe.api.provisioning.test.base import (
@@ -91,6 +92,8 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         assert res.json()["status"] == "complete"
         rotated_api_key = res.json()["complete"]["access_configuration"]["api_key"]
         assert rotated_api_key != original_api_key
+        rotation = ActivityLog.objects.filter(scope="Team", activity="updated").latest("created_at")
+        assert (rotation.credential_type, rotation.credential_id) == ("oauth", str(self.stripe_app.id))
 
         res = self._post_signed_with_bearer(
             f"{BASE_PATH}/provisioning/resources/{resource_id}/update_service",

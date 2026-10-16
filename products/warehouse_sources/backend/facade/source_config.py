@@ -24,6 +24,7 @@ __all__ = [
     "SourceConfigResponse",
     "SourceDocumentedTable",
     "SourceFieldConfig",
+    "SourceFieldCredentialAccountSelectConfig",
     "SourceFieldFileUploadConfig",
     "SourceFieldFileUploadJsonFormatConfig",
     "SourceFieldInputConfig",
@@ -143,6 +144,41 @@ class SourceFieldOauthAccountSelectConfig(BaseModel):
     type: Literal["oauth-account-select"] = "oauth-account-select"
 
 
+class SourceFieldCredentialAccountSelectConfig(BaseModel):
+    """Account picker for a source whose credentials are typed into the form, not held by an
+    `Integration` row. Same `IntegrationAccount` shape and same picker as `oauth-account-select`;
+    only where the credentials come from differs.
+
+    `credentialFields` is the security boundary. The listing endpoint accepts those field names and
+    no others, so the picker cannot be used to push arbitrary connection details into a source's
+    client.
+    """
+
+    model_config = _WIRE_MODEL_CONFIG
+    caption: str | None = None
+    credentialFields: list[str] = Field(
+        ...,
+        description=(
+            "Names of the sibling fields whose values the account listing needs. The form sends"
+            " exactly these, and the listing endpoint accepts exactly these."
+        ),
+    )
+    integrationField: str | None = Field(
+        default=None,
+        description=(
+            "Name of an OAuth integration id field that lists the same accounts, for a source"
+            " offering both a typed-in credential and a connected account. The form sends this"
+            " instead of `credentialFields` when it holds a value, and the listing endpoint"
+            " accepts it on the same allowlist."
+        ),
+    )
+    label: str
+    name: str
+    placeholder: str | None = None
+    required: bool | None = None
+    type: Literal["credential-account-select"] = "credential-account-select"
+
+
 class SourceFieldInputConfig(BaseModel):
     model_config = _WIRE_MODEL_CONFIG
     caption: str | None = None
@@ -232,6 +268,7 @@ SourceFieldConfig = Annotated[
         SourceFieldSelectConfig,
         SourceFieldOauthConfig,
         SourceFieldOauthAccountSelectConfig,
+        SourceFieldCredentialAccountSelectConfig,
         SourceFieldFileUploadConfig,
         SourceFieldSSHTunnelConfig,
     ],

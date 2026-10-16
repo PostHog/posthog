@@ -11,11 +11,14 @@ run row records which input runs or variable values it used.
 """
 
 import re
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+
+from posthog.dataclasses import frozen
 
 from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
 from products.notebooks.backend.models import NotebookNodeRun
@@ -54,6 +57,14 @@ _DATAFRAME_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _CODE_PREVIEW_CHARS = 8_000
 
 
+@frozen
+class CellVisualization:
+    display: str
+    x_axis: str | None
+    y_axis: tuple[str, ...] | None
+    series_breakdown: str | None
+
+
 # Built in stages: `build_dependency_edges` fills the graph edges, `annotate_run_state` the run
 # status, and `_merge_prose_cells` the document span.
 @dataclass(frozen=False)
@@ -62,12 +73,84 @@ class NotebookCellState:
     cell_type: str
     dataframe_name: str = ""
     code: str = ""
+    # The data source a SQL cell targets, and whether its code reaches that engine verbatim.
+    # Both are cell attributes rather than run inputs, so anything that runs a cell on the
+    # cell's own terms — not just the editor, which passes them per request — needs them.
+    connection_id: str | None = None
+    send_raw_query: bool = False
     status: str = "never_run"
     depends_on: list[str] = field(default_factory=list)
     dependents: list[str] = field(default_factory=list)
     last_run: dict[str, Any] | None = None
     start: int = 0
     end: int = 0
+    visualization: CellVisualization | None = None
+
+
+def _code_from_query_prop(value: Any) -> str:
+    """The SQL a SQL cell carries in `query` instead of `code`, or "" when it carries none.
+
+    Mirrors the editor's `getSqlV2PropsFromQueryProp`. A cell written before `code` existed,
+    or converted from a v1 node, holds its SQL three ways: raw in the string prop, as a bare
+    HogQLQuery, or wrapped in a data-table or visualization node. The editor renders all
+    three, so a whole-notebook run has to plan all three rather than silently skip them.
+    """
+    if isinstance(value, str) and not value.strip().startswith("{"):
+        # Anything else a string prop can hold is the SQL itself.
+        return value.strip()
+    query = _query_prop_object(value)
+    if query is None:
+        return ""
+    source = query if query.get("kind") == "HogQLQuery" else query.get("source")
+    if isinstance(source, dict) and source.get("kind") == "HogQLQuery" and isinstance(source.get("query"), str):
+        return source["query"]
+    return ""
+
+
+def _query_prop_object(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return None
+    return value if isinstance(value, dict) else None
+
+
+# Mirrors the SQLV2 node, which opens on the chart only when `outputTab` says so and draws a line
+# chart when `vizQuery` names no display.
+_DEFAULT_CHART_DISPLAY = "ActionsLineGraph"
+
+
+def _axis_column(axis: Any) -> str | None:
+    column = axis.get("column") if isinstance(axis, dict) else None
+    return column if isinstance(column, str) and column else None
+
+
+def _visualization_from_props(props: dict[str, Any]) -> CellVisualization | None:
+    output_tab, viz_query = props.get("outputTab"), props.get("vizQuery")
+    code = props.get("code")
+    if not (isinstance(code, str) and code.strip()):
+        # Mirrors the editor's `getSqlV2PropsFromQueryProp`: a cell without `code` whose `query`
+        # is a visualization node opens on that chart, whatever `outputTab` and `vizQuery` hold.
+        query = _query_prop_object(props.get("query"))
+        if query and query.get("kind") == "DataVisualizationNode" and _code_from_query_prop(query).strip():
+            output_tab, viz_query = "visualization", query
+    if output_tab != "visualization":
+        return None
+    viz_query = viz_query if isinstance(viz_query, dict) else {}
+    chart_settings = viz_query.get("chartSettings")
+    chart_settings = chart_settings if isinstance(chart_settings, dict) else {}
+    display = viz_query.get("display")
+    y_axis = chart_settings.get("yAxis")
+    breakdown = chart_settings.get("seriesBreakdownColumn")
+    return CellVisualization(
+        display=display if isinstance(display, str) and display else _DEFAULT_CHART_DISPLAY,
+        x_axis=_axis_column(chart_settings.get("xAxis")),
+        # The chart picks the Y series only when `yAxis` is absent. An empty list records that the
+        # author removed every series, so the chart plots nothing, and the two must not merge.
+        y_axis=tuple(column for column in map(_axis_column, y_axis) if column) if isinstance(y_axis, list) else None,
+        series_breakdown=breakdown if isinstance(breakdown, str) and breakdown else None,
+    )
 
 
 def extract_cells(content: Any) -> list[NotebookCellState]:
@@ -84,17 +167,23 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
         if not isinstance(node_id, str) or not node_id:
             continue
         code = props.get("dataframeQuery") if cell_type == "saved_insight" else props.get("code")
+        if cell_type == "sql" and not (isinstance(code, str) and code.strip()):
+            code = _code_from_query_prop(props.get("query"))
         dataframe_name = props.get("returnVariable")
         if not isinstance(dataframe_name, str):
             dataframe_name = {"sql": "sql_df", "python": "df", "saved_insight": "insight_df"}[cell_type]
         if cell_type == "saved_insight" and not (isinstance(code, str) and code.strip()):
             dataframe_name = ""
+        connection_id = props.get("connectionId")
         cells.append(
             NotebookCellState(
                 node_id=node_id,
                 cell_type=cell_type,
                 dataframe_name=dataframe_name.strip() if isinstance(dataframe_name, str) else "",
                 code=code if isinstance(code, str) else "",
+                connection_id=connection_id if isinstance(connection_id, str) and connection_id else None,
+                send_raw_query=props.get("sendRawQuery") is True,
+                visualization=_visualization_from_props(props) if tag_name == "SQLV2" else None,
             )
         )
     used_names: set[str] = set()
@@ -118,8 +207,12 @@ def validate_cell_count(previous_content: Any, next_content: Any) -> None:
     or by a path that predates it — stays editable, so its owner can delete cells down instead
     of finding every save rejected. A save that leaves the count unchanged always passes.
     """
-    next_count = sum(cell.cell_type != "saved_insight" for cell in extract_cells(next_content))
-    previous_count = sum(cell.cell_type != "saved_insight" for cell in extract_cells(previous_content))
+    next_count = sum(
+        cell.cell_type != "saved_insight" or bool(cell.code.strip()) for cell in extract_cells(next_content)
+    )
+    previous_count = sum(
+        cell.cell_type != "saved_insight" or bool(cell.code.strip()) for cell in extract_cells(previous_content)
+    )
     if next_count <= MAX_NOTEBOOK_CELLS or next_count <= previous_count:
         return
     raise NotebookCellLimitExceeded(
@@ -288,7 +381,9 @@ def _merge_prose_cells(cells: list[NotebookCellState], content: Any) -> list[Not
 
     by_node_id = {cell.node_id: cell for cell in cells}
     ordered: list[NotebookCellState] = []
-    for block in iter_markdown_blocks(markdown, max_prose_blocks=MAX_ADDRESSABLE_PROSE_BLOCKS):
+    for block in iter_markdown_blocks(
+        markdown, max_prose_blocks=MAX_ADDRESSABLE_PROSE_BLOCKS, group_anchored_prose=True
+    ):
         if block.kind == "prose":
             ordered.append(
                 NotebookCellState(

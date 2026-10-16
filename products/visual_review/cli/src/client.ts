@@ -191,10 +191,13 @@ export class VisualReviewClient {
 
     /**
      * Complete a run: detect removals, verify uploads, trigger diff processing.
+     *
+     * `checkRunId` names the CI job that calls this, so a recompute re-runs only that job.
      */
-    async completeRun(runId: string): Promise<RunApi> {
+    async completeRun(runId: string, checkRunId?: string): Promise<RunApi> {
         return this.request<RunApi>(`/visual_review/runs/${runId}/complete/`, {
             method: 'POST',
+            body: JSON.stringify(checkRunId ? { check_run_id: checkRunId } : {}),
         })
     }
 

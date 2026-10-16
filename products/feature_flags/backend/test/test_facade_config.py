@@ -8,8 +8,11 @@ from parameterized import parameterized
 from products.feature_flags.backend.facade.config import (
     ConfigFormat,
     ConfigFormatError,
+    ConfigV1,
     ConfigV2,
     RuleV2,
+    UnsupportedConfig,
+    decode_config,
     detect_config_format,
     parse_v2_config,
 )
@@ -115,6 +118,8 @@ class TestDetectConfigFormat:
             ("version_null", {"version": None}, ConfigFormat(kind="unsupported", raw_version=None)),
             ("unknown_future_version", {"version": 3}, ConfigFormat(kind="unsupported", raw_version=3)),
             ("fractional_version", {"version": 1.5}, ConfigFormat(kind="unsupported", raw_version=1.5)),
+            ("list_document", [], ConfigFormat(kind="unsupported", raw_version=None)),
+            ("string_document", "{}", ConfigFormat(kind="unsupported", raw_version=None)),
         ]
     )
     def test_detection(self, _name, filters, expected):
@@ -127,12 +132,23 @@ class TestParseV2Config:
             return_type="boolean",
             default_value=False,
             rules=(
-                RuleV2(id="11111111-1111-4111-8111-111111111111", rule_type="targeted_release", experiment_id=None),
-                RuleV2(id="22222222-2222-4222-8222-222222222222", rule_type="percentage_rollout", experiment_id=None),
+                RuleV2(
+                    id="11111111-1111-4111-8111-111111111111",
+                    rule_type="targeted_release",
+                    experiment_id=None,
+                    value=True,
+                ),
+                RuleV2(
+                    id="22222222-2222-4222-8222-222222222222",
+                    rule_type="percentage_rollout",
+                    experiment_id=None,
+                    value=True,
+                ),
                 RuleV2(
                     id="44444444-4444-4444-8444-444444444444",
                     rule_type="experiment",
                     experiment_id=42,
+                    value=None,
                 ),
             ),
             aggregation_group_type_index=None,
@@ -143,7 +159,12 @@ class TestParseV2Config:
             return_type="string",
             default_value="standard",
             rules=(
-                RuleV2(id="55555555-5555-4555-8555-555555555555", rule_type="percentage_rollout", experiment_id=None),
+                RuleV2(
+                    id="55555555-5555-4555-8555-555555555555",
+                    rule_type="percentage_rollout",
+                    experiment_id=None,
+                    value="compact",
+                ),
             ),
             aggregation_group_type_index=0,
         )
@@ -176,6 +197,7 @@ class TestParseV2Config:
             ("rule_id", 0, "id"),
             ("rule_type", 0, "rule_type"),
             ("experiment_id", 2, "experiment_id"),
+            ("rule_value", 1, "value"),
         ]
     )
     def test_missing_required_keys_are_rejected(self, _name: str, rule_index: int | None, key: str) -> None:
@@ -202,3 +224,67 @@ class TestParseV2Config:
 
         with pytest.raises(ValueError, match=message):
             parse_v2_config(filters)
+
+
+COHORT_PREDICATE: dict[str, Any] = {"key": "id", "type": "cohort", "value": 12}
+FLAG_PREDICATE: dict[str, Any] = {"key": "34", "type": "flag", "operator": "flag_evaluates_to", "value": True}
+
+
+class TestDecodeConfig:
+    @parameterized.expand(
+        [
+            ("absent_version", {"groups": []}, {"groups": []}),
+            ("explicit_version_1", {"version": 1, "groups": []}, {"version": 1, "groups": []}),
+            ("none_document", None, {}),
+        ]
+    )
+    def test_v1_documents_decode_to_the_v1_arm(self, _name: str, document: Any, filters: dict) -> None:
+        assert decode_config(document) == ConfigV1(filters=filters)
+
+    def test_v2_rules_carry_their_cohort_and_flag_predicates(self) -> None:
+        document = deepcopy(V2_STRING_GROUP_ASSIGNMENT)
+        group_predicate = document["rules"][0]["targeting"]["properties"][0]
+        document["rules"][0]["targeting"]["properties"] = [COHORT_PREDICATE, group_predicate, FLAG_PREDICATE]
+
+        decoded = decode_config(document)
+
+        assert isinstance(decoded, ConfigV2)
+        assert decoded.aggregation_group_type_index == 0
+        assert decoded.rules[0].reference_predicates == (COHORT_PREDICATE, FLAG_PREDICATE)
+
+    @parameterized.expand(
+        [
+            ("unknown_future_version", {"version": 3}, 3),
+            ("string_version", {"version": "2"}, "2"),
+            ("list_document", [], None),
+            ("v2_discriminator_over_v1_keys", {"version": 2, "groups": []}, 2),
+            (
+                "v2_rule_without_targeting",
+                {**V2_BOOLEAN_ALL_RULE_TYPES, "rules": [{"id": "r", "rule_type": "targeted_release"}]},
+                2,
+            ),
+            ("v2_rules_not_a_list", {**V2_BOOLEAN_ALL_RULE_TYPES, "rules": 7}, 2),
+            (
+                "v2_unknown_rule_type",
+                {
+                    **V2_BOOLEAN_ALL_RULE_TYPES,
+                    "rules": [{"id": "r", "rule_type": "variant_rollout", "targeting": {"properties": []}}],
+                },
+                2,
+            ),
+            (
+                "v2_predicate_not_an_object",
+                {
+                    **V2_BOOLEAN_ALL_RULE_TYPES,
+                    "rules": [{"id": "r", "rule_type": "targeted_release", "targeting": {"properties": ["cohort"]}}],
+                },
+                2,
+            ),
+        ]
+    )
+    def test_other_documents_decode_to_the_unsupported_arm(
+        self, _name: str, document: Any, raw_version: object
+    ) -> None:
+        assert decode_config(document) == UnsupportedConfig(
+            config_format=ConfigFormat(kind="unsupported", raw_version=raw_version)
+        )

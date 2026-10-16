@@ -12,16 +12,45 @@ This skill walks through creating a new A/B test experiment: read the project, t
 Create the experiment as a draft quickly, then iterate on metrics and configuration.
 The user gets a tangible draft immediately and can refine it.
 Choose settings from the project's facts rather than asking, and say which choices are guesses.
+Bucketing is the exception: the facts cannot decide it, so ask before you create the experiment.
 
 ## Step 0: Read the project
 
 The right bucketing, metric and running time depend on the project: who sees the page, which SDKs evaluate the flag, how often the metric event happens.
 Read that before configuring anything.
 
-1. From the request, infer the **target** (the event that marks someone reaching the change, usually `$pageview` plus a URL fragment for a page) and a **candidate metric event**.
+1. From the request, infer the **target** (the event that marks someone reaching the change, usually `$pageview` for a page) and a **candidate metric event**.
    Confirm both exist with `read-data-schema`. Don't ask the user for event names you can find.
-2. If the `experiment-setup-context` tool is available, call it once with `target_event`, `target_url_contains` (for a page) and `metric_event`.
-   If it is not available, continue without it and treat every choice below as a best guess. Never call a tool you can't see.
+   For a page, read `event_property_values` for `$host` and `$pathname` on the target event as well.
+   The response samples the values rather than listing them all, so read it for the shape the project records (a trailing slash, a `www.` prefix, the casing) rather than as proof that a value is absent.
+   An exact filter has to carry that shape: `/pricing` matches nothing where every pageview says `/pricing/`, and `example.com` matches nothing where the host is `www.example.com`.
+2. If the `experiment-setup-context` tool is available, call it once with `target_event` and `metric_event`.
+   For a web surface, add `target_properties` with an exact `$host`.
+   Add an exact `$pathname` as well when the surface is one page.
+   `target_url_contains` is a substring match on `$current_url`.
+   A bare domain matches any host that contains it, `notexample.com` included, and a homepage path matches every page under it.
+   Both overstate the traffic and the exposure rate.
+   For a surface that spans several pages, keep the exact `$host` and put only the path fragment in `target_url_contains`.
+   Add `metric_properties` in the same call when the candidate metric counts only some occurrences of its event.
+   Pass `previous_experiments_limit: 5`. Five experiments are enough to read a precedent, and the default of 10 roughly doubles the response for no more signal.
+   If the tool is not available, continue without it and treat every choice below as a best guess. Never call a tool you can't see.
+
+   Each filter needs a `type` of `event` or `person`, a `key`, an `operator` and a `value`.
+   The call rejects the `flag_evaluates_to` operator with a 400 that names it.
+   For the homepage of one domain:
+
+   ```json
+   {
+     "target_event": "$pageview",
+     "target_properties": [
+       { "key": "$host", "type": "event", "operator": "exact", "value": ["www.example.com"] },
+       { "key": "$pathname", "type": "event", "operator": "exact", "value": ["/"] }
+     ],
+     "metric_event": "your_conversion_event",
+     "previous_experiments_limit": 5
+   }
+   ```
+
 3. Apply [references/setup-decisions.md](references/setup-decisions.md) to the result. It maps each fact to a choice (bucketing, where the flag is evaluated, exposure, primary metric, running time, precedent) and to a tier for the summary.
 4. Carry those choices into steps 1 to 3.
 
@@ -54,7 +83,7 @@ Key decision points (covered in detail by `configuring-experiment-rollout`):
 
 - Variant split (how many variants, what percentage each)
 - Overall rollout percentage (what % of all users enter the experiment)
-- Bucketing and whether to persist the flag across authentication steps — decided from the project's facts in step 0
+- Bucketing and whether to persist the flag across authentication steps — the user chooses, because the project's facts cannot decide it
 
 If the user doesn't mention rollout specifics, use defaults: 50/50 control/test, 100% rollout.
 
@@ -105,14 +134,14 @@ Key details:
 
 - Minimum 2, maximum 20 variants. No specific variant key is required — the analysis baseline defaults to the variant keyed `"control"` when present, else the first variant (override with `stats_config.baseline_variant_key`). Convention: key the baseline `"control"` unless the user asks for specific keys.
 - `filters.groups[0].rollout_percentage` defaults to 100 if omitted.
-- Bucketing and `ensure_experience_continuity` come from step 0. Keep user-id bucketing unless the page crosses identification. Only then, in this order: device-id bucketing when every flag call carries a device ID, else persistence when no SDK evaluates the flag locally, else user-id bucketing. Leave `ensure_experience_continuity` out unless you are choosing persistence: when omitted, the team's persistence default applies.
+- Bucketing and `ensure_experience_continuity`: default to user-id bucketing and leave `ensure_experience_continuity` out, so the team's persistence default applies. Report the surface's identity mix from step 0 and what device-id bucketing or persistence would each need, then let the user choose before this call. Device-id bucketing needs the flag created first, so the choice cannot wait until the draft exists. The identity mix does not decide it: see "Bucketing and persistence across login" in `configuring-experiment-rollout`.
 - Stats follow the team's defaults (method, confidence level). Only set `stats_config` if the user asks for a different method.
 
 ## After creation
 
 1. **Report the draft in three groups**, so the user can review it quickly:
    - **Set with confidence**: the choice and the fact behind it ("linked the shared metric 'Signups': it counts the signup event per person, as you asked").
-   - **Best guess, please check**: the choice, the fact, and what would change it ("user-id bucketing: 94% of visitors are not identified; switch to device id if identified users also see this page").
+   - **Best guess, please check**: the choice, the fact, and what would change it ("a funnel metric, because your last four experiments measured conversion that way; say so if you want a count per user instead").
    - **Not decided**: what is missing and how to decide it ("the flag is also evaluated on your server with local evaluation; check the server and browser use the same distinct ID").
 
    Also say what you could not read: a missing tool, or a section whose status was not `ok`.

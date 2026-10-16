@@ -3,6 +3,7 @@ from typing import Annotated, Any, cast
 import litellm
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
+from litellm.types.llms.openai import ValidUserMessageContentTypes
 
 from llm_gateway.api.handler import (
     OPENAI_CONFIG,
@@ -34,11 +35,29 @@ def _invalid_request_error(message: str) -> HTTPException:
     )
 
 
+def _reject_invalid_user_content_parts(messages: list[dict[str, Any]]) -> None:
+    for index, message in enumerate(messages):
+        content = message.get("content")
+        if message.get("role") != "user" or not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict):
+                raise _invalid_request_error(
+                    f"Invalid user message at index {index}: each content part must be an object"
+                )
+            if part.get("type") not in ValidUserMessageContentTypes:
+                raise _invalid_request_error(
+                    f"Invalid user message at index {index}: content part type '{part.get('type')}' "
+                    f"is not a chat completion content type ({', '.join(ValidUserMessageContentTypes)})"
+                )
+
+
 async def _handle_chat_completions(
     body: ChatCompletionRequest,
     user: RateLimitedUser,
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
+    _reject_invalid_user_content_parts(body.messages)
     data = body.model_dump(exclude_none=True)
 
     if is_inference_routed_model(body.model):

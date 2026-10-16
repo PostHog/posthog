@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconGithub, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
@@ -10,7 +11,6 @@ import { GitHubInstallRequestsBanner } from 'lib/integrations/GitHubInstallReque
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
 import { userGithubIntegrationLogic } from 'lib/integrations/userGithubIntegrationLogic'
 import { IconSlack } from 'lib/lemon-ui/icons'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import {
     LinkableSlackWorkspace,
@@ -18,6 +18,13 @@ import {
     PersonalGitHubIntegration,
     PersonalSlackIntegration,
 } from './personalIntegrationsLogic'
+
+// Personal integrations are a separate table with their own connect surface, so they get
+// their own event: saved insights already count `integration_connect_clicked` unfiltered and
+// would silently start including personal links.
+function reportPersonalIntegrationConnectClicked(kind: string): void {
+    posthog.capture('personal integration connect clicked', { integration_kind: kind })
+}
 
 function GitHubInstallationRow({ integration }: { integration: PersonalGitHubIntegration }): JSX.Element {
     const { disconnectGitHub } = useActions(personalIntegrationsLogic)
@@ -181,7 +188,6 @@ function SlackLinkRow({ integration }: { integration: PersonalSlackIntegration }
 export function PersonalGitHubIntegrations(): JSX.Element {
     const { integrations, integrationsLoading, githubConnecting } = useValues(personalIntegrationsLogic)
     const { connectGitHub, startPolling, stopPolling } = useActions(personalIntegrationsLogic)
-    const { reportPersonalIntegrationConnectClicked } = useActions(eventUsageLogic)
 
     // Refresh the personal rows while this section stays mounted, so an App removed on GitHub shows
     // its unavailable notice without a manual reload.

@@ -24,12 +24,11 @@ import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
 import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
-import { ComposeTicketModal } from 'products/conversations/frontend/components/ComposeTicket'
+import { composeTicketLogic } from 'products/conversations/frontend/components/ComposeTicket/composeTicketLogic'
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
+import { traceDialogLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogLogic'
 
 import { globalModalsLogic } from './globalModalsLogic'
-import { navigationLogic } from './navigation/navigationLogic'
-import { ConfigureHomeModal } from './scenes/ConfigureHomeModal'
 
 // The session player modal anchors the entire replay player graph; loading it only when a
 // recording is opened keeps that graph out of the chunk every logged-in page downloads.
@@ -46,6 +45,19 @@ const LogsViewerModal = lazyWithRetry(() =>
     }))
 )
 
+const TraceDialog = lazyWithRetry(() =>
+    import('products/tracing/frontend/components/TraceDialog/TraceDialog').then((m) => ({
+        default: m.TraceDialog,
+    }))
+)
+
+// The compose ticket modal anchors the support rich text editor (tiptap and prosemirror).
+const ComposeTicketModal = lazyWithRetry(() =>
+    import('products/conversations/frontend/components/ComposeTicket/ComposeTicketModal').then((m) => ({
+        default: m.ComposeTicketModal,
+    }))
+)
+
 export function GlobalModals(): JSX.Element {
     const { isCreateOrganizationModalShown, isCreateProjectModalShown } = useValues(globalModalsLogic)
     const { hideCreateOrganizationModal, hideCreateProjectModal } = useActions(globalModalsLogic)
@@ -54,11 +66,13 @@ export function GlobalModals(): JSX.Element {
     // Grace-extended so the modals' exit animations finish before the lazy subtree unmounts.
     const shouldRenderSessionPlayerModal = useKeepMountedWhileOpen(!!activeSessionRecording)
     const shouldRenderLogsViewerModal = useKeepMountedWhileOpen(isLogsViewerModalOpen)
+    const { isOpen: isTraceDialogOpen } = useValues(traceDialogLogic)
+    const shouldRenderTraceDialog = useKeepMountedWhileOpen(isTraceDialogOpen)
+    const { isOpen: isComposeTicketModalOpen } = useValues(composeTicketLogic)
+    const shouldRenderComposeTicketModal = useKeepMountedWhileOpen(isComposeTicketModalOpen)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
-    const { isConfigureHomeModalOpen } = useValues(navigationLogic)
-    const { hideConfigureHomeModal } = useActions(navigationLogic)
 
     return (
         <>
@@ -77,6 +91,11 @@ export function GlobalModals(): JSX.Element {
                     <LogsViewerModal />
                 </Suspense>
             ) : null}
+            {shouldRenderTraceDialog ? (
+                <Suspense fallback={null}>
+                    <TraceDialog />
+                </Suspense>
+            ) : null}
             <PreviewingCustomCssModal />
             <TwoFactorSetupModal />
             <HedgehogMode />
@@ -86,11 +105,14 @@ export function GlobalModals(): JSX.Element {
             <LinkToModal />
             <ItemSelectModal />
             {superpowersEnabled && <SuperpowersModal />}
-            <ConfigureHomeModal isOpen={isConfigureHomeModalOpen} onClose={hideConfigureHomeModal} />
             <MaybeWelcomeDialog />
             <MaybeProductPushWelcome />
             <MaybePhaiOnboarding />
-            <ComposeTicketModal />
+            {shouldRenderComposeTicketModal ? (
+                <Suspense fallback={null}>
+                    <ComposeTicketModal />
+                </Suspense>
+            ) : null}
         </>
     )
 }

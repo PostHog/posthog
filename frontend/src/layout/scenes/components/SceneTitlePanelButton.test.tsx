@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
-import { SceneTitlePanelButton } from './SceneTitleSection'
+import { SceneTitlePanelButton } from './SceneTitlePanelButton'
 
 describe('SceneTitlePanelButton', () => {
     beforeEach(() => {

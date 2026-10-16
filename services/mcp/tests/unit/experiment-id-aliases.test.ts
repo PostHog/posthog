@@ -133,6 +133,8 @@ describe('feature flag id aliases', () => {
         'feature-flag-disable',
         'feature-flag-enable',
         'feature-flag-get-definition',
+        'feature-flag-roll-out-to-everyone',
+        'feature-flag-set-release-condition-rollout',
         'feature-flag-unarchive',
         'feature-flags-activity-retrieve',
         'feature-flags-dependent-flags-retrieve',
@@ -145,6 +147,8 @@ describe('feature flag id aliases', () => {
 
     const REQUIRED_EXTRAS: Record<string, Record<string, unknown>> = {
         'feature-flags-test-evaluation-create': { distinct_id: 'user-1' },
+        'feature-flag-roll-out-to-everyone': { version: 3 },
+        'feature-flag-set-release-condition-rollout': { condition_index: 0, rollout_percentage: 25, version: 3 },
     }
 
     // `id` on these is a scheduled change id, not a flag id.

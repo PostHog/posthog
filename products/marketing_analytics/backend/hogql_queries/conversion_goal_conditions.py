@@ -56,6 +56,17 @@ def action_match_expr(conversion_goal: ConversionGoal, team: Team) -> Optional[a
     return action_to_expr(action)
 
 
+def action_property_keys(conversion_goal: ConversionGoal, team: Team) -> list[str]:
+    """Property keys the goal's action steps filter on; empty when the goal has no resolvable action."""
+    if not isinstance(conversion_goal, ConversionGoalFilter2) or not conversion_goal.id:
+        return []
+    try:
+        action = Action.objects.get(pk=int(conversion_goal.id), team__project_id=team.project_id)
+    except (Action.DoesNotExist, TypeError, ValueError):
+        return []
+    return [prop["key"] for step in action.steps for prop in step.properties or [] if prop.get("key")]
+
+
 def conversion_goal_match_expr(conversion_goal: ConversionGoal, team: Team) -> Optional[ast.Expr]:
     """The event or action half of the goal, without its property filters.
 

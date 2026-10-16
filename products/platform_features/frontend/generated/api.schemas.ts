@@ -7,6 +7,11 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface InternalFeedbackResponseApi {
+    /** True when the feedback reached Slack. */
+    success: boolean
+}
+
 /**
  * * `1` - member
  * * `8` - administrator
@@ -38,24 +43,55 @@ export const OrganizationPluginsAccessLevelEnumApi = {
 } as const
 
 /**
- * * `bayesian` - Bayesian
- * * `frequentist` - Frequentist
+ * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
+ * Also used for nested serializers.
  */
-export type OrganizationDefaultExperimentStatsMethodEnumApi =
-    (typeof OrganizationDefaultExperimentStatsMethodEnumApi)[keyof typeof OrganizationDefaultExperimentStatsMethodEnumApi]
+export interface OrganizationTeamBasicApi {
+    readonly id: number
+    readonly uuid: string
+    readonly organization: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    readonly project_id: number
+    readonly api_token: string
+    readonly name: string
+    readonly completed_snippet_onboarding: boolean
+    readonly has_completed_onboarding_for: unknown
+    readonly ingested_event: boolean
+    readonly is_demo: boolean
+    readonly timezone: string
+    readonly access_control: boolean
+    /**
+     * The project group shown in the organization project switcher, or null if it has no group.
+     * @nullable
+     */
+    readonly project_group: string | null
+}
 
-export const OrganizationDefaultExperimentStatsMethodEnumApi = {
-    Bayesian: 'bayesian',
-    Frequentist: 'frequentist',
-} as const
+export interface OrganizationMemberNoticeActionApi {
+    /**
+     * Text on the button shown next to the notice.
+     * @maxLength 40
+     */
+    label: string
+    /**
+     * Link the button opens in a new tab. Must use http or https.
+     * @maxLength 2000
+     */
+    url: string
+}
 
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-export type OrganizationApiTeamsItem = { [key: string]: unknown }
+export interface OrganizationMemberNoticeApi {
+    /**
+     * HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.
+     * @maxLength 1000
+     */
+    message: string
+    /** Optional link button shown on the right of the banner. */
+    action?: OrganizationMemberNoticeActionApi | null
+}
 
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
@@ -72,8 +108,13 @@ export interface OrganizationApi {
     readonly created_at: string
     readonly updated_at: string
     readonly membership_level: OrganizationMembershipLevelEnumApi
+    /**
+     * When the requesting user joined this organization. Null if the user is not a member.
+     * @nullable
+     */
+    readonly membership_joined_at: string | null
     readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
-    readonly teams: readonly OrganizationApiTeamsItem[]
+    readonly teams: readonly OrganizationTeamBasicApi[]
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
     readonly available_product_features: readonly unknown[] | null
@@ -105,6 +146,8 @@ export interface OrganizationApi {
      * @nullable
      */
     read_only_mcp_access?: boolean | null
+    /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
+    member_notice?: OrganizationMemberNoticeApi | null
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -125,11 +168,6 @@ export interface OrganizationApi {
     readonly is_ai_training_cta_shown: boolean | null
     /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
     readonly has_signed_baa: boolean
-    /** Default statistical method for new experiments in this organization.
-     *
-     * * `bayesian` - Bayesian
-     * * `frequentist` - Frequentist */
-    default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -168,8 +206,6 @@ export interface PaginatedOrganizationListApi {
     results: OrganizationApi[]
 }
 
-export type PatchedOrganizationApiTeamsItem = { [key: string]: unknown }
-
 export type PatchedOrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type PatchedOrganizationApiMetadata = { [key: string]: string }
@@ -185,8 +221,13 @@ export interface PatchedOrganizationApi {
     readonly created_at?: string
     readonly updated_at?: string
     readonly membership_level?: OrganizationMembershipLevelEnumApi
+    /**
+     * When the requesting user joined this organization. Null if the user is not a member.
+     * @nullable
+     */
+    readonly membership_joined_at?: string | null
     readonly plugins_access_level?: OrganizationPluginsAccessLevelEnumApi
-    readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
+    readonly teams?: readonly OrganizationTeamBasicApi[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
     /** @nullable */
     readonly available_product_features?: readonly unknown[] | null
@@ -218,6 +259,8 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     read_only_mcp_access?: boolean | null
+    /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
+    member_notice?: OrganizationMemberNoticeApi | null
     readonly member_count?: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -238,11 +281,6 @@ export interface PatchedOrganizationApi {
     readonly is_ai_training_cta_shown?: boolean | null
     /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
     readonly has_signed_baa?: boolean
-    /** Default statistical method for new experiments in this organization.
-     *
-     * * `bayesian` - Bayesian
-     * * `frequentist` - Frequentist */
-    default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -354,6 +392,12 @@ export const RoleAtOrganizationEnumApi = {
     Sales: 'sales',
     Student: 'student',
     Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
 } as const
 
 /**
@@ -1225,6 +1269,26 @@ export interface PatchedPinnedSceneTabsApi {
     homepage?: PinnedSceneTabApi | null
 }
 
+export type InternalFeedbackCreateBody = {
+    /**
+     * What the person wants to tell the developers.
+     * @maxLength 4000
+     */
+    comment: string
+    /**
+     * URL of the page the feedback is about.
+     * @maxLength 2000
+     */
+    page_url: string
+    /**
+     * CSS selector of the element the person selected. Empty for feedback about the whole page.
+     * @maxLength 1000
+     */
+    element_identifier?: string
+    /** JPEG screenshot of the page, with the selected element outlined when there is one. */
+    screenshot?: Blob
+}
+
 export type ListParams = {
     /**
      * Number of results to return per page.
@@ -1329,6 +1393,7 @@ export type ActivityLogListParams = {
      * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
      *
      * * `Cohort` - Cohort
+     * * `CrossProjectDashboard` - CrossProjectDashboard
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -1381,6 +1446,7 @@ export type ActivityLogListParams = {
      * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
+     * * `AccountView` - AccountView
      * * `AlertConfiguration` - AlertConfiguration
      * * `Threshold` - Threshold
      * * `AlertSubscription` - AlertSubscription
@@ -1398,9 +1464,12 @@ export type ActivityLogListParams = {
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
+     * * `TracesRetentionRule` - TracesRetentionRule
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
+     * * `KnowledgeSource` - KnowledgeSource
+     * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
@@ -1410,9 +1479,13 @@ export type ActivityLogListParams = {
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
+     * * `WarehouseSuggestion` - WarehouseSuggestion
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
+     * * `ReviewRepository` - ReviewRepository
+     * * `ReviewProjectSettings` - ReviewProjectSettings
+     * * `ReviewInstallationClaim` - ReviewInstallationClaim
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1430,6 +1503,7 @@ export type ActivityLogListScope = (typeof ActivityLogListScope)[keyof typeof Ac
 
 export const ActivityLogListScope = {
     Cohort: 'Cohort',
+    CrossProjectDashboard: 'CrossProjectDashboard',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',
@@ -1482,6 +1556,7 @@ export const ActivityLogListScope = {
     OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
+    AccountView: 'AccountView',
     AlertConfiguration: 'AlertConfiguration',
     Threshold: 'Threshold',
     AlertSubscription: 'AlertSubscription',
@@ -1499,9 +1574,12 @@ export const ActivityLogListScope = {
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
+    TracesRetentionRule: 'TracesRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    KnowledgeSource: 'KnowledgeSource',
+    KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
@@ -1511,13 +1589,18 @@ export const ActivityLogListScope = {
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
     DataQualityCheckSchedule: 'DataQualityCheckSchedule',
+    WarehouseSuggestion: 'WarehouseSuggestion',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
+    ReviewRepository: 'ReviewRepository',
+    ReviewProjectSettings: 'ReviewProjectSettings',
+    ReviewInstallationClaim: 'ReviewInstallationClaim',
 } as const
 
 /**
  * * `Cohort` - Cohort
+ * * `CrossProjectDashboard` - CrossProjectDashboard
  * * `FeatureFlag` - FeatureFlag
  * * `Person` - Person
  * * `Group` - Group
@@ -1570,6 +1653,7 @@ export const ActivityLogListScope = {
  * * `OAuthApplication` - OAuthApplication
  * * `User` - User
  * * `Action` - Action
+ * * `AccountView` - AccountView
  * * `AlertConfiguration` - AlertConfiguration
  * * `Threshold` - Threshold
  * * `AlertSubscription` - AlertSubscription
@@ -1587,9 +1671,12 @@ export const ActivityLogListScope = {
  * * `LogsAlertConfiguration` - LogsAlertConfiguration
  * * `LogsExclusionRule` - LogsExclusionRule
  * * `LogsRetentionRule` - LogsRetentionRule
+ * * `TracesRetentionRule` - TracesRetentionRule
  * * `DashboardWidget` - DashboardWidget
  * * `ProductTour` - ProductTour
  * * `Ticket` - Ticket
+ * * `KnowledgeSource` - KnowledgeSource
+ * * `KnowledgeLibrary` - KnowledgeLibrary
  * * `InstanceSetting` - InstanceSetting
  * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
@@ -1599,14 +1686,19 @@ export const ActivityLogListScope = {
  * * `TableCertification` - TableCertification
  * * `DataQualityCheck` - DataQualityCheck
  * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
+ * * `WarehouseSuggestion` - WarehouseSuggestion
  * * `Billing` - Billing
  * * `Loop` - Loop
  * * `StamphogRepoConfig` - StamphogRepoConfig
+ * * `ReviewRepository` - ReviewRepository
+ * * `ReviewProjectSettings` - ReviewProjectSettings
+ * * `ReviewInstallationClaim` - ReviewInstallationClaim
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
 export const ActivityLogListScopesItem = {
     Cohort: 'Cohort',
+    CrossProjectDashboard: 'CrossProjectDashboard',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',
@@ -1659,6 +1751,7 @@ export const ActivityLogListScopesItem = {
     OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
+    AccountView: 'AccountView',
     AlertConfiguration: 'AlertConfiguration',
     Threshold: 'Threshold',
     AlertSubscription: 'AlertSubscription',
@@ -1676,9 +1769,12 @@ export const ActivityLogListScopesItem = {
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
+    TracesRetentionRule: 'TracesRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    KnowledgeSource: 'KnowledgeSource',
+    KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
@@ -1688,9 +1784,13 @@ export const ActivityLogListScopesItem = {
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
     DataQualityCheckSchedule: 'DataQualityCheckSchedule',
+    WarehouseSuggestion: 'WarehouseSuggestion',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
+    ReviewRepository: 'ReviewRepository',
+    ReviewProjectSettings: 'ReviewProjectSettings',
+    ReviewInstallationClaim: 'ReviewInstallationClaim',
 } as const
 
 export type AdvancedActivityLogsListParams = {
@@ -1873,7 +1973,7 @@ export type CommentsListParams = {
      */
     source_comment?: string
     /**
-     * Owning task for task, task_artifact, and desktop_canvas comment scopes.
+     * Owning task for task, task_artifact, task_preview, task_browser, and canvas comment scopes.
      */
     task_id?: string
 }

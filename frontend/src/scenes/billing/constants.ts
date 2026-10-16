@@ -40,7 +40,6 @@ export const SPEND_TYPES = [
     { label: 'Group analytics', value: 'group_analytics' },
     { label: 'Recordings', value: 'recording_count_in_period' },
     { label: 'Mobile recordings', value: 'mobile_billable_recording_count_in_period' },
-    { label: 'Mobile recordings captured', value: 'mobile_recording_count_in_period' },
     { label: 'Feature flag requests', value: 'billable_feature_flag_requests_count_in_period' },
     { label: 'Exceptions', value: 'exceptions_captured_in_period' },
     { label: 'Survey responses', value: 'survey_responses_count_in_period' },
@@ -58,6 +57,7 @@ export const SPEND_TYPES = [
     { label: 'Workflow destinations', value: 'workflow_billable_invocations_in_period' },
     { label: 'Logs ingested (MB)', value: 'logs_mb_in_period' },
     { label: 'Logs 30-day retention (MB)', value: 'logs_retention_30d_mb_in_period' },
+    { label: 'Logs retention (MB-days)', value: 'logs_retention_mb_days_in_period' },
 ] as const
 
 export const USAGE_ONLY_TYPES = [

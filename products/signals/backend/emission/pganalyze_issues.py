@@ -1,10 +1,18 @@
 import json
+from datetime import datetime
 from typing import Any
 
 from structlog import get_logger
 
-from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.models import Team
+
+from products.signals.backend.emission.fetchers.data_warehouse import escape_table_name
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
+from products.signals.backend.models import SignalEmissionRecord
 
 logger = get_logger(__name__)
 
@@ -57,6 +65,8 @@ EXTRA_FIELDS = (
     "server_name",
     "synced_at",
 )
+
+ISSUE_PAGE_SIZE = 1_000
 
 
 def _parse_references(record: dict[str, Any]) -> list[dict[str, Any]]:
@@ -125,11 +135,69 @@ def _build_extra(record: dict[str, Any], references: list[dict[str, Any]]) -> di
     return extra
 
 
+def _fetch_issue_page(
+    team: Team, config: SignalSourceTableConfig, context: dict[str, Any], after_id: str
+) -> list[dict[str, Any]]:
+    placeholders: dict[str, Any] = {"after_id": ast.Constant(value=after_id)}
+    if context.get("last_synced_at") is not None:
+        window = "parseDateTimeBestEffort(synced_at) > {last_synced_at}"
+        placeholders["last_synced_at"] = ast.Constant(value=datetime.fromisoformat(context["last_synced_at"]))
+    else:
+        window = f"parseDateTimeBestEffort(synced_at) > now() - interval {config.first_sync_lookback_days} day"
+    # Weekly warehouse partitions can retain older versions of the same issue.
+    query = f"""
+        SELECT {", ".join(config.fields)}
+        FROM {escape_table_name(context["table_name"])}
+        WHERE {window} AND id > {{after_id}}
+        ORDER BY id ASC, parseDateTimeBestEffort(synced_at) DESC
+        LIMIT 1 BY id
+        LIMIT {ISSUE_PAGE_SIZE}
+    """
+    result = execute_hogql_query(
+        query=parse_select(query, placeholders=placeholders),
+        team=team,
+        query_type="EmitSignalsNewRecords",
+        bypass_warehouse_access_control=True,
+    )
+    if not result.results or not result.columns:
+        return []
+    return [dict(zip(result.columns, row)) for row in result.results]
+
+
+def pganalyze_issue_record_fetcher(
+    team: Team,
+    config: SignalSourceTableConfig,
+    context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """pganalyze stamps open issues on every sync, so the time cursor alone cannot deduplicate them."""
+    records: list[dict[str, Any]] = []
+    after_id = ""
+    while len(records) < config.max_records:
+        rows = _fetch_issue_page(team, config, context, after_id)
+        if not rows:
+            break
+        already_emitted = set(
+            SignalEmissionRecord.objects.filter(
+                team=team,
+                source_product=config.source_product,
+                source_type=config.source_type,
+                source_id__in=[str(row["id"]) for row in rows],
+            ).values_list("source_id", flat=True)
+        )
+        records.extend(row for row in rows if str(row["id"]) not in already_emitted)
+        after_id = str(rows[-1]["id"])
+        if len(rows) < ISSUE_PAGE_SIZE:
+            break
+    return records[: config.max_records]
+
+
 PGANALYZE_ISSUES_CONFIG = SignalSourceTableConfig(
     source_product="pganalyze",
     source_type="issue",
     emitter=pganalyze_issue_emitter,
-    record_fetcher=data_warehouse_record_fetcher,
+    record_fetcher=pganalyze_issue_record_fetcher,
+    record_processed_outputs=True,
+    # The fetcher reads only the rows of the latest sync, which are the issues that are open now.
     partition_field="synced_at",
     partition_field_is_datetime_string=True,
     fields=REQUIRED_FIELDS + EXTRA_FIELDS,

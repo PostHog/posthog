@@ -7,61 +7,12 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface DagApi {
-    readonly id: string
-    /**
-     * Human-readable name for this DAG
-     * @maxLength 2048
-     */
-    name: string
-    /** Optional description of the DAG's purpose */
-    description?: string
-    /**
-     * Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected.
-     * @nullable
-     */
-    sync_frequency?: string | null
-    readonly node_count: number
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-}
-
-export interface PaginatedDAGListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DagApi[]
-}
-
-export interface PatchedDAGApi {
-    readonly id?: string
-    /**
-     * Human-readable name for this DAG
-     * @maxLength 2048
-     */
-    name?: string
-    /** Optional description of the DAG's purpose */
-    description?: string
-    /**
-     * Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected.
-     * @nullable
-     */
-    sync_frequency?: string | null
-    readonly node_count?: number
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-}
-
 export interface EdgeApi {
     readonly id: string
+    /** ID of the upstream node. */
     readonly source_id: string
+    /** ID of the downstream node. */
     readonly target_id: string
-    dag: string
-    readonly dag_name: string
     properties?: unknown
     readonly created_at: string
     /** @nullable */
@@ -79,10 +30,10 @@ export interface PaginatedEdgeListApi {
 
 export interface PatchedEdgeApi {
     readonly id?: string
+    /** ID of the upstream node. */
     readonly source_id?: string
+    /** ID of the downstream node. */
     readonly target_id?: string
-    dag?: string
-    readonly dag_name?: string
     properties?: unknown
     readonly created_at?: string
     /** @nullable */
@@ -132,6 +83,17 @@ export interface LineageIssueApi {
     at: string | null
 }
 
+/**
+ * * `posthog` - posthog
+ * * `warehouse` - warehouse
+ */
+export type NodeOriginEnumApi = (typeof NodeOriginEnumApi)[keyof typeof NodeOriginEnumApi]
+
+export const NodeOriginEnumApi = {
+    Posthog: 'posthog',
+    Warehouse: 'warehouse',
+} as const
+
 export interface NodeSuspensionApi {
     /** When the node was suspended. */
     at: string
@@ -158,8 +120,6 @@ export interface NodeApi {
     /** @maxLength 2048 */
     name: string
     type?: NodeTypeEnumApi
-    dag: string
-    readonly dag_name: string
     /** @maxLength 1024 */
     description?: string
     /** @nullable */
@@ -167,6 +127,16 @@ export interface NodeApi {
     /** @nullable */
     readonly metric_id: string | null
     readonly lineage_issue: LineageIssueApi | null
+    /** Where a table originates, or null for legacy and unrecognized nodes.
+     *
+     * * `posthog` - posthog
+     * * `warehouse` - warehouse */
+    readonly origin: NodeOriginEnumApi | null
+    /**
+     * Warehouse table identifier for an imported table, or null when unavailable.
+     * @nullable
+     */
+    readonly warehouse_table_id: string | null
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
@@ -214,8 +184,6 @@ export interface PatchedNodeApi {
     /** @maxLength 2048 */
     name?: string
     type?: NodeTypeEnumApi
-    dag?: string
-    readonly dag_name?: string
     /** @maxLength 1024 */
     description?: string
     /** @nullable */
@@ -223,6 +191,16 @@ export interface PatchedNodeApi {
     /** @nullable */
     readonly metric_id?: string | null
     readonly lineage_issue?: LineageIssueApi | null
+    /** Where a table originates, or null for legacy and unrecognized nodes.
+     *
+     * * `posthog` - posthog
+     * * `warehouse` - warehouse */
+    readonly origin?: NodeOriginEnumApi | null
+    /**
+     * Warehouse table identifier for an imported table, or null when unavailable.
+     * @nullable
+     */
+    readonly warehouse_table_id?: string | null
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
@@ -263,38 +241,15 @@ export interface LineageResponseApi {
     edges: EdgeApi[]
 }
 
-export type DataModelingDagsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type DataModelingEdgesListParams = {
-    /**
-     * Return only the edges of this DAG.
-     */
-    dag?: string
     /**
      * A page number within the paginated result set.
      */
     page?: number
-    /**
-     * A search term.
-     */
-    search?: string
 }
 
 export type DataModelingNodesListParams = {
     /**
-     * Scope the lineage counts to this DAG.
-     */
-    dag?: string
-    /**
      * A page number within the paginated result set.
      */
     page?: number
@@ -303,6 +258,23 @@ export type DataModelingNodesListParams = {
      */
     search?: string
 }
+
+export type DataModelingNodesRetrieveParams = {
+    /**
+     * Resolve the path ID as this backing resource type instead of a node ID.
+     */
+    lookup?: DataModelingNodesRetrieveLookup
+}
+
+export type DataModelingNodesRetrieveLookup =
+    (typeof DataModelingNodesRetrieveLookup)[keyof typeof DataModelingNodesRetrieveLookup]
+
+export const DataModelingNodesRetrieveLookup = {
+    Metric: 'metric',
+    PosthogTable: 'posthog_table',
+    SavedQuery: 'saved_query',
+    WarehouseTable: 'warehouse_table',
+} as const
 
 export type DataModelingNodesLineageRetrieveParams = {
     /**

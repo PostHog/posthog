@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { IconChat } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -45,21 +46,34 @@ export interface ScoutCreateModalProps {
     isOpen: boolean
     onClose: () => void
     initialValues?: ScoutCreateInitialValues
+    /** Replaces the description of the restored draft, for example with the text the person edited in the chat. */
+    descriptionOverride?: string
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
     /** Called instead of `onCreated` when the form opened on an existing scout and turned it on. */
     onEnabled?: (config: SignalScoutConfigApi) => void
+    /** Offers the chat instead, with the description typed so far. Not shown when turning a scout on. */
+    onSwitchToChat?: (description: string) => void
 }
 
 export function ScoutCreateModal({
     isOpen,
     onClose,
     initialValues,
+    descriptionOverride,
     onCreated,
     onEnabled,
+    onSwitchToChat,
 }: ScoutCreateModalProps): JSX.Element {
     const logicKey = scoutCreateModalLogicKey(initialValues)
     const formId = `scout-create-form-${logicKey}`
-    const logicProps: ScoutCreateModalLogicProps = { logicKey, initialValues, onClose, onCreated, onEnabled }
+    const logicProps: ScoutCreateModalLogicProps = {
+        logicKey,
+        initialValues,
+        descriptionOverride,
+        onClose,
+        onCreated,
+        onEnabled,
+    }
     const logic = scoutCreateModalLogic(logicProps)
     const {
         isScoutCreateFormSubmitting,
@@ -131,6 +145,19 @@ export function ScoutCreateModal({
             hasUnsavedInput={scoutCreateFormChanged}
             footer={
                 <>
+                    {onSwitchToChat && !turningOn ? (
+                        <div className="flex-1">
+                            <LemonButton
+                                type="tertiary"
+                                icon={<IconChat />}
+                                disabledReason={busyReason}
+                                onClick={() => onSwitchToChat(scoutCreateForm.description?.trim() ?? '')}
+                                data-attr="scout-create-use-chat"
+                            >
+                                Chat with an agent instead
+                            </LemonButton>
+                        </div>
+                    ) : null}
                     <LemonButton type="secondary" disabledReason={busyReason} onClick={handleClose}>
                         Cancel
                     </LemonButton>
@@ -292,7 +319,10 @@ export function ScoutCreateModal({
                         ) : null}
                         {scheduleMode === SCOUT_DAILY_AT_SCHEDULE_MODE ||
                         scheduleMode === SCOUT_WEEKLY_ON_SCHEDULE_MODE ? (
-                            <LemonField.Pure label="Run time" help={`Uses the project timezone (${projectTimezone})`}>
+                            <LemonField.Pure
+                                label="Run time"
+                                help={`Uses the project timezone (${projectTimezone}). Starts within 20 minutes of this time.`}
+                            >
                                 <LemonInput
                                     type="time"
                                     step={60}

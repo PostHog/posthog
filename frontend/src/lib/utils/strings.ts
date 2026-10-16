@@ -38,6 +38,11 @@ export function fullName(props?: { first_name?: string; last_name?: string }): s
     return `${props.first_name || ''} ${props.last_name || ''}`.trim()
 }
 
+/** `fullName`, or the email when the user never set a name. Invited and SSO users often have none. */
+export function fullNameOrEmail(props: { first_name?: string; last_name?: string; email: string }): string {
+    return fullName(props) || props.email
+}
+
 /** Inverse of `fullName`: derive first/last name from a single full-name input. */
 export function splitFullName(name: string): { first_name: string; last_name: string | undefined } {
     const parts = name.trim().split(/\s+/).filter(Boolean)

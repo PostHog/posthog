@@ -19,13 +19,22 @@ from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, 
 # series per day are few enough that a dims-early key would make every granule
 # span the whole day.
 #
-# TTL is 42 days (6 weekly samples per time-of-week slot), independent of raw
-# log retention.
+# The TTL floor is 42 days, which buys 6 weekly samples per time-of-week slot.
+# A team whose raw logs outlive that keeps the rollup alongside them, so the
+# TTL takes whichever of the two is longer. `retention_days` is the bucket's
+# lifetime rounded up to whole days, folded with max: a series whose rows carry
+# mixed retentions lives at least as long as its longest lived log. Rows in one partition
+# carry different TTLs, so ttl_only_drop_parts is off; a whole-part drop would
+# hold every team's rows to the longest retention in the part.
 
 TABLE_NAME = "logs_volume_buckets"
 
 
 def LOGS_VOLUME_BUCKETS_TABLE_SQL():
+    # Tests use no TTL. Test fixtures use fixed dates, and the TTL deletes rows older than 42 days.
+    # This TTL uses a column per row, not a fixed interval. ttl_period() in
+    # posthog/clickhouse/kafka_engine.py does not support this, so this function has its own guard.
+    ttl_clause = "" if settings.TEST else "TTL time_bucket + toIntervalDay(greatest(42, retention_days))"
     return f"""
 CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}
 (
@@ -35,13 +44,14 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `namespace` LowCardinality(String),
     `environment` LowCardinality(String),
     `severity_text` LowCardinality(String),
+    `retention_days` SimpleAggregateFunction(max, UInt16),
     `log_count` SimpleAggregateFunction(sum, UInt64)
 )
 ENGINE = {AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(time_bucket)
 ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
-TTL time_bucket + INTERVAL 42 DAY
-SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+{ttl_clause}
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
 """
 
 

@@ -1,7 +1,10 @@
+import re
 import dataclasses
 from dataclasses import asdict
 from datetime import timedelta
-from typing import Any
+from pathlib import Path
+from types import UnionType
+from typing import Any, Union, get_args, get_origin, get_type_hints
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
@@ -21,6 +24,8 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
 )
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,
     Experiment,
@@ -34,6 +39,7 @@ from products.experiments.backend.running_time_calculator import BaselineStats, 
 from products.experiments.backend.setup_context import (
     SDK_PROFILE_MAX_LIBS,
     SERVER_LIBS,
+    TARGET_SURFACE_MAX_LIBS,
     SetupContextInputs,
     build_setup_context,
     classify_lib,
@@ -72,6 +78,52 @@ def _retention_metric(uuid: str, start_event: str = "signup", completion_event: 
         "start_event": {"kind": "EventsNode", "event": start_event},
         "completion_event": {"kind": "EventsNode", "event": completion_event},
     }
+
+
+def _key(experiment: Experiment, metric_uuid: str) -> str:
+    calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+    assert calculation_config is not None
+    return calculation_config.calculation_key()
+
+
+def _payload_of_each_section() -> dict[str, Any]:
+    """Section name to the dataclass its `data` carries."""
+    return {
+        name: get_args(annotation)[0]
+        for name, annotation in get_type_hints(setup_context_module.ExperimentSetupContext).items()
+    }
+
+
+def _without_optional_and_list(annotation: Any) -> Any:
+    while True:
+        origin = get_origin(annotation)
+        if origin in (Union, UnionType):
+            present = [argument for argument in get_args(annotation) if argument is not type(None)]
+            if len(present) != 1:
+                return annotation
+            annotation = present[0]
+        elif origin is list:
+            annotation = get_args(annotation)[0]
+        else:
+            return annotation
+
+
+def _path_resolves(payload: Any, dotted_path: str) -> bool:
+    segments = [segment.removesuffix("[]") for segment in dotted_path.lstrip(".").split(".")]
+    if segments[0] == "status":
+        return len(segments) == 1
+    if segments[0] == "data":
+        segments = segments[1:]
+    current: Any = payload
+    for segment in segments:
+        current = _without_optional_and_list(current)
+        if not dataclasses.is_dataclass(current):
+            return False
+        field_types = get_type_hints(current)
+        if segment not in field_types:
+            return False
+        current = field_types[segment]
+    return True
 
 
 def _stored_result(
@@ -192,6 +244,45 @@ class TestResponseCoversEveryFact(SimpleTestCase):
         }
 
         assert declared - self.UNRENDERED == {dataclass_name for dataclass_name, _ in self.PAIRS}
+
+
+class TestCreationSkillNamesRealFields(SimpleTestCase):
+    """The creation skill tells an agent which fields to read, in prose beside the dataclasses.
+
+    A renamed or removed field leaves the skill naming a path that is never in the response, and
+    the agent reads null instead of the fact the rule needs. Nothing else connects the two, and a
+    skill is not exercised by any test that runs the endpoint. Checked against the dataclasses
+    rather than the serializer because `TestResponseCoversEveryFact` already ties those together.
+
+    Every markdown file in the skill counts, because a rule can move between SKILL.md and a
+    reference at any time.
+
+    One direction only: a field no rule reads is allowed, so adding one stays cheap.
+    """
+
+    SKILL = Path(__file__).parents[2] / "skills" / "creating-experiments"
+
+    def test_every_documented_field_path_resolves(self) -> None:
+        payloads = _payload_of_each_section()
+        section = "|".join(payloads)
+        field_segment = r"[a-z_][a-z0-9_]*(?:\[\])?"
+        field_paths = re.compile(rf"\b({section})((?:\.{field_segment})+)")
+
+        documents = sorted(self.SKILL.rglob("*.md"))
+        assert documents, f"No markdown found under {self.SKILL}"
+        unknown = sorted(
+            {
+                f"{document.relative_to(self.SKILL)}: {match.group(0)}"
+                for document in documents
+                for match in field_paths.finditer(document.read_text())
+                if not _path_resolves(payloads[match.group(1)], match.group(2))
+            }
+        )
+
+        assert not unknown, (
+            "The creating-experiments skill names fields the setup context does not return: "
+            f"{', '.join(unknown)}. Update the skill to the field's new name, or drop the rule that reads it."
+        )
 
 
 class TestSdkProfile(ClickhouseTestMixin, APIBaseTest):
@@ -410,8 +501,25 @@ class TestTargetSurfaceAndCandidateMetric(ClickhouseTestMixin, APIBaseTest):
         assert surface.unique_persons == 3
         assert surface.exposures_per_day_estimate == 3 / 14
         assert [(lib.lib, lib.category, lib.unique_persons) for lib in surface.libs] == [("web", "web", 3)]
+        assert surface.libs_truncated is False
         assert surface.anonymous_share == 2 / 3
         assert surface.device_id_share == 2 / 3
+
+    @parameterized.expand(
+        [
+            ("at_the_cap", TARGET_SURFACE_MAX_LIBS, False),
+            ("above_the_cap", TARGET_SURFACE_MAX_LIBS + 2, True),
+        ]
+    )
+    def test_libs_are_truncated_only_above_the_cap(self, _name: str, lib_count: int, truncated: bool) -> None:
+        for index in range(lib_count):
+            _create_person(team=self.team, distinct_ids=[f"user-{index}"])
+            self._event(f"user-{index}", "$pageview", 1, **{"$lib": f"lib-{index:02d}"})
+
+        surface = get_target_surface(self.team, SetupContextInputs(target_event="$pageview"))
+
+        assert len(surface.libs) == TARGET_SURFACE_MAX_LIBS
+        assert surface.libs_truncated is truncated
 
     def test_shares_come_from_the_rows_whichever_sdk_sent_them(self) -> None:
         # A mobile surface carries $is_identified and $device_id as well, so the shares have to
@@ -627,6 +735,7 @@ class TestPostgresSections(APIBaseTest):
             ExperimentMetricResult.objects.create(
                 experiment=saved_primary,
                 metric_uuid="saved-primary-uuid",
+                fingerprint=_key(saved_primary, "saved-primary-uuid"),
                 query_from=now - timedelta(days=30),
                 query_to=now - timedelta(days=completed_days_ago),
                 status=status,
@@ -636,6 +745,7 @@ class TestPostgresSections(APIBaseTest):
         ExperimentMetricResult.objects.create(
             experiment=three_way,
             metric_uuid="inline-primary",
+            fingerprint=_key(three_way, "inline-primary"),
             query_from=now - timedelta(days=10),
             query_to=now,
             status=ExperimentMetricResult.Status.COMPLETED,
@@ -643,7 +753,7 @@ class TestPostgresSections(APIBaseTest):
             completed_at=now,
         )
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             previous = get_previous_experiments(Experiment.objects.filter(team_id=self.team.pk), limit=10)
 
         by_name = {experiment.name: experiment for experiment in previous.experiments}
@@ -729,22 +839,37 @@ class TestPostgresSections(APIBaseTest):
     def test_the_outcome_comes_from_the_current_run_and_the_latest_data(self) -> None:
         now = timezone.now()
         start = now - timedelta(days=10)
-        experiment = self._experiment("relaunched", start_date=start, metrics=[_mean_metric("inline-primary")])
-        for query_from, query_to, completed_at, result in [
-            # Reset and relaunch keeps the earlier run's rows, which carry the earlier start date.
+        experiment = self._experiment(
+            "relaunched", start_date=now - timedelta(days=60), metrics=[_mean_metric("inline-primary")]
+        )
+        earlier_run_key = _key(experiment, "inline-primary")
+        # Reset and relaunch keeps the earlier run's rows, which carry the earlier start date in their key.
+        Experiment.objects.filter(pk=experiment.pk).update(start_date=start)
+        experiment.refresh_from_db()
+        key = _key(experiment, "inline-primary")
+        for fingerprint, query_from, query_to, completed_at, result in [
             (
+                earlier_run_key,
                 now - timedelta(days=60),
                 now - timedelta(days=31),
                 now - timedelta(days=31),
                 _stored_result(900, [900], True),
             ),
             # A backfilled older day, written after the newest day was written.
-            (start, now - timedelta(days=2), now, _stored_result(20, [20], False)),
-            (start, now - timedelta(days=1), now - timedelta(hours=2), _stored_result(30, [40], False)),
+            (key, start, now - timedelta(days=2), now, _stored_result(20, [20], False)),
+            # The newest window, stored by a recalculation run under the salted key.
+            (
+                _recalc_fingerprint(key),
+                start,
+                now - timedelta(days=1),
+                now - timedelta(hours=2),
+                _stored_result(30, [40], False),
+            ),
         ]:
             ExperimentMetricResult.objects.create(
                 experiment=experiment,
                 metric_uuid="inline-primary",
+                fingerprint=fingerprint,
                 query_from=query_from,
                 query_to=query_to,
                 status=ExperimentMetricResult.Status.COMPLETED,
@@ -759,7 +884,7 @@ class TestPostgresSections(APIBaseTest):
         assert outcome.analyzed_exposures == 70
         assert outcome.result_data_through == now - timedelta(days=1)
 
-    def test_a_start_date_moved_earlier_keeps_the_outcome(self) -> None:
+    def test_a_result_of_an_earlier_configuration_is_not_the_outcome(self) -> None:
         now = timezone.now()
         experiment = self._experiment(
             "edited-start", start_date=now - timedelta(days=10), metrics=[_mean_metric("inline-primary")]
@@ -767,6 +892,7 @@ class TestPostgresSections(APIBaseTest):
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="inline-primary",
+            fingerprint=_key(experiment, "inline-primary"),
             query_from=now - timedelta(days=10),
             query_to=now,
             status=ExperimentMetricResult.Status.COMPLETED,
@@ -777,8 +903,8 @@ class TestPostgresSections(APIBaseTest):
 
         previous = get_previous_experiments(Experiment.objects.filter(team_id=self.team.pk), limit=10)
 
-        outcome = previous.experiments[0].outcome
-        assert outcome is not None and outcome.analyzed_exposures == 80
+        assert previous.experiments[0].outcome is None
+        assert previous.summary.launched_without_results == 1
 
     def test_a_draft_does_not_crowd_out_a_launched_experiment(self) -> None:
         self._experiment("fresh-draft", days_ago=0)
@@ -817,6 +943,7 @@ class TestPostgresSections(APIBaseTest):
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="inline-primary",
+            fingerprint=_key(experiment, "inline-primary"),
             query_from=now - timedelta(days=10),
             query_to=now,
             status=ExperimentMetricResult.Status.COMPLETED,
@@ -911,12 +1038,13 @@ class TestPostgresSections(APIBaseTest):
 
     def test_the_outcome_describes_a_primary_metric_whose_samples_are_exposures(self) -> None:
         now = timezone.now()
-        # Declared metric-z first, but ordered so the results page leads with metric-a.
+        # Declared metric-z first, but ordered so the results page leads with metric-a. metric-z is
+        # left out of the ordering on purpose: an unlisted metric ranks last, it does not disappear.
         ordered = self._experiment(
             "ordered",
             start_date=now - timedelta(days=10),
             metrics=[_mean_metric("metric-z"), _mean_metric("metric-a")],
-            primary_metrics_ordered_uuids=["metric-a", "metric-z"],
+            primary_metrics_ordered_uuids=["metric-a"],
             days_ago=1,
         )
         # A second experiment whose first primary is metric-z, so metric-z rows for `ordered` come
@@ -958,6 +1086,7 @@ class TestPostgresSections(APIBaseTest):
             ExperimentMetricResult.objects.create(
                 experiment=experiment,
                 metric_uuid=metric_uuid,
+                fingerprint=_key(experiment, metric_uuid),
                 query_from=now - timedelta(days=10),
                 query_to=now,
                 status=ExperimentMetricResult.Status.COMPLETED,

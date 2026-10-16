@@ -56,7 +56,14 @@ export function openRefundReportDialog({ reportTitle, staysResolved, onConfirm }
                     )}
                 </LemonField>
                 <LemonField name="note" label="Note" info="Optional. Helps us review refunds.">
-                    <LemonTextArea placeholder="Optional: add detail" maxLength={4000} rows={3} />
+                    <LemonTextArea
+                        // stopPropagation keeps Enter in this multi-line note from reaching the dialog
+                        // form and refunding mid-sentence.
+                        stopPropagation
+                        placeholder="Optional: add detail"
+                        maxLength={4000}
+                        rows={3}
+                    />
                 </LemonField>
             </div>
         ),

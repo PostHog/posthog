@@ -86,6 +86,12 @@ export class MlMirrorMetrics {
         labelNames: ['source', 'property', 'kind'],
     })
 
+    private static readonly mlScrubDrops = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_scrub_drops_total',
+        help: 'Replay content the anonymizer removed outright rather than replaced with a scrubbed copy, by reason',
+        labelNames: ['reason'],
+    })
+
     private static readonly mlUrlCrawlHistory = new Counter({
         name: 'recording_blob_ingestion_v2_ml_url_crawl_history_total',
         help: 'URL jobs checked by the mirror before Kafka: fresh jobs are suppressed, misses are produced, and errors fail open',
@@ -124,7 +130,7 @@ export class MlMirrorMetrics {
 
     private static readonly mlImageTeamIdInvalid = new Counter({
         name: 'recording_blob_ingestion_v2_ml_image_team_id_invalid',
-        help: 'Messages whose team ID failed the consumer ref-shape check; collection disabled for them (inline blur instead)',
+        help: 'Messages whose team ID failed the consumer ref-shape check; collection disabled for them, so their images are blanked',
     })
 
     private static readonly mlUrlBytes = new Histogram({
@@ -149,7 +155,7 @@ export class MlMirrorMetrics {
     })
     private static readonly mlKeyRowCacheEntries = new Gauge({
         name: 'recording_blob_ingestion_v2_ml_key_row_cache_entries',
-        help: 'Stored ML key rows the per-process cache holds, counted after a read. Expired rows stay counted until a read or an eviction removes them, so this tracks the memory held rather than the rows still usable, and it stands still on an idle lane',
+        help: 'Stored ML key rows the per-process cache holds, counted after a read. A read purges expired rows at most once a minute, and a lookup of an expired row or an eviction removes it between purges, so this tracks the memory held rather than the rows still usable, and it stands still on an idle lane',
     })
     private static readonly mlKeyReadRetries = new Counter({
         name: 'recording_blob_ingestion_v2_ml_key_read_retries_total',
@@ -245,6 +251,12 @@ export class MlMirrorMetrics {
     ): void {
         if (count > 0) {
             this.mlImageReferencesByProperty.labels(source, property, kind).inc(count)
+        }
+    }
+
+    public static incrementMlScrubDrops(reason: string, count: number): void {
+        if (count > 0) {
+            this.mlScrubDrops.labels(reason).inc(count)
         }
     }
 

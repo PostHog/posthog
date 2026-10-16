@@ -14,6 +14,8 @@ import type {
     ConversionGoalWriteApi,
     ConversionGoalWriteResponseApi,
     ConversionGoalsListResponseApi,
+    ConversionRecordingsRequestApi,
+    ConversionRecordingsResponseApi,
     DataSourceHealthResponseApi,
     EventSuggestionsResponseApi,
     GoalExplanationApi,
@@ -27,6 +29,7 @@ import type {
     MarketingDiagnosticResponseApi,
     PatchedConversionGoalUpdateApi,
     SetupPlanResponseApi,
+    SourceValidationApi,
     UtmAuditResponseApi,
     UtmMappingSuggestionsResponseApi,
 } from './api.schemas'
@@ -138,6 +141,23 @@ export const marketingAnalyticsConversionGoalsCreateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(conversionGoalWriteApi),
+    })
+}
+
+export const getMarketingAnalyticsConversionRecordingsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_recordings/`
+}
+
+export const marketingAnalyticsConversionRecordingsList = async (
+    projectId: string,
+    conversionRecordingsRequestApi: ConversionRecordingsRequestApi,
+    options?: RequestInit
+): Promise<ConversionRecordingsResponseApi> => {
+    return apiMutator<ConversionRecordingsResponseApi>(getMarketingAnalyticsConversionRecordingsListUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(conversionRecordingsRequestApi),
     })
 }
 
@@ -272,6 +292,24 @@ export const marketingAnalyticsSetupPlanRetrieve = async (
     options?: RequestInit
 ): Promise<SetupPlanResponseApi> => {
     return apiMutator<SetupPlanResponseApi>(getMarketingAnalyticsSetupPlanRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMarketingAnalyticsSourceValidationRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/source_validation/`
+}
+
+/**
+ * Check connected marketing sources using the same validators as campaign queries. Read-only.
+ * @summary Validate marketing sources
+ */
+export const marketingAnalyticsSourceValidationRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SourceValidationApi> => {
+    return apiMutator<SourceValidationApi>(getMarketingAnalyticsSourceValidationRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

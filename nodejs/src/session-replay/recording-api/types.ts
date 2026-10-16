@@ -75,6 +75,7 @@ export type RecordingApiConfig = Pick<
         | 'CLICKHOUSE_DATABASE'
         | 'CLICKHOUSE_USER'
         | 'CLICKHOUSE_PASSWORD'
+        | 'CLICKHOUSE_PASSWORD_FILE'
         | 'CLICKHOUSE_SECURE'
     > &
     Pick<

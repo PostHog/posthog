@@ -5,7 +5,7 @@ import {
 } from "@phosphor-icons/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { Button, ButtonGroup, cn } from "@posthog/quill";
-import { BILLING_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import { BILLING_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isContentlessTask } from "@posthog/shared/domain-types";
 import { AnnouncementBanner } from "@posthog/ui/features/announcements/AnnouncementBanner";
@@ -17,7 +17,6 @@ import { UsageLimitModal } from "@posthog/ui/features/billing/UsageLimitModal";
 import { useSpendGuardrails } from "@posthog/ui/features/billing/useSpendGuardrails";
 import { BrowserTabStrip } from "@posthog/ui/features/browser-tabs/BrowserTabStrip";
 import { BrowserTabsDndProvider } from "@posthog/ui/features/browser-tabs/BrowserTabsDnd";
-import { isBluebirdOnlyPath } from "@posthog/ui/features/canvas/bluebirdRoutes";
 import { ChannelHotkeys } from "@posthog/ui/features/canvas/components/ChannelHotkeys";
 import { ChannelRouteSync } from "@posthog/ui/features/canvas/components/ChannelRouteSync";
 import { ChannelsSidebar } from "@posthog/ui/features/canvas/components/ChannelsSidebar";
@@ -49,7 +48,7 @@ import {
   UpdateBanner,
   useUpdateBannerVisible,
 } from "@posthog/ui/features/sidebar/components/UpdateBanner";
-import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
+import { useNavRailMetrics } from "@posthog/ui/features/sidebar/navRailSize";
 import {
   beginSidebarPeek,
   cancelSidebarPeek,
@@ -76,7 +75,6 @@ import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
 import { GlobalEventHandlers } from "@posthog/ui/shell/GlobalEventHandlers";
 import { HedgehogMode } from "@posthog/ui/shell/HedgehogMode";
 import { logger } from "@posthog/ui/shell/logger";
-import { onFeatureFlagsLoaded } from "@posthog/ui/shell/posthogAnalyticsImpl";
 import { SpaceSwitcher } from "@posthog/ui/shell/SpaceSwitcher";
 import { useShortcutsSheetStore } from "@posthog/ui/shell/shortcutsSheetStore";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
@@ -192,15 +190,12 @@ function RootLayout() {
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
   useSpendGuardrails();
   // "PostHog Web" is a channels-world affordance — show it only while the user
-  // is actually seeing channels (toggle on, which itself requires the flag).
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
+  // is actually seeing channels.
   const channelsWorld = useChannelsWorld();
   // The new channels layout has exactly one gate: its feature flag (no
   // sidebar toggle). When on it subsumes the channels alpha entirely.
   const channelsLayout = useChannelsLayout();
+  const { width: navRailWidth } = useNavRailMetrics();
   const { hasSidebar } = useRailSurface();
   // When the sidebar is collapsed (Cmd+B) the title bar's left block shrinks to
   // fit its own controls so the tab strip flushes left with the content pane.
@@ -274,11 +269,6 @@ function RootLayout() {
       });
   }, [tasks, workspaces, workspacesFetched, queryClient, hostClient, trpc]);
 
-  // Flags resolve asynchronously — flag-gated routes below wait for this
-  // before redirecting away from a restored route the user can't access.
-  const [flagsLoaded, setFlagsLoaded] = useState(false);
-  useEffect(() => onFeatureFlagsLoaded(() => setFlagsLoaded(true)), []);
-
   // Settings is a full-page route — drop the app chrome (header/sidebar/
   // space-switcher) so the panel occupies the full window. A report opened
   // from settings hosts the same portal, so it counts as settings here too.
@@ -287,19 +277,6 @@ function RootLayout() {
   // ShellLayout draws the in-pane header under `_shell`, so the shared
   // ContentHeader is mounted only where that layout isn't.
   const shellOwnsHeader = useShellOwnsHeader();
-
-  // The bluebird routes stay registered regardless of the flag, so a stale URL,
-  // a restored session, or a persisted browser tab could strand a flag-off user
-  // on chrome they have no way back out of. Once flags resolve, send them back
-  // to a new task.
-  const onBluebirdOnlyPath = useRouterState({
-    select: (s) => isBluebirdOnlyPath(s.location.pathname),
-  });
-  useEffect(() => {
-    if (flagsLoaded && !bluebirdEnabled && onBluebirdOnlyPath) {
-      openTaskInput();
-    }
-  }, [flagsLoaded, bluebirdEnabled, onBluebirdOnlyPath]);
 
   return (
     // DnD scope for the tab strip's drag-to-reorder (pill sortables live in
@@ -419,7 +396,7 @@ function RootLayout() {
           {!sidebarOpen && (
             <Box
               aria-hidden
-              style={{ left: channelsLayout ? NAV_RAIL_WIDTH : 0 }}
+              style={{ left: channelsLayout ? navRailWidth : 0 }}
               // The radix preset replaces Tailwind's palette, so plain
               // `bg-black/*` doesn't exist — use the radix black-alpha scale
               // (--black-a2 = 10%, --black-a5 = 30%).

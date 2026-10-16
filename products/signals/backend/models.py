@@ -1,26 +1,29 @@
+import json
 import uuid
 import logging
+import builtins
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, connection, models, transaction
+from django.db.models.functions import Upper
 from django.utils import timezone
 from django.utils.functional import Promise
 
 from asgiref.sync import async_to_sync
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -36,10 +39,17 @@ from products.signals.backend.artefact_schemas import (
     StatusArtefactContent,
     TaskRunArtefact,
     artefact_type_for,
+    artefact_type_for_model,
     parse_artefact_content,
     task_run_identifier_for_legacy_relationship,
 )
-from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, signal_source_product_choices
+from products.signals.backend.enums import (
+    ReportLinkKind,
+    ReportLinkWritePath,
+    SignalSourceProduct,
+    SignalSourceType,
+    signal_source_product_choices,
+)
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 
 logger = logging.getLogger(__name__)
@@ -57,6 +67,15 @@ class SignalReportWorkState(models.TextChoices):
     WORKING = "working", "Working"
     IN_REVIEW = "in_review", "In review"
     DONE = "done", "Done"
+
+
+class SignalReportSuppressionSource(models.TextChoices):
+    # Who or what took a suppressed report out of the inbox, derived from its artefacts. Only
+    # DISMISSED means someone chose it; the rest are verdicts nobody has reviewed yet.
+    DISMISSED = "dismissed", "Dismissed"
+    SAFETY_JUDGE = "safety_judge", "Safety judge"
+    NOT_ACTIONABLE = "not_actionable", "Not actionable"
+    SYSTEM = "system", "System"
 
 
 def signal_source_type_choices() -> list[tuple[str, str | Promise]]:
@@ -117,6 +136,13 @@ class SignalSourceConfig(UUIDModel):
         if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
             return True
 
+        # A failed follow-up check is the inbox emitting to itself, so there is no team to configure
+        # it: `check_failed` is deliberately absent from `SourceType` above, which means a config row
+        # for it cannot exist and a row-backed gate would refuse the pair forever. The check the team
+        # already authored is the opt-in.
+        if source_product == cls.SourceProduct.SIGNALS_CHECK and source_type == SignalSourceType.CHECK_FAILED:
+            return True
+
         # Scout findings surface to the inbox by default — the team-level toggle was retired from the
         # UI, so this gate is fail-open: absence of a row means on. A team can still opt out via the
         # MCP/API by writing an explicit disabled row, which this honors.
@@ -156,6 +182,11 @@ class AutonomyPriority(models.TextChoices):
     P4 = "P4", "P4"
 
 
+# What GitHub accepts as a label name. Duplicated from the GitHub client rather than imported,
+# because that module pulls the HTTP stack in and this one is loaded on every Django start.
+GITHUB_LABEL_NAME_MAX_LENGTH = 50
+
+
 class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     team = models.OneToOneField(
         "posthog.Team",
@@ -169,6 +200,9 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
+    scout_instructions = models.TextField(null=True, blank=True)
+    research_instructions = models.TextField(null=True, blank=True)
+    implementation_instructions = models.TextField(null=True, blank=True)
     # Daily cap on reports surfacing to the inbox, counted against SignalReport.first_visible_at
     # within the project-timezone day. Once reached, the whole generation pipeline pauses until
     # local midnight (see daily_limit.py). Null means unlimited.
@@ -192,6 +226,12 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # github_writeback.py). Off by default, because the comment is public on the issue thread and
     # tells everybody watching it that we are working on it, which is a team's call to make.
     github_issue_writeback_enabled = models.BooleanField(default=False, db_default=False)
+    # Label every self-driving pull request, so GitHub search, saved searches, and notification
+    # rules can separate them from the rest of the shared bot identity's pull requests (see
+    # pull_request_label.py). Off by default, because the label lands on a repository the team
+    # shares with everybody. A null or blank name falls back to DEFAULT_PULL_REQUEST_LABEL.
+    pull_request_label_enabled = models.BooleanField(default=False, db_default=False)
+    pull_request_label = models.CharField(max_length=GITHUB_LABEL_NAME_MAX_LENGTH, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -209,9 +249,6 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
         if not repository or not isinstance(self.autostart_base_branches, dict):
             return None
         return self.autostart_base_branches.get(repository.lower()) or None
-
-
-register_team_extension_signal(SignalTeamConfig, logger=logger)
 
 
 class SignalUserAutonomyConfig(UUIDModel):
@@ -275,6 +312,7 @@ class SignalReport(UUIDModel):
         IN_PROGRESS = "in_progress"
         PENDING_INPUT = "pending_input"
         READY = "ready"
+        MONITORING = "monitoring"
         RESOLVED = "resolved"
         FAILED = "failed"
         DELETED = "deleted"
@@ -286,6 +324,9 @@ class SignalReport(UUIDModel):
         POSTHOG_SYSTEM = "posthog_system", "PostHog system"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    triggering_signal_id = models.UUIDField(null=True, blank=True)
+    pending_triggering_signal_id = models.UUIDField(null=True, blank=True)
+    researching_signal_count = models.IntegerField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
     # System billing exemption: non-null means this report's implementation PRs must never be
     # charged (PostHog-system origins, e.g. health-check scout findings). Prospective-only —
@@ -360,6 +401,7 @@ class SignalReport(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
+    monitoring_started_at = models.DateTimeField(null=True, blank=True)
     # When the report first became user-visible (entered READY, PENDING_INPUT, or FAILED, the statuses the
     # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
@@ -390,6 +432,12 @@ class SignalReport(UUIDModel):
     # Deprecated - unused
     relevant_user_count = deprecate_field(models.IntegerField(blank=True, null=True))
 
+    # Cached from the newest `actionability_judgment` artefact so the inbox list can sort and filter
+    # on a column instead of casting artefact JSON for every report in the team. Receivers in
+    # receivers.py keep them current. NULL means the report has no parseable judgment.
+    latest_actionability = models.CharField(max_length=30, null=True, blank=True)
+    latest_already_addressed = models.BooleanField(null=True, blank=True)
+
     class Meta:
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
@@ -400,6 +448,10 @@ class SignalReport(UUIDModel):
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
             ),
+            # Back the inbox `search` filter. On UPPER(...) because icontains compiles to
+            # UPPER(col) LIKE UPPER(pattern) on Postgres.
+            GinIndex(OpClass(Upper("title"), name="gin_trgm_ops"), name="signals_report_title_trgm"),
+            GinIndex(OpClass(Upper("summary"), name="gin_trgm_ops"), name="signals_report_summary_trgm"),
         ]
         constraints = [
             # The barrier itself, not a lookup aid: two emits racing on one key both reach the
@@ -426,6 +478,34 @@ class SignalReport(UUIDModel):
             return self.signals_researched
         return max(self.signals_at_run - SIGNALS_AT_RUN_INCREMENT, 0)
 
+    def selected_repository(self) -> str | None:
+        """The repository the report's research selected, from the latest repo_selection artefact."""
+        content = (
+            self.artefacts.filter(type=SignalReportArtefact.ArtefactType.REPO_SELECTION)
+            .order_by("-created_at")
+            .values_list("content", flat=True)
+            .first()
+        )
+        try:
+            data = json.loads(content or "")
+        except (TypeError, ValueError):
+            return None
+        repository = data.get("repository") if isinstance(data, dict) else None
+        return repository.strip() if isinstance(repository, str) and repository.strip() else None
+
+    def _monitoring_enabled(self) -> bool:
+        from products.signals.backend.report_content_gates import (
+            team_report_monitoring_enabled,  # noqa: PLC0415 - keeps the flag client off model startup
+        )
+
+        return team_report_monitoring_enabled(self.team_id)
+
+    @property
+    def effective_status(self) -> "SignalReport.Status":
+        if self.status == self.Status.MONITORING and not self._monitoring_enabled():
+            return self.Status.RESOLVED
+        return self.Status(self.status)
+
     def transition_to(
         self,
         new_status: "SignalReport.Status",
@@ -436,6 +516,7 @@ class SignalReport(UUIDModel):
         title: str | None = None,
         summary: str | None = None,
         error: str | None = None,
+        monitoring_started_at: datetime | None = None,
     ) -> list[str]:
         """
         Validate and apply a status transition with side effects.
@@ -446,8 +527,31 @@ class SignalReport(UUIDModel):
         """
         S = self.Status
         updated_fields: set[str] = set()
+        current_status = self.effective_status
+        if new_status == S.MONITORING and not self._monitoring_enabled():
+            raise InvalidStatusTransition(self.status, new_status)
 
-        match (self.status, new_status):
+        match (current_status, new_status):
+            case (S.READY | S.PENDING_INPUT | S.FAILED, S.MONITORING):
+                if monitoring_started_at is None or timezone.is_naive(monitoring_started_at):
+                    raise ValueError("An aware implementation-complete timestamp is required to enter Monitoring.")
+                self.monitoring_started_at = monitoring_started_at
+                updated_fields.add("monitoring_started_at")
+
+            case (S.MONITORING, S.MONITORING):
+                if self.monitoring_started_at is None:
+                    raise ValueError("The current Monitoring period has no implementation-complete timestamp.")
+                return []
+
+            case (S.SUPPRESSED, S.MONITORING):
+                if self.status_before_suppression != S.MONITORING or self.monitoring_started_at is None:
+                    raise InvalidStatusTransition(self.status, new_status)
+                self.status_before_suppression = None
+                updated_fields.add("status_before_suppression")
+
+            case (S.MONITORING, S.RESOLVED | S.READY):
+                pass
+
             # Pipeline transitions
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
             # - READY -> CANDIDATE when new matching signals reopen the report for summary / agentic
@@ -482,16 +586,25 @@ class SignalReport(UUIDModel):
                 self.error = None
                 updated_fields.update(["title", "summary", "error"])
 
+            # A `None` title or summary keeps the current one, so a run that did no research (e.g. no
+            # repository selected) does not erase the content the report is searched and deduplicated by.
             case (S.IN_PROGRESS, S.PENDING_INPUT):
-                if title is None or summary is None or error is None:
-                    raise ValueError("title, summary, and error are required for in_progress -> pending_input")
-                self.title = title
-                self.summary = summary
+                if error is None:
+                    raise ValueError("error is required for in_progress -> pending_input")
+                if title is not None:
+                    self.title = title
+                    updated_fields.add("title")
+                if summary is not None:
+                    self.summary = summary
+                    updated_fields.add("summary")
                 self.error = error
-                updated_fields.update(["title", "summary", "error"])
+                updated_fields.add("error")
 
             # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze)
-            case (S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.RESOLVED | S.FAILED, S.POTENTIAL):
+            case (
+                S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.MONITORING | S.RESOLVED | S.FAILED,
+                S.POTENTIAL,
+            ):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
                 if self.status == S.SUPPRESSED:
@@ -524,11 +637,18 @@ class SignalReport(UUIDModel):
 
             # Any non-deleted status can be suppressed
             case (
-                S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED | S.FAILED,
+                S.POTENTIAL
+                | S.CANDIDATE
+                | S.IN_PROGRESS
+                | S.PENDING_INPUT
+                | S.READY
+                | S.MONITORING
+                | S.RESOLVED
+                | S.FAILED,
                 S.SUPPRESSED,
             ):
                 # Remember where it was so "restore" can return it there (see restore_target_status).
-                self.status_before_suppression = self.status
+                self.status_before_suppression = current_status
                 self.promoted_at = None
                 updated_fields.update(["status_before_suppression", "promoted_at"])
 
@@ -539,6 +659,7 @@ class SignalReport(UUIDModel):
                 | S.IN_PROGRESS
                 | S.PENDING_INPUT
                 | S.READY
+                | S.MONITORING
                 | S.RESOLVED
                 | S.FAILED
                 | S.SUPPRESSED,
@@ -569,8 +690,42 @@ class SignalReport(UUIDModel):
             updated_fields.add("first_visible_at")
 
         self.status = new_status
+        if new_status in (S.POTENTIAL, S.READY) and self.monitoring_started_at is not None:
+            self.monitoring_started_at = None
+            updated_fields.add("monitoring_started_at")
         updated_fields.update(["status", "updated_at"])
         return list(updated_fields)
+
+    @classmethod
+    def refresh_latest_actionability(cls, *, team_id: int, report_id: Any) -> bool:
+        """Recompute the cached actionability from the artefact log and store it on the row.
+
+        Returns whether the row changed, and False when the report no longer exists. The row is
+        locked for the read and the write, so two judgment writers cannot interleave: without the
+        lock, a writer that read the log before a concurrent judgment committed would overwrite
+        the cache with the older value once the other writer released the row.
+        """
+        with transaction.atomic():
+            # FOR NO KEY UPDATE, not FOR UPDATE: an artefact insert holds KEY SHARE on its report
+            # through the foreign key, and FOR UPDATE conflicts with that, so two concurrent
+            # judgment writers would deadlock.
+            row = (
+                cls.objects.select_for_update(no_key=True)
+                .filter(team_id=team_id, id=report_id)
+                .values_list("latest_actionability", "latest_already_addressed")
+                .first()
+            )
+            if row is None:
+                return False
+            latest = SignalReportArtefact.latest_actionability(report_id)
+            if row == (latest.actionability, latest.already_addressed):
+                return False
+            # `update()`, not `save()`: refreshing a cache must not bump `updated_at`, which the
+            # inbox sorts on, or fire the report's own save receivers.
+            cls.objects.filter(id=report_id).update(
+                latest_actionability=latest.actionability, latest_already_addressed=latest.already_addressed
+            )
+            return True
 
     def restore_target_status(self) -> "SignalReport.Status":
         """
@@ -584,6 +739,8 @@ class SignalReport(UUIDModel):
         S = self.Status
         researched = {S.READY, S.PENDING_INPUT, S.RESOLVED, S.FAILED}
         prior = self.status_before_suppression
+        if prior == S.MONITORING:
+            return S.MONITORING if self._monitoring_enabled() else S.RESOLVED
         if prior in {s.value for s in researched}:
             return S(prior)
         return S.POTENTIAL
@@ -936,7 +1093,7 @@ class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
 
     @property
     def work_state(self) -> SignalReportWorkState:
-        if self.report.status == SignalReport.Status.RESOLVED:
+        if self.report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
             return SignalReportWorkState.DONE
         from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 
@@ -1039,15 +1196,80 @@ class SignalReportGithubComment(TeamScopedRootMixin, UUIDModel):
         verbose_name_plural = "Signal report GitHub comments"
 
 
+class SignalReportSlackThread(UUIDModel):
+    """The Slack thread a report notification started, so a reply in it resolves back to the report.
+
+    A notification invites the reader to reply in the thread and mention PostHog, which starts a
+    task. Without this row that task has no way back to the report it discusses, so the work never
+    reaches the report's own timeline.
+
+    A scout report row also lets a later delivery of the same report update its message in place
+    instead of posting the report again.
+    """
+
+    class Kind(models.TextChoices):
+        INBOX_NOTIFICATION = "inbox_notification", "Inbox notification"
+        SCOUT_REPORT = "scout_report", "Scout report"
+        SCOUT_REPORT_NOTE = "scout_report_note", "Scout report note"
+
+    objects = EnvironmentScopedManager()
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="slack_threads")
+    # SET_NULL rather than CASCADE: a disconnected workspace must not erase the link between a
+    # report and the task somebody already started from its thread.
+    integration = models.ForeignKey(
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    # The resolved Slack channel id, so a config that names the channel differently still matches.
+    slack_workspace_id = models.CharField(max_length=64)
+    channel = models.CharField(max_length=64)
+    # Slack `ts` of the notification message, which is also its thread's root.
+    thread_ts = models.CharField(max_length=64)
+    # Null on rows written before the kind was recorded. Those rows never match an in-place update.
+    kind = models.CharField(max_length=32, choices=Kind, null=True, blank=True)
+    # The destination as configured, before Slack resolves it. A member target is a `U…` id here,
+    # while `channel` holds the `D…` direct message that Slack opened for it.
+    target = models.CharField(max_length=64, null=True, blank=True)
+    # Slack `ts` of each threaded reply of a scout report, in summary chunk order.
+    reply_ts = models.JSONField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        constraints = [
+            # One Slack message is one thread, and a thread is about at most one report. Keyed
+            # without the team so a second project connected to the same workspace cannot claim a
+            # thread another project's report already owns.
+            models.UniqueConstraint(
+                fields=["slack_workspace_id", "channel", "thread_ts"], name="signals_report_slack_thread_unique"
+            ),
+        ]
+        verbose_name = "Signal report Slack thread"
+        verbose_name_plural = "Signal report Slack threads"
+
+
 class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
     State = SignalReportAssignment.PrState
+
+    class ReviewDecision(models.TextChoices):
+        APPROVED = "approved", "Approved"
+        CHANGES_REQUESTED = "changes_requested", "Changes requested"
+        REVIEW_REQUIRED = "review_required", "Review required"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     repository = models.CharField(max_length=200)
     number = models.PositiveBigIntegerField()
     url = models.URLField(max_length=2048)
     state = models.CharField(max_length=10, choices=State, default=State.UNKNOWN)
+    review_decision = models.CharField(max_length=20, choices=ReviewDecision, null=True, blank=True)
+    merged_at = models.DateTimeField(null=True, blank=True)
     checked_at = models.DateTimeField(null=True, blank=True)
+    participant_ids = ArrayField(models.PositiveBigIntegerField(), null=True, blank=True)
+    participant_logins = ArrayField(models.CharField(max_length=255), null=True, blank=True)
+    participants_synced_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1055,6 +1277,7 @@ class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "repository", "number"], name="signals_pr_identity_unique"),
         ]
+        indexes = [models.Index(fields=["team", "merged_at"], name="signals_pr_team_merged_idx")]
 
 
 class SignalEmissionRecord(UUIDModel):
@@ -1090,6 +1313,24 @@ def signal_report_artefact_type_choices() -> list[tuple[str, str | Promise]]:
     return list(SignalReportArtefact.ArtefactType.choices)
 
 
+_ContentT = TypeVar("_ContentT", bound=BaseModel)
+
+
+@frozen
+class LatestActionability:
+    """The `actionability` and `already_addressed` of a report's newest parseable judgment.
+
+    Both `None` when the report has no `actionability_judgment` whose content is a JSON object.
+    """
+
+    actionability: str | None
+    already_addressed: bool | None
+
+    @classmethod
+    def unjudged(cls) -> "LatestActionability":
+        return cls(actionability=None, already_addressed=None)
+
+
 class SignalReportArtefact(UUIDModel):
     class ArtefactType(models.TextChoices):
         VIDEO_SEGMENT = "video_segment"
@@ -1110,6 +1351,7 @@ class SignalReportArtefact(UUIDModel):
         CODE_REVIEW = "code_review"
         RELATED_TO = "related_to"
         REPORT_LINK = "report_link"
+        AUTOSTART_SKIP = "autostart_skip"
         WORK_CLAIM = "work_claim"
         WORK_RELEASE = "work_release"
         PULL_REQUEST = "pull_request"
@@ -1121,13 +1363,17 @@ class SignalReportArtefact(UUIDModel):
         IMPLEMENTATION_DISPATCH = "implementation_dispatch"
         IMPLEMENTATION_REPLACEMENT = "implementation_replacement"
         IMPLEMENTATION_HANDOVER = "implementation_handover"
+        RANKING_SCORE = "ranking_score"
+        IMPACT_MEASUREMENT_PLAN = "impact_measurement_plan"
+        SOURCE_SUGGESTION = "source_suggestion"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
-    #   - status artefacts describe the report's current state (judgments, repo selection,
-    #     suggested reviewers, channel assignments). They are appended on each change; the
-    #     report's *current* status is the latest row of that type by `created_at` (the serializer
-    #     derives priority/actionability/reviewers with `order_by("-created_at")[:1]` subqueries).
+    #   - status artefacts describe the report's current state (judgments and repo selection among
+    #     them, and the model's current ranking score). They are appended on each change; the
+    #     report's *current* status is the latest row of that type by `created_at`. A member does
+    #     not have to reach the API: the serializer derives priority/actionability/reviewers with
+    #     `order_by("-created_at")[:1]` subqueries, and the rest are read by the pipeline alone.
     #   - log artefacts record discrete work done on a report (code references, commits,
     #     task runs, notes, and title/summary edits). Appended via `add_log`.
     # `signal_finding` is appended too, but its logical identity is `(report, content.signal_id)`:
@@ -1143,8 +1389,14 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CHANNEL_ASSIGNMENT,
             ArtefactType.IMPLEMENTATION_DECISION,
             ArtefactType.IMPLEMENTATION_DISPATCH,
+            ArtefactType.RANKING_SCORE,
+            ArtefactType.SOURCE_SUGGESTION,
         }
     )
+    # Rows the scoring sweep writes on every text edit and every new serving manifest. They record
+    # no activity a user can see, so the artefact count leaves them out, and the artefact log shows
+    # them to staff only.
+    SYSTEM_SCORING_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.RANKING_SCORE})
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
     # chain is a handful of reports deep. The budgets guard the cycle walk on the write path
     # against a graph that grew past anything a reader could order. Rows and levels are bounded
@@ -1164,6 +1416,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CODE_REVIEW,
             ArtefactType.RELATED_TO,
             ArtefactType.REPORT_LINK,
+            ArtefactType.AUTOSTART_SKIP,
             ArtefactType.IMPLEMENTATION_REPLACEMENT,
             ArtefactType.IMPLEMENTATION_HANDOVER,
             ArtefactType.WORK_CLAIM,
@@ -1173,6 +1426,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CHECK_SCHEDULED,
             ArtefactType.CHECK_EXPIRED,
             ArtefactType.CHECK_CANCELLED,
+            ArtefactType.IMPACT_MEASUREMENT_PLAN,
         }
     )
 
@@ -1248,12 +1502,16 @@ class SignalReportArtefact(UUIDModel):
 
         The inbox list renders this count for every row it returns. A correlated subquery makes
         Postgres count a report's artefacts before the page limit applies, so the whole team's
-        reports get counted to render 25. Reports with no artefacts are omitted.
+        reports get counted to render 25. Reports with no artefacts are omitted, and so are
+        `SYSTEM_SCORING_ARTEFACT_TYPES` rows.
         """
         if not report_ids:
             return {}
         rows = (
-            cls.objects.filter(report_id__in=report_ids).values("report_id").annotate(artefact_count=models.Count("*"))
+            cls.objects.filter(report_id__in=report_ids)
+            .exclude(type__in=cls.SYSTEM_SCORING_ARTEFACT_TYPES)
+            .values("report_id")
+            .annotate(artefact_count=models.Count("*"))
         )
         return {str(row["report_id"]): row["artefact_count"] for row in rows}
 
@@ -1274,6 +1532,31 @@ class SignalReportArtefact(UUIDModel):
             .values_list("report_id", "channel_id", "channel__deleted")
         )
         return {str(report_id): channel_id for report_id, channel_id, deleted in rows if deleted is False}
+
+    @classmethod
+    def latest_actionability(cls, report_id: Any) -> LatestActionability:
+        """The newest parseable `actionability_judgment` of a report, as `SignalReport` caches it.
+
+        Entries that are not JSON objects are skipped rather than ending the search, so one
+        malformed row cannot hide the judgment written before it.
+        """
+        rows = cls.objects.filter(report_id=report_id, type=cls.ArtefactType.ACTIONABILITY_JUDGMENT).order_by(
+            "-created_at"
+        )
+        for content in rows.values_list("content", flat=True).iterator(chunk_size=20):
+            try:
+                parsed = json.loads(content)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+            if not isinstance(parsed, dict):
+                continue
+            actionability = parsed.get("actionability")
+            already_addressed = parsed.get("already_addressed")
+            return LatestActionability(
+                actionability=actionability if isinstance(actionability, str) else None,
+                already_addressed=already_addressed if isinstance(already_addressed, bool) else None,
+            )
+        return LatestActionability.unjudged()
 
     @classmethod
     def _create(
@@ -1353,6 +1636,75 @@ class SignalReportArtefact(UUIDModel):
         if reevaluate_autostart and artefact.type == cls.ArtefactType.SUGGESTED_REVIEWERS:
             cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
         return artefact
+
+    @classmethod
+    def _latest_of(
+        cls,
+        *,
+        team_id: int,
+        report_id: str,
+        model: builtins.type[BaseModel],
+        created_before: datetime | None,
+        created_after: datetime | None,
+    ) -> "models.QuerySet[SignalReportArtefact]":
+        artefacts = cls.objects.filter(team_id=team_id, report_id=report_id, type=artefact_type_for_model(model))
+        if created_before is not None:
+            artefacts = artefacts.filter(created_at__lte=created_before)
+        if created_after is not None:
+            artefacts = artefacts.filter(created_at__gte=created_after)
+        # `id` breaks a `created_at` tie, so two readers never disagree on which row is the latest.
+        return artefacts.order_by("-created_at", "-id").only("content")
+
+    @staticmethod
+    def _parse_as(artefact: "SignalReportArtefact | None", model: builtins.type[_ContentT]) -> _ContentT | None:
+        if artefact is None:
+            return None
+        try:
+            return model.model_validate_json(artefact.content)
+        except ValidationError:
+            return None
+
+    @classmethod
+    def latest_content(
+        cls,
+        *,
+        team_id: int,
+        report_id: str,
+        model: builtins.type[_ContentT],
+        created_before: datetime | None = None,
+        created_after: datetime | None = None,
+    ) -> _ContentT | None:
+        """The newest artefact of `model`'s type on the report, parsed, or None when there is none or
+        it doesn't parse. The read side of `append_status`: a status type's current value is its
+        newest row. `created_before` / `created_after` bound the rows considered, inclusively."""
+        artefact = cls._latest_of(
+            team_id=team_id,
+            report_id=report_id,
+            model=model,
+            created_before=created_before,
+            created_after=created_after,
+        ).first()
+        return cls._parse_as(artefact, model)
+
+    @classmethod
+    async def alatest_content(
+        cls,
+        *,
+        team_id: int,
+        report_id: str,
+        model: builtins.type[_ContentT],
+        created_before: datetime | None = None,
+        created_after: datetime | None = None,
+    ) -> _ContentT | None:
+        """Async `latest_content`."""
+        artefact = await cls._latest_of(
+            team_id=team_id,
+            report_id=report_id,
+            model=model,
+            created_before=created_before,
+            created_after=created_after,
+        ).afirst()
+        return cls._parse_as(artefact, model)
 
     @classmethod
     def append_finding(
@@ -1538,6 +1890,7 @@ class SignalReportArtefact(UUIDModel):
         content: LogArtefactContent,
         attribution: ArtefactAttribution,
         claim_id: str | None = None,
+        write_path: ReportLinkWritePath | None = None,
     ) -> "SignalReportArtefact":
         """Append a log artefact (see `LOG_ARTEFACT_TYPES`) to a report and return it.
 
@@ -1550,18 +1903,22 @@ class SignalReportArtefact(UUIDModel):
         `report_link` is the typed, directed counterpart and gets no mirror row, because the
         direction is what it records. Its invariants are checked here, on the common write path,
         so every surface (the REST API, the MCP tools, a scout edit, the pipeline) gets them.
+        `write_path` names that surface on the `signals_report_linked` event.
         """
         if artefact_type_for(content) not in cls.LOG_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a log artefact content model")
         if isinstance(content, ReportLink):
             with cls.validated_report_link_write(team_id=team_id, report_id=str(report_id), content=content):
-                return cls._create(
+                artefact = cls._create(
                     team_id=team_id,
                     report_id=report_id,
                     content=content,
                     attribution=attribution,
                     claim_id=claim_id,
                 )
+            cls._capture_report_linked(artefact, content, write_path)
+            cls._schedule_plan_rollup(artefact, content)
+            return artefact
         artefact = cls._create(
             team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
         )
@@ -1575,6 +1932,71 @@ class SignalReportArtefact(UUIDModel):
                 attribution=attribution,
             )
         return artefact
+
+    @staticmethod
+    def _capture_report_linked(
+        artefact: "SignalReportArtefact", content: ReportLink, write_path: ReportLinkWritePath | None
+    ) -> None:
+        """Count the link after it commits, from the one write path every producer shares.
+
+        Scheduled on commit so a rolled-back write is never counted, and imported lazily to avoid a
+        models <-> typed_report_links import cycle.
+        """
+
+        def _run() -> None:
+            from products.signals.backend.typed_report_links import ReportEdge, capture_report_linked
+
+            capture_report_linked(
+                team_id=artefact.team_id,
+                edge=ReportEdge(
+                    source_id=str(artefact.report_id),
+                    kind=content.kind,
+                    target_id=content.report_id,
+                    reason=content.reason,
+                ),
+                actor_kind=artefact.actor_kind,
+                actor_agent=artefact.actor_agent,
+                write_path=write_path,
+            )
+
+        transaction.on_commit(_run)
+
+    @staticmethod
+    def _schedule_plan_rollup(artefact: "SignalReportArtefact", content: ReportLink) -> None:
+        """Close the plan when a step joins it after the step itself closed.
+
+        The roll-up otherwise runs from the step's status change, and a `part_of` row written on a
+        report that is already resolved or archived announces no change. Only a closed source is
+        worth the walk, because an open step leaves its plan open anyway. Scheduled on commit so
+        the new row is visible, best-effort so it never breaks the write, and imported lazily to
+        avoid a models <-> plan_rollup import cycle.
+        """
+        if content.kind != ReportLinkKind.PART_OF:
+            return
+
+        def _run() -> None:
+            from products.signals.backend.plan_rollup import roll_up_plan_parents
+
+            try:
+                report = (
+                    SignalReport.objects.using("default")
+                    .filter(team_id=artefact.team_id, id=artefact.report_id)
+                    .only("status", "team_id")
+                    .first()
+                )
+                if report is None or report.effective_status not in (
+                    SignalReport.Status.RESOLVED,
+                    SignalReport.Status.SUPPRESSED,
+                ):
+                    return
+                roll_up_plan_parents(team_id=artefact.team_id, report_id=str(artefact.report_id))
+            except Exception:
+                logger.exception(
+                    "signals.plan_rollup.after_link_write_failed",
+                    extra={"report_id": str(artefact.report_id)},
+                )
+
+        transaction.on_commit(_run)
 
     @classmethod
     def append(
@@ -1627,6 +2049,8 @@ class SignalReportArtefact(UUIDModel):
 
         Editing the latest `suggested_reviewers` row changes the report's canonical reviewers,
         so it re-evaluates auto-start the same way appending a new reviewers row does."""
+        if self.type == self.ArtefactType.IMPACT_MEASUREMENT_PLAN:
+            raise ArtefactContentValidationError("Append a new measurement version instead of editing one.")
         parsed = parse_artefact_content(self.type, content)
         # The `task` FK is the association and is creation-time only; an edit must not let
         # content.task_id drift away from it.
@@ -1664,6 +2088,45 @@ class SignalReportArtefact(UUIDModel):
             self.save(update_fields=update_fields)
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
             self._schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))
+
+
+class SignalReportSuggestedReviewer(TeamScopedRootMixin, UUIDModel):
+    """One reviewer identity from a report's current `suggested_reviewers` artefact, in columns.
+
+    The artefact log stays canonical. It stores the reviewer list as JSON in a `TextField`, so
+    asking "which reports name this person?" costs a jsonb cast for every reviewer artefact the
+    team ever wrote, and no index can serve it. The inbox asks that question in its default scope,
+    on the list and on each section count, so the cost grew with the log rather than with the page.
+    These rows answer the same question from an index. A report has one row per identity in its
+    newest reviewers artefact, and the rows are rewritten whenever that artefact changes.
+    """
+
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="suggested_reviewer_index")
+    # The artefact these rows were derived from, so a reader can tell which version they reflect.
+    artefact = models.ForeignKey(SignalReportArtefact, on_delete=models.CASCADE, related_name="+")
+    # An entry identifies its person by uuid, by login, or by both — one of the two is always set.
+    user_uuid = models.UUIDField(null=True, blank=True)
+    # Lowercased on write: GitHub logins are case-insensitive, and both readers look them up with
+    # `login.lower()`.
+    github_login = models.CharField(max_length=255, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        indexes = [
+            # The two reviewer lookups, one per identity kind. `report` is in the index so the
+            # list filter reads the report ids without touching the heap.
+            models.Index(fields=["team", "user_uuid", "report"], name="signals_sugg_rev_uuid_idx"),
+            models.Index(fields=["team", "github_login", "report"], name="signals_sugg_rev_login_idx"),
+            # Rewriting a report's rows deletes what is there first.
+            models.Index(fields=["report"], name="signals_sugg_rev_report_idx"),
+        ]
+        verbose_name = "Signal report suggested reviewer"
+        verbose_name_plural = "Signal report suggested reviewers"
 
 
 class SignalReportTask(UUIDModel):
@@ -1776,6 +2239,10 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+def signal_report_action_choices() -> Sequence[tuple[str, str | Promise]]:
+    return SignalReportAction.ActionType.choices
+
+
 class SignalReportAction(TeamScopedRootMixin, UUIDModel):
     """One row per (report, user, action type): a person's lightweight interaction with a report.
 
@@ -1798,6 +2265,8 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
         VIEW = "view"
         # The thumbs rating at the end of the report body ("Was this report useful?").
         FEEDBACK = "feedback"
+        SLACK_DISCUSSION = "slack_discussion"
+        READ = "read"
 
     # See SignalReportRefund.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
@@ -1809,7 +2278,7 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
     # CASCADE, unlike the artefact log's SET_NULL: a row here is evidence that a specific person
     # interacted, so with the person gone it proves nothing and can go with them.
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    type = models.CharField(max_length=20, choices=ActionType)
+    type = models.CharField(max_length=20, choices=signal_report_action_choices)
     # Latest-wins detail about the interaction (e.g. the feedback row keeps the most recent
     # sentiment). Never required by readers — the row's existence is the fact that matters.
     metadata = models.JSONField(default=dict, blank=True)
@@ -1890,8 +2359,8 @@ class SignalReportCheck(UUIDModel):
     transition to RESOLVED sets its `next_run_at`. That makes the resolve the clock for every kind of
     fix, including the ones that never had a pull request.
 
-    Terminal statuses are final. A check that passed, failed, errored out, expired, or was cancelled
-    is never rescheduled; the author writes a new check instead, so a result artefact always refers
+    Terminal statuses are final. A check that passed, failed, errored out, ended inconclusive,
+    expired, or was cancelled is never rescheduled; the author writes a new check instead, so a result artefact always refers
     to a row whose state explains it.
     """
 
@@ -1912,6 +2381,8 @@ class SignalReportCheck(UUIDModel):
         PASSED = "passed"
         FAILED = "failed"
         ERRORED = "errored"
+        # The runs worked but could not settle the claim. `last_outcome_reason` says why.
+        INCONCLUSIVE = "inconclusive"
         EXPIRED = "expired"
         CANCELLED = "cancelled"
 
@@ -1923,6 +2394,17 @@ class SignalReportCheck(UUIDModel):
         PASSED = "passed"
         FAILED = "failed"
         ERRORED = "errored"
+        INCONCLUSIVE = "inconclusive"
+
+    class InconclusiveReason(models.TextChoices):
+        # The data can arrive later: a rollout lag, a soak not complete, too few samples so far.
+        AWAITING_DATA = "awaiting_data"
+        # The data the check needs is not captured, so waiting does not help.
+        UNMEASURABLE = "unmeasurable"
+        # Only a person or another environment can do it: a device, SSH, staging, a test suite.
+        NEEDS_MANUAL_VERIFICATION = "needs_manual_verification"
+        # No merged fix or deploy time defines a post-fix window.
+        NO_FIX_TO_MEASURE = "no_fix_to_measure"
 
     # Environment-scoped, not project-scoped. `SignalReport` stores the environment's own team, and a
     # check has to sit on the same team as its report or the report's reads never find it and its
@@ -1942,11 +2424,14 @@ class SignalReportCheck(UUIDModel):
     kind = models.CharField(max_length=30, choices=Kind)
     # Validated against the kind's pydantic model at every write (see `report_checks.parse_check_config`).
     config = models.JSONField(default=dict, db_default={})
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, db_constraint=False, null=True, blank=True, related_name="+"
+    )
 
     next_run_at = models.DateTimeField()
-    # How long after the report resolves a PENDING check waits before its first run. Null on a check
-    # created ACTIVE, which named its own `next_run_at` instead. Kept after the check is armed, so a
-    # reader can see what window the verdict was measured over.
+    measurement_start_at = models.DateTimeField(null=True, blank=True)
+    # Minimum wait after resolution, separate from the query window a metric check must fill.
     soak_minutes = models.PositiveIntegerField(null=True, blank=True)
     # Null means one-shot. A recurring check re-arms at this interval until it runs out of runs or
     # reaches its expiry.
@@ -1956,8 +2441,13 @@ class SignalReportCheck(UUIDModel):
 
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     consecutive_errors = models.PositiveIntegerField(default=0)
+    # Consecutive `awaiting_data` verdicts. Kept apart from `consecutive_errors`, because a run that
+    # waits on data did its job and must not spend the error budget.
+    consecutive_inconclusive = models.PositiveIntegerField(default=0, db_default=0)
     last_run_at = models.DateTimeField(null=True, blank=True)
     last_outcome = models.CharField(max_length=20, choices=Outcome, null=True, blank=True)
+    # Set only when `last_outcome` is `inconclusive`.
+    last_outcome_reason = models.CharField(max_length=30, choices=InconclusiveReason, null=True, blank=True)
     # When an `agent` check's scout run was dispatched, cleared as soon as a verdict is recorded.
     # It is what makes the dispatch closable: `scout-check-record-result` refuses a check no run is
     # waiting on, and the coordinator reads a stale value as a run that ended without answering.
@@ -2012,6 +2502,14 @@ class SignalReportCheck(UUIDModel):
 #   - SignalScoutNote:   steering notes humans/agents leave for scouts to read.
 
 
+def default_scout_write_scopes() -> list[str]:
+    from posthog.temporal.oauth import (  # noqa: PLC0415 — keeps the token module off the models import path
+        SCOUT_DEFAULT_WRITE_SCOPES,
+    )
+
+    return sorted(SCOUT_DEFAULT_WRITE_SCOPES)
+
+
 class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     """One row per (team, scout skill): schedule + emit posture for a scout skill.
 
@@ -2053,6 +2551,26 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         NO_OUTPUT = "no_output", "No output"
         IGNORED = "ignored", "Ignored"
         REPEATED_FAILURES = "repeated_failures", "Repeated failures"
+        # PostHog retired the scout this config runs: its canonical skill declared a sunset that
+        # has passed, or it left the fleet on disk altogether. Owned by the retirement pass
+        # (`scout_harness/deprecation.py`) alone, so no other system writer resumes a scout that
+        # no longer exists, and the roster has a state to render instead of a row that looks
+        # healthy and never runs.
+        RETIRED = "retired", "Retired"
+        # The background lane stopped managing this scout and paused it. Owned by the background
+        # coordinator alone, so no other system writer resumes a scout nobody set up.
+        BACKGROUND_REMOVED = "background_removed", "Background removed"
+
+    class ManagedBy(models.TextChoices):
+        """Who controls this scout now.
+
+        `background` marks a row the background lane created without a person asking, so the
+        background coordinator may still change or pause it. Any human edit through the config API
+        moves the row to `team`, and from then on only the team changes it.
+        """
+
+        TEAM = "team", "Team"
+        BACKGROUND = "background", "Background"
 
     class NetworkAccess(models.TextChoices):
         """What the scout's sandbox can reach over the network during a run.
@@ -2113,6 +2631,12 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # `signals-scout-foo` gets a row (on the default schedule) on the next tick. A bare-named
     # skill is registered through the scout create endpoint instead.
     skill_name = models.CharField(max_length=200)
+    rubrics = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Saved evaluation criteria and the latest background rubric proposal.",
+    )
     # What a person calls this scout, kept exactly as typed — spaces, capitalization, acronyms.
     # `skill_name` above stays the identity every other row keys on, so a rename touches only this
     # column. Blank means "no name of its own": every surface then derives a label from the slug.
@@ -2139,6 +2663,21 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         default=Status.ACTIVE,
         db_default=Status.ACTIVE,
     )
+    # `db_default` alongside `default` keeps the AddField non-blocking and the column populated for
+    # writers that don't know about it yet.
+    managed_by = models.CharField(
+        max_length=20,
+        choices=ManagedBy.choices,
+        default=ManagedBy.TEAM,
+        db_default=ManagedBy.TEAM,
+    )
+    # The activity band that sampled this project into the background lane. `None` for a
+    # hand-picked `team_ids` project and for every `team`-managed row that the band lane never made.
+    background_band = models.PositiveSmallIntegerField(null=True, blank=True)
+    # How many background runs in a row nobody engaged with. The coordinator multiplies the band
+    # interval by `background.backoff.factor` once per level, so `run_interval_minutes` keeps the
+    # nominal cadence. `None` means level 0. Read only while the row is `managed_by=background`.
+    background_backoff_level = models.PositiveSmallIntegerField(null=True, blank=True)
     # Set only alongside `pending_pause` / `paused_by_system`; see `PauseReason`.
     pause_reason = models.CharField(
         max_length=20,
@@ -2272,16 +2811,28 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_default=[],
         blank=True,
     )
-    # User-facing write scopes a person granted this one scout, on top of the fleet-wide posture
-    # every scout carries. Plain scope strings (`["dashboard:write", "insight:write"]`), so adding
-    # a grantable object later is one allowlist entry rather than a new column. Empty means the
-    # scout reads the project and writes only what the fleet grants every scout.
+    # User-facing write scopes this one scout holds, on top of the fleet-wide posture every scout
+    # carries. Plain scope strings (`["dashboard:write", "insight:write"]`), so adding a grantable
+    # object later is one allowlist entry rather than a new column. A new row starts with
+    # `SCOUT_DEFAULT_WRITE_SCOPES`. Empty means the scout reads the project and writes only its own
+    # findings and memory.
     # Validated against `SCOUT_GRANTABLE_WRITE_SCOPES` at the API boundary and intersected against
     # it again when a run's token is minted, so a stored grant cannot widen a token past the
     # allowlist. Deliberately NOT excluded from activity logging, and gated in the config API to the
     # scout's acting user and project admins: this field decides what an unattended agent may change
     # in the project. A dry run (`emit=False`) ignores it, so a preview never mutates the project.
-    write_scopes = models.JSONField(default=list, db_default=[])
+    write_scopes = models.JSONField(default=default_scout_write_scopes, db_default=[])
+    # Opt-in guard on the lifecycle fields (`enabled`, `emit`, deletion, and this flag). Off by
+    # default, so the fleet keeps the plain `signal_scout:write` bar. On, only the scout's
+    # resolved acting user or a project admin may pause, resume, switch to dry run, or delete it
+    # — the same bar `write_scopes` clears, and for the same reason: a project-wide scope is held
+    # by people and by unattended agents alike, and pausing is unbounded while resuming passes
+    # the enabled-scout cap, so one bulk write can silence a fleet that cannot be restored in one
+    # step. It never blocks a system transition: an inactivity sweep or the failure breaker still
+    # pauses a locked scout.
+    lifecycle_locked = models.BooleanField(default=False, db_default=False)
+    allowed_mcp_tools = models.JSONField(null=True, blank=True)
+    tool_preset = models.CharField(max_length=64, null=True, blank=True)
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
@@ -2295,6 +2846,14 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # defer an already-overdue scheduled run. Null on rows whose schedule was never edited —
     # `created_at` anchors those.
     schedule_changed_at = models.DateTimeField(null=True, blank=True)
+    # Optional HogQL query a scheduled run evaluates before it starts (`scout_harness/precheck.py`).
+    # No rows, or a single false value, skips the run, so a scout that watches something rare can
+    # run often and pay for a sandbox only when there is something new. `{since}` and `{now}` are
+    # bound as HogQL placeholders, and `{interval_minutes}` is the scout's schedule interval. Null
+    # falls back to the default its canonical skill ships, if any (`scout-precheck-query`).
+    precheck_query = models.TextField(null=True, blank=True)
+    # Turns off both `precheck_query` and the skill default, so every due tick runs the scout.
+    precheck_disabled = models.BooleanField(default=False, db_default=False)
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)
@@ -2410,6 +2969,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         *,
         pause_reason: "SignalScoutConfig.PauseReason",
         evaluated_at: datetime | None = None,
+        max_enabled_scouts: int | None = None,
     ) -> bool:
         """Apply a system-driven status transition under the reason-scoped ownership rule.
 
@@ -2422,11 +2982,26 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         after the caller read the row cannot be overwritten. Pass `evaluated_at` (when the
         caller read the state its decision is based on) to also refuse the transition if the
         status moved after that moment, e.g. a human re-enable racing a sweep's pause.
+        `max_enabled_scouts` is the project's already-resolved enabled-scout ceiling, for a
+        caller that is inside a locked section. Left `None`, a resume resolves it here — before
+        the transaction opens, so the flag read never happens while row locks are held.
         Saves and returns True when the transition applies; returns False without writing
         when it is refused or a no-op.
         """
         if new_status == self.Status.PAUSED_BY_USER:
             raise ValueError("Only a user write may set paused_by_user.")
+        # A resume must not carry the team past the enabled-scout cap: the pause freed a slot the
+        # config API may have legitimately given to another scout since. Only a resume needs the
+        # ceiling, so a pause pays for no flag read.
+        resume_cap: int | None = None
+        if new_status in self.RUNNABLE_STATUSES:
+            from products.signals.backend.scout_harness.team_limits import (  # noqa: PLC0415 — importing via the scout_harness package init would put lazy_seed/skill_loader on the django.setup() path that loads this module
+                max_enabled_scouts_for_team,
+            )
+
+            resume_cap = (
+                max_enabled_scouts if max_enabled_scouts is not None else max_enabled_scouts_for_team(self.team_id)
+            )
         with transaction.atomic():
             # One ordered query locks the whole team's rows, not just ours: the cap check below
             # counts sibling rows, so two concurrent resumes locking only their own rows would
@@ -2456,15 +3031,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                 and locked.status_changed_at > evaluated_at
             ):
                 return False
-            # A resume must not carry the team past the enabled-scout cap: the pause freed a
-            # slot the config API may have legitimately given to another scout since.
-            from products.signals.backend.scout_harness.limits import (  # noqa: PLC0415 — importing via the scout_harness package init would put lazy_seed/skill_loader on the django.setup() path that loads this module
-                MAX_ENABLED_SCOUTS_PER_TEAM,
-            )
-
-            if new_status in self.RUNNABLE_STATUSES and locked.status not in self.RUNNABLE_STATUSES:
+            if resume_cap is not None and locked.status not in self.RUNNABLE_STATUSES:
                 peers = sum(1 for row in team_rows.values() if row.enabled and row.pk != locked.pk)
-                if peers >= MAX_ENABLED_SCOUTS_PER_TEAM:
+                if peers >= resume_cap:
                     return False
             recorded_reason = None if new_status == self.Status.ACTIVE else pause_reason
             if new_status == locked.status and recorded_reason == locked.pause_reason:
@@ -2630,6 +3199,9 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # the note a person typed when triggering the run by hand, so read it as prose, not a dimension.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
+    total_spend = models.DecimalField(max_digits=20, decimal_places=4, null=True, blank=True)
+    # Keep private trial documents separate from metadata inspected by ordinary scout history queries.
+    trial_state = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     # Last touch on the row. The `summary`, the emit and edit tallies, and `metadata` all land after
     # the row is created, so a reader keyed on `created_at` alone never sees a settled run. Nullable
@@ -2653,6 +3225,10 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
                 fields=["team", "skill_name", "-created_at"],
                 name="signal_scout_run_recent_idx",
             ),
+            # The team-wide run search and the fleet summary filter on team only, with no scout key, so
+            # the index above cannot serve their newest-first order and the planner sorts every one of
+            # the team's runs before it applies the limit.
+            models.Index(fields=["team", "-created_at"], name="signal_scout_run_team_new_idx"),
             # "which run authored this report?" is a jsonb containment lookup (`@>`) that
             # `dismissal_notes` runs on the dismissal request path, batched into one OR'd query per
             # request. Without these the planner can only seq-scan the team's runs, and this table
@@ -2797,6 +3373,19 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "key"], name="signal_scratchpad_unique_team_key"),
         ]
+        indexes = [
+            models.Index(fields=["team", "-updated_at", "-id"], name="signal_scratchpad_team_upd_idx"),
+            # The unique `(team, key)` index cannot serve a `key` prefix LIKE under a non-C collation.
+            models.Index(
+                fields=["team", "key"],
+                name="signal_scratchpad_key_like_idx",
+                opclasses=["int4_ops", "varchar_pattern_ops"],
+            ),
+            # Back the `text` search. On UPPER(...) because icontains compiles to
+            # UPPER(col::text) LIKE UPPER(pattern) on Postgres.
+            GinIndex(OpClass(Upper("content"), name="gin_trgm_ops"), name="signal_scratchpad_content_trgm"),
+            GinIndex(OpClass(Upper("key"), name="gin_trgm_ops"), name="signal_scratchpad_key_trgm"),
+        ]
 
 
 class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
@@ -2915,9 +3504,8 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
 class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
     """Deterministic snapshot of "what's true about this project" — agent orientation surface.
 
-    One row per (team, computed_at). Time-series so Phase 7 can diff a new profile against
-    the previous row to populate `payload.deltas`. v1 (Phase 4a) writes inventory only;
-    Phase 7 layers on deltas, activity_notes, and an LLM narrative section.
+    One row per (team, computed_at). The payload holds the inventory layer only. The last
+    few rows per team are kept for debugging.
 
     Profile is the *deterministic ground truth* about a project (computed from authoritative
     tables). Distinct from `SignalScratchpad`, which is the *agent's inferred learnings* (possibly
@@ -2934,16 +3522,14 @@ class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
         related_name="signal_project_profiles",
     )
     computed_at = models.DateTimeField(auto_now_add=True)
-    # Soft TTL — `get_project_profile` treats rows past expiry as cache misses and recomputes.
-    # Aligned to the coordinator tick (`PROFILE_TTL`) so an active team's agent runs see
-    # ground-truth that's at most one tick stale. Callers that know the underlying data
+    # Soft TTL (`PROFILE_TTL`) — `get_project_profile` treats rows past expiry as cache misses
+    # and recomputes for the scout. Read-only callers still get an expired row, marked stale. Callers that know the underlying data
     # just changed can punch through the cache via `get_project_profile(force_refresh=True)`.
     expires_at = models.DateTimeField()
     # Bumps when the inventory schema changes meaningfully so `get_project_profile` can
     # invalidate stale rows without a manual backfill.
     source_version = models.CharField(max_length=40)
-    # Structured payload: `{inventory: {...}}` in v1; `deltas`, `activity_notes`, `narrative`
-    # slots reserved for Phase 7. Stored as jsonb because the payload is written by one
+    # Structured payload: `{inventory: {...}}`. Stored as jsonb because the payload is written by one
     # builder, read whole, and never field-queried — relational columns would buy no query
     # benefit and a migration per section as coverage grows. Not schemaless, though:
     # `build_inventory` returns a validated `Inventory` model (see
@@ -3024,6 +3610,8 @@ class SignalScoutSuggestionSet(TeamScopedRootMixin, UUIDModel):
         FAILED = "failed", "Failed"
         # The last generation completed and found nothing worth suggesting.
         EMPTY = "empty", "Empty"
+        # The project was too quiet in the activity window to be worth a scan, so none ran.
+        LOW_ACTIVITY = "low_activity", "Low activity"
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
@@ -3058,3 +3646,63 @@ class SignalScoutSuggestionSet(TeamScopedRootMixin, UUIDModel):
         verbose_name = "Signal scout suggestion set"
         verbose_name_plural = "Signal scout suggestion sets"
         default_manager_name = "all_teams"
+
+
+class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
+    """The activity band of one project that can get a background scout, one row per team.
+
+    A nightly job (`scout_harness/background_bands.py`) writes the full set and deletes every row
+    for a project that is no longer eligible. The coordinator samples a percentage of each band
+    from the `background.bands` block of the `signals-scout` flag payload.
+    """
+
+    # See SignalScoutConfig.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # db_constraint=False: creating an FK constraint locks the hot posthog_team table and has
+    # blocked deploys (same as SignalScoutSuggestionSet); app-level enforcement only.
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="+",
+    )
+    band = models.PositiveSmallIntegerField()
+    computed_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "Signal scout background band"
+        verbose_name_plural = "Signal scout background bands"
+        default_manager_name = "all_teams"
+
+
+class SignalSpend(TeamScopedRootMixin, UUIDModel):
+    """One absolute cost observation per gateway request or task run."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    signal_id = models.UUIDField(null=True, blank=True)
+    scout_run = models.ForeignKey(SignalScoutRun, on_delete=models.CASCADE, null=True, blank=True)
+    task_id = models.UUIDField(null=True, blank=True, db_index=True)
+    source_id = models.CharField(max_length=255)
+    stage = models.CharField(max_length=100, default="unknown")
+    accounting_failed = models.BooleanField(default=False)
+    is_task = models.BooleanField(default=False)
+    token_cost_microusd = models.BigIntegerField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "source_id", "is_task"], name="signals_spend_source_unique"),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(signal_id__isnull=False, scout_run__isnull=True)
+                    | models.Q(signal_id__isnull=True, scout_run__isnull=False)
+                ),
+                name="signals_spend_one_owner",
+            ),
+            models.CheckConstraint(condition=models.Q(token_cost_microusd__gte=0), name="signals_spend_nonnegative"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
+        ]

@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { TileFilters } from '~/queries/schema/schema-general'
-import { AccessControlLevel, DashboardTile, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardTile, InsightColor, InsightShortId, InsightModel } from '~/types'
 
 import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
@@ -33,7 +33,7 @@ const defaultTile = {
             },
         ],
     } as TileFilters,
-} as DashboardTile<QueryBasedInsightModel>
+} as DashboardTile
 
 const examples = [
     EXAMPLE_TRENDS,
@@ -49,7 +49,7 @@ const examples = [
     EXAMPLE_LIFECYCLE,
     EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY,
     EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY,
-] as unknown as QueryBasedInsightModel[]
+] as unknown as InsightModel[]
 
 const meta: Meta<InsightCardProps> = {
     title: 'Components/Cards/Insight Card',
@@ -80,7 +80,7 @@ const meta: Meta<InsightCardProps> = {
         insight: {
             name: '',
             description: '',
-        } as unknown as QueryBasedInsightModel,
+        } as unknown as InsightModel,
     },
 }
 export default meta
@@ -101,7 +101,7 @@ export const InsightCard: Story = {
                                 ...EXAMPLE_TRENDS,
                                 name: args.insight.name,
                                 description: args.insight.description,
-                            } as unknown as QueryBasedInsightModel
+                            } as unknown as InsightModel
                         }
                         ribbonColor={insightColor}
                         loading={args.loading}
@@ -125,7 +125,7 @@ export const InsightCard: Story = {
                             description:
                                 'Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt.',
                             tags: ['every', 'green', 'bus', 'drives', 'fast', 'face'],
-                        } as unknown as QueryBasedInsightModel
+                        } as unknown as InsightModel
                     }
                     rename={() => {}}
                     duplicate={() => {}}
@@ -144,7 +144,7 @@ export const InsightCard: Story = {
                             name: '',
                             description: '',
                             last_modified_by: null,
-                        } as unknown as QueryBasedInsightModel
+                        } as unknown as InsightModel
                     }
                     rename={() => {}}
                     duplicate={() => {}}
@@ -169,7 +169,7 @@ export const InsightCard: Story = {
                                 },
                             },
                             name: 'What a pitiful funnel',
-                        } as unknown as QueryBasedInsightModel
+                        } as unknown as InsightModel
                     }
                     rename={() => {}}
                     duplicate={() => {}}
@@ -186,7 +186,7 @@ export const InsightCard: Story = {
                         {
                             ...EXAMPLE_FUNNEL,
                             name: 'What a plentiful funnel',
-                        } as unknown as QueryBasedInsightModel
+                        } as unknown as InsightModel
                     }
                     rename={() => {}}
                     duplicate={() => {}}
@@ -201,7 +201,7 @@ export const InsightCard: Story = {
                     <InsightCardComponent
                         tile={args.tile}
                         key={e.id}
-                        insight={e as unknown as QueryBasedInsightModel}
+                        insight={e as unknown as InsightModel}
                         rename={() => {}}
                         duplicate={() => {}}
                         placement="SavedInsightGrid"
@@ -245,6 +245,14 @@ export const ErrorStates: Story = {
                 }),
             },
             {
+                name: 'Table access denied',
+                error: new ApiError("You don't have access to table `events`.", 400, undefined, {
+                    detail: "You don't have access to table `events`.",
+                    code: 'table_access_denied',
+                    queryId: 'table-access-query-id',
+                }),
+            },
+            {
                 name: 'Temporary server failure',
                 error: new ApiError('The query service is temporarily unavailable.', 503, undefined, {
                     detail: 'The query service is temporarily unavailable.',
@@ -268,7 +276,7 @@ export const ErrorStates: Story = {
                     <InsightCardComponent
                         key={name}
                         tile={defaultTile}
-                        insight={{ ...EXAMPLE_TRENDS, name } as unknown as QueryBasedInsightModel}
+                        insight={{ ...EXAMPLE_TRENDS, name } as unknown as InsightModel}
                         apiErrored
                         apiError={error}
                         refresh={() => {}}
@@ -278,6 +286,41 @@ export const ErrorStates: Story = {
                         placement="SavedInsightGrid"
                     />
                 ))}
+                <InsightCardComponent
+                    tile={defaultTile}
+                    insight={{ ...EXAMPLE_TRENDS, name: 'Timed out' } as unknown as InsightModel}
+                    timedOut
+                    refresh={() => {}}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement="SavedInsightGrid"
+                />
+            </div>
+        )
+    },
+}
+
+export const CapacityCooldown: Story = {
+    parameters: {
+        mockDate: '2026-01-01T12:00:00Z',
+        testOptions: { viewportWidths: ['narrow', 'medium'] },
+    },
+    render: () => {
+        const [error] = useState(
+            () => new ApiError('', 503, new Headers({ 'Retry-After': '45' }), { queryId: 'capacity-example-query' })
+        )
+        return (
+            <div className="w-full max-w-160">
+                <InsightCardComponent
+                    tile={defaultTile}
+                    insight={{ ...EXAMPLE_TRENDS, name: 'Page views', result: null } as unknown as InsightModel}
+                    apiErrored
+                    apiError={error}
+                    refresh={() => {}}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement="SavedInsightGrid"
+                />
             </div>
         )
     },
@@ -296,7 +339,7 @@ export const AccessControlNoAccess: Story = {
                             name: 'Sales Analysis - Restricted',
                             description: 'This insight contains sensitive sales data.',
                             user_access_level: 'none',
-                        } as unknown as QueryBasedInsightModel
+                        } as unknown as InsightModel
                     }
                     rename={() => {}}
                     duplicate={() => {}}
@@ -321,7 +364,7 @@ export const AccessControlViewerAccess: Story = {
                             name: 'User Engagement Metrics - View Only',
                             description: 'You can view this insight but cannot edit it.',
                             user_access_level: AccessControlLevel.Viewer,
-                        } as unknown as QueryBasedInsightModel
+                        } as unknown as InsightModel
                     }
                     ribbonColor={insightColor}
                     updateColor={setInsightColor}
@@ -350,7 +393,7 @@ export const AccessControlEditorAccess: Story = {
                                 name: 'Product Analytics - Full Access',
                                 description: 'You can view, edit, and manage this insight.',
                                 user_access_level: AccessControlLevel.Editor,
-                            } as unknown as QueryBasedInsightModel
+                            } as unknown as InsightModel
                         }
                         ribbonColor={insightColor}
                         updateColor={setInsightColor}
@@ -381,7 +424,7 @@ export const AccessControlManagerAccess: Story = {
                                 name: 'Executive Dashboard - Manager Access',
                                 description: 'You have full management permissions for this insight.',
                                 user_access_level: AccessControlLevel.Manager,
-                            } as unknown as QueryBasedInsightModel
+                            } as unknown as InsightModel
                         }
                         ribbonColor={insightColor}
                         updateColor={setInsightColor}
@@ -413,7 +456,7 @@ export const AccessControlLegacyInsight: Story = {
                                 name: 'Legacy Insight - No Access Control',
                                 description: 'This insight was created before access control was implemented.',
                                 // user_access_level is intentionally undefined to test fallback behavior
-                            } as unknown as QueryBasedInsightModel
+                            } as unknown as InsightModel
                         }
                         ribbonColor={insightColor}
                         updateColor={setInsightColor}
@@ -443,7 +486,7 @@ export const AccessControlMixedPermissions: Story = {
                             ...EXAMPLE_TRENDS,
                             name: 'Restricted Data',
                             user_access_level: 'none',
-                        } as unknown as QueryBasedInsightModel
+                        } as unknown as InsightModel
                     }
                     rename={() => {}}
                     duplicate={() => {}}
@@ -458,7 +501,7 @@ export const AccessControlMixedPermissions: Story = {
                             ...EXAMPLE_FUNNEL,
                             name: 'View Only Funnel',
                             user_access_level: AccessControlLevel.Viewer,
-                        } as unknown as QueryBasedInsightModel
+                        } as unknown as InsightModel
                     }
                     ribbonColor={insightColor}
                     updateColor={setInsightColor}
@@ -475,7 +518,7 @@ export const AccessControlMixedPermissions: Story = {
                             ...EXAMPLE_RETENTION,
                             name: 'Editable Retention',
                             user_access_level: AccessControlLevel.Editor,
-                        } as unknown as QueryBasedInsightModel
+                        } as unknown as InsightModel
                     }
                     ribbonColor={insightColor}
                     updateColor={setInsightColor}
@@ -485,6 +528,61 @@ export const AccessControlMixedPermissions: Story = {
                     duplicate={() => {}}
                     placement="SavedInsightGrid"
                 />
+            </div>
+        )
+    },
+}
+
+export const WarehouseSyncWarning: Story = {
+    render: () => {
+        const insight = {
+            ...EXAMPLE_TRENDS,
+            name: 'Monthly revenue by plan',
+            warnings: [
+                {
+                    type: 'warehouse_sync',
+                    message:
+                        'Last sync of `invoices` (from Stripe) failed. Results reflect data from 5 days ago. Check the data warehouse source for details.',
+                    schema_name: 'invoices',
+                    source_id: 'source-1',
+                    source_type: 'Stripe',
+                    status: 'Failed',
+                    table_name: 'stripe_invoices',
+                },
+                {
+                    type: 'warehouse_sync',
+                    message:
+                        '`hubspot_deals` (from Hubspot) last synced 3 days ago, more than twice its configured sync interval. Results may be out of date.',
+                    schema_name: 'deals',
+                    source_id: 'source-2',
+                    source_type: 'Hubspot',
+                    status: 'Completed',
+                    table_name: 'hubspot_deals',
+                },
+            ],
+        } as unknown as InsightModel
+
+        return (
+            <div className="flex gap-4 min-w-[50rem]">
+                <div className="w-[32rem]">
+                    <InsightCardComponent
+                        tile={defaultTile}
+                        insight={insight}
+                        rename={() => {}}
+                        duplicate={() => {}}
+                        placement="SavedInsightGrid"
+                    />
+                </div>
+                {/* A narrow tile, so the tag has to share the title row with a truncated name. */}
+                <div className="w-[16rem]">
+                    <InsightCardComponent
+                        tile={defaultTile}
+                        insight={insight}
+                        rename={() => {}}
+                        duplicate={() => {}}
+                        placement="SavedInsightGrid"
+                    />
+                </div>
             </div>
         )
     },

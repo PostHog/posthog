@@ -9,8 +9,16 @@ import (
 )
 
 type Field struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
+	Name              string `json:"name"`
+	Type              string `json:"type"`
+	Relation          string `json:"relation,omitempty"`
+	PropertyNamespace string `json:"propertyNamespace,omitempty"`
+}
+
+type RelationDefinition struct {
+	Fields             map[string]Field  `json:"fields"`
+	Table              string            `json:"table,omitempty"`
+	PropertyNamespaces map[string]string `json:"propertyNamespaces,omitempty"`
 }
 
 type Table struct {
@@ -26,9 +34,10 @@ type Property struct {
 }
 
 type Catalog struct {
-	Tables       map[string]Table      `json:"tables"`
-	TableAliases map[string]string     `json:"tableAliases,omitempty"`
-	Properties   map[string][]Property `json:"properties"`
+	Tables       map[string]Table              `json:"tables"`
+	TableAliases map[string]string             `json:"tableAliases,omitempty"`
+	Properties   map[string][]Property         `json:"properties"`
+	Relations    map[string]RelationDefinition `json:"relations,omitempty"`
 }
 
 type Entry struct {
@@ -43,7 +52,23 @@ type Index struct {
 type PreparedTable struct {
 	Name   string
 	Type   string
-	Fields Index
+	Fields PreparedFields
+}
+
+type PreparedRelation struct {
+	Fields             *PreparedFields
+	propertyNamespaces map[string]string
+	ownedFields        bool
+}
+
+type FieldTraversal struct {
+	Relation          *PreparedRelation
+	PropertyNamespace string
+}
+
+type PreparedFields struct {
+	Index
+	traversals map[string]FieldTraversal
 }
 
 type PreparedCatalog struct {
@@ -52,6 +77,7 @@ type PreparedCatalog struct {
 	tablesByName   map[string]int
 	tableValues    []PreparedTable
 	properties     map[string]*Index
+	relations      map[string]*PreparedRelation
 	valid          bool
 	tableCount     int
 	propertyCount  int
@@ -83,12 +109,57 @@ func Prepare(value *Catalog) *PreparedCatalog {
 			fieldEntries = append(fieldEntries, newEntry(fieldName, intern(types, field.Type)))
 		}
 		tableType := intern(types, table.Type)
-		preparedTable := PreparedTable{Name: name, Type: tableType, Fields: newIndex(fieldEntries[fieldStart:])}
+		preparedTable := PreparedTable{Name: name, Type: tableType, Fields: PreparedFields{Index: newIndex(fieldEntries[fieldStart:])}}
 		prepared.tablesByName[name] = len(prepared.tableValues)
 		prepared.tableValues = append(prepared.tableValues, preparedTable)
 		tableEntries = append(tableEntries, newEntry(name, tableType))
 	}
 	prepared.tables = newIndex(tableEntries)
+	if len(value.Relations) > 0 {
+		prepared.relations = make(map[string]*PreparedRelation, len(value.Relations))
+	}
+	for name, relation := range value.Relations {
+		preparedRelation := &PreparedRelation{}
+		if relation.Fields != nil {
+			entries := make([]Entry, 0, len(relation.Fields))
+			for fieldName, field := range relation.Fields {
+				entries = append(entries, newEntry(fieldName, intern(types, field.Type)))
+			}
+			fields := PreparedFields{Index: newIndex(entries)}
+			preparedRelation.Fields = &fields
+			preparedRelation.ownedFields = true
+		} else if tableIndex, ok := prepared.tablesByName[relation.Table]; ok {
+			preparedRelation.Fields = &prepared.tableValues[tableIndex].Fields
+		}
+		if len(relation.PropertyNamespaces) > 0 {
+			preparedRelation.propertyNamespaces = make(map[string]string, len(relation.PropertyNamespaces))
+			for fieldName, namespace := range relation.PropertyNamespaces {
+				preparedRelation.propertyNamespaces[fieldName] = namespace
+			}
+		}
+		prepared.relations[name] = preparedRelation
+	}
+	prepareTraversals := func(fields map[string]Field, target *PreparedFields) {
+		for fieldName, field := range fields {
+			if field.Relation == "" && field.PropertyNamespace == "" {
+				continue
+			}
+			if target.traversals == nil {
+				target.traversals = make(map[string]FieldTraversal)
+			}
+			target.traversals[fieldName] = FieldTraversal{
+				Relation: prepared.relations[field.Relation], PropertyNamespace: field.PropertyNamespace,
+			}
+		}
+	}
+	for name, table := range value.Tables {
+		prepareTraversals(table.Fields, &prepared.tableValues[prepared.tablesByName[name]].Fields)
+	}
+	for name, relation := range value.Relations {
+		if relation.Fields != nil {
+			prepareTraversals(relation.Fields, prepared.relations[name].Fields)
+		}
+	}
 	prepared.tableSpellings = prepared.tables
 	if prepared.valid {
 		spellingEntries := slices.Clone(tableEntries)
@@ -115,6 +186,29 @@ func Prepare(value *Catalog) *PreparedCatalog {
 	}
 	prepared.estimatedBytes = prepared.estimateSize()
 	return prepared
+}
+
+func (f *PreparedFields) Traversal(name string) (FieldTraversal, bool) {
+	entry, ok := f.Exact(name)
+	if !ok || f.traversals == nil {
+		return FieldTraversal{}, false
+	}
+	traversal, ok := f.traversals[entry.Name]
+	return traversal, ok
+}
+
+func (r *PreparedRelation) Traversal(name string) (FieldTraversal, bool) {
+	if r == nil || r.Fields == nil {
+		return FieldTraversal{}, false
+	}
+	entry, ok := r.Fields.Exact(name)
+	if !ok {
+		return FieldTraversal{}, false
+	}
+	if namespace, ok := r.propertyNamespaces[entry.Name]; ok {
+		return FieldTraversal{PropertyNamespace: namespace}, true
+	}
+	return r.Fields.Traversal(entry.Name)
 }
 
 func (c *PreparedCatalog) Table(name string) (*PreparedTable, bool) {
@@ -296,6 +390,34 @@ func (c *PreparedCatalog) estimateSize() int64 {
 		size += int64(len(namespace) + 64)
 		for _, property := range properties.entries {
 			size += entrySize(property)
+		}
+	}
+	for name, relation := range c.relations {
+		size += int64(len(name) + 64)
+		if relation.ownedFields && relation.Fields != nil {
+			for _, field := range relation.Fields.entries {
+				size += entrySize(field)
+				if traversal, ok := relation.Fields.traversals[field.Name]; ok {
+					size += int64(len(traversal.PropertyNamespace) + 48)
+				}
+			}
+			if relation.Fields.traversals != nil {
+				size += 64
+			}
+		}
+		if relation.propertyNamespaces != nil {
+			size += 64
+			for fieldName, namespace := range relation.propertyNamespaces {
+				size += int64(len(fieldName) + len(namespace) + 48)
+			}
+		}
+	}
+	for _, table := range c.tableValues {
+		if table.Fields.traversals != nil {
+			size += 64
+		}
+		for _, traversal := range table.Fields.traversals {
+			size += int64(len(traversal.PropertyNamespace) + 48)
 		}
 	}
 	return size

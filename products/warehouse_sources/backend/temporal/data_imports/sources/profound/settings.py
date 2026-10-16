@@ -5,9 +5,10 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-# Profound splits into two shapes: the organization reference lists, and the v2 report endpoints.
-# A report is a POST whose body names one category, so reports fan out over the category list.
-EndpointKind = Literal["reference", "report"]
+# Profound splits into three shapes: the organization reference lists, the per-category reference
+# lists, and the v2 report endpoints. The last two take one category each, so they fan out over the
+# category list.
+EndpointKind = Literal["reference", "category_reference", "report"]
 
 
 @frozen
@@ -71,6 +72,22 @@ PROFOUND_ENDPOINTS: dict[str, ProfoundEndpointConfig] = {
         path="/v1/org/personas",
         kind="reference",
         data_key="data",
+    ),
+    # Per-category lists, keyed by `value` because these carry no id. `value` is unique only within a
+    # category, so the key needs `category_id` too.
+    "CitationCategories": ProfoundEndpointConfig(
+        name="CitationCategories",
+        path="/v1/org/categories/{category_id}/citation-categories",
+        kind="category_reference",
+        data_key="data",
+        primary_keys=["category_id", "value"],
+    ),
+    "CitationTags": ProfoundEndpointConfig(
+        name="CitationTags",
+        path="/v1/org/categories/{category_id}/citation-tags",
+        kind="category_reference",
+        data_key="data",
+        primary_keys=["category_id", "value"],
     ),
     # Reports, one row per category per day. `category_id` is injected from the fan-out because the
     # response echoes only what was grouped on.

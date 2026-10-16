@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconDrag, IconEllipsis } from '@posthog/icons'
+import { IconDrag, IconEllipsis, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { HogFunctionTemplateType } from '~/types'
 
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { destinationPickerFilter } from './destinationPickerFilter'
 // Side-effect imports: register product-specific trigger and action nodes
 import '../registry'
 
@@ -90,6 +91,25 @@ const RUN_SCOUT_ACTION_NODE: CreateActionType = {
         inputs: { non_failure_status_codes: { value: [409] } },
     },
     output_variable: { key: 'scout_run', result_path: null, label: 'Scout run' },
+}
+
+const CLASSIFY_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Classify with AI',
+    description: 'Ask an AI model to pick one category for the context. Branch on the result with a condition step.',
+    config: { template_id: 'template-posthog-classify', inputs: {} },
+    output_variable: [
+        { key: 'category', result_path: 'category', label: 'Category' },
+        { key: 'confidence', result_path: 'confidence', label: 'Confidence' },
+    ],
+}
+
+const REPLAY_VISION_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Replay Vision',
+    description: "Ask about, categorize, score or summarize the triggering event's session recording.",
+    config: { template_id: 'template-posthog-replay-vision', inputs: {} },
+    output_variable: { key: 'replay_vision', result_path: null, label: 'Replay Vision' },
 }
 
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
@@ -247,7 +267,13 @@ function HogFlowEditorToolbarNode({
     )
 }
 
-function HogFlowEditorToolbarSection({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
+function HogFlowEditorToolbarSection({
+    title,
+    children,
+}: {
+    title: React.ReactNode
+    children: React.ReactNode
+}): JSX.Element {
     return (
         <section className="flex flex-col border-t first:border-t-0">
             <div className="border-b px-3 py-2 text-xxs font-semibold uppercase tracking-wide text-secondary">
@@ -258,22 +284,7 @@ function HogFlowEditorToolbarSection({ title, children }: { title: string; child
     )
 }
 
-// For now we only want to show destinations that do not have secrets and not coming soon
-const customFilterFunction = (template: HogFunctionTemplateType): boolean => {
-    if (template.type !== 'destination' || TEMPLATE_IDS_AT_TOP_LEVEL.includes(template.id)) {
-        return false
-    }
-
-    if (template.type === 'destination' && template.inputs_schema?.some((input) => input.secret)) {
-        return false
-    }
-
-    if (['hidden', 'coming_soon'].includes(template.status)) {
-        return false
-    }
-
-    return true
-}
+const customFilterFunction = destinationPickerFilter(TEMPLATE_IDS_AT_TOP_LEVEL)
 
 function HogFunctionTemplatesChooser({
     onActionSelect,
@@ -368,6 +379,10 @@ export function HogFlowEditorPanelBuild({
     const hideIfRowScoped = (nodes: CreateActionType[]): CreateActionType[] =>
         isRowScopedTrigger ? nodes.filter((node) => !PERSON_DEPENDENT_ACTION_TYPES.has(node.type)) : nodes
 
+    // Scouts and Replay Vision belong to the project's main environment, and the server refuses their steps
+    // elsewhere. currentTeam is required: while it loads, both sides of the comparison are undefined.
+    const isMainEnvironment = !!currentTeam && currentTeam.id === currentTeam.project_id
+
     const delayNodes = hideIfRowScoped(DELAY_NODES_TO_SHOW)
     const logicNodes = hideIfRowScoped(LOGIC_NODES_TO_SHOW)
 
@@ -389,44 +404,56 @@ export function HogFlowEditorPanelBuild({
                         key="push-notifications"
                         action={PUSH_NOTIFICATION_ACTION_NODE}
                         onActionSelect={onActionSelect}
-                    >
-                        <span className="inline-flex items-center gap-1.5">
-                            {PUSH_NOTIFICATION_ACTION_NODE.name}
-                            <LemonTag type="completion">Beta</LemonTag>
-                        </span>
-                    </HogFlowEditorToolbarNode>
+                    />
                 )}
-                {featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] && (
-                    <HogFlowEditorToolbarNode
-                        key="ai-task"
-                        action={AI_TASK_ACTION_NODE}
-                        onActionSelect={onActionSelect}
-                    >
-                        <span className="inline-flex items-center gap-1.5">
-                            {AI_TASK_ACTION_NODE.name}
-                            <LemonTag type="completion">Beta</LemonTag>
+                <HogFunctionTemplatesChooser onActionSelect={onActionSelect} />
+            </HogFlowEditorToolbarSection>
+
+            {(featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] ||
+                featureFlags[FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION] ||
+                isMainEnvironment) && (
+                <HogFlowEditorToolbarSection
+                    title={
+                        <span className="inline-flex items-center gap-1">
+                            AI <IconSparkles />
                         </span>
-                    </HogFlowEditorToolbarNode>
-                )}
-                {/* Scouts belong to the project's main environment, and the server refuses the step elsewhere.
-                Require currentTeam explicitly: while it's still loading, both sides of the id comparison are
-                undefined, which would otherwise pass. */}
-                {featureFlags[FEATURE_FLAGS.WORKFLOW_RUN_SCOUT_ACTION] &&
-                    !!currentTeam &&
-                    currentTeam.id === currentTeam.project_id && (
+                    }
+                >
+                    {featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] && (
                         <HogFlowEditorToolbarNode
-                            key="run-scout"
-                            action={RUN_SCOUT_ACTION_NODE}
+                            key="ai-task"
+                            action={AI_TASK_ACTION_NODE}
                             onActionSelect={onActionSelect}
                         >
                             <span className="inline-flex items-center gap-1.5">
-                                {RUN_SCOUT_ACTION_NODE.name}
+                                {AI_TASK_ACTION_NODE.name}
                                 <LemonTag type="completion">Beta</LemonTag>
                             </span>
                         </HogFlowEditorToolbarNode>
                     )}
-                <HogFunctionTemplatesChooser onActionSelect={onActionSelect} />
-            </HogFlowEditorToolbarSection>
+                    {isMainEnvironment && (
+                        <HogFlowEditorToolbarNode
+                            key="run-scout"
+                            action={RUN_SCOUT_ACTION_NODE}
+                            onActionSelect={onActionSelect}
+                        />
+                    )}
+                    {featureFlags[FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION] && (
+                        <HogFlowEditorToolbarNode
+                            key="classify"
+                            action={CLASSIFY_ACTION_NODE}
+                            onActionSelect={onActionSelect}
+                        />
+                    )}
+                    {isMainEnvironment && (
+                        <HogFlowEditorToolbarNode
+                            key="replay-vision"
+                            action={REPLAY_VISION_ACTION_NODE}
+                            onActionSelect={onActionSelect}
+                        />
+                    )}
+                </HogFlowEditorToolbarSection>
+            )}
 
             <HogFlowEditorToolbarSection title="Delays">
                 {delayNodes.map((action, index) => (

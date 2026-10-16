@@ -1,33 +1,20 @@
 import re
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
-    SourceFieldOauthAccountSelectConfig,
-    SourceFieldOauthConfig,
-    SourceFieldSelectConfig,
     SourceFieldSSHTunnelConfig,
-    SourceFieldSwitchGroupConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-_SourceField = (
-    SourceFieldInputConfig
-    | SourceFieldSwitchGroupConfig
-    | SourceFieldSelectConfig
-    | SourceFieldOauthConfig
-    | SourceFieldOauthAccountSelectConfig
-    | SourceFieldFileUploadConfig
-    | SourceFieldSSHTunnelConfig
-)
 
 # planetscale.com is the dashboard, never a database endpoint — Postgres hosts live on
 # psdb.cloud. Pasting the dashboard address otherwise fails as an opaque connection timeout.
@@ -89,6 +76,8 @@ class PlanetScalePostgresSource(PostgresSource):
     see `planetscale_mysql`.
     """
 
+    codebase_detection = NOT_DETECTABLE
+
     api_docs_url = "https://planetscale.com/docs/postgres"
 
     def __init__(self):
@@ -99,7 +88,7 @@ class PlanetScalePostgresSource(PostgresSource):
         return ExternalDataSourceType.PLANETSCALEPOSTGRES
 
     @staticmethod
-    def _adjust_field(field: _SourceField) -> _SourceField:
+    def _adjust_field(field: FieldType) -> FieldType:
         if not isinstance(field, SourceFieldInputConfig):
             return field
         if field.name == "connection_string":

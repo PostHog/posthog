@@ -53,6 +53,7 @@ class EmailChannel(UUIDModel):
     domain = models.CharField(max_length=255)
     domain_verified = models.BooleanField(default=False)
     dns_records = models.JSONField(default=dict, blank=True)
+    trusted_relay_sender = models.EmailField(blank=True, default="", db_default="")
 
     # Only support channels can be the fallback sender for tickets without an explicit channel.
     is_default = models.BooleanField(default=False)

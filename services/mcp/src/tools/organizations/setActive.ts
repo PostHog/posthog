@@ -1,8 +1,9 @@
 import type { z } from 'zod'
 
+import { PinnedContextSwitchError } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { OrganizationSetActiveSchema } from '@/schema/tool-inputs'
-import type { CachedOrg, CachedProject, CachedUser, Context, ToolBase } from '@/tools/types'
+import type { CachedOrg, CachedProject, Context, ToolBase } from '@/tools/types'
 
 const schema = OrganizationSetActiveSchema
 
@@ -15,7 +16,16 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     params: Params
 ) => {
     const { orgId } = params
-    await context.cache.set('orgId', orgId)
+    // Without a session, the next request applies the pin again: a pinned project
+    // brings back its own org. Refuse rather than report a switch that reverts.
+    const pinned = context.stateManager.pinnedContext
+    if (pinned && !pinned.sessionScoped) {
+        const pinnedOrgId = pinned.pin.organizationId ?? (await context.stateManager.getOrgID().catch(() => undefined))
+        if (pinnedOrgId !== orgId) {
+            throw new PinnedContextSwitchError(pinned.pin)
+        }
+    }
+    await context.stateManager.setActiveContext({ orgId })
     // Record the switch on the MCP session so a pinned connection's resent pin
     // doesn't revert it on the next request.
     await context.setSessionActiveContext?.({ orgId })
@@ -29,16 +39,14 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
         await context.cache.set(`cachedOrgFetchedAt:${orgId}` as const, Date.now())
     }
 
-    // Read cached user and project for full metadata block
-    const distinctId = (await context.cache.get('distinctId')) ?? 'unknown'
-    const projectId = (await context.cache.get('projectId')) ?? 'unknown'
-    const user = (await context.cache.get(`cachedUser:${distinctId}` as const)) as CachedUser | undefined
+    // Read cached project for full metadata block
+    const projectId = pinned?.projectId ?? (await context.cache.get('projectId')) ?? 'unknown'
     const project = (await context.cache.get(`cachedProject:${projectId}` as const)) as CachedProject | undefined
 
     const integrationKinds = project
         ? await context.stateManager.getOrFetchIntegrationKinds(String(project.id)).catch(() => undefined)
         : undefined
-    const metadata = buildActiveEnvironmentContextPrompt(user, org, project, context.api.publicBaseUrl, {
+    const metadata = buildActiveEnvironmentContextPrompt(org, project, context.api.publicBaseUrl, {
         integrationKinds,
     })
     const text = metadata

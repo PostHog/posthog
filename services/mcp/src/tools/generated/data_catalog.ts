@@ -753,6 +753,7 @@ const metricList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
             },
         })
         const filtered = {

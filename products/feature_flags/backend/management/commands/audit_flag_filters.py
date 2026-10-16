@@ -33,6 +33,7 @@ from products.feature_flags.backend.api.filters_schema import (
     UNKNOWN_KEYS_SINK_CONTEXT_KEY,
     is_legacy_unknown_key,
 )
+from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.filters_validation import Violation, collect_filters_violations
 from products.feature_flags.backend.flags_cache import _is_unevaluable
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -333,6 +334,7 @@ class Command(BaseCommand):
         divergences = RoundTripDivergenceAggregator(max_samples=samples)
         rule_reports: dict[str, RuleReport] = {}
         scanned = 0
+        skipped_unsupported = 0
         flags_with_violations = 0
 
         # objects_including_soft_deleted: the default manager excludes soft-deleted flags, and
@@ -348,6 +350,9 @@ class Command(BaseCommand):
         # stored flags with empty groups are valid state and must never show up in this report.
         for flag in _iter_flag_rows(queryset, limit=limit):
             scanned += 1
+            if isinstance(flag.filters, dict) and detect_config_format(flag.filters).kind != "v1":
+                skipped_unsupported += 1
+                continue
             try:
                 violations = collect_filters_violations(
                     flag.filters, context={UNKNOWN_KEYS_SINK_CONTEXT_KEY: sink, FLAG_ID_CONTEXT_KEY: flag.id}
@@ -389,13 +394,14 @@ class Command(BaseCommand):
 
         reports = sorted(rule_reports.values(), key=lambda r: (-r.flags_affected, r.rule_id))
         if options["json"]:
-            self._emit_json(scanned, flags_with_violations, reports, sink, divergences)
+            self._emit_json(scanned, skipped_unsupported, flags_with_violations, reports, sink, divergences)
         else:
-            self._emit_console(scanned, flags_with_violations, reports, sink, divergences)
+            self._emit_console(scanned, skipped_unsupported, flags_with_violations, reports, sink, divergences)
 
     def _emit_json(
         self,
         scanned: int,
+        skipped_unsupported: int,
         flags_with_violations: int,
         reports: list[RuleReport],
         sink: UnknownKeyAggregator,
@@ -403,6 +409,7 @@ class Command(BaseCommand):
     ) -> None:
         payload = {
             "scanned": scanned,
+            "skipped_unsupported_config_format": skipped_unsupported,
             "flags_with_violations": flags_with_violations,
             "clean": flags_with_violations == 0,
             # Enumerate fields explicitly: report.__dict__ would leak any future internal
@@ -447,14 +454,16 @@ class Command(BaseCommand):
     def _emit_console(
         self,
         scanned: int,
+        skipped_unsupported: int,
         flags_with_violations: int,
         reports: list[RuleReport],
         sink: UnknownKeyAggregator,
         divergences: RoundTripDivergenceAggregator,
     ) -> None:
-        clean = scanned - flags_with_violations
+        clean = scanned - skipped_unsupported - flags_with_violations
         self.stdout.write(
-            f"Scanned {scanned} flags (soft-deleted included); {clean} clean, {flags_with_violations} with violations."
+            f"Scanned {scanned} flags (soft-deleted included); {clean} clean, {flags_with_violations} with violations, "
+            f"{skipped_unsupported} skipped (config format not 1)."
         )
 
         if reports:

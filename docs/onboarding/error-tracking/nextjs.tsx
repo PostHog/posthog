@@ -173,7 +173,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
         content: (
             <Markdown>
                 {dedent`
-                    Check that exception events appear in the [activity feed](https://app.posthog.com/activity/explore).
+                    Check that exception events appear in the [activity feed](https://app.posthog.com/activity/events).
                 `}
             </Markdown>
         ),
@@ -268,7 +268,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 {dedent`
                     You should also see events and exceptions in PostHog coming from your server-side code in the activity feed.
 
-                    [Check for server events in PostHog](https://app.posthog.com/activity/explore)
+                    [Check for server events in PostHog](https://app.posthog.com/activity/events)
                 `}
             </Markdown>
         ),

@@ -9,13 +9,14 @@ boot.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 import functools
 import subprocess
 import configparser
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from hogli.hooks import register_telemetry_properties
 from hogli.manifest import REPO_ROOT
@@ -35,13 +36,23 @@ _DEVBOX_ENV_MARKERS = ("CODER", "CODER_WORKSPACE_NAME")
 
 # Ambient markers set by agent harnesses in the shells they spawn. Ordered
 # most-specific first: posthog-code drives claude/codex under the hood, so its
-# marker must win over theirs. Harnesses without an ambient marker (e.g.
-# non-sandboxed codex) can self-declare via HOGLI_AGENT instead.
+# marker must win over theirs. Harnesses without an ambient marker can
+# self-declare via HOGLI_AGENT instead.
 _AGENT_ENV_MARKERS = (
     ("POSTHOG_CODE_VERSION", "posthog-code"),
     ("CLAUDECODE", "claude-code"),
     ("CODEX_SANDBOX", "codex"),
+    ("CODEX_THREAD_ID", "codex"),
+    ("CODEX_CI", "codex"),
+    ("CURSOR_AGENT", "cursor"),
+    ("GEMINI_CLI", "gemini-cli"),
+    ("OPENCODE", "opencode"),
 )
+
+# Cross-tool convention for a harness to name itself, see https://huggingface.co/api/agent-harnesses
+_STANDARD_AGENT_ENV_VARS = ("AI_AGENT", "AGENT")
+
+_ACTOR_ENV_VAR = "HOGLI_ACTOR"
 
 
 def _declared(var: str) -> str:
@@ -72,14 +83,34 @@ def _detect_environment() -> str:
 
 
 def _detect_agent() -> str | None:
-    """Name of the agent harness driving this invocation, or None for a human."""
+    """Name of the agent harness driving this invocation, or None when no harness declares itself."""
     declared = _declared("HOGLI_AGENT")
     if declared:
         return declared
     for var, agent in _AGENT_ENV_MARKERS:
         if os.environ.get(var):
             return agent
+    for var in _STANDARD_AGENT_ENV_VARS:
+        declared = _declared(var)
+        if declared:
+            # A version suffix (`name@1.2`, `name_1-2_agent`) would give each release its own value.
+            name = re.split(r"[@_]\d", declared, maxsplit=1)[0]
+            # `AGENT=1` is a bare flag, not a name.
+            return "unknown" if name in {"", "1", "true"} else name
     return None
+
+
+def _detect_actor(agent: str | None) -> Literal["agent", "human", "unknown"]:
+    """Who drives this invocation. Human needs a terminal, so no agent and no terminal is unknown."""
+    if agent is not None:
+        return "agent"
+    # A nested hogli command has captured streams, so it inherits the outermost verdict.
+    if _declared(_ACTOR_ENV_VAR) == "human":
+        return "human"
+    # git pipes the pushed refs into a pre-push hook's stdin, so stdin alone misses a person's push.
+    if any(os.isatty(fd) for fd in (0, 1, 2)):
+        return "human"
+    return "unknown"
 
 
 @functools.cache
@@ -195,8 +226,10 @@ def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
     # swamps human usage stats.
     agent = _detect_agent()
     return {
+        "actor": _detect_actor(agent),
         "agent": agent,
         "environment": _detect_environment(),
+        "git_hook": _declared("HOGLI_GIT_HOOK") or None,
         "has_devenv_config": (REPO_ROOT / ".posthog" / ".generated" / "mprocs.yaml").exists(),
         "in_flox": os.environ.get("FLOX_ENV") is not None,
         "is_agent": agent is not None,
@@ -209,3 +242,7 @@ def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
 
 
 register_telemetry_properties(_posthog_telemetry_properties)
+
+# Set at import, because an environment write is unsafe once the telemetry send thread runs.
+if _detect_actor(_detect_agent()) == "human":
+    os.environ[_ACTOR_ENV_VAR] = "human"

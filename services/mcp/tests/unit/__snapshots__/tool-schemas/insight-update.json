@@ -48,6 +48,37 @@
         "query": {
             "anyOf": [
                 {
+                    "additionalProperties": {},
+                    "properties": {
+                        "kind": {
+                            "const": "DataTableNode",
+                            "default": "DataTableNode",
+                            "type": "string"
+                        },
+                        "source": {
+                            "additionalProperties": {},
+                            "properties": {
+                                "kind": {
+                                    "const": "EventsQuery",
+                                    "default": "EventsQuery",
+                                    "type": "string"
+                                },
+                                "select": {
+                                    "description": "Event columns as HogQL expressions.",
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["select"],
+                            "type": "object"
+                        }
+                    },
+                    "required": ["source"],
+                    "type": "object"
+                },
+                {
                     "properties": {
                         "kind": {
                             "const": "InsightVizNode",
@@ -59,6 +90,21 @@
                             "description": "Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery",
                             "propertyNames": {
                                 "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        "vizSpecificOptions": {
+                            "description": "Chart rendering options.",
+                            "properties": {
+                                "ActionsPie": {
+                                    "properties": {
+                                        "hideAggregation": {
+                                            "description": "Hide the total on a pie chart.",
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
                             },
                             "type": "object"
                         }
@@ -180,6 +226,44 @@
                                     },
                                     "type": "object"
                                 },
+                                "legendPosition": {
+                                    "description": "Where the legend sits. Defaults to right for pie and donut, top for other charts.",
+                                    "enum": ["top", "bottom", "left", "right"],
+                                    "type": "string"
+                                },
+                                "metric": {
+                                    "description": "Settings for `Metric`. `summary` defaults to `latest`.",
+                                    "properties": {
+                                        "showChange": {
+                                            "type": "boolean"
+                                        },
+                                        "summary": {
+                                            "enum": ["total", "average", "latest"],
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                },
+                                "pie": {
+                                    "description": "Settings for `ActionsPie` and `ActionsDonut`.",
+                                    "properties": {
+                                        "showTotal": {
+                                            "description": "Whether to show the aggregation total. Defaults to on only when slices show values.",
+                                            "type": "boolean"
+                                        },
+                                        "sliceContent": {
+                                            "description": "What to render on each slice. Defaults to values.",
+                                            "enum": ["labels", "values", "none"],
+                                            "type": "string"
+                                        },
+                                        "valueDisplay": {
+                                            "description": "Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`.",
+                                            "enum": ["absolute", "percentage"],
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                },
                                 "rightYAxisSettings": {
                                     "description": "Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: \"right\"`.",
                                     "properties": {
@@ -256,7 +340,7 @@
                                                             "type": "string"
                                                         },
                                                         "displayType": {
-                                                            "description": "Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.",
+                                                            "description": "Chart type. `auto` uses `display`.",
                                                             "enum": ["auto", "line", "bar", "area"],
                                                             "type": "string"
                                                         },
@@ -329,7 +413,7 @@
                                                                 "type": "string"
                                                             },
                                                             "displayType": {
-                                                                "description": "Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.",
+                                                                "description": "Chart type. `auto` uses `display`.",
                                                                 "enum": ["auto", "line", "bar", "area"],
                                                                 "type": "string"
                                                             },
@@ -385,13 +469,17 @@
                             "type": "object"
                         },
                         "display": {
-                            "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`.",
+                            "description": "Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` = KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie` / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` / `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two measures; `BoxPlot` = distribution summaries with `chartSettings.boxPlot`.",
                             "enum": [
                                 "ActionsTable",
                                 "BoldNumber",
+                                "Metric",
                                 "ActionsLineGraph",
                                 "ActionsBar",
+                                "ActionsBarValue",
                                 "ActionsPie",
+                                "ActionsDonut",
+                                "ActionsProportionBar",
                                 "ActionsStackedBar",
                                 "ActionsAreaGraph",
                                 "TwoDimensionalHeatmap",
@@ -435,7 +523,7 @@
                                                                 "type": "string"
                                                             },
                                                             "displayType": {
-                                                                "description": "Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.",
+                                                                "description": "Chart type. `auto` uses `display`.",
                                                                 "enum": ["auto", "line", "bar", "area"],
                                                                 "type": "string"
                                                             },
@@ -540,6 +628,25 @@
                         }
                     },
                     "required": ["query"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": {},
+                    "properties": {
+                        "kind": {
+                            "const": "EventsQuery",
+                            "default": "EventsQuery",
+                            "type": "string"
+                        },
+                        "select": {
+                            "description": "Event columns as HogQL expressions.",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["select"],
                     "type": "object"
                 }
             ]

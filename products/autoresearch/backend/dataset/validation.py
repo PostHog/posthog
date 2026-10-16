@@ -12,16 +12,26 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import (
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.autoresearch.backend.dataset.labeling import (
     IDENTIFIED_USERS_ONLY,
     LABELER_QUERY_MODIFIERS,
-    MATERIALIZE_ROW_LIMIT,
+    ROLLING_SCORE_LIMIT,
+    TrainingSample,
+    TrainingSampleTooLarge,
     build_eligible_count_sql,
     build_inference_anchors_sql,
     build_random_t0_labeler_sql,
+    rolling_rescore_runs,
+    rolling_score_limit,
 )
 from products.autoresearch.backend.query import run_hogql_rows
 
@@ -67,12 +77,24 @@ class ValidationWarningCode(StrEnum):
 
 
 _GENERIC_ERROR = "Validation could not run. Try again, and contact support if it keeps failing."
+_TOO_EXPENSIVE_ERROR = (
+    "Validation ran out of time or memory on this project's data. "
+    "Narrow the population, for example to people who performed a specific event, or shorten the training lookback."
+)
+_TOO_EXPENSIVE_ERRORS = (
+    ClickHouseQueryTimeOut,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+)
 
 
 def _exposed_error(exc: Exception) -> str:
     # Exposed errors describe the caller's own definition, so anything else is our infrastructure and stays in the log.
     if isinstance(exc, ExposedHogQLError | ExposedCHQueryError):
         return str(exc)
+    # A definition that reads too much data is one the caller can narrow. Cluster memory pressure is transient.
+    if isinstance(exc, _TOO_EXPENSIVE_ERRORS) and not isinstance(exc, ClickHouseClusterMemoryLimitExceeded):
+        return _TOO_EXPENSIVE_ERROR
     return _GENERIC_ERROR
 
 
@@ -359,15 +381,41 @@ def _build_warnings(
             )
         )
 
-    largest = max(total_users, inference_size)
-    if largest >= MATERIALIZE_ROW_LIMIT:
+    training_size = _training_size_warning(total_users=total_users, positives=positives)
+    if training_size is not None:
+        warnings.append(training_size)
+
+    # Scoring above the cap rolls through the population, so a large one is advice, not a refusal.
+    if rolling_score_limit(inference_size) is not None:
+        rescore_runs = rolling_rescore_runs(eligible=inference_size, scored=ROLLING_SCORE_LIMIT)
         warnings.append(
             ValidationWarning(
                 code=ValidationWarningCode.POPULATION_TOO_LARGE,
-                message=f"This population has {largest} users. One run trains or scores at most "
-                f"{MATERIALIZE_ROW_LIMIT} users. Narrow the population.",
-                severity="error",
+                message=f"The scoring population has {inference_size} users. Each run scores "
+                f"{ROLLING_SCORE_LIMIT} of them, starting with users never scored, then users whose last "
+                f"score is oldest. Everyone is rescored about every {rescore_runs} scoring runs.",
+                severity="info",
             )
         )
 
     return warnings
+
+
+def _training_size_warning(*, total_users: int, positives: int) -> ValidationWarning | None:
+    """
+    Training samples a population above its budget, so a large population is advice, not a
+    refusal. Only positives that alone exceed the budget stop a run, because every positive is kept.
+    """
+    try:
+        sample = TrainingSample.plan(population=total_users, positives=min(positives, total_users))
+    except TrainingSampleTooLarge as exc:
+        return ValidationWarning(code=ValidationWarningCode.POPULATION_TOO_LARGE, message=str(exc), severity="error")
+    if sample.negative_sample_rate == 1.0:
+        return None
+    return ValidationWarning(
+        code=ValidationWarningCode.POPULATION_TOO_LARGE,
+        message=f"This population has {total_users} users, so training uses a sample of about "
+        f"{sample.expected_size}. The sample keeps every user who performed the target and "
+        f"{sample.negative_sample_rate:.1%} of the others. Predictions are corrected for the sample.",
+        severity="info",
+    )

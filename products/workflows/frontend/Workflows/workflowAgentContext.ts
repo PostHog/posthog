@@ -1,8 +1,8 @@
 import { redactSecretHogFunctionInputs } from 'scenes/hog-functions/hog-function-utils'
+import type { AiFirstSuggestion } from 'scenes/max/aiFirstCreate/AiFirstCreateScene'
 
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTemplateType } from '~/types'
 
-import type { ComposerOverride } from 'products/posthog_ai/frontend/api/logics'
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { isEmailAction, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
@@ -66,22 +66,8 @@ export const EMAIL_EDITOR_AGENT_HEADLINES: string[] = ['How should this email lo
 
 export const NEW_WORKFLOW_AGENT_HEADLINES: string[] = ['What workflow would you like to build today?']
 
-export const NEW_WORKFLOW_COMPOSER_OVERRIDE: ComposerOverride = {
-    hideRepositorySelector: true,
-    hideSuggestions: true,
-    hideRecentTasks: true,
-    // Not a takeover host, and the side panel is closed here, so nothing would receive the replay click.
-    hideOnboardingReplay: true,
-}
-
-export interface NewWorkflowSuggestion {
-    title: string
-    description: string
-    prompt: string
-}
-
-// The first is the data-driven ask; the rest follow the templates users pick most often.
-export const NEW_WORKFLOW_SUGGESTIONS: NewWorkflowSuggestion[] = [
+// The first is the data-driven ask. The rest mirror the global templates: common flows, marketing, then AI.
+export const NEW_WORKFLOW_SUGGESTIONS: AiFirstSuggestion[] = [
     {
         title: 'Improve my conversion',
         description: 'Look at the funnel and draft a campaign for the biggest drop-off',
@@ -98,9 +84,9 @@ export const NEW_WORKFLOW_SUGGESTIONS: NewWorkflowSuggestion[] = [
         prompt: 'Notify the team in Slack when a new support ticket comes in',
     },
     {
-        title: 'Finish onboarding',
-        description: 'Nudge people who started but never completed it',
-        prompt: 'Remind users who started onboarding but never finished it',
+        title: 'Recover abandoned checkouts',
+        description: 'Email people who start checkout but never finish',
+        prompt: 'Email people who start checkout but do not complete a purchase, and stop once they buy',
     },
     {
         title: 'Win back inactive users',
@@ -108,19 +94,19 @@ export const NEW_WORKFLOW_SUGGESTIONS: NewWorkflowSuggestion[] = [
         prompt: 'Re-engage users who have been inactive for 30 days',
     },
     {
-        title: 'Webhook on upgrade',
-        description: 'Call my endpoint when a customer upgrades',
-        prompt: 'Send a webhook when a user upgrades their plan',
+        title: 'Answer support tickets with AI',
+        description: 'Triage each new ticket and draft a reply in Slack',
+        prompt: 'When a support ticket comes in, have an AI agent look at the customer in PostHog, set a priority, draft a reply, and post it to Slack',
+    },
+    {
+        title: 'Send a weekly AI report',
+        description: 'Summarize my key metrics in Slack every week',
+        prompt: 'Every Monday morning, have an AI agent summarize my key metrics and errors from the past week and post the report to Slack',
     },
     {
         title: 'Triage alerts from Slack',
         description: 'Investigate each new alert and reply with findings in the thread',
         prompt: 'When an alert is posted in my Slack alerts channel, start an AI investigation and reply with the findings in the thread',
-    },
-    {
-        title: 'Celebrate a milestone',
-        description: 'Congratulate people when they hit one, and point at the next',
-        prompt: 'Send a congratulations email when a user reaches a milestone and point them at the next one',
     },
 ]
 

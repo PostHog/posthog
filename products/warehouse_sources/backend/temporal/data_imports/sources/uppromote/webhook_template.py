@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 # UpPromote signs webhooks with HMAC-SHA256 over the raw request body using the subscription's
 # secret key, sent as X-UpPromote-Signature (hex digest, no timestamp). The payload is the bare
@@ -30,9 +30,10 @@ if (not inputs.bypass_signature_check) {
   if (empty(inputs.signing_secret)) {
     return {
       'httpResponse': {
-        'status': 400,
-        'body': 'Signing secret not configured',
-      }
+        'status': 200,
+        'body': 'Signing secret not configured, delivery dropped',
+      },
+      'appMetric': 'missing_credential'
     }
   }
 

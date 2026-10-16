@@ -458,7 +458,9 @@ describe("SessionService.connectToTask start failure", () => {
           start: {
             mutate: vi
               .fn()
-              .mockRejectedValue(new Error("session start timeout")),
+              .mockRejectedValue(
+                new Error("Session initialization timed out after 30000ms"),
+              ),
           },
           onSessionEvent: { subscribe: () => ({ unsubscribe: vi.fn() }) },
           onSessionIdleKilled: {
@@ -489,6 +491,8 @@ describe("SessionService.connectToTask start failure", () => {
     expect(track).toHaveBeenCalledWith(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
       task_id: "task-1",
       error_type: "connect_failed",
+      failure_reason: "startup_timeout",
+      startup_step: "initialization",
     });
   });
 });

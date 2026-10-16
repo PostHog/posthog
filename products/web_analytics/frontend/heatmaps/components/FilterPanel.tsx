@@ -16,12 +16,17 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { percentage } from 'lib/utils/numbers'
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { AnyPropertyFilter, CohortPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { HEATMAP_PRESET_WIDTHS } from './heatmapCoverage'
+import { heatmapCoverageLogic } from './heatmapCoverageLogic'
+import { HeatmapEmptyState } from './HeatmapEmptyState'
 
 const cohortIdsToPropertyFilters = (ids: number[]): AnyPropertyFilter[] =>
     ids.map((id) => ({
@@ -39,38 +44,20 @@ const propertyFiltersToCohortIds = (filters: AnyPropertyFilter[]): number[] =>
 
 export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.Element {
     const { widthOverride } = useValues(heatmapDataLogic({ context: 'in-app' }))
+    const { widthShares } = useValues(heatmapCoverageLogic)
     const { setWindowWidthOverride } = useActions(heatmapDataLogic({ context: 'in-app' }))
 
-    const options = [
-        {
-            value: 320,
-            icon: <IconPhone />,
-        },
-        {
-            value: 375,
-            icon: <IconPhone />,
-        },
-        {
-            value: 425,
-            icon: <IconPhone />,
-        },
-        {
-            value: 768,
-            icon: <IconTabletPortrait />,
-        },
-        {
-            value: 1024,
-            icon: <IconTabletLandscape />,
-        },
-        {
-            value: 1440,
-            icon: <IconLaptop />,
-        },
-        {
-            value: 1920,
-            icon: <IconLaptop />,
-        },
-    ]
+    const iconForWidth = (width: number): JSX.Element =>
+        width < 768 ? (
+            <IconPhone />
+        ) : width < 1024 ? (
+            <IconTabletPortrait />
+        ) : width < 1440 ? (
+            <IconTabletLandscape />
+        ) : (
+            <IconLaptop />
+        )
+    const options = HEATMAP_PRESET_WIDTHS.map((value) => ({ value, icon: iconForWidth(value) }))
 
     const allOptions = lockedWidth ? [{ value: lockedWidth, icon: <IconLaptop /> }] : [...options]
     if (!lockedWidth && widthOverride && !options.some((option) => option.value === widthOverride)) {
@@ -87,7 +74,7 @@ export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.
                 size="small"
                 onChange={setWindowWidthOverride}
                 value={lockedWidth ?? widthOverride}
-                disabledReason={lockedWidth ? 'Toolbar captures are saved at a single width' : undefined}
+                disabledReason={lockedWidth ? 'This capture is saved at a fixed viewport width' : undefined}
                 data-attr="viewport-chooser"
                 options={allOptions.map(({ value, icon }) => ({
                     value,
@@ -95,6 +82,9 @@ export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.
                         <div className="flex items-center gap-1">
                             {icon}
                             <div className="text-xs">{value} px</div>
+                            {widthShares?.[value] !== undefined ? (
+                                <div className="text-xs text-muted">{percentage(widthShares[value], 0)}</div>
+                            ) : null}
                         </div>
                     ),
                 }))}
@@ -111,10 +101,12 @@ export function FilterPanel({
     clickmapSettings,
     lockedWidth,
     previewUnavailable = false,
+    dateControl,
 }: {
     previewUnavailable?: boolean
     clickmapSettings?: JSX.Element
     lockedWidth?: number
+    dateControl?: JSX.Element
 }): JSX.Element {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
     const [isEventFilterOpen, setIsEventFilterOpen] = useState(false)
@@ -151,14 +143,16 @@ export function FilterPanel({
             )}
             <div className="flex flex-wrap justify-between items-center gap-2 my-2">
                 <div className="flex flex-wrap items-center gap-2 min-w-0">
-                    <DateFilter
-                        dateFrom={commonFilters?.date_from}
-                        dateTo={commonFilters?.date_to}
-                        onChange={(fromDate, toDate) => {
-                            setCommonFilters?.({ ...commonFilters, date_from: fromDate, date_to: toDate })
-                        }}
-                        dateOptions={heatmapDateOptions}
-                    />
+                    {dateControl ?? (
+                        <DateFilter
+                            dateFrom={commonFilters?.date_from}
+                            dateTo={commonFilters?.date_to}
+                            onChange={(fromDate, toDate) => {
+                                setCommonFilters?.({ ...commonFilters, date_from: fromDate, date_to: toDate })
+                            }}
+                            dateOptions={heatmapDateOptions}
+                        />
+                    )}
                     {cohortFilterEnabled && (
                         <div className="min-w-0">
                             <PropertyFilters
@@ -288,9 +282,7 @@ export function FilterPanel({
                 <ViewportChooser lockedWidth={lockedWidth} />
             </div>
             {heatmapEmpty && !rawHeatmapLoading && !previewUnavailable ? (
-                <p className="text-sm text-muted mt-2 mb-0">
-                    No interactions found. Try a different date range or adjust your filters in Heatmap settings.
-                </p>
+                <HeatmapEmptyState lockedWidth={lockedWidth} />
             ) : null}
         </div>
     )
