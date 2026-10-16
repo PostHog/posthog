@@ -248,7 +248,7 @@ Compilation uses current source bindings, saved-query dependencies, filters, and
 Saved translation results remain diagnostic records and are not prerequisites or execution inputs for shadow jobs.
 Compilation failures fail the modeling job, without connecting to Trino or falling back to DuckDB.
 
-Trino replaces the output table in the organization's catalog under `posthog_data_modeling_team_<team_id>`, using the sanitized model-path label or saved-query UUID.
+Trino replaces the output table in the organization's catalog under `posthog_data_modeling_team_<team_id>`, using the sanitized saved-query UUID.
 The compiler and materializer share this naming policy, so each compiled query can read upstream model outputs directly.
 The legacy Duckgres path retains `shadow_<team_id>_models` and normalized saved-query names.
 The shadow is a separate DAG run, so ClickHouse materialization and publication never wait for Trino.
