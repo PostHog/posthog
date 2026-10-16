@@ -60,7 +60,7 @@ On a development build with notifications enabled:
 ## Demo walkthrough on the iOS simulator
 
 `.argent/flows/demo-smoke.yaml` drives the demo end to end with [Argent](https://docs.expo.dev/agents/argent/), a device automation CLI from Software Mansion.
-Run it against a development bundle served by Metro; release bundles have no demo entry point.
+The flow needs no account, because every build shows **Try the demo** on the sign-in screen.
 The flow:
 
 1. taps **Try the demo** on the sign-in screen,

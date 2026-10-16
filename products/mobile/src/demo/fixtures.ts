@@ -69,7 +69,7 @@ export const DEMO_PEOPLE: Person[] = [
     },
     {
         uuid: 'demo-user-tomas',
-        name: 'Tomás Ruiz',
+        name: 'Mateo Ruiz',
         email: 'tomas@example.com',
         role: 'Backend · Jobs',
         color: '#7A4DD6',
@@ -89,9 +89,9 @@ export const DEMO_PEOPLE: Person[] = [
         color: '#0E7490',
     },
     {
-        uuid: 'demo-user-alex',
-        name: 'Alex Kim',
-        email: 'alex@example.com',
+        uuid: 'demo-user-robin',
+        name: 'Robin Calloway',
+        email: 'robin@example.com',
         role: 'Frontend · Reports',
         color: '#1F1F1C',
     },

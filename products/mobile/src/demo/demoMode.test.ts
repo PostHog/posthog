@@ -18,9 +18,9 @@ describe('demo availability', () => {
     })
 
     test.each<[string, boolean, string | undefined, boolean | null, boolean]>([
-        ['release ignores a saved demo session', false, undefined, true, false],
+        ['release restores a saved demo session', false, undefined, true, true],
         ['release ignores the demo environment flag', false, '1', null, false],
-        ['release ignores both ways to start in demo', false, '1', true, false],
+        ['release restores a saved demo session and ignores the environment flag', false, '1', true, true],
         ['development starts in demo from the environment', true, '1', null, true],
         ['development respects a saved exit from demo', true, '1', false, false],
         ['development restores a demo session', true, undefined, true, true],
@@ -49,6 +49,6 @@ describe('demo availability', () => {
         expect(store.getState().enabled).toBe(expectedEnabled)
 
         store.getState().setEnabled(true)
-        expect(store.getState().enabled).toBe(isDev)
+        expect(store.getState().enabled).toBe(true)
     })
 })

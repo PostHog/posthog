@@ -88,8 +88,8 @@ Choices the build contract left open, with the reason for each.
   the model adds `dashboard` (Today's `dashboard` group) and `other` (unknown values).
   Default labels are sentence case ("Product analytics"); fixtures keep the prototype's
   "Product Analytics".
-- **Fixture people.** "Chris Volzer" is "Alex Kim" and "CV" is "AK". "Chris" in trace footers and
-  in "Asking Chris in the thread" is a teammate in the story, so it stays.
+- **Fixture people.** Every fixture person is invented and uses an `example.com` address.
+  The demo user is "Robin Calloway" ("RC"). Trace footers and "Asking Sana in the thread" name fixture teammates only.
 - **Fixture times** are computed from the moment demo mode starts. A weekday such as "Mon 7:21 AM"
   is the most recent Monday one to seven days back, so the timeline prints the prototype's text.
 - **Fixture 3** (report load time) starts `unclaimed` so its footer is idle, as in the reference

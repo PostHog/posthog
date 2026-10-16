@@ -57,8 +57,8 @@ export interface DemoBriefing {
     priority?: ReportPriority
 }
 
-export const DEMO_USER_NAME = 'Alex Kim'
-export const DEMO_PROJECT_NAME = 'posthog'
+export const DEMO_USER_NAME = 'Robin Calloway'
+export const DEMO_PROJECT_NAME = 'Hedgebox'
 export const DEMO_AGENT = POSTHOG_AGENT
 
 export const DEMO_DECISION_REPORT_ID = 'demo-report-ui-errors'
@@ -80,8 +80,8 @@ export function demoDecisionMeta(answer: string): string {
     if (/backfill|api/i.test(answer)) {
         return 'Backfilling labels in the API · PR against the API first, flagged for backend review'
     }
-    if (/chris/i.test(answer)) {
-        return 'Asking Chris in the thread · keeps going on the UI side'
+    if (/sana/i.test(answer)) {
+        return 'Asking Sana in the thread · keeps going on the UI side'
     }
     return 'Guarding the undefined label in ChartLegend · PR in about 15 min'
 }
@@ -151,7 +151,7 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
                 ['ChartLegend', 'ChartLegend.tsx:142'],
                 ['ReportChart', 'ReportChart.tsx:88'],
             ],
-            footer: 'Introduced in a3f9e1 · 8:52 AM · Chris · "Refactor legend series mapping"',
+            footer: 'Introduced in a3f9e1 · 8:52 AM · Sana · "Refactor legend series mapping"',
         },
         facts: [
             ['Where', 'Reports with a custom legend', 'Route /reports/:id · Chrome 130, 94%', 'default'],
@@ -274,7 +274,7 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
                 ['IssueHeader', 'IssueHeader.tsx:40'],
                 ['IssuePage', 'IssuePage.tsx:118'],
             ],
-            footer: 'Introduced in 7d2c04 · Mon 2:30 PM · Chris · PR #4182 "Simplify issue header"',
+            footer: 'Introduced in 7d2c04 · Mon 2:30 PM · Priya · PR #4182 "Simplify issue header"',
         },
         replay: { meta: 'hunts for Resolve · 0:19', count: 21 },
         facts: [
@@ -477,13 +477,13 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
                 ['buildSummaryPrompt', 'ai/summary.ts:64'],
                 ['summarizeReport', 'ai/summary.ts:21'],
             ],
-            footer: 'Introduced in e40b9d · Thu 3:15 PM · Tomás · "Include all events in summary context"',
+            footer: 'Introduced in e40b9d · Thu 3:15 PM · Mateo · "Include all events in summary context"',
         },
         facts: [
             ['Where', 'Report summaries', 'summarize_report · 9,400 calls a day', 'default'],
             ['Since', 'Thu 3:40 PM', 'Latency p95 up from 3.2s to 8.9s', 'default'],
             ['Impact', '$1,400 a day over budget', 'Answer quality score unchanged at 4.3', 'default'],
-            ['Owner', 'Tomás', '', 'default'],
+            ['Owner', 'Mateo', '', 'default'],
         ],
         observation: {
             title: 'Report summary spend',
@@ -507,13 +507,13 @@ export const DEMO_BRIEFINGS: readonly DemoBriefing[] = [
         ],
         activity: [
             ['PostHog created the report', 'Fri 8:10 AM'],
-            [`${DEMO_USER_NAME} changed assignee to **Tomás Ruiz**`, 'Fri 9:25 AM'],
+            [`${DEMO_USER_NAME} changed assignee to **Mateo Ruiz**`, 'Fri 9:25 AM'],
             ['PostHog changed priority from **Medium** to **High**', 'Today 7:00 AM'],
         ],
         contextNote: 'Sends 20 traces, the e40b9d diff and the daily cost breakdown as context',
         prompt: 'summarize_report input grew from 9,800 to 41,200 tokens after e40b9d. buildSummaryPrompt in ai/summary.ts:64 now sends every event. Restore the top-50 cap without losing answer quality.',
         handedStage: 'Reading ai/summary.ts · a PR will land here to review',
-        owner: { kind: 'user', name: 'Tomás Ruiz' },
+        owner: { kind: 'user', name: 'Mateo Ruiz' },
     },
     {
         id: 'demo-export-timeouts',

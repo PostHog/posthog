@@ -112,7 +112,7 @@ export const useDemoMode = create<DemoModeState>()(
         (set) => ({
             enabled: DEMO_FROM_ENV,
             ...freshState(),
-            setEnabled: (enabled) => set({ enabled: __DEV__ && enabled, ...freshState() }),
+            setEnabled: (enabled) => set({ enabled, ...freshState() }),
             reset: () => set(freshState()),
             refresh: () => {
                 set({ isRefreshing: true })
@@ -192,12 +192,6 @@ export const useDemoMode = create<DemoModeState>()(
             name: 'posthog-mobile-demo',
             storage: createJSONStorage(() => AsyncStorage),
             partialize: (state) => ({ enabled: state.enabled }),
-            // Ignore saved demo sessions in releases so existing installs require a real account.
-            merge: (persistedState, currentState) => ({
-                ...currentState,
-                enabled:
-                    __DEV__ && ((persistedState as { enabled?: boolean } | undefined)?.enabled ?? currentState.enabled),
-            }),
         }
     )
 )
