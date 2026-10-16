@@ -8,6 +8,76 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
+ */
+export type SendEmailApiMessageData = { [key: string]: unknown }
+
+export interface TransactionalEmailIdentifiersApi {
+    /**
+     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+     * @maxLength 400
+     * @nullable
+     */
+    distinct_id?: string | null
+}
+
+export interface TemplateReferenceApi {
+    /** Key of the template, as uploaded with `PUT /api/projects/@current/messaging_templates/by_key/{key}/`. Give either `key` or `id`. */
+    key?: string
+    /** Content hash of the template you hold, as `v1:` and 64 hex characters. When PostHog never published that content, the send answers `template_outdated` and sends nothing. Only with `key`. */
+    hash?: string
+    /** ID of the template, for templates made in PostHog. Give either `key` or `id`. */
+    id?: string
+}
+
+export interface SendEmailApi {
+    /** Email address of the recipient. */
+    to: string
+    /** Who the email is for, used to attribute engagement events. */
+    identifiers?: TransactionalEmailIdentifiersApi
+    /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+    message_data?: SendEmailApiMessageData
+    /** The template to send, by key or by id. */
+    template: TemplateReferenceApi
+}
+
+export interface SendEmailWarningApi {
+    /** Stable warning code to branch on, such as `template_superseded`. */
+    code: string
+    /** What happened. */
+    detail: string
+    /** What you can change, if the warning is not what you want. */
+    fix: string
+}
+
+export interface SendEmailResponseApi {
+    /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
+    message_id: string
+    /** Things to know about the queued email. Empty in the normal case. */
+    warnings: SendEmailWarningApi[]
+}
+
+export interface TemplateErrorApi {
+    /** Error class, such as `invalid_request`. */
+    type: string
+    /** Stable error code to branch on, such as `invalid_template_key`. */
+    code: string
+    /** What went wrong. */
+    detail: string
+    /**
+     * The request field the error is about, if any.
+     * @nullable
+     */
+    attr: string | null
+    /** Why PostHog refuses the request. */
+    why?: string
+    /** What to change before you retry. */
+    fix?: string
+    /** Documentation for this error code. */
+    docs_url?: string
+}
+
+/**
  * * `marketing` - Marketing
  * * `transactional` - Transactional
  */
@@ -454,26 +524,6 @@ export interface PaginatedMessageTemplateListApi {
     results: MessageTemplateApi[]
 }
 
-export interface TemplateErrorApi {
-    /** Error class, such as `invalid_request`. */
-    type: string
-    /** Stable error code to branch on, such as `invalid_template_key`. */
-    code: string
-    /** What went wrong. */
-    detail: string
-    /**
-     * The request field the error is about, if any.
-     * @nullable
-     */
-    attr: string | null
-    /** Why PostHog refuses the request. */
-    why?: string
-    /** What to change before you retry. */
-    fix?: string
-    /** Documentation for this error code. */
-    docs_url?: string
-}
-
 export interface PatchedMessageTemplateUpdateApi {
     readonly id?: string
     /**
@@ -607,15 +657,6 @@ export interface MakeTransactionalApi {
  * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
  */
 export type SendTransactionalEmailApiMessageData = { [key: string]: unknown }
-
-export interface TransactionalEmailIdentifiersApi {
-    /**
-     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
-     * @maxLength 400
-     * @nullable
-     */
-    distinct_id?: string | null
-}
 
 export interface SendTransactionalEmailApi {
     /** Email address of the recipient. */

@@ -141,6 +141,24 @@ tools:
             publish changed content at once and answer unchanged when nothing changed. Uploading replaces edits made
             in PostHog. A plain 404 means the transactional email API is not enabled for this project: stop and tell
             the user.
+    workflows-send-email:
+        operation: messaging_send_email_create
+        enabled: true
+        feature_flag: workflows-transactional-email-api
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Send transactional email
+        description: >
+            Send one transactional email to one recipient from a template, named by template.key (as uploaded with
+            workflows-upload-email-template) or template.id (a template made in PostHog). Put every value the
+            template needs into message_data, read as {{ variables.* }}; the template can't read person properties.
+            Set identifiers.distinct_id to record the email on that person. Pass template.hash, the content_hash of the
+            last upload, to check that PostHog holds that content: template_outdated means nothing was sent, so upload
+            the template and send again; a template_superseded warning means newer content was sent. Each call sends
+            an email, so never repeat a call that succeeded. A plain 404 without a code means the transactional email
+            API is not enabled for this project: stop and tell the user.
     workflows-update-email-template:
         operation: messaging_templates_partial_update
         enabled: true

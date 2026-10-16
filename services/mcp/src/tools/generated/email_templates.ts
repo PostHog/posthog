@@ -201,6 +201,38 @@ const workflowsUploadEmailTemplate = (): ToolBase<
     },
 })
 
+const WorkflowsSendEmailSchema = () => {
+    const MessagingSendEmailCreateBody = orvalSchemas.MessagingSendEmailCreateBody()
+    return MessagingSendEmailCreateBody
+}
+
+const workflowsSendEmail = (): ToolBase<ReturnType<typeof WorkflowsSendEmailSchema>, unknown> => ({
+    name: 'workflows-send-email',
+    schema: WorkflowsSendEmailSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsSendEmailSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.to !== undefined) {
+            body['to'] = params.to
+        }
+        if (params.identifiers !== undefined) {
+            body['identifiers'] = params.identifiers
+        }
+        if (params.message_data !== undefined) {
+            body['message_data'] = params.message_data
+        }
+        if (params.template !== undefined) {
+            body['template'] = params.template
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging/send/email/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WorkflowsUpdateEmailTemplateSchema = () => {
     const MessagingTemplatesPartialUpdateBody = orvalSchemas.MessagingTemplatesPartialUpdateBody()
     const MessagingTemplatesPartialUpdateParams = orvalSchemas.MessagingTemplatesPartialUpdateParams()
@@ -256,5 +288,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-patch-email-template': workflowsPatchEmailTemplate,
     'workflows-show-email-template': workflowsShowEmailTemplate,
     'workflows-upload-email-template': workflowsUploadEmailTemplate,
+    'workflows-send-email': workflowsSendEmail,
     'workflows-update-email-template': workflowsUpdateEmailTemplate,
 }
