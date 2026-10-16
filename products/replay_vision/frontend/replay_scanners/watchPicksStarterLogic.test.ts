@@ -1,5 +1,4 @@
 import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
 
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
@@ -10,7 +9,7 @@ import { watchPicksLogic } from './watchPicksLogic'
 import { watchPicksStarterLogic } from './watchPicksStarterLogic'
 
 describe('watchPicksStarterLogic', () => {
-    it('moves a chip choice to the confirm step with the loaded recordings as the burst candidates', async () => {
+    it('plans the burst from the loaded recordings and starts on free credits', () => {
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/watch_feed/': () => [200, { results: [] }],
@@ -29,9 +28,6 @@ describe('watchPicksStarterLogic', () => {
         picks.mount()
         const logic = watchPicksStarterLogic(picks.props)
         logic.mount()
-        await expectLogic(logic, () => logic.actions.chooseTemplate('dead_end')).toFinishAllListeners()
-        expect(logic.values.templateKey).toBe('dead_end')
-        expect(logic.values.template?.name).toBe('Dead ends')
         expect(logic.values.spendMode).toBe('free')
         expect(logic.values.candidateRecordings).toEqual(playlist.values.sessionRecordings)
     })

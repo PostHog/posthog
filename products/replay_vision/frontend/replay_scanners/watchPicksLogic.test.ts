@@ -7,7 +7,7 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { EMPTY_IMPRESSIONS_STORAGE_KEY, PICKS_SHOWN_COUNT_STORAGE_KEY, watchPicksLogic } from './watchPicksLogic'
+import { emptyImpressionsStorageKey, picksShownCountStorageKey, watchPicksLogic } from './watchPicksLogic'
 import { watchPicksVariantFromFlag } from './watchPicksVariant'
 
 describe('watchPicksLogic', () => {
@@ -99,14 +99,14 @@ describe('watchPicksLogic', () => {
         ])('reports the third impression as its own event (stored count %i)', async (stored, thirdTimeEvents) => {
             logic.unmount()
             playlistLogic.unmount()
-            localStorage.setItem(PICKS_SHOWN_COUNT_STORAGE_KEY, String(stored))
+            localStorage.setItem(picksShownCountStorageKey(), String(stored))
             await mountList()
             expect(
                 captureSpy.mock.calls
                     .filter(([name]) => name === 'replay_vision_watch_picks_shown_third_time')
                     .map((call) => call[1])
             ).toEqual(thirdTimeEvents)
-            expect(localStorage.getItem(PICKS_SHOWN_COUNT_STORAGE_KEY)).toBe(String(stored + 1))
+            expect(localStorage.getItem(picksShownCountStorageKey())).toBe(String(stored + 1))
         })
 
         it.each([
@@ -131,20 +131,20 @@ describe('watchPicksLogic', () => {
                 logic.unmount()
                 playlistLogic.unmount()
                 feedSpy.mockImplementation(() => [200, { results: [] }])
-                localStorage.setItem(EMPTY_IMPRESSIONS_STORAGE_KEY, String(stored))
+                localStorage.setItem(emptyImpressionsStorageKey(), String(stored))
                 await mountList()
                 expect(logic.values.effectiveListMode).toBe(mode)
-                expect(localStorage.getItem(EMPTY_IMPRESSIONS_STORAGE_KEY)).toBe(storedAfter)
+                expect(localStorage.getItem(emptyImpressionsStorageKey())).toBe(storedAfter)
                 expect(shownEvents()).toEqual([])
             }
         )
 
         it('starting a scanner from the column keeps the picks open and forgets the empty impressions', async () => {
-            localStorage.setItem(EMPTY_IMPRESSIONS_STORAGE_KEY, '2')
+            localStorage.setItem(emptyImpressionsStorageKey(), '2')
             logic.actions.setListMode('recordings')
             logic.actions.adoptPicksMode()
             expect(logic.values.effectiveListMode).toBe('picks')
-            expect(localStorage.getItem(EMPTY_IMPRESSIONS_STORAGE_KEY)).toBe('0')
+            expect(localStorage.getItem(emptyImpressionsStorageKey())).toBe('0')
         })
 
         it.each([

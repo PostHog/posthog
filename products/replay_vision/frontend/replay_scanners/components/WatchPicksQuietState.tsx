@@ -1,5 +1,4 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import * as noirPng from '@posthog/brand/hoggies/png/noir-1'
 import { LemonButton, LemonSelect, Link } from '@posthog/lemon-ui'
@@ -30,15 +29,9 @@ export function WatchPicksQuietState({ size }: { size: 'small' | 'large' }): JSX
         busyScannerId,
         lastSweptAt,
     } = useValues(logic)
-    const { pickBackfillScanner, loadBackfillEstimate, startBackfill } = useActions(logic)
+    const { pickBackfillScanner, startBackfill } = useActions(logic)
     const large = size === 'large'
     const editDisabledReason = getReplayVisionEditDisabledReason()
-
-    useEffect(() => {
-        if (backfillScannerId && backfillEstimate?.scannerId !== backfillScannerId) {
-            loadBackfillEstimate()
-        }
-    }, [backfillScannerId, backfillEstimate?.scannerId, loadBackfillEstimate])
 
     const started = backfillScannerId ? backfillTotals[backfillScannerId] : undefined
     const estimateReady = backfillEstimate?.scannerId === backfillScannerId ? backfillEstimate : null
@@ -100,9 +93,11 @@ export function WatchPicksQuietState({ size }: { size: 'small' | 'large' }): JSX
                             Scan the last 7 days now
                         </LemonButton>
                         <span className="text-xs">
-                            {backfillEstimateLoading || !estimateReady
+                            {backfillEstimateLoading
                                 ? 'Counting matching recordings'
-                                : `${pluralize(estimateReady.sessions, 'recording')}, about ${formatCreditCount(estimateReady.credits)}`}
+                                : estimateReady
+                                  ? `${pluralize(estimateReady.sessions, 'recording')}, about ${formatCreditCount(estimateReady.credits)}`
+                                  : 'Could not count matching recordings'}
                         </span>
                     </>
                 ) : started === 0 ? (

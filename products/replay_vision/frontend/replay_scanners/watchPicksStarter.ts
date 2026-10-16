@@ -1,12 +1,23 @@
 import type { SessionRecordingType } from '~/types'
 
 import { recordingScanBlock } from '../utils/scanEligibility'
+import type { SummarizerScannerConfig } from './types'
 
 export const BURST_MAX_RECORDINGS = 25
 export const TARGET_MONTHLY_SCANS = 300
 export const FREE_SCANNER_CREDIT_LIMIT = 1500
 export const BUDGET_PRESETS = [1000, 2500, 5000] as const
 const BURST_SWEEP_RESERVE_SCANS = 5
+export const QUICKSTART_SCANNER = {
+    key: 'session_highlights',
+    name: 'Session highlights',
+    description: 'Summarizes each new recording and flags the ones worth watching.',
+    scanner_type: 'summarizer' as const,
+    scanner_config: {
+        prompt: 'Summarize what the user was trying to do in this session and what got in their way. Call out anything unusual, surprising, or broken: errors, dead ends, repeated attempts, confusion, or an outcome that does not match what they set out to do. Be concrete and do not speculate.',
+        length: 'medium',
+    } satisfies SummarizerScannerConfig,
+}
 
 export type StarterSpendMode = 'free' | 'budget'
 

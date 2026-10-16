@@ -12,6 +12,7 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import { dayjs } from 'lib/dayjs'
 import posthog from 'lib/posthog-typed'
@@ -552,9 +553,6 @@ export const watchPicksStaleLogic: LogicWrapper<watchPicksStaleLogicType> = kea<
                     actions.scannerActionDone(scannerId)
                 }
             },
-            pickBackfillScanner: () => {
-                actions.loadBackfillEstimate()
-            },
             backfillStarted: ({ totalSessions }) => {
                 if (totalSessions === 0) {
                     return
@@ -597,4 +595,12 @@ export const watchPicksStaleLogic: LogicWrapper<watchPicksStaleLogicType> = kea<
             },
         }
     }),
+
+    subscriptions(({ actions }) => ({
+        backfillScannerId: (scannerId: string | null) => {
+            if (scannerId) {
+                actions.loadBackfillEstimate()
+            }
+        },
+    })),
 ])

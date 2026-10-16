@@ -10,9 +10,8 @@ import { urls } from 'scenes/urls'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditCount, formatCreditNumber, formatCreditsMaybeUsd } from '../../utils/credits'
-import { defaultScannerTemplates } from '../scannerTemplates'
 import { watchPicksLogic } from '../watchPicksLogic'
-import { BUDGET_PRESETS, TARGET_MONTHLY_SCANS } from '../watchPicksStarter'
+import { BUDGET_PRESETS, QUICKSTART_SCANNER, TARGET_MONTHLY_SCANS } from '../watchPicksStarter'
 import { watchPicksStarterLogic } from '../watchPicksStarterLogic'
 import { WatchPicksStateFrame } from './WatchPicksStateFrame'
 
@@ -22,49 +21,11 @@ const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 export function WatchPicksStarter({ size }: { size: 'small' | 'large' }): JSX.Element {
     const { props: picksProps } = useMountedLogic(watchPicksLogic)
     const logic = watchPicksStarterLogic(picksProps)
-    const { template, burstPlan, spendMode, freeAvailable, budget, starting, startError, freeCreditsLeft } =
-        useValues(logic)
-    const { chooseTemplate, setBudget, chooseBudget, startScanner } = useActions(logic)
+    const { burstPlan, spendMode, freeAvailable, budget, starting, startError, freeCreditsLeft } = useValues(logic)
+    const { setBudget, chooseBudget, startScanner } = useActions(logic)
     const { showUsd } = useValues(visionQuotaLogic)
     const large = size === 'large'
     const editDisabledReason = getReplayVisionEditDisabledReason()
-
-    if (!template) {
-        return (
-            <WatchPicksStateFrame
-                size={size}
-                image={HedgehogMagnifyingGlass}
-                title="What should we look for?"
-                body="Pick one. We create the scanner and start on your newest recordings right away."
-                dataAttr="vision-watch-picks-starter"
-                footer={
-                    <Link
-                        to={urls.replayVisionTemplates()}
-                        className="mt-1"
-                        data-attr="vision-watch-picks-starter-own-goal"
-                    >
-                        Write my own goal
-                    </Link>
-                }
-            >
-                <div className="flex flex-wrap items-center justify-center gap-1">
-                    {defaultScannerTemplates.map((candidate) => (
-                        <LemonButton
-                            key={candidate.key}
-                            type="secondary"
-                            size={large ? 'small' : 'xsmall'}
-                            tooltip={candidate.goal}
-                            disabledReason={editDisabledReason}
-                            onClick={() => chooseTemplate(candidate.key)}
-                            data-attr="vision-watch-picks-starter-template"
-                        >
-                            {candidate.name}
-                        </LemonButton>
-                    ))}
-                </div>
-            </WatchPicksStateFrame>
-        )
-    }
 
     const burstCount = burstPlan.sessionIds.length
     const rows: [string, string][] = [
@@ -86,9 +47,18 @@ export function WatchPicksStarter({ size }: { size: 'small' | 'large' }): JSX.El
         <WatchPicksStateFrame
             size={size}
             image={HedgehogMagnifyingGlass}
-            title={template.name}
-            body={template.description}
-            dataAttr="vision-watch-picks-starter-confirm"
+            title="Nothing to watch yet"
+            body={`Start ${QUICKSTART_SCANNER.name}, a scanner that reads each new recording and surfaces the ones worth watching.`}
+            dataAttr="vision-watch-picks-starter"
+            footer={
+                <Link
+                    to={urls.replayVisionTemplates()}
+                    className="mt-1"
+                    data-attr="vision-watch-picks-starter-own-goal"
+                >
+                    Write my own goal
+                </Link>
+            }
         >
             <div className="flex flex-col divide-y rounded border bg-bg-light text-left">
                 {rows.map(([label, value]) => (
@@ -140,13 +110,6 @@ export function WatchPicksStarter({ size }: { size: 'small' | 'large' }): JSX.El
                     {spendMode === 'free' ? 'Set a monthly budget instead' : 'Use free credits instead'}
                 </LemonButton>
             )}
-            <Link
-                className="mt-1 self-center"
-                onClick={() => !starting && chooseTemplate(null)}
-                data-attr="vision-watch-picks-starter-back"
-            >
-                Choose another scanner
-            </Link>
         </WatchPicksStateFrame>
     )
 }

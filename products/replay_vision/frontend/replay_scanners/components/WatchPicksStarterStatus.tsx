@@ -4,6 +4,7 @@ import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { watchPicksLogic } from '../watchPicksLogic'
 import { watchPicksStarterLogic } from '../watchPicksStarterLogic'
@@ -13,7 +14,7 @@ export function WatchPicksStarterStatus(): JSX.Element | null {
     const { picks } = useValues(picksLogic)
     const logic = watchPicksStarterLogic(picksLogic.props)
     const { startedScanner, burstSessionIds, burstCounts, burstDone, burstStalled, scannedAnyway } = useValues(logic)
-    const { showScannedAnyway, reset } = useActions(logic)
+    const { showScannedAnyway } = useActions(logic)
 
     if (!startedScanner) {
         return null
@@ -52,8 +53,12 @@ export function WatchPicksStarterStatus(): JSX.Element | null {
                                     Show them anyway
                                 </LemonButton>
                             )}
-                            <LemonButton size="xsmall" onClick={reset} data-attr="vision-watch-picks-starter-another">
-                                Try another lens
+                            <LemonButton
+                                size="xsmall"
+                                to={urls.replayVisionTemplates()}
+                                data-attr="vision-watch-picks-starter-another"
+                            >
+                                Try another scanner
                             </LemonButton>
                         </div>
                     </div>
