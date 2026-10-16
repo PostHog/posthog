@@ -78,14 +78,13 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
-from products.experiments.backend.facade.api import get_experiment_health_findings
+from products.experiments.backend.facade.api import get_experiment_health_findings, get_experiment_health_inputs
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.facade.legacy_migration import (
     LegacyMigrationError,
     migrate_experiment as migrate_legacy_experiment,
 )
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
-from products.experiments.backend.health.loader import load_experiment_health_inputs
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -129,7 +128,6 @@ from products.experiments.backend.presentation.serializers import (
     RunningTimeCalculationInputSerializer,
     RunningTimeCalculationResultSerializer,
     ShipVariantSerializer,
-    health_inputs_data,
 )
 from products.experiments.backend.recalculation import (
     build_job_payload,
@@ -967,13 +965,13 @@ class EnterpriseExperimentsViewSet(
         if not (request.user.is_staff or settings.DEBUG or is_impersonated_session(request)):
             raise PermissionDenied("Only staff users can read the health check inputs.")
         experiment: Experiment = self.get_object()
-        inputs = load_experiment_health_inputs(
+        inputs = get_experiment_health_inputs(
             team_id=self.team_id,
             experiment_id=experiment.id,
             reader_access=self._health_reader_access(request, experiment),
             user=cast(User, request.user),
         )
-        return Response(ExperimentHealthInputsSerializer(health_inputs_data(inputs)).data)
+        return Response(ExperimentHealthInputsSerializer(inputs).data)
 
     def _health_reader_access(self, request: Request, experiment: Experiment) -> ExperimentHealthReaderAccess:
         # The split history is flag history, which `activity` keeps behind the flag's own access controls and

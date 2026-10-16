@@ -42,16 +42,19 @@ def load_experiment_health_inputs(
         exposures=load_exposure_inputs(experiment, user=user, can_query_events=reader_access.can_query_events),
         reader_access=reader_access,
         flag_version=experiment.feature_flag.version if experiment.feature_flag_id else None,
-        project=build_project_setup_facts(experiment.team, can_query_events=reader_access.can_query_events),
+        project=build_project_setup_facts(
+            experiment.team,
+            can_query_events=reader_access.can_query_events,
+            denied_event_properties=reader_access.denied_event_properties,
+        ),
     )
 
 
 def _load_experiment(team_id: int, experiment_id: int) -> Experiment:
     return (
-        Experiment.objects.filter(team_id=team_id)
-        .select_related("team", "feature_flag")
+        Experiment.objects.select_related("team", "feature_flag")
         .prefetch_related("experimenttosavedmetric_set")
-        .get(id=experiment_id)
+        .get(id=experiment_id, team_id=team_id)
     )
 
 

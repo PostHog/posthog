@@ -13,7 +13,8 @@ from posthog.schema import (
     SampleRatioMismatch,
 )
 
-from products.experiments.backend.health.exposure_inputs import HealthExposureInputsStatus, load_exposure_inputs
+from products.experiments.backend.facade.contracts import HealthExposureInputsStatus
+from products.experiments.backend.health.exposure_inputs import load_exposure_inputs
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -88,3 +89,25 @@ class TestLoadExposureInputs(BaseTest):
             ),
             ({"control": 480, "test": 520}, 0.2, 30.0),
         )
+
+    def test_reports_failed_for_malformed_exposure_criteria(self) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="exposure-inputs-malformed",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="exposure-inputs-malformed",
+            feature_flag=flag,
+            start_date=LAUNCHED_AT,
+            exposure_criteria={"multiple_variant_handling": "not_a_handling"},
+        )
+
+        inputs = load_exposure_inputs(experiment, user=self.user, can_query_events=True)
+
+        self.assertEqual(inputs.status, HealthExposureInputsStatus.FAILED)

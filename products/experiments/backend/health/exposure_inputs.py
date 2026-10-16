@@ -1,7 +1,5 @@
 from datetime import datetime
 
-from django.db import models
-
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import CachedExperimentExposureQueryResponse, ExperimentExposureHealthFinding
@@ -11,6 +9,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.user import User
 
+from products.experiments.backend.facade.contracts import HealthExposureInputsStatus
 from products.experiments.backend.health.context import ExposureTotals
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
     ExperimentExposuresQueryRunner,
@@ -18,17 +17,6 @@ from products.experiments.backend.hogql_queries.experiment_exposures_query_runne
 )
 from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
 from products.experiments.backend.models.experiment import Experiment
-
-
-class HealthExposureInputsStatus(models.TextChoices):
-    READY = "ready"
-    # The cached answer is past its age. A recalculation runs in the background.
-    STALE = "stale"
-    # No cached answer. A calculation runs in the background.
-    CALCULATING = "calculating"
-    NOT_LAUNCHED = "not_launched"
-    NO_QUERY_ACCESS = "no_query_access"
-    FAILED = "failed"
 
 
 @frozen
@@ -53,8 +41,9 @@ def load_exposure_inputs(experiment: Experiment, *, user: User | None, can_query
         return _without_answer(HealthExposureInputsStatus.NOT_LAUNCHED)
     if not can_query_events:
         return _without_answer(HealthExposureInputsStatus.NO_QUERY_ACCESS)
-    query = build_experiment_exposure_query(experiment)
     try:
+        # Malformed stored exposure criteria fail here, and that must not fail the other inputs.
+        query = build_experiment_exposure_query(experiment)
         runner = ExperimentExposuresQueryRunner(query=query, team=experiment.team, user=user, error_event_context=None)
         response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE, user=user)
     except Exception as error:

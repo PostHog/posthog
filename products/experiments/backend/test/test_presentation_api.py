@@ -942,6 +942,14 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 ("denied_properties", None, "ok", "ok"),
                 "$feature_flag_reason",
             ),
+            (
+                "staff_denied_a_property_the_sdk_profile_reads",
+                True,
+                None,
+                status.HTTP_200_OK,
+                ("read", [120, 880], "ok", "skipped"),
+                "$lib",
+            ),
             ("not_staff", False, None, status.HTTP_403_FORBIDDEN, None),
         ]
     )
