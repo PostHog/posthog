@@ -3919,7 +3919,7 @@ class TestExperimentService(APIBaseTest):
                         0,
                         ["forced_variant_release_condition"],
                         ["forced_variant_release_condition:some_conditions_pinned"],
-                        ["forced_variant_release_condition:some_conditions_pinned:info:"],
+                        ["forced_variant_release_condition:some_conditions_pinned:info:not_measured"],
                     )
                 ],
             ),
