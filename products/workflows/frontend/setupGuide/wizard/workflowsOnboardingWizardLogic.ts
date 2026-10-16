@@ -332,7 +332,6 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 windowDays: currentTeam?.workflows_config?.marketing_frequency_cap_window_days ?? null,
             }),
         ],
-        // A new setup captures engagement events unless the person turns them off.
         shownEngagementEvents: [
             (s) => [s.engagementEventsChoice],
             (engagementEventsChoice: boolean | null): boolean => engagementEventsChoice ?? true,

@@ -29,7 +29,6 @@ function SendingRule({
     )
 }
 
-/** The project-wide sending rules. A new setup gets the recommended frequency cap and engagement events. */
 export function WizardSendingRulesStep(): JSX.Element {
     const { savedFrequencyCap, canEditSendingRules, shownEngagementEvents } = useValues(workflowsOnboardingWizardLogic)
     const { setEngagementEventsChoice } = useActions(workflowsOnboardingWizardLogic)

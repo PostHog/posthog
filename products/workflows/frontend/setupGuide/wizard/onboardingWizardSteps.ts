@@ -131,11 +131,9 @@ export interface FrequencyCap {
     windowDays: number | null
 }
 
-/** The frequency cap a new setup gets. A custom cap or no cap is set in Messaging settings. */
 export const RECOMMENDED_FREQUENCY_CAP: FrequencyCap = { maxMessages: 1, windowDays: 2 }
 
-/** What the sending rules step saves when the person continues, or null when nothing changes.
- * An unset cap gets the recommended cap. A saved cap, custom or not, stays as it is. */
+// A saved cap stays as it is, so the wizard never overwrites a cap set in Messaging settings.
 export function sendingRulesToSave(
     saved: FrequencyCap & { engagementEvents: boolean },
     engagementEvents: boolean,
