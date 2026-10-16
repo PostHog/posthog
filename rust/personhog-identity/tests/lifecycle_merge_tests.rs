@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use common::sim_leader::{LeaderCall, Rpc, SimLeader, FENCED_METADATA_KEY};
-use common::TestContext;
+use common::{RecordingSink, TestContext};
 use personhog_common::grpc::semantic_refusal;
 use personhog_common::persons::{person_uuid, COOKIELESS_SENTINEL_VALUE};
 use serde_json::json;
@@ -34,6 +34,7 @@ use personhog_identity::lifecycle::merge::{
     OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_ALREADY_IDENTIFIED, OUTCOME_SKIPPED_CONFLICT,
     OUTCOME_SKIPPED_MOVE_LIMIT,
 };
+use personhog_identity::publish::messages::DistinctIdRow;
 use personhog_proto::personhog::types::v1::LifecycleOpType;
 
 struct MergeHarness {
@@ -46,10 +47,22 @@ struct MergeHarness {
 
 impl MergeHarness {
     async fn new() -> Self {
-        Self::new_with_tables(common::default_tables()).await
+        Self::new_with(common::default_tables(), OutboxWrites::Disabled).await
+    }
+
+    /// A harness whose completed merges enqueue a publish pointer.
+    async fn new_publishing() -> Self {
+        Self::new_with(common::default_tables(), OutboxWrites::Enabled).await
     }
 
     async fn new_with_tables(tables: personhog_identity::config::IdentityTables) -> Self {
+        Self::new_with(tables, OutboxWrites::Disabled).await
+    }
+
+    async fn new_with(
+        tables: personhog_identity::config::IdentityTables,
+        outbox_writes: OutboxWrites,
+    ) -> Self {
         let ctx = TestContext::new_with_tables(tables).await;
         let engine = ctx.engine();
         let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.clone()));
@@ -57,7 +70,7 @@ impl MergeHarness {
             leader.clone(),
             ctx.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
-            OutboxWrites::Disabled,
+            outbox_writes,
         );
         Self {
             ctx,
@@ -404,7 +417,8 @@ async fn a_completing_fold_leaves_a_moved_away_target_unstamped() {
 
 #[tokio::test]
 async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
-    let h = MergeHarness::new().await;
+    let h = MergeHarness::new_publishing().await;
+    let _drain_lock = h.ctx.hold_drain_lock().await;
     let target = h.ctx.insert_person_with_distinct_id("merge-target").await;
     let source = h.ctx.insert_person_with_distinct_id("merge-source").await;
     h.add_distinct_id(source, "merge-source-alias").await;
@@ -515,6 +529,38 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
     // Marks settled: the target's cleared, the source's deleted.
     assert_eq!(h.op_person_status(op_id, target).await, "cleared");
     assert_eq!(h.op_person_status(op_id, source).await, "deleted");
+
+    // The completion left one publish pointer, and one pass resolves it to
+    // exactly the repointed mappings: the source's ids, owned by the
+    // target's uuid at their bumped versions. The target row's own `moved`
+    // is its claim record and contributes nothing.
+    let sink = RecordingSink::default();
+    h.ctx
+        .publisher(sink.clone(), 100)
+        .drain_once()
+        .await
+        .expect("publish pass");
+    let target_uuid: Uuid = sqlx::query_scalar("SELECT uuid FROM posthog_person WHERE id = $1")
+        .bind(target)
+        .fetch_one(&h.ctx.pool)
+        .await
+        .unwrap();
+    let mut published = sink.rows_for_team(h.ctx.team_id);
+    published.sort_by(|a, b| a.distinct_id.cmp(&b.distinct_id));
+    assert_eq!(
+        published,
+        ["merge-source", "merge-source-alias"].map(|did| DistinctIdRow {
+            person_id: target_uuid,
+            team_id: h.ctx.team_id,
+            distinct_id: did.to_string(),
+            version: 1,
+            is_deleted: 0,
+        })
+    );
+    assert!(
+        h.ctx.outbox_rows().await.is_empty(),
+        "the pointer is deleted"
+    );
 
     h.ctx.cleanup().await.expect("cleanup");
 }
