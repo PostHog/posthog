@@ -193,9 +193,10 @@ def _apple_ads_account_name(accounts: list[dict[str, Any]]) -> str:
 def _daisycon_publishers(access_token: str) -> list[dict[str, Any]]:
     """Publisher accounts a Daisycon access token can read, as `{"id", "name"}` rows.
 
-    Returns an empty list rather than raising when Daisycon rejects the call, so the caller decides
-    what a grant with no readable publisher means.
+    Returns an empty list when Daisycon rejects the call, so the caller decides what a grant with no
+    readable publisher means. Raises when Daisycon cannot answer, so an outage does not read as that.
     """
+    unreachable = "Could not reach Daisycon. Try connecting again in a minute."
     try:
         res = requests.get(
             DAISYCON_PUBLISHERS_URL,
@@ -207,8 +208,11 @@ def _daisycon_publishers(access_token: str) -> list[dict[str, Any]]:
         )
     except requests.RequestException as e:
         logger.warning("daisycon_publishers_request_failed", error=str(e))
-        return []
+        raise ValidationError(unreachable) from e
 
+    if res.status_code >= 500:
+        logger.warning("daisycon_publishers_request_failed", status_code=res.status_code)
+        raise ValidationError(unreachable)
     if res.status_code != 200:
         logger.warning("daisycon_publishers_request_rejected", status_code=res.status_code, response=res.text[:500])
         return []
@@ -1317,8 +1321,8 @@ class OauthIntegration:
             integration_id = f"grant:{hashlib.sha256(grant_token.encode()).hexdigest()}"
 
         # Daisycon's token response names no account. The integration is keyed on the publishers the
-        # grant reaches, so reconnecting after the refresh token lapses updates the same row and the
-        # sources bound to it keep working.
+        # grant reaches, so while that set is unchanged, reconnecting after the refresh token lapses
+        # updates the same row and the sources bound to it keep working.
         if kind == "daisycon" and not integration_id:
             publishers = _daisycon_publishers(config["access_token"])
             if not publishers:
@@ -1328,6 +1332,14 @@ class OauthIntegration:
                 )
             publisher_ids = sorted(str(publisher["id"]) for publisher in publishers)
             config["daisycon_publisher_ids"] = publisher_ids
+            # The source's publisher picker lists these, so it needs no call to Daisycon.
+            config["daisycon_publishers"] = sorted(
+                (
+                    {"id": str(publisher["id"]), "name": str(publisher.get("name") or f"Publisher {publisher['id']}")}
+                    for publisher in publishers
+                ),
+                key=lambda publisher: publisher["id"],
+            )
             config["daisycon_account_name"] = ", ".join(
                 str(publisher.get("name") or f"Publisher {publisher['id']}") for publisher in publishers
             )

@@ -1854,28 +1854,39 @@ class TestDaisyconIntegrationModel(BaseTest):
         assert second.integration_id == "publishers:111,222"
         assert second.config["daisycon_publisher_ids"] == ["111", "222"]
         assert second.config["daisycon_account_name"] == "Second site, Blog"
+        assert second.config["daisycon_publishers"] == [
+            {"id": "111", "name": "Blog"},
+            {"id": "222", "name": "Second site"},
+        ]
         assert second.config["expires_in"] == 1800
         assert second.sensitive_config["refresh_token"] == "rt_2"
         assert mock_get.call_args.kwargs["headers"]["Authorization"] == "Bearer at_2"
 
-    @parameterized.expand([("rejected", 401, {"error": "Authenticate: Expired token"}), ("no_publisher", 200, [])])
+    @parameterized.expand(
+        [
+            ("rejected", 401, {"error": "Authenticate: Expired token"}, "cannot read any publisher account"),
+            ("no_publisher", 200, [], "cannot read any publisher account"),
+            ("unavailable", 503, {"error": "Service unavailable"}, "Could not reach Daisycon"),
+        ]
+    )
     @patch("posthog.models.integration.oauth.requests.get")
     @patch("posthog.models.integration.oauth.requests.post")
-    def test_a_grant_that_reads_no_publisher_is_refused(
-        self, _name: str, status_code: int, payload, mock_post, mock_get
+    def test_a_grant_whose_publishers_cannot_be_read_is_refused(
+        self, _name: str, status_code: int, payload, message: str, mock_post, mock_get
     ):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {"access_token": "at_1", "refresh_token": "rt_1"}
         mock_get.return_value.status_code = status_code
         mock_get.return_value.json.return_value = payload
 
-        with pytest.raises(ValidationError, match="cannot read any publisher account"):
+        with pytest.raises(ValidationError, match=message):
             OauthIntegration.integration_from_oauth_response(
                 "daisycon", self.team.id, self.user, {"code": "code", "state": "token=state_token"}
             )
 
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers", side_effect=RuntimeError("redis down"))
     @patch("posthog.models.integration.oauth.requests.post")
-    def test_token_refresh_sends_redirect_uri_and_stores_the_rotated_token(self, mock_post):
+    def test_token_refresh_sends_redirect_uri_and_stores_the_rotated_token(self, mock_post, _mock_reload):
         # The refresh token is single-use: dropping the rotated one breaks the next refresh. Without
         # an expiry the row never reads as expired, so the 30-minute token would go stale mid-sync.
         mock_post.return_value.status_code = 200
@@ -1898,3 +1909,6 @@ class TestDaisyconIntegrationModel(BaseTest):
         assert integration.sensitive_config["refresh_token"] == "rt_2"
         assert integration.config["expires_in"] == 1800
         assert integration.errors == ""
+        # Daisycon already spent rt_1, so a failed worker notification must not lose rt_2.
+        integration.refresh_from_db()
+        assert integration.sensitive_config["refresh_token"] == "rt_2"

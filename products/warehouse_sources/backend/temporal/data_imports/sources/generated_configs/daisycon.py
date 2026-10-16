@@ -6,6 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class DaisyconSourceConfig(config.Config):
+    publisher_id: str
     daisycon_integration_id: int = config.value(converter=config.str_to_int)
-    publisher_id: str | None = None
     currency_code: str | None = None

@@ -40,7 +40,7 @@ def _connected(publisher_ids: list[str]) -> Iterator[None]:
 
 
 def _run(endpoint: str, script: Any, config: DaisyconSourceConfig | None = None, **inputs: Any) -> DriveResult:
-    config = config or DaisyconSourceConfig(daisycon_integration_id=7, publisher_id=None, currency_code=None)
+    config = config or DaisyconSourceConfig(daisycon_integration_id=7, publisher_id="111", currency_code=None)
     with _connected(["111"]):
         return SourceDriver(DaisyconSource(), config).run(endpoint, script, **inputs)
 
@@ -130,7 +130,7 @@ class TestStatistics:
     def test_requests_a_date_window_up_to_today(
         self, currency_code: str | None, last_value: Any, expected_start: str, expected_currency: str
     ) -> None:
-        config = DaisyconSourceConfig(daisycon_integration_id=7, publisher_id=None, currency_code=currency_code)
+        config = DaisyconSourceConfig(daisycon_integration_id=7, publisher_id="111", currency_code=currency_code)
         result = _run(
             "statistics_daily",
             [ScriptedResponse(json=[{"date": "2026-09-01", "currency_code": "EUR", "click_raw": 3}]), NO_CONTENT],
@@ -198,14 +198,13 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("response", "publisher_id", "expected_valid", "message_fragment"),
         [
-            (ScriptedResponse(json=[{"id": 111, "name": "Blog"}]), None, True, None),
-            (ScriptedResponse(json=[{"id": 111, "name": "Blog"}]), "222", False, "cannot read publisher 222"),
-            (ScriptedResponse(status=401, json={"error": "Authenticate: Expired token"}), None, False, "Reconnect"),
-            (ScriptedResponse(status=503, json={"error": "Service unavailable"}), None, False, "Could not reach"),
+            (ScriptedResponse(json=[{"id": 111, "name": "Blog"}]), "111", True, None),
+            (ScriptedResponse(status=401, json={"error": "Authenticate: Expired token"}), "111", False, "Reconnect"),
+            (ScriptedResponse(status=503, json={"error": "Service unavailable"}), "111", False, "Could not reach"),
         ],
     )
-    def test_maps_the_publisher_probe(
-        self, response: ScriptedResponse, publisher_id: str | None, expected_valid: bool, message_fragment: str | None
+    def test_maps_the_token_probe(
+        self, response: ScriptedResponse, publisher_id: str, expected_valid: bool, message_fragment: str | None
     ) -> None:
         config = DaisyconSourceConfig(daisycon_integration_id=7, publisher_id=publisher_id, currency_code=None)
         with _connected(["111"]), scripted_network(always(response)) as network:
@@ -217,3 +216,22 @@ class TestValidateCredentials:
         else:
             assert message is not None and message_fragment in message
         assert {request.path for request in network.requests_log} == {"/publishers"}
+
+    @pytest.mark.parametrize(
+        ("publisher_id", "currency_code", "message_fragment"),
+        [
+            # The login gained publisher 222 after connecting; the sync only knows the stored list.
+            ("222", None, "cannot read publisher 222"),
+            ("111", "euro", "three-letter currency code"),
+        ],
+    )
+    def test_refuses_what_the_sync_would_refuse_without_a_request(
+        self, publisher_id: str, currency_code: str | None, message_fragment: str
+    ) -> None:
+        config = DaisyconSourceConfig(daisycon_integration_id=7, publisher_id=publisher_id, currency_code=currency_code)
+        with _connected(["111"]), scripted_network([]) as network:
+            is_valid, message = DaisyconSource().validate_credentials(config, team_id=1)
+
+        assert is_valid is False
+        assert message is not None and message_fragment in message
+        assert network.requests_log == []

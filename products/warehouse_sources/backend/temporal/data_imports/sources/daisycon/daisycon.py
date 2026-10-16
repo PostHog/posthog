@@ -85,8 +85,8 @@ def resolve_publisher_id(requested: str | None, available: list[str]) -> str:
     if len(available) == 1:
         return available[0]
     raise DaisyconPublisherError(
-        f"The connected Daisycon login can read more than one publisher. Enter the publisher ID to sync: "
-        f"{', '.join(available)}."
+        f"The connected Daisycon login can read more than one publisher. Pick the publisher to sync in the "
+        f"source settings: {', '.join(available)}."
     )
 
 
@@ -190,15 +190,12 @@ def daisycon_source(
     )
 
 
-def list_publisher_ids(access_token: str) -> tuple[int, list[str]]:
-    """Return the HTTP status and the publisher ids the access token can read."""
+def probe_token(access_token: str) -> int:
+    """Return the HTTP status of one cheap authorized read."""
     response = make_tracked_session(redact_values=(access_token,), allow_redirects=False).get(
         f"{DAISYCON_BASE_URL}/publishers",
-        params={"per_page": PER_PAGE},
+        params={"per_page": 1},
         headers={"Authorization": f"Bearer {access_token}"},
         timeout=REQUEST_TIMEOUT,
     )
-    if response.status_code != 200:
-        return response.status_code, []
-    rows = response.json() if response.content else []
-    return 200, sorted(str(row["id"]) for row in rows if isinstance(row, dict) and row.get("id") is not None)
+    return response.status_code

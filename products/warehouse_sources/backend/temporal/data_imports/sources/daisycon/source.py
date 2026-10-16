@@ -1,3 +1,4 @@
+import re
 from typing import Optional, cast
 
 from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
@@ -7,11 +8,16 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -25,7 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.daisycon.d
     DaisyconPublisherError,
     DaisyconResumeConfig,
     daisycon_source,
-    list_publisher_ids,
+    probe_token,
     resolve_publisher_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.daisycon.oauth import (
@@ -46,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _RECONNECT = "Reconnect your Daisycon account in the source settings."
+_CURRENCY_CODE = re.compile(r"[A-Z]{3}")
 
 
 @SourceRegistry.register
@@ -109,19 +116,37 @@ class DaisyconSource(ResumableSource[DaisyconSourceConfig, DaisyconResumeConfig]
         if not config.daisycon_integration_id:
             return False, "Connect your Daisycon account."
         try:
-            self.get_oauth_integration(config.daisycon_integration_id, team_id)
+            currency_code = (config.currency_code or DEFAULT_CURRENCY).strip().upper()
+            if not _CURRENCY_CODE.fullmatch(currency_code):
+                return False, "Enter a three-letter currency code, such as EUR."
+            integration = self.get_oauth_integration(config.daisycon_integration_id, team_id)
+            # The sync checks the publisher against the list stored at connect time, so setup does too.
+            resolve_publisher_id(config.publisher_id, list(integration.config.get("daisycon_publisher_ids") or []))
             token = resolve_daisycon_oauth_token(config.daisycon_integration_id, team_id)
-            status, publisher_ids = list_publisher_ids(token)
+            status = probe_token(token)
             if status == 401:
                 return False, f"Daisycon rejected the connection. {_RECONNECT}"
             if status != 200:
                 return False, "Could not reach Daisycon. Try again in a minute."
-            resolve_publisher_id(config.publisher_id, publisher_ids)
         except (ValueError, DaisyconPublisherError) as e:
             return False, str(e)
         except Exception:  # noqa: BLE001 — a credential probe must never raise; any failure means "not validated"
             return False, "Could not reach Daisycon. Try again in a minute."
         return True, None
+
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        try:
+            integration = self.get_oauth_integration(integration_id, team_id)
+        except ValueError as e:
+            raise IntegrationAccountListingError(
+                f"The linked Daisycon connection no longer exists. {_RECONNECT}"
+            ) from e
+        return [
+            IntegrationAccount(value=publisher["id"], display_name=publisher["name"], secondary_text=publisher["id"])
+            for publisher in integration.config.get("daisycon_publishers") or []
+        ]
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[DaisyconResumeConfig]:
         return ResumableSourceManager[DaisyconResumeConfig](inputs, DaisyconResumeConfig)
@@ -175,14 +200,13 @@ class DaisyconSource(ResumableSource[DaisyconSourceConfig, DaisyconResumeConfig]
                         required=True,
                         kind="daisycon",
                     ),
-                    SourceFieldInputConfig(
+                    SourceFieldOauthAccountSelectConfig(
                         name="publisher_id",
-                        label="Publisher ID",
-                        caption="The number under your account name in Daisycon. Leave it empty when your login reaches one publisher.",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=False,
-                        placeholder="123456",
-                        secret=False,
+                        label="Publisher",
+                        integrationField="daisycon_integration_id",
+                        integrationKind="daisycon",
+                        required=True,
+                        placeholder="Pick the publisher to sync",
                     ),
                     SourceFieldInputConfig(
                         name="currency_code",
