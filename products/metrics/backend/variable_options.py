@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import re
 import json
+import time
 import hashlib
 import datetime as dt
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
+from functools import partial
 from itertools import islice
 from typing import Any
 
@@ -32,7 +34,6 @@ from products.metrics.backend.sql_mode import run_metrics_sql_values
 from products.metrics.backend.variables import (
     Variable,
     promql_string_escape,
-    referenced_names,
     sql_referenced_names,
     substitute_promql,
     substitute_sql,
@@ -49,8 +50,12 @@ _REGEX_QUERY = "SELECT arrayDistinct(arrayFilter(x -> match(x, {pattern}), {opti
 _REGEX_WITH_GROUP_QUERY = (
     "SELECT arrayDistinct(arrayMap(x -> extract(x, {pattern}), arrayFilter(x -> match(x, {pattern}), {options})))"
 )
-# Every SQL tile that uses a variable set to All loads its options. Tiles of one dashboard share them for this long.
-_ALL_OPTIONS_CACHE_SECONDS = 60
+# The dashboard selects and the SQL tiles that use a variable set to All share the options for this long.
+_OPTIONS_CACHE_SECONDS = 60
+# Tiles of one dashboard run at the same time. One of them loads the options, and the others wait this long for them.
+_OPTIONS_LOCK_SECONDS = 30
+_OPTIONS_WAIT_SECONDS = 10
+_OPTIONS_POLL_SECONDS = 0.1
 
 
 @frozen
@@ -215,44 +220,78 @@ def fill_all_values(
             continue
         if depth >= _MAX_ALL_DEPTH:
             raise ValueError(f"The variable queries refer to each other in a loop through ${name}.")
-        cache_key = _all_options_cache_key(team, definition, filled, date_from, date_to)
-        options = cache.get(cache_key)
-        if options is None:
-            options = list_variable_options(
-                team=team,
-                source=definition.source,
-                query=definition.query,
-                custom_values=definition.customValues,
-                variables=filled,
-                definitions=definitions,
-                date_from=date_from,
-                date_to=date_to,
-                depth=depth + 1,
-            )
-            options = apply_regex(team, options, definition.regex)
-            cache.set(cache_key, options, _ALL_OPTIONS_CACHE_SECONDS)
+        options = list_variable_options(
+            team=team,
+            source=definition.source,
+            query=definition.query,
+            custom_values=definition.customValues,
+            variables=filled,
+            definitions=definitions,
+            date_from=date_from,
+            date_to=date_to,
+            depth=depth + 1,
+        )
+        if definition.regex:
+            regex_key = _cache_key(team, ["regex", definition.regex, options])
+            options = _shared_options(regex_key, partial(apply_regex, team, options, definition.regex))
         filled[name] = with_values(variable, options)
     return filled
 
 
-def _all_options_cache_key(
+def _cache_key(team: Team, parts: list[Any]) -> str:
+    payload = json.dumps(parts, sort_keys=True, default=str)
+    return f"metrics:variable_options:{team.pk}:{hashlib.sha256(payload.encode()).hexdigest()}"
+
+
+def _query_cache_key(
     team: Team,
-    definition: MetricsDashboardVariable,
-    variables: Mapping[str, Variable],
+    source: MetricsDashboardVariableSource,
+    text: str,
+    placeholders: Mapping[str, ast.Expr],
     date_from: dt.datetime,
     date_to: dt.datetime,
 ) -> str:
-    parents = {
-        name: [variable.values, variable.is_all, variable.all_value]
-        for name in referenced_names(definition.query)
-        if (variable := variables.get(name)) is not None
+    """The key of the query that runs, with the variable values in it, so a dashboard select and a tile share it."""
+    values = {
+        key: [item.value for item in expr.exprs if isinstance(item, ast.Constant)]
+        if isinstance(expr, ast.Tuple)
+        else expr.value
+        if isinstance(expr, ast.Constant)
+        else repr(expr)
+        for key, expr in placeholders.items()
     }
-    # Minutes, so that tiles loaded a few seconds apart share the options.
-    window = [date_from.isoformat(timespec="minutes"), date_to.isoformat(timespec="minutes")]
-    payload = json.dumps(
-        [definition.model_dump(mode="json", exclude={"current", "label"}), parents, window], sort_keys=True
-    )
-    return f"metrics:variable_all_options:{team.pk}:{hashlib.sha256(payload.encode()).hexdigest()}"
+    # UTC minutes, so that the browser and the tiles, which compute "now" a few seconds apart, share the key.
+    window = [moment.astimezone(dt.UTC).isoformat(timespec="minutes") for moment in (date_from, date_to)]
+    return _cache_key(team, [source.value, text, values, window])
+
+
+def _shared_options(key: str, load: Callable[[], list[str]]) -> list[str]:
+    """The options from the shared cache. When several callers miss at once, one runs `load` and the others wait."""
+    options = cache.get(key)
+    if options is not None:
+        return options
+    lock_key = f"{key}:lock"
+    locked = cache.add(lock_key, True, _OPTIONS_LOCK_SECONDS)
+    if not locked:
+        deadline = time.monotonic() + _OPTIONS_WAIT_SECONDS
+        while time.monotonic() < deadline:
+            time.sleep(_OPTIONS_POLL_SECONDS)
+            options = cache.get(key)
+            if options is not None:
+                return options
+            if cache.get(lock_key) is None:
+                # The loader finished or failed. Read once more, and load here if it failed.
+                options = cache.get(key)
+                if options is not None:
+                    return options
+                break
+    try:
+        options = load()
+        cache.set(key, options, _OPTIONS_CACHE_SECONDS)
+        return options
+    finally:
+        if locked:
+            cache.delete(lock_key)
 
 
 def list_variable_options(
@@ -282,7 +321,8 @@ def list_variable_options(
         substitution = substitute_promql(query or "", variables)
         if substitution.unresolved:
             raise ValueError(unresolved_message(substitution.unresolved))
-        options = _promql_options(team, substitution.text, date_from, date_to)
+        key = _query_cache_key(team, source, substitution.text, {}, date_from, date_to)
+        options = _shared_options(key, lambda: _promql_options(team, substitution.text, date_from, date_to))
     else:
         if definitions:
             variables = fill_all_values(
@@ -297,8 +337,14 @@ def list_variable_options(
         sql = substitute_sql(query or "", variables)
         if sql.unresolved:
             raise ValueError(unresolved_message(sql.unresolved))
+        key = _query_cache_key(team, source, sql.sql, sql.placeholders, date_from, date_to)
         try:
-            options = run_metrics_sql_values(team, sql.sql, date_from, date_to, MAX_VARIABLE_OPTIONS, sql.placeholders)
+            options = _shared_options(
+                key,
+                lambda: run_metrics_sql_values(
+                    team, sql.sql, date_from, date_to, MAX_VARIABLE_OPTIONS, sql.placeholders
+                ),
+            )
         except ExposedHogQLError as exc:
             raise ValueError(str(exc)) from exc
     return list(dict.fromkeys(str(option) for option in options))[:MAX_VARIABLE_OPTIONS]

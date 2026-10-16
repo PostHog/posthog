@@ -1,3 +1,5 @@
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any
 
@@ -12,6 +14,8 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSource
+
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -21,6 +25,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.facade.user_access_control import AccessControlLevelResource
 from products.access_control.backend.models.access_control import AccessControl
 from products.error_tracking.backend.facade.testing import create_issue, create_spike_event
+from products.metrics.backend.variable_options import fill_all_values
+from products.metrics.backend.variables import Variable
 
 
 class TestMetricsValuesApi(APIBaseTest):
@@ -37,10 +43,60 @@ class TestMetricsValuesApi(APIBaseTest):
         assert response.json()["attr"] == "limit"
 
 
+OPTIONS_SQL = "SELECT DISTINCT service_name FROM posthog.metrics"
+
+
 @override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091")
 class TestMetricsVariableOptionsApi(APIBaseTest):
     def _post(self, body: dict[str, Any]) -> Any:
         return self.client.post(f"/api/projects/{self.team.id}/metrics/variable_options/", body, format="json")
+
+    def _fill_all(self, date_from: Any, date_to: Any) -> list[str]:
+        filled = fill_all_values(
+            team=self.team,
+            names=["job"],
+            variables={"job": Variable(values=(), is_all=True, all_value=None, options=())},
+            definitions={
+                "job": MetricsDashboardVariable(
+                    name="job", source=MetricsDashboardVariableSource.SQL, query=OPTIONS_SQL, includeAll=True
+                )
+            },
+            date_from=date_from,
+            date_to=date_to,
+        )
+        return list(filled["job"].values)
+
+    def test_tiles_that_miss_the_cache_at_once_run_the_options_query_once(self) -> None:
+        def slow_options(*args: Any, **kwargs: Any) -> list[str]:
+            time.sleep(0.3)
+            return ["api", "worker"]
+
+        date_to = timezone.now()
+        with patch("products.metrics.backend.variable_options.run_metrics_sql_values", side_effect=slow_options) as run:
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                results = list(executor.map(lambda _: self._fill_all(date_to - timedelta(hours=6), date_to), range(8)))
+
+        assert run.call_count == 1
+        assert results == [["api", "worker"]] * 8
+
+    def test_the_dashboard_select_fills_the_cache_that_tiles_read(self) -> None:
+        date_to = timezone.now()
+        date_from = date_to - timedelta(hours=6)
+        with patch(
+            "products.metrics.backend.variable_options.run_metrics_sql_values", return_value=["api", "worker"]
+        ) as run:
+            response = self._post(
+                {
+                    "source": "sql",
+                    "query": OPTIONS_SQL,
+                    "dateFrom": date_from.isoformat(),
+                    "dateTo": date_to.isoformat(),
+                }
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert self._fill_all(date_from, date_to) == ["api", "worker"]
+
+        assert run.call_count == 1
 
     def test_custom_options_drop_duplicates_and_blanks(self) -> None:
         response = self._post({"source": "custom", "customValues": ["b", "a", "b", ""]})
