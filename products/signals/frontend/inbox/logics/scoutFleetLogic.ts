@@ -53,6 +53,7 @@ import {
     captureScoutAction,
     captureScoutChatStarted,
     captureScoutConfigChanged,
+    captureScoutToolsSaveResult,
     ScoutChatType,
     ScoutFleetSyncOutcome,
     ScoutSurface,
@@ -139,6 +140,40 @@ function captureScoutConfigUpdates(
             success,
         })
     }
+    if ('allowed_mcp_tools' in updates || 'tool_preset' in updates) {
+        captureScoutToolsSaveResult({
+            skillName: config?.skill_name ?? '',
+            allTools: !updates.tool_preset && updates.allowed_mcp_tools === null,
+            toolPreset: updates.tool_preset ?? null,
+            toolCount: updates.allowed_mcp_tools?.length ?? null,
+            success,
+        })
+    }
+}
+
+/**
+ * Folds a later update into a queued one. A tool selection and `write_scopes` must never travel in
+ * one request, because the API rejects that pair, so the later of the two replaces the earlier.
+ */
+export function mergeQueuedScoutConfigUpdates(
+    queued: SignalScoutConfigUpdate | undefined,
+    next: SignalScoutConfigUpdate
+): SignalScoutConfigUpdate {
+    const merged = { ...queued, ...next }
+    if ('write_scopes' in next) {
+        delete merged.allowed_mcp_tools
+        delete merged.tool_preset
+    }
+    if ('allowed_mcp_tools' in next || 'tool_preset' in next) {
+        delete merged.write_scopes
+        if (!('tool_preset' in next)) {
+            delete merged.tool_preset
+        }
+        if (!('allowed_mcp_tools' in next)) {
+            delete merged.allowed_mcp_tools
+        }
+    }
+    return merged
 }
 
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
@@ -1781,7 +1816,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
 
             if (inFlight.has(configId)) {
                 actions.patchScoutConfigLocally(configId, updates)
-                pendingUpdates.set(configId, { ...pendingUpdates.get(configId), ...updates })
+                pendingUpdates.set(configId, mergeQueuedScoutConfigUpdates(pendingUpdates.get(configId), updates))
                 return
             }
 
