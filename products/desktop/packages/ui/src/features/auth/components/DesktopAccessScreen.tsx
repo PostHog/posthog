@@ -123,7 +123,7 @@ export function DesktopAccessScreen({
         icon: <LockSimple />,
         title: "Desktop is invite-only right now",
         description:
-          "We've paused access for new accounts, so this account hasn't been invited yet. There's nothing to fix on your end. If you belong to an organization that has access, select it to continue.",
+          "This account hasn't been invited yet. There's nothing to fix on your end.",
       };
   const isTechnicalError = access.status === "error";
   const icon = isTechnicalError ? <WarningCircle /> : blockedContent?.icon;
