@@ -61,6 +61,8 @@ Never suggest against a workflow that is not on this list — the API refuses it
   A step whose suggestion was `applied` already got its change: let that version collect its own feedback before suggesting again, and read its outcome first.
   A step whose suggestion was `rejected` is a human saying no: do not re-file the same idea in different words.
   Read its `rejection_reason` when there is one. It says why, and a reason about what the step is for rules out every change aimed at the same metric on that step, not only the one rejected.
+  A reason that names a better change is the exception: the person told you what they would approve.
+  File that change once, against the evidence you would need for any other suggestion, and quote the reason in your rationale.
   A rejected suggestion stays rejected however many times the workflow is published since: `is_stale` reads against the version live now, not against the version the person was looking at, so it cannot tell you the idea went unjudged.
 
 ### Read the numbers
