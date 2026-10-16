@@ -29,7 +29,7 @@ from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 from posthog.dataclasses import frozen
 from posthog.scopes import APIScopeObject
 
-from .commands import SubjectKind
+from .commands import SUBJECT_NAMES, SubjectKind
 
 SCHEMA_VERSION = 1
 
@@ -99,6 +99,16 @@ class QaArgs:
 @frozen
 class LoopArgs:
     name: str = text("The loop's name.", required=True)
+
+
+@frozen
+class ResolveArgs:
+    pass
+
+
+@frozen
+class AssignArgs:
+    pass
 
 
 @frozen
@@ -281,6 +291,22 @@ LOOP = CommandDeclaration(
     dispatches_to="Loops",
     access=ResourceAccess(resource="loop", level="editor"),
 )
+RESOLVE = CommandDeclaration(
+    verb="resolve",
+    summary="Mark this error tracking issue as resolved.",
+    args=ResolveArgs,
+    dispatches_to="Error tracking",
+    access=ResourceAccess(resource="error_tracking", level="editor"),
+    subject_kinds=("error_tracking_issue",),
+)
+ASSIGN = CommandDeclaration(
+    verb="assign",
+    summary="Assign this error tracking issue to yourself.",
+    args=AssignArgs,
+    dispatches_to="Error tracking",
+    access=ResourceAccess(resource="error_tracking", level="editor"),
+    subject_kinds=("error_tracking_issue",),
+)
 # Answered by dispatch itself: it needs no PostHog account, project or pull request state.
 HELP = CommandDeclaration(
     verb=HELP_VERB,
@@ -288,9 +314,10 @@ HELP = CommandDeclaration(
     args=HelpArgs,
     dispatches_to=None,
     allows_forks=True,
+    subject_kinds=get_args(SubjectKind),
 )
 
-COMMAND_DECLARATIONS: tuple[CommandDeclaration[Any], ...] = (REVIEW, STAMP, QA, LOOP)
+COMMAND_DECLARATIONS: tuple[CommandDeclaration[Any], ...] = (REVIEW, STAMP, QA, LOOP, RESOLVE, ASSIGN)
 
 
 def _canonical_verbs(declarations: tuple[CommandDeclaration[Any], ...]) -> Mapping[str, str]:
@@ -411,6 +438,7 @@ def _command_signature(declaration: CommandDeclaration[Any]) -> dict[str, object
             if text_field is not None
             else None
         ),
+        "subject_kinds": list(declaration.subject_kinds),
         "refuses_forks": not declaration.allows_forks,
         "access": (
             {"resource": declaration.access.resource, "level": declaration.access.level}
@@ -445,13 +473,25 @@ def _what_it_does(declaration: CommandDeclaration[Any]) -> str:
     return " ".join(parts)
 
 
-def help_table() -> str:
-    """The command table for the help reply and `COMMANDS.generated.md`."""
-    rows = [
-        "| Command | Also | What it does |",
-        "| --- | --- | --- |",
+def help_table(subject_kind: SubjectKind | None = None) -> str:
+    """The command table for the help reply and `COMMANDS.generated.md`.
+
+    With a kind, it lists only the commands that act on it. Without one, it lists every command
+    and what each works on.
+    """
+    declarations = [
+        declaration
+        for declaration in (*COMMAND_DECLARATIONS, HELP)
+        if subject_kind is None or subject_kind in declaration.subject_kinds
     ]
-    for declaration in (*COMMAND_DECLARATIONS, HELP):
-        also = ", ".join(f"`{alias}`" for alias in declaration.aliases)
-        rows.append(f"| `{_table_cell(usage(declaration))}` | {also} | {_table_cell(_what_it_does(declaration))} |")
+    if subject_kind is not None:
+        rows = ["| Command | Also | What it does |", "| --- | --- | --- |"]
+    else:
+        rows = ["| Command | Also | Works on | What it does |", "| --- | --- | --- | --- |"]
+    for declaration in declarations:
+        cells = [f"`{_table_cell(usage(declaration))}`", ", ".join(f"`{alias}`" for alias in declaration.aliases)]
+        if subject_kind is None:
+            cells.append(", ".join(SUBJECT_NAMES[kind] for kind in declaration.subject_kinds))
+        cells.append(_table_cell(_what_it_does(declaration)))
+        rows.append(f"| {' | '.join(cells)} |")
     return "\n".join(rows)
