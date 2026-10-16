@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, cast
 
 from django.utils import timezone
@@ -28,14 +28,13 @@ DAYS = 35
 EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
 DAILY = (
     "SELECT toDate(timestamp) AS day FROM events"
-    " WHERE timestamp >= toStartOfDay({today}) - INTERVAL {days} DAY AND timestamp < toStartOfDay({today})"
+    " WHERE timestamp >= {start} AND timestamp < {end}"
     " AND {match} AND {test_accounts}"
     " GROUP BY day ORDER BY day"
 )
 WEEKLY_PEOPLE = (
-    "SELECT uniqIf(person_id, timestamp >= toStartOfDay({today}) - INTERVAL 7 DAY),"
-    " uniqIf(person_id, timestamp < toStartOfDay({today}) - INTERVAL 7 DAY) FROM events"
-    " WHERE timestamp >= toStartOfDay({today}) - INTERVAL 14 DAY AND timestamp < toStartOfDay({today})"
+    "SELECT uniqIf(person_id, timestamp >= {week}), uniqIf(person_id, timestamp < {week}) FROM events"
+    " WHERE timestamp >= {start} AND timestamp < {end}"
     " AND {match} AND {test_accounts}"
 )
 
@@ -82,6 +81,10 @@ def _run(query: ast.SelectQuery, team: Team, user: User) -> list[Any] | None:
     return None if results is None else list(results)
 
 
+def _midnight(team: Team, day: date) -> ast.Constant:
+    return ast.Constant(value=datetime.combine(day, time.min, tzinfo=team.timezone_info))
+
+
 def _day(value: date | str) -> date:
     return value if isinstance(value, date) else date.fromisoformat(value[:10])
 
@@ -101,8 +104,8 @@ def key_metrics(team: Team, user: User) -> list[KeyMetric] | None:
 
     daily = _select(
         DAILY,
-        today=ast.Constant(value=today),
-        days=ast.Constant(value=DAYS),
+        start=_midnight(team, today - timedelta(days=DAYS)),
+        end=_midnight(team, today),
         match=ast.Or(exprs=[clone_expr(c) for c in conditions.values()]),
         test_accounts=clone_expr(test_accounts),
     )
@@ -127,7 +130,12 @@ def key_metrics(team: Team, user: User) -> list[KeyMetric] | None:
         points = [(day, float(by_day[day][index]) if day in by_day else 0.0) for day in days]
         if key == PEOPLE_METRIC:
             weekly_query = _select(
-                WEEKLY_PEOPLE, today=ast.Constant(value=today), match=condition, test_accounts=clone_expr(test_accounts)
+                WEEKLY_PEOPLE,
+                start=_midnight(team, today - timedelta(days=14)),
+                week=_midnight(team, today - timedelta(days=7)),
+                end=_midnight(team, today),
+                match=condition,
+                test_accounts=clone_expr(test_accounts),
             )
             weekly = _run(weekly_query, team, user)
             if weekly is None:

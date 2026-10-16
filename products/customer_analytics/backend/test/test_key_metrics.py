@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -108,6 +108,24 @@ class TestKeyMetrics(ClickhouseTestMixin, BaseTest):
             ),
             (expected, {"signup_event": 35, "activity_event": 35}, metrics),
         )
+
+    def test_days_follow_the_project_timezone(self) -> None:
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
+        config = self.team.customer_analytics_config
+        config.activity_event = {"kind": "EventsNode", "event": "opened_file"}
+        config.save()
+        with time_machine.travel("2026-03-02T12:00:00Z", tick=False):
+            for person, at in (("late-yesterday", "2026-03-01T14:00:00Z"), ("early-today", "2026-03-01T16:00:00Z")):
+                create_person(team=self.team, distinct_ids=[person])
+                _create_event(team=self.team, event="opened_file", distinct_id=person, timestamp=at)
+            flush_persons_and_events()
+
+            metrics = get_key_metrics(team=self.team, user=self.user)
+
+        assert metrics is not None
+        activity = metrics[0]
+        self.assertEqual((activity.this_week, activity.daily[-1]), (1.0, (date(2026, 3, 1), 1.0)))
 
     def test_an_uncached_query_returns_nothing_and_calculates_in_the_background(self) -> None:
         config = self.team.customer_analytics_config
