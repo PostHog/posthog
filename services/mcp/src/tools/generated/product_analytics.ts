@@ -30,20 +30,12 @@ const AssistantDataTableNode = z
     })
     .catchall(z.unknown())
 
-const VizSpecificOptions = z.object({
-    ActionsPie: z
-        .object({
-            disableHoverOffset: z.coerce.boolean().optional(),
-            hideAggregation: z.coerce.boolean().optional(),
-        })
-        .optional(),
-    RETENTION: z
-        .object({
-            hideLineGraph: z.coerce.boolean().optional(),
-            hideSizeColumn: z.coerce.boolean().optional(),
-            useSmallLayout: z.coerce.boolean().optional(),
-        })
-        .optional(),
+const AssistantPieChartOptions = z.object({
+    hideAggregation: z.coerce.boolean().describe('Hide the total on a pie chart.').optional(),
+})
+
+const AssistantVizSpecificOptions = z.object({
+    ActionsPie: AssistantPieChartOptions.optional(),
 })
 
 const AssistantInsightVizNode = z.object({
@@ -53,9 +45,7 @@ const AssistantInsightVizNode = z.object({
         .describe(
             'Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery'
         ),
-    vizSpecificOptions: VizSpecificOptions.describe(
-        'Chart rendering options. Set `ActionsPie.hideAggregation` to `true` to hide the total on a pie chart.'
-    ).optional(),
+    vizSpecificOptions: AssistantVizSpecificOptions.describe('Chart rendering options.').optional(),
 })
 
 const AssistantDataVisualizationBoxPlotSettings = z.object({

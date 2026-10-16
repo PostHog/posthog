@@ -3784,8 +3784,8 @@
                     "type": "object"
                 },
                 "vizSpecificOptions": {
-                    "$ref": "#/definitions/VizSpecificOptions",
-                    "description": "Chart rendering options. Set `ActionsPie.hideAggregation` to `true` to hide the total on a pie chart."
+                    "$ref": "#/definitions/AssistantVizSpecificOptions",
+                    "description": "Chart rendering options."
                 }
             },
             "required": ["kind", "source"],
@@ -4328,6 +4328,16 @@
                 }
             },
             "required": ["kind", "pathsFilter"],
+            "type": "object"
+        },
+        "AssistantPieChartOptions": {
+            "additionalProperties": false,
+            "properties": {
+                "hideAggregation": {
+                    "description": "Hide the total on a pie chart.",
+                    "type": "boolean"
+                }
+            },
             "type": "object"
         },
         "AssistantPropertyFilter": {
@@ -5818,6 +5828,15 @@
                 }
             },
             "required": ["id", "tool_call_id", "content"],
+            "type": "object"
+        },
+        "AssistantVizSpecificOptions": {
+            "additionalProperties": false,
+            "properties": {
+                "ActionsPie": {
+                    "$ref": "#/definitions/AssistantPieChartOptions"
+                }
+            },
             "type": "object"
         },
         "AssistantWebAnalyticsQueryBase": {

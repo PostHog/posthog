@@ -81,6 +81,21 @@
                                 "type": "string"
                             },
                             "type": "object"
+                        },
+                        "vizSpecificOptions": {
+                            "description": "Chart rendering options.",
+                            "properties": {
+                                "ActionsPie": {
+                                    "properties": {
+                                        "hideAggregation": {
+                                            "description": "Hide the total on a pie chart.",
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            },
+                            "type": "object"
                         }
                     },
                     "required": ["source"],

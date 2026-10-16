@@ -36,7 +36,6 @@ import {
     StickinessCriteria,
     TrendsFilterLegacy,
     TrendsFormulaNode,
-    VizSpecificOptions,
 } from './schema-general'
 import { integer, positive_integer } from './type-utils'
 
@@ -1826,8 +1825,17 @@ export interface AssistantInsightVizNode {
     kind: NodeKind.InsightVizNode
     /** Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery */
     source: Record<string, any>
-    /** Chart rendering options. Set `ActionsPie.hideAggregation` to `true` to hide the total on a pie chart. */
-    vizSpecificOptions?: VizSpecificOptions
+    /** Chart rendering options. */
+    vizSpecificOptions?: AssistantVizSpecificOptions
+}
+
+export interface AssistantPieChartOptions {
+    /** Hide the total on a pie chart. */
+    hideAggregation?: boolean
+}
+
+export interface AssistantVizSpecificOptions {
+    ActionsPie?: AssistantPieChartOptions
 }
 
 /**

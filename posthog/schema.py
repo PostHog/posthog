@@ -827,6 +827,13 @@ class AssistantPathCleaningFilter(BaseModel):
     )
 
 
+class AssistantPieChartOptions(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hideAggregation: bool | None = Field(default=None, description="Hide the total on a pie chart.")
+
+
 class AssistantRecordingPropertyFilter2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -948,6 +955,13 @@ class AssistantUpdateEvent(BaseModel):
     content: str
     id: str
     tool_call_id: str
+
+
+class AssistantVizSpecificOptions(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    ActionsPie: AssistantPieChartOptions | None = None
 
 
 class BICategoryGroup(BaseModel):
@@ -4411,12 +4425,7 @@ class AssistantInsightVizNode(BaseModel):
             " RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery"
         ),
     )
-    vizSpecificOptions: VizSpecificOptions | None = Field(
-        default=None,
-        description=(
-            "Chart rendering options. Set `ActionsPie.hideAggregation` to `true` to hide the total on a pie chart."
-        ),
-    )
+    vizSpecificOptions: AssistantVizSpecificOptions | None = Field(default=None, description="Chart rendering options.")
 
 
 class AssistantLifecycleFilter(BaseModel):
