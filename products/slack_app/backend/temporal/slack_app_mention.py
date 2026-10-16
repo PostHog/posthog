@@ -15,10 +15,7 @@ from products.slack_app.backend.temporal import (
     mark_slack_app_message_queued_activity,
     post_posthog_code_internal_error_activity,
 )
-from products.slack_app.backend.temporal.posthog_code_slack_mention import (
-    LegacyPostHogCodeSlackMentionWorkflow,
-    SlackAppMentionProcessingWorkflow,
-)
+from products.slack_app.backend.temporal.posthog_code_slack_mention import SlackAppMentionProcessingWorkflow
 from products.slack_app.backend.temporal.types import (
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppMentionWorkflowInputs,
@@ -26,7 +23,7 @@ from products.slack_app.backend.temporal.types import (
 )
 
 SLACK_APP_MENTION_IDLE_TIMEOUT_SECONDS = 30
-# Temporal patch ID: runs that started a child before this patch replay the old child type name.
+# deprecate_patch keeps runs that recorded the rename marker replayable.
 _PATCH_ID_MENTION_PROCESSING_RENAME = "slack-app-mention-processing-rename-2026-10"
 # Dedup keys carried across continue_as_new. Bounded so the carry-over payload
 # stays small; old keys only matter for Slack retries, which arrive within
@@ -181,11 +178,7 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
         ALLOW_DUPLICATE mirrors the standalone dispatch's reuse policy for
         retries that outlive this instance's dedup keys.
         """
-        child_type: type[SlackAppMentionProcessingWorkflow] = (
-            SlackAppMentionProcessingWorkflow
-            if workflow.patched(_PATCH_ID_MENTION_PROCESSING_RENAME)
-            else LegacyPostHogCodeSlackMentionWorkflow
-        )
+        workflow.deprecate_patch(_PATCH_ID_MENTION_PROCESSING_RENAME)
         try:
             # The default parent close policy (terminate) is deliberate: an
             # operator killing this queue means "stop this conversation", so
@@ -193,7 +186,7 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
             # return, continue_as_new) never have a child in flight — the
             # serial await completes it first.
             await workflow.execute_child_workflow(
-                child_type.run,
+                SlackAppMentionProcessingWorkflow.run,
                 message,
                 id=derive_mention_workflow_id(message),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
