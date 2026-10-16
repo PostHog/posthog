@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.
     MEDIA_PARENT_FIELDS,
     PAGE_FIELDS,
     PAGE_SIZE,
+    TOP_LEVEL_COMMENT_FIELDS,
     InstagramEndpointConfig,
 )
 
@@ -442,12 +443,22 @@ def _media_comment_rows(
     logger: FilteringBoundLogger,
 ) -> list[dict[str, Any]]:
     media_id = str(media["id"])
-    url = client.build_url(f"{media_id}/comments", {"fields": config.fields, "limit": str(PAGE_SIZE)})
+    url = client.build_url(f"{media_id}/comments", {"fields": TOP_LEVEL_COMMENT_FIELDS, "limit": str(PAGE_SIZE)})
 
     rows: list[dict[str, Any]] = []
     try:
         for page, _ in _iter_pages(client, url, MAX_PAGES_PER_PARENT):
-            rows.extend(_normalize_row({**comment, "media_id": media_id}, config.timestamp_fields) for comment in page)
+            for comment in page:
+                replies = comment.pop("replies", None)
+                rows.append(_normalize_row({**comment, "media_id": media_id}, config.timestamp_fields))
+                comment_id = comment.get("id")
+                if comment_id and isinstance(replies, dict):
+                    rows.extend(
+                        _normalize_row(
+                            {**reply, "media_id": media_id, "parent_id": str(comment_id)}, config.timestamp_fields
+                        )
+                        for reply in _comment_replies(client, str(comment_id), replies, config)
+                    )
     except InstagramBadRequestError as error:
         # Comments are disabled or the post was deleted mid-sync. Neither is fixable by
         # retrying and neither should sink the whole table.
@@ -455,6 +466,28 @@ def _media_comment_rows(
         return []
 
     return rows
+
+
+def _comment_replies(
+    client: InstagramClient,
+    comment_id: str,
+    first_page: dict[str, Any],
+    config: InstagramEndpointConfig,
+) -> Iterator[dict[str, Any]]:
+    """Yield every reply in a thread, starting from the page expanded inline on the comment."""
+    replies = first_page.get("data")
+    yield from (reply for reply in (replies if isinstance(replies, list) else []) if isinstance(reply, dict))
+
+    paging = first_page.get("paging") or {}
+    after = (paging.get("cursors") or {}).get("after")
+    if not (paging.get("next") and after):
+        return
+
+    url = client.build_url(
+        f"{comment_id}/replies", {"fields": config.fields, "limit": str(PAGE_SIZE), "after": str(after)}
+    )
+    for page, _ in _iter_pages(client, url, MAX_PAGES_PER_PARENT):
+        yield from page
 
 
 def _media_insight_rows(

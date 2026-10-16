@@ -6322,7 +6322,7 @@ Today (6): `account`, `account_insights`, `media`, `media_comments`, `media_insi
 
 Diffed against: <https://raw.githubusercontent.com/facebook/facebook-python-business-sdk/main/facebook_business/adobjects/igmedia.py>
 
-- [ ] `Replies (GET /{ig-comment-id}/replies)` — include conversations below comments when measuring engagement and response activity (medium)
+- [x] `Replies (GET /{ig-comment-id}/replies)` — include conversations below comments when measuring engagement and response activity (medium). Added to `media_comments` with `parent_id` set to the top-level comment. The first page of replies comes back inline on each comment, and `/{ig-comment-id}/replies` is called only when a thread has more.
 - [ ] `Tagged media (GET /{ig-user-id}/tags)` — measure customer mentions and content that tags the account but belongs to other creators (medium)
 - [ ] `Children (GET /{ig-media-id}/children)` — identify individual images and videos within carousel posts (medium)
 - [ ] `Collaborators (GET /{ig-media-id}/collaborators)` — attribute collaborative posts to participating accounts (medium)
