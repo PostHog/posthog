@@ -184,6 +184,8 @@ describe('replayScannerLogic', () => {
                 experiment_targeting: null,
             })
             expect(logic.values.scanner?.query).toMatchObject({ events: query.events })
+            // The experiment fixes the type, so the wizard offers no other type and no template step.
+            expect(logic.values.lockedToExperimentScanner).toBe(true)
         })
     })
 
@@ -477,6 +479,7 @@ describe('replayScannerLogic', () => {
             expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 } })
             // The goal page and template step promise to keep watching only a linked experiment.
             expect(logic.values.linkedExperimentContext).toBeNull()
+            expect(logic.values.lockedToExperimentScanner).toBe(false)
             router.actions.push(urls.replayVisionScannerTemplate('new'))
 
             await expectLogic(logic, () =>
@@ -914,6 +917,29 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+        })
+
+        it('keeps an experiment entry locked when its draft is resumed', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                },
+            })
+            router.actions.push(urls.replayVisionScannerDetails('new'), { experiment: '7' })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            logic.actions.setScannerValues({ name: 'Checkout scan' })
+            expect(logic.values.lockedToExperimentScanner).toBe(true)
+            logic.unmount()
+
+            // A plain entry resumes the draft, so only the stored link can restore the lock.
+            router.actions.push(urls.replayVisionScannerDetails('new'))
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.scanner).toMatchObject({ name: 'Checkout scan', scanner_type: 'experiment' })
+            expect(logic.values.lockedToExperimentScanner).toBe(true)
         })
 
         it('preserves an existing draft when the wizard is entered from a ?filters= deep link', async () => {
