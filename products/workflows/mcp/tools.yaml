@@ -15,7 +15,9 @@ ui_apps:
     workflow-sending-rules:
         type: custom
         app_name: PostHog Sending Rules
-        description: Sending rules for the project, with a button to apply the recommended frequency cap and a switch for engagement events.
+        description:
+            Sending rules for the project, with a button to apply the recommended frequency cap and a switch for
+            engagement events.
     workflow-data-suggestions:
         type: custom
         app_name: PostHog Workflow Suggestions
@@ -459,16 +461,16 @@ tools:
     workflows-sending-rules-update:
         operation: workflow_sending_rules_partial_update
         enabled: true
-        title: Update sending rules
-        description: >
-            Change the project-wide sending rules. Only the fields you send change. When a project has no frequency
-            cap yet, recommend 1 marketing message every 2 days (max_messages 1, window_days 2) and turning on
-            engagement events; leave tracking consent as it is unless the user asks. Confirm the values with the user
-            before calling. Needs a project admin. Set both cap fields together, or both to null to turn the cap off.
         annotations:
             readOnly: false
             destructive: false
             idempotent: true
+        title: Update sending rules
+        description: >
+            Change the project-wide sending rules. Only the fields you send change. When a project has no frequency cap
+            yet, recommend 1 marketing message every 2 days (max_messages 1, window_days 2) and turning on engagement
+            events; leave tracking consent as it is unless the user asks. Confirm the values with the user before
+            calling. Needs a project admin. Set both cap fields together, or both to null to turn the cap off.
         ui_app: workflow-sending-rules
         feature_flag: workflows-mcp-onboarding
     workflows-stats:
