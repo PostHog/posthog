@@ -222,6 +222,20 @@ class HighlightCandidate:
 
 
 @frozen
+class HighlightDetection:
+    """A notable move in a series, as `highlight_helpers.detect` reports it."""
+
+    kind: str
+    strength: float
+    direction: int
+    pct: float | None = None
+    now: float | None = None
+    usual: float | None = None
+    weekday: str | None = None
+    same_weekday: bool = False
+
+
+@frozen
 class HighlightFindings:
     items: tuple[HighlightCandidate, ...] = ()
     pulse: tuple[HighlightMetric, ...] = ()

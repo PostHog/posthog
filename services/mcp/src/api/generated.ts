@@ -55410,6 +55410,30 @@ export namespace Schemas {
     }
 
     /**
+     * In-flight runs keyed by the id of the step they are on. Null when the count is unavailable.
+     * @nullable
+     */
+    export type HogFlowInFlightByAction = {[key: string]: number} | null;
+
+    export interface HogFlowInFlight {
+      /**
+         * About how many runs are in flight (parked on a delay or wait, or executing). Null when the count is unavailable.
+         * @nullable
+         */
+      count: number | null;
+      /**
+         * In-flight runs keyed by the id of the step they are on. Null when the count is unavailable.
+         * @nullable
+         */
+      by_action: HogFlowInFlightByAction;
+      /**
+         * In-flight runs whose current step could not be read. Null when the count is unavailable.
+         * @nullable
+         */
+      position_unknown: number | null;
+    }
+
+    /**
      * Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person.
      */
     export type HogFlowInvocationGlobals = { [key: string]: unknown };
@@ -55926,6 +55950,7 @@ export namespace Schemas {
      * * `task_mcp_installations` - task_mcp_installations
      * * `signals_scout` - signals_scout
      * * `task_skills` - task_skills
+     * * `replay_vision_scan` - replay_vision_scan
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -55953,6 +55978,7 @@ export namespace Schemas {
       TaskMcpInstallations: 'task_mcp_installations',
       SignalsScout: 'signals_scout',
       TaskSkills: 'task_skills',
+      ReplayVisionScan: 'replay_vision_scan',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -83093,6 +83119,18 @@ export namespace Schemas {
          * @nullable
          */
       workflow_task_team_rate_limit_per_day?: number | null;
+      /**
+         * How many Replay Vision scans one workflow can request in a rolling 24 hours. Null uses the default of 100; zero pauses scans for every workflow in the project. Support raises the limit above 500.
+         * @minimum 0
+         * @nullable
+         */
+      replay_vision_scan_rate_limit_per_day?: number | null;
+      /**
+         * How many Replay Vision scans all workflows in the project request together in a rolling 24 hours. Null uses the default of 500; zero pauses scans for the project. Support raises the limit above 2500.
+         * @minimum 0
+         * @nullable
+         */
+      replay_vision_scan_team_rate_limit_per_day?: number | null;
       /**
          * ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted.
          * @nullable

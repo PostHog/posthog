@@ -775,6 +775,8 @@ depends_on = [
     # A trends query filtering on a first-pageview-aware property builds it through
     # web analytics' attribution helper. Core held this import before trends moved.
     "products.web_analytics",
+    # Facade-only: product analytics declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -1127,6 +1129,9 @@ depends_on = [
     # Facade-only: the Classify with AI action's endpoint asks the model through
     # products.ml_inference.backend.facade.api.
     "products.ml_inference",
+    # Facade-only: the Replay Vision step's endpoint starts a scan through
+    # products.replay_vision.backend.facade.api.
+    "products.replay_vision",
 ]
 layer = "modules"
 

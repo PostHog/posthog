@@ -240,7 +240,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let pools = create_pools(&config);
-    let storage = Arc::new(PostgresIdentityStorage::new(pools.clone(), config.tables()));
+    if config.lifecycle_outbox_enabled {
+        // With the outbox on, every create, attach and op completion names
+        // the table; refuse to start without it instead of failing each
+        // request once the pod is ready. Any other error is left to the
+        // request path, as warm_pool leaves a connection failure.
+        let probe = format!("SELECT 1 FROM {} LIMIT 0", tables.person_publish_outbox);
+        if let Err(e) = sqlx::query(&query_tag!("startup_outbox_probe", probe))
+            .execute(pools.fast())
+            .await
+        {
+            let undefined_table =
+                e.as_database_error().and_then(|db| db.code()).as_deref() == Some("42P01");
+            if undefined_table {
+                panic!(
+                    "LIFECYCLE_OUTBOX_ENABLED is set but {} does not exist; apply the persons migration first",
+                    tables.person_publish_outbox
+                );
+            }
+            tracing::warn!(
+                error = %e,
+                table = %tables.person_publish_outbox,
+                "Could not probe the publish outbox table at startup"
+            );
+        }
+    }
+    let storage = Arc::new(PostgresIdentityStorage::new(
+        pools.clone(),
+        config.tables(),
+        outbox_writes,
+    ));
 
     // Pre-warm the DB connection pools before accepting traffic.
     // connect_lazy() starts with zero connections; without this, the first
