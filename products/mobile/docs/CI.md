@@ -4,7 +4,7 @@ Two GitHub Actions workflows cover the app. Both work inside `products/mobile` a
 
 ## Mobile CI
 
-`.github/workflows/mobile-ci.yml` runs on pull requests and on pushes to `master` that change `products/mobile/**` or the workflow file.
+`.github/workflows/mobile-ci.yml` runs on pull requests and on pushes to `master` that change `products/mobile/**`, the Signals generated API schemas, or the workflow file.
 Markdown changes alone do not start it.
 
 One job runs these steps, the same commands you run locally:
@@ -20,6 +20,7 @@ Write `pnpm test --ci`, not `pnpm test -- --ci`. pnpm forwards the `--`, and Jes
 
 Details:
 
+- The checkout includes `products/signals/frontend/generated/api.schemas.ts` for the PR checks response type. It is a type-only import, so native builds still upload only `products/mobile`.
 - pnpm comes from `packageManager` in `products/mobile/package.json`, not from the repo root.
 - Node comes from `products/mobile/.node-version`. Keep it equal to the repo's `.nvmrc` and to `node` in `eas.json`.
 - The pnpm store cache is keyed on `products/mobile/pnpm-lock.yaml`. Pull requests only restore it. Pushes to `master` save it.

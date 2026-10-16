@@ -154,7 +154,9 @@ Sizing a glyph does not change its button's tap target, which stays at least 44p
   checking, and gray when no checks are reported. The label stays visible alongside the color.
   Task status opens the
   implementation chat. The Reassign / Resolve / Dismiss pill and the round ink Chat button to its right
-  show in every state; Chat starts report discussion. Resolve and Dismiss open a sheet with the web
+  show in every state; Chat starts report discussion.
+  Its compose icon matches the tabs' Chat button.
+  Resolve and Dismiss open a sheet with the web
   inbox's reasons and an optional note, and after a confirmed verdict the screen goes back to the inbox.
   A 409 from the server (the report's status cannot take that verdict) stays in the sheet as an error. Undo is a separate action while an answer is in flight. Transient tool text
   clears when a turn is idle or terminal and stays on one truncated line while active.

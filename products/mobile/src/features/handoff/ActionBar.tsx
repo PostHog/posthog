@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import { KeyboardStickyView } from 'react-native-keyboard-controller'
 
 import type { ActionBarState, ReportActions, ReportView } from '@/model/types'
-import { ChatBubbleIcon } from '@/ui/icons/ChatBubbleIcon'
+import { ComposeIcon } from '@/ui/icons/ComposeIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, iconSizes, layout, radii, shadows, type } from '@/ui/tokens'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
@@ -134,7 +134,7 @@ export function ActionBar({
                         haptic="selection"
                         testID="action-chat"
                     >
-                        <ChatBubbleIcon size={iconSizes.navigation} color={colors.white} />
+                        <ComposeIcon size={iconSizes.navigation} color={colors.white} />
                     </Pressable44>
                 </View>
             </View>
