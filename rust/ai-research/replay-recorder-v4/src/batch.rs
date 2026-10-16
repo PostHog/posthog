@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use futures::stream::{self, StreamExt};
 use metrics::counter;
+use posthog_replay_anonymizer::compression::{GZIP_MAGIC, MAX_DECOMPRESSED_BYTES};
 use replay_core_v4::inspect::session::{BlockInspection, Moment, SessionInspector};
 use replay_core_v4::inspect::stats::BlockStats;
 use replay_core_v4::scan::message::Message;
@@ -31,10 +32,37 @@ pub struct Raw {
     pub content_encoding: Option<String>,
 }
 
-/// One session's messages from one partition in the current flush. Capture keys messages by session, so a session
-/// has one partition per topic.
+impl Raw {
+    /// The bytes the payload decompresses to. Decompression allocates the size that the lz4 prefix or the gzip footer
+    /// states, or fails, so the flush size counts that instead of the compressed bytes.
+    pub fn decoded_len(&self) -> usize {
+        let stated = if self.content_encoding.as_deref() == Some("lz4") {
+            self.payload.get(..4)
+        } else if self.payload.starts_with(&GZIP_MAGIC) {
+            self.payload.get(self.payload.len().saturating_sub(4)..)
+        } else {
+            None
+        };
+        let stated = stated
+            .and_then(|b| <[u8; 4]>::try_from(b).ok())
+            .map(|b| u32::from_le_bytes(b) as usize)
+            .filter(|&n| n <= MAX_DECOMPRESSED_BYTES);
+        self.payload.len().max(stated.unwrap_or(0))
+    }
+}
+
+/// One session's messages from one partition in the current flush, read under one assignment of that partition.
 pub struct Pending {
+    pub epoch: u64,
     pub messages: Vec<Raw>,
+}
+
+/// The offsets a flush handled on one partition, recorded or skipped alike.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Span {
+    pub epoch: u64,
+    pub first: i64,
+    pub last: i64,
 }
 
 /// What a flush hands to the writers.
@@ -49,8 +77,7 @@ pub struct Block {
 
 pub struct Batch {
     pub sessions: BTreeMap<(SessionKey, Tp), Pending>,
-    /// The last offset handled on each partition, recorded or skipped alike.
-    pub offsets: HashMap<Tp, i64>,
+    pub spans: HashMap<Tp, Span>,
     bytes: usize,
     started: Instant,
 }
@@ -59,7 +86,7 @@ impl Default for Batch {
     fn default() -> Self {
         Self {
             sessions: BTreeMap::new(),
-            offsets: HashMap::new(),
+            spans: HashMap::new(),
             bytes: 0,
             started: Instant::now(),
         }
@@ -67,18 +94,34 @@ impl Default for Batch {
 }
 
 impl Batch {
-    /// Marks an offset handled. A skipped message still moves its partition forward.
-    pub fn handled(&mut self, tp: Tp, offset: i64) {
-        let last = self.offsets.entry(tp).or_insert(offset);
-        *last = (*last).max(offset);
+    /// Marks an offset handled. A skipped message still moves its partition forward. A message of a newer assignment
+    /// drops what an older one left, which Kafka delivers again from the last commit.
+    pub fn handled(&mut self, tp: Tp, epoch: u64, offset: i64) {
+        match self.spans.get_mut(&tp) {
+            Some(span) if span.epoch == epoch => span.last = span.last.max(offset),
+            stale => {
+                if stale.is_some() {
+                    self.retain(|t, e| t != tp || e == epoch);
+                }
+                self.spans.insert(
+                    tp,
+                    Span {
+                        epoch,
+                        first: offset,
+                        last: offset,
+                    },
+                );
+            }
+        }
     }
 
-    pub fn add(&mut self, tp: Tp, session: SessionKey, raw: Raw) {
-        self.handled(tp, raw.offset);
-        self.bytes += raw.payload.len();
+    pub fn add(&mut self, tp: Tp, epoch: u64, session: SessionKey, raw: Raw) {
+        self.handled(tp, epoch, raw.offset);
+        self.bytes += raw.decoded_len();
         self.sessions
             .entry((session, tp))
             .or_insert_with(|| Pending {
+                epoch,
                 messages: Vec::new(),
             })
             .messages
@@ -86,21 +129,32 @@ impl Batch {
     }
 
     pub fn should_flush(&self, interval: Duration, max_bytes: usize) -> bool {
-        !self.offsets.is_empty() && (self.bytes >= max_bytes || self.started.elapsed() >= interval)
+        !self.spans.is_empty() && (self.bytes >= max_bytes || self.started.elapsed() >= interval)
     }
 
-    /// Forgets partitions this process no longer owns. Their messages are not committed, so the new owner reads them.
-    pub fn drop_partitions(&mut self, revoked: &[Tp]) {
-        self.sessions.retain(|(_, tp), _| !revoked.contains(tp));
-        for tp in revoked {
-            self.offsets.remove(tp);
-        }
+    pub fn is_empty(&self) -> bool {
+        self.spans.is_empty()
+    }
+
+    /// Keeps what was read under an assignment that `keep` accepts. The rest is not committed, so it is read again.
+    pub fn retain(&mut self, keep: impl Fn(Tp, u64) -> bool) {
+        self.sessions
+            .retain(|(_, tp), pending| keep(*tp, pending.epoch));
+        self.spans.retain(|tp, span| keep(*tp, span.epoch));
         self.bytes = self
             .sessions
             .values()
             .flat_map(|p| &p.messages)
-            .map(|m| m.payload.len())
+            .map(Raw::decoded_len)
             .sum();
+    }
+
+    /// The next offset to commit on each partition.
+    pub fn offsets(&self) -> HashMap<Tp, i64> {
+        self.spans
+            .iter()
+            .map(|(tp, span)| (*tp, span.last + 1))
+            .collect()
     }
 }
 
@@ -113,11 +167,7 @@ pub struct Inspectors {
 impl Inspectors {
     /// Decodes every buffered message and runs it through its session's inspector, with up to `concurrency` sessions
     /// at once off the async runtime. Returns one block per session.
-    pub async fn inspect(
-        &mut self,
-        batch: Batch,
-        concurrency: usize,
-    ) -> (Vec<Block>, HashMap<Tp, i64>) {
+    pub async fn inspect(&mut self, batch: Batch, concurrency: usize) -> Vec<Block> {
         let mut by_session: BTreeMap<SessionKey, (Vec<Tp>, Vec<Raw>)> = BTreeMap::new();
         for ((session, tp), pending) in batch.sessions {
             let (tps, raws) = by_session.entry(session).or_default();
@@ -159,7 +209,7 @@ impl Inspectors {
             blocks.extend(block);
         }
         blocks.sort_by(|a, b| a.session.cmp(&b.session));
-        (blocks, batch.offsets)
+        blocks
     }
 
     pub fn drop_partitions(&mut self, revoked: &[Tp]) {
@@ -217,9 +267,17 @@ fn inspect_session(
 
 #[cfg(test)]
 mod tests {
+    use posthog_replay_anonymizer::compression::gzip;
     use serde_json::{json, Value};
 
     use super::*;
+
+    fn tp(partition: i32) -> Tp {
+        Tp {
+            topic: "main",
+            partition,
+        }
+    }
 
     fn raw(offset: i64, session: &str, items: Value) -> Raw {
         let inner = json!({"event": "$snapshot_items", "properties": {"$session_id": session, "$window_id": "w", "$snapshot_source": "web", "$snapshot_items": items}});
@@ -232,18 +290,27 @@ mod tests {
         }
     }
 
-    fn tp(partition: i32) -> Tp {
-        Tp {
-            topic: "main",
-            partition,
-        }
-    }
-
     fn key(session: &str) -> SessionKey {
         SessionKey {
             team_id: 7,
             session_id: session.to_owned(),
         }
+    }
+
+    #[test]
+    fn counts_a_compressed_payload_at_its_decoded_size() {
+        let plain = raw(
+            1,
+            "a",
+            json!([{"type": 5, "timestamp": 1, "data": "a".repeat(100_000)}]),
+        );
+        let size = plain.payload.len();
+        let gzipped = Raw {
+            payload: gzip(&plain.payload).unwrap(),
+            ..plain
+        };
+        assert!(gzipped.payload.len() < size / 10);
+        assert_eq!(gzipped.decoded_len(), size);
     }
 
     fn snapshot() -> Value {
@@ -257,14 +324,15 @@ mod tests {
     #[tokio::test]
     async fn a_revoked_partition_leaves_nothing_behind() {
         let mut batch = Batch::default();
-        batch.add(tp(0), key("a"), raw(10, "a", mouse()));
-        batch.add(tp(1), key("b"), raw(20, "b", mouse()));
-        batch.handled(tp(1), 21);
+        batch.add(tp(0), 0, key("a"), raw(10, "a", mouse()));
+        batch.add(tp(1), 0, key("b"), raw(20, "b", mouse()));
+        batch.handled(tp(1), 0, 21);
         let mut inspectors = Inspectors::default();
-        batch.drop_partitions(&[tp(1)]);
+        batch.retain(|tp, _| tp.partition != 1);
         inspectors.drop_partitions(&[tp(1)]);
 
-        let (blocks, offsets) = inspectors.inspect(batch, 2).await;
+        assert_eq!(batch.offsets(), HashMap::from([(tp(0), 11)]));
+        let blocks = inspectors.inspect(batch, 2).await;
         assert_eq!(
             blocks
                 .iter()
@@ -272,21 +340,41 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["a"]
         );
-        assert_eq!(offsets, HashMap::from([(tp(0), 10)]));
+    }
+
+    #[test]
+    fn a_reassigned_partition_keeps_only_what_its_new_assignment_read() {
+        // The partition was revoked and assigned again inside one poll, so Kafka delivers offset 10 again.
+        let mut batch = Batch::default();
+        batch.add(tp(0), 0, key("a"), raw(10, "a", mouse()));
+        batch.add(tp(0), 0, key("a"), raw(11, "a", mouse()));
+        batch.add(tp(0), 1, key("a"), raw(10, "a", mouse()));
+        batch.retain(|_, epoch| epoch == 1);
+
+        let pending = &batch.sessions[&(key("a"), tp(0))];
+        assert_eq!(
+            pending
+                .messages
+                .iter()
+                .map(|m| m.offset)
+                .collect::<Vec<_>>(),
+            [10]
+        );
+        assert_eq!(batch.offsets(), HashMap::from([(tp(0), 11)]));
     }
 
     #[tokio::test]
     async fn session_state_carries_across_flushes() {
         let mut inspectors = Inspectors::default();
         let mut first = Batch::default();
-        first.add(tp(0), key("a"), raw(1, "a", snapshot()));
-        first.add(tp(0), key("b"), raw(2, "b", mouse()));
+        first.add(tp(0), 0, key("a"), raw(1, "a", snapshot()));
+        first.add(tp(0), 0, key("b"), raw(2, "b", mouse()));
         inspectors.inspect(first, 2).await;
 
         let mut second = Batch::default();
-        second.add(tp(0), key("a"), raw(3, "a", mouse()));
-        second.add(tp(0), key("b"), raw(4, "b", mouse()));
-        let (blocks, _) = inspectors.inspect(second, 2).await;
+        second.add(tp(0), 0, key("a"), raw(3, "a", mouse()));
+        second.add(tp(0), 0, key("b"), raw(4, "b", mouse()));
+        let blocks = inspectors.inspect(second, 2).await;
         let cold: Vec<_> = blocks
             .iter()
             .map(|b| (b.session.session_id.as_str(), b.stats.cold_start))
