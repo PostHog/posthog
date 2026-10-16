@@ -77,6 +77,7 @@ members = [
   "property-vals-rs",
   "pgcollector",
   "pgapi",
+  "ai-research/replay-core-v4",
 ]
 
 # NOTE: cargo allows only one crate with `links = "python"` (i.e. one pyo3 version) per
