@@ -69,6 +69,42 @@ const subscriptionFixture = (overrides: Partial<SubscriptionType>): Subscription
         ...overrides,
     }) as unknown as SubscriptionType
 
+const mockSubscriptionApi = (subscription: SubscriptionType): void => {
+    useMocks({
+        get: {
+            '/api/environments/:team/subscriptions/1': subscription,
+            '/api/environments/:team/subscriptions': { count: 0, results: [] },
+            '/api/projects/:team/subscriptions/1/deliveries/': { next: null, previous: null, results: [] },
+            '/api/projects/:team/integrations': { count: 1, results: [SLACK_INTEGRATION] },
+            '/api/projects/:team/integrations/:intId/channels': { channels: [] },
+            '/api/environments/:team/subscriptions/summary_quota': {
+                active_count: 0,
+                limit: null,
+                at_limit: false,
+            },
+            '/api/organizations/@current/': MOCK_DEFAULT_ORGANIZATION,
+            '/api/organizations/@current/members/': {
+                count: 1,
+                results: [
+                    {
+                        id: 'mem-1',
+                        level: 8,
+                        joined_at: '2022-01-01T00:09:00',
+                        updated_at: '2022-01-01T00:09:00',
+                        user: { ...MOCK_DEFAULT_USER, email: 'subscriber@example.com' },
+                    },
+                ],
+            },
+        },
+        patch: {
+            '/api/environments/:team/subscriptions/1': async ({ request }) => [
+                200,
+                { ...subscription, ...((await request.json()) as Partial<SubscriptionType>) },
+            ],
+        },
+    })
+}
+
 // The insight picker fills an empty selection and the destination picker selects the only
 // connected workspace. Neither is an edit, so neither may arm the unsaved-changes prompt.
 describe('EditSubscription unsaved changes', () => {
@@ -121,34 +157,7 @@ describe('EditSubscription unsaved changes', () => {
         'stays clean on open and after saving %s',
         async (_label, overrides) => {
             const subscription = subscriptionFixture(overrides as Partial<SubscriptionType>)
-            useMocks({
-                get: {
-                    '/api/environments/:team/subscriptions/1': subscription,
-                    '/api/environments/:team/subscriptions': { count: 0, results: [] },
-                    '/api/projects/:team/subscriptions/1/deliveries/': { next: null, previous: null, results: [] },
-                    '/api/projects/:team/integrations': { count: 1, results: [SLACK_INTEGRATION] },
-                    '/api/projects/:team/integrations/:intId/channels': { channels: [] },
-                    '/api/environments/:team/subscriptions/summary_quota': {
-                        active_count: 0,
-                        limit: null,
-                        at_limit: false,
-                    },
-                    '/api/organizations/@current/': MOCK_DEFAULT_ORGANIZATION,
-                    '/api/organizations/@current/members/': {
-                        count: 1,
-                        results: [
-                            {
-                                id: 'mem-1',
-                                level: 8,
-                                joined_at: '2022-01-01T00:09:00',
-                                updated_at: '2022-01-01T00:09:00',
-                                user: { ...MOCK_DEFAULT_USER, email: 'subscriber@example.com' },
-                            },
-                        ],
-                    },
-                },
-                patch: { '/api/environments/:team/subscriptions/1': subscription },
-            })
+            mockSubscriptionApi(subscription)
             initKeaTests()
             userLogic.mount()
             userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
@@ -171,4 +180,31 @@ describe('EditSubscription unsaved changes', () => {
         },
         30000
     )
+
+    it('lets the user save when every selected insight left the dashboard', async () => {
+        const subscription = subscriptionFixture({
+            target_type: 'email',
+            target_value: 'subscriber@example.com',
+            dashboard_export_insights: [91, 92],
+        })
+        mockSubscriptionApi(subscription)
+        initKeaTests()
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+        router.actions.push('/dashboard/5/subscriptions/1')
+
+        render(
+            <Provider>
+                <EditSubscription id={1} dashboard={DASHBOARD} onCancel={jest.fn()} onDelete={jest.fn()} />
+            </Provider>
+        )
+
+        expect(await screen.findByText(/no longer on this dashboard/, {}, { timeout: 10000 })).toBeInTheDocument()
+        expect(isClean()).toBe(false)
+
+        await userEvent.click(saveButton())
+        await waitFor(() => expect(screen.queryByText(/no longer on this dashboard/)).not.toBeInTheDocument(), {
+            timeout: 10000,
+        })
+    }, 30000)
 })
