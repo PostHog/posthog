@@ -7,6 +7,7 @@ from posthog.errors import (
     CHQueryErrorCannotParseBool,
     CHQueryErrorCannotParseUuid,
     CHQueryErrorInvalidJoinOnExpression,
+    CHQueryErrorMalformedCsvRow,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
@@ -184,6 +185,36 @@ class TestWrapClickhouseQueryError:
         assert isinstance(wrapped, CHQueryErrorBadGet)
         assert str(wrapped) == BAD_GET_FALLBACK_MESSAGE
         assert "private" not in wrapped.message
+
+    @parameterized.expand(
+        [
+            (
+                "with_row_and_file",
+                "DB::Exception: Expected end of line: (at row 115622)\n: Row 115621: private-row-value "
+                "(in file/uri example-bucket/data/export.csv): While executing CSVRowInputFormat. "
+                "Stack trace: private-stack-frame",
+                "A row in a CSV file backing this table is malformed at row 115622 of example-bucket/data/export.csv. "
+                "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
+            ),
+            (
+                "without_location",
+                "DB::Exception: Expected end of line: private-row-value",
+                "A row in a CSV file backing this table is malformed. "
+                "Check that row for unescaped quotes, a wrong delimiter, or a different number of columns.",
+            ),
+        ]
+    )
+    def test_malformed_csv_row_is_exposed_without_row_contents(self, _name: str, raw: str, expected: str) -> None:
+        wrapped = wrap_clickhouse_query_error(
+            ServerException(raw, code=117, nested=ServerException("fake-nested-secret", code=1000))
+        )
+
+        assert isinstance(wrapped, CHQueryErrorMalformedCsvRow)
+        assert str(wrapped) == expected
+        assert "private" not in wrapped.message
+        assert wrapped.code == 117
+        assert wrapped.code_name == "malformed_csv_row"
+        assert wrapped.nested is None
 
     @parameterized.expand(
         [
