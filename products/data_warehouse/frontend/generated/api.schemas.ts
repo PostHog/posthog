@@ -3306,6 +3306,7 @@ export interface CredentialApi {
  * * `BlackboardLearn` - BlackboardLearn
  * * `Bling` - Bling
  * * `Bloomerang` - Bloomerang
+ * * `Blueshift` - Blueshift
  * * `Bluesky` - Bluesky
  * * `BolRetailer` - BolRetailer
  * * `Boulevard` - Boulevard
@@ -4693,6 +4694,7 @@ export const ExternalDataSourceTypeEnumApi = {
     BlackboardLearn: 'BlackboardLearn',
     Bling: 'Bling',
     Bloomerang: 'Bloomerang',
+    Blueshift: 'Blueshift',
     Bluesky: 'Bluesky',
     BolRetailer: 'BolRetailer',
     Boulevard: 'Boulevard',

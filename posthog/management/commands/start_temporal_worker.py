@@ -227,10 +227,6 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
 )
-from products.exports.backend.temporal.subscriptions import (
-    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
-    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
-)
 from products.growth.backend.temporal import (
     ACTIVITIES as GROWTH_ACTIVITIES,
     WORKFLOWS as GROWTH_WORKFLOWS,
@@ -303,6 +299,10 @@ from products.slack_app.backend.facade.temporal import (
 from products.stamphog.backend.facade.temporal import (
     ACTIVITIES as STAMPHOG_ACTIVITIES,
     WORKFLOWS as STAMPHOG_WORKFLOWS,
+)
+from products.subscriptions.backend.facade.temporal import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
