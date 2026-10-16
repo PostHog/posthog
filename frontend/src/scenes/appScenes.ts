@@ -52,6 +52,7 @@ export const appScenes: Record<Scene | string, () => any> = {
         import('products/product_analytics/frontend/insights/insightQuickStart/InsightQuickStart'),
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.IntegrationsLanding]: () => import('./integrations/IntegrationsLandingScene'),
+    [Scene.GitHubConnect]: () => import('./integrations/github-connect/GitHubConnectScene'),
     [Scene.StripeConfirmInstall]: () => import('./StripeConfirmInstall/StripeConfirmInstall'),
     [Scene.InviteSignup]: () => import('./authentication/invite-signup/InviteSignup'),
     [Scene.LegacyPlugin]: () => import('./data-pipelines/legacy-plugins/LegacyPluginScene'),

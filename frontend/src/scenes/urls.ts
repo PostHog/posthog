@@ -291,6 +291,8 @@ export const urls = {
     codeLoopLink: (loopId: string): string => `/code/loop/${loopId}`,
     integration: (slug: string): string => `/integrations/${slug}`,
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
+    // pinned: the PostHog MCP hands this path to AI chat users, so renaming it breaks those links.
+    githubConnect: (): string => '/integrations/github/connect',
     stripeConfirmInstall: (): string => '/integrations/stripe/confirm-install',
     shared: (token: string, exportOptions: SharingConfigurationSettings = {}): string =>
         combineUrl(

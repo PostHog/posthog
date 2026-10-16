@@ -133,7 +133,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     GroupsNew: () => import('../../products/groups/frontend/pages/GroupsNew'),
     IdentityMatching: () => import('../../products/growth/frontend/IdentityMatchingScene'),
     AIEnrichment: () => import('../../products/growth/frontend/aiEnrichment/AIEnrichmentScene'),
-    GitHubConnect: () => import('../../products/integrations/frontend/GitHubConnectScene'),
     LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
     LegalDocumentNew: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentNewScene'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),

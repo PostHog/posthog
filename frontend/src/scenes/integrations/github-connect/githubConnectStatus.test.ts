@@ -1,6 +1,7 @@
 import type { IntegrationType } from '~/types'
 
-import type { GitHubAvailableInstallationApi } from './generated/api.schemas'
+import type { GitHubAvailableInstallationApi } from 'products/integrations/frontend/generated/api.schemas'
+
 import { GitHubConnectStatus, githubConnectStatus } from './githubConnectStatus'
 
 const githubIntegration = { id: 1, kind: 'github' } as IntegrationType

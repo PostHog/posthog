@@ -250,6 +250,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.IntegrationsRedirect]: { name: 'Integrations redirect' },
     [Scene.IntegrationsLanding]: { name: 'Integration', layout: 'plain' },
+    [Scene.GitHubConnect]: { name: 'Connect GitHub', projectBased: true, layout: 'plain' },
     [Scene.StripeConfirmInstall]: { name: 'Confirm Stripe install', projectBased: true },
     [Scene.IngestionWarnings]: {
         projectBased: true,
@@ -910,6 +911,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.codeLoopLink(':loopId')]: [Scene.CodeLoopLink, 'codeLoopLink'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
     [urls.integration(':slug')]: [Scene.IntegrationsLanding, 'integrationsLanding'],
+    [urls.githubConnect()]: [Scene.GitHubConnect, 'githubConnect'],
     [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
