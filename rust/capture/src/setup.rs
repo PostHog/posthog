@@ -162,10 +162,11 @@ pub async fn build_components(
 
     // With GLOBAL_RATE_LIMIT_REDIS_URL set, each limiter gets its own client so a slow
     // drain on one cannot eat the other's timeout budget; without it, both share the main client.
+    // Only the per-(token, distinct_id) limiter shards across GLOBAL_RATE_LIMIT_REDIS_SHARDS clusters.
     let ai_byte_limit_enabled = ai_byte_limit_per_second(&config) > 0;
     let rate_limiter_redis = if config.global_rate_limit_enabled {
         Some(
-            GlobalRateLimiter::build_redis_client(&config, redis_client.clone())
+            GlobalRateLimiter::build_redis_shards(&config, redis_client.clone())
                 .await
                 .expect("failed to create rate limiter redis client"),
         )
@@ -187,7 +188,7 @@ pub async fn build_components(
     // source into the limiter, which spawns and manages the refresh task itself.
     let global_rate_limiter_token_distinctid = rate_limiter_redis.as_ref().map(|redis| {
         Arc::new(
-            GlobalRateLimiter::new_token_distinct_id(&config, vec![redis.clone()])
+            GlobalRateLimiter::new_token_distinct_id(&config, redis.clone())
                 .expect("failed to create global rate limiter"),
         )
     });

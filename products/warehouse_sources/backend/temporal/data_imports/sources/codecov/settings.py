@@ -19,12 +19,31 @@ class CodecovResponseShape(StrEnum):
     TOTALS = "totals"  # coverage report object, flattened to a single totals row
     REPORT_FILES = "report_files"  # coverage report object, one row per entry in `files`
     TREE = "tree"  # nested directory tree, one row per node at any depth
+    IMPACTED_FILES = "impacted_files"  # comparison object, one row per entry in `files`
+
+
+@frozen
+class CodecovParentConfig:
+    """A repository-scoped list that a child endpoint fans out over, one child request per row."""
+
+    path: str  # e.g. "/repos/{repo}/commits"
+    key_field: str  # Parent row field that addresses the child request
+    include_fields: dict[str, str]  # Parent row field -> column it fills on every child row
+    # Query param that carries the key. None means the child path takes it as "{key}".
+    key_query_param: Optional[str] = None
+    # Server-side time filter on the parent list, sent when an incremental watermark exists.
+    incremental_server_param: Optional[str] = None
+    # Parent field to stop newest-first parent paging at the watermark when there is no
+    # server-side filter.
+    incremental_stop_field: Optional[str] = None
 
 
 @frozen
 class CodecovEndpointConfig:
     name: str
-    path: str  # Path template relative to /{service}/{owner_username}; "{repo}" is filled per repository during fan-out
+    # Path template relative to /{service}/{owner_username}; "{repo}" is filled per repository
+    # during fan-out, and "{key}" per parent row for endpoints with a `parent`.
+    path: str
     incremental_fields: list[IncrementalField]
     primary_keys: list[str]
     default_incremental_field: Optional[str] = None
@@ -40,6 +59,8 @@ class CodecovEndpointConfig:
     # allowed repositories, and owner-level endpoints are not repository-scoped at all.
     filtered_by_repository_allow_list: bool = False
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Set for endpoints keyed on a row of a repository-scoped list (a flag, a commit, a pull).
+    parent: Optional[CodecovParentConfig] = None
 
 
 _TIMESTAMP_INCREMENTAL_FIELD: IncrementalField = {
@@ -48,6 +69,30 @@ _TIMESTAMP_INCREMENTAL_FIELD: IncrementalField = {
     "field": "timestamp",
     "field_type": IncrementalFieldType.DateTime,
 }
+
+_COMMIT_TIMESTAMP_INCREMENTAL_FIELD: IncrementalField = {
+    "label": "commit_timestamp",
+    "type": IncrementalFieldType.DateTime,
+    "field": "commit_timestamp",
+    "field_type": IncrementalFieldType.DateTime,
+}
+
+_PULL_UPDATESTAMP_INCREMENTAL_FIELD: IncrementalField = {
+    "label": "pull_updatestamp",
+    "type": IncrementalFieldType.DateTime,
+    "field": "pull_updatestamp",
+    "field_type": IncrementalFieldType.DateTime,
+}
+
+# The pulls list filters on `updatestamp` server-side, so a comparison is re-fetched only for a
+# pull that changed since the last sync.
+_PULL_PARENT = CodecovParentConfig(
+    path="/repos/{repo}/pulls",
+    key_field="pullid",
+    include_fields={"pullid": "pullid", "updatestamp": "pull_updatestamp"},
+    key_query_param="pullid",
+    incremental_server_param="start_date",
+)
 
 
 CODECOV_ENDPOINTS: dict[str, CodecovEndpointConfig] = {
@@ -150,6 +195,71 @@ CODECOV_ENDPOINTS: dict[str, CodecovEndpointConfig] = {
         primary_keys=["repo", "test_id", "commit_sha", "timestamp"],
         partition_key="timestamp",
         fan_out_over_repos=True,
+    ),
+    "flag_coverage_trend": CodecovEndpointConfig(
+        name="flag_coverage_trend",
+        path="/repos/{repo}/flags/{key}/coverage",
+        # Same server-side `start_date` filter as coverage_trend, applied per flag.
+        incremental_fields=[_TIMESTAMP_INCREMENTAL_FIELD],
+        default_incremental_field="timestamp",
+        incremental_server_param="start_date",
+        primary_keys=["repo", "flag_name", "timestamp"],
+        partition_key="timestamp",
+        fan_out_over_repos=True,
+        extra_params={"interval": "1d"},
+        parent=CodecovParentConfig(
+            path="/repos/{repo}/flags",
+            key_field="flag_name",
+            include_fields={"flag_name": "flag_name"},
+        ),
+    ),
+    "commit_uploads": CodecovEndpointConfig(
+        name="commit_uploads",
+        path="/repos/{repo}/commits/{key}/uploads",
+        # Uploads have no filter of their own. The parent commits list is newest-first, so
+        # incremental sync stops paging commits once a page predates the watermark.
+        incremental_fields=[_COMMIT_TIMESTAMP_INCREMENTAL_FIELD],
+        default_incremental_field="commit_timestamp",
+        # Uploads carry no id. Codecov gives each upload its own storage path and creation time.
+        primary_keys=["repo", "commitid", "created_at", "storage_path"],
+        partition_key="created_at",
+        fan_out_over_repos=True,
+        parent=CodecovParentConfig(
+            path="/repos/{repo}/commits",
+            key_field="commitid",
+            include_fields={"commitid": "commitid", "timestamp": "commit_timestamp"},
+            incremental_stop_field="timestamp",
+        ),
+    ),
+    "pull_impacted_files": CodecovEndpointConfig(
+        name="pull_impacted_files",
+        path="/repos/{repo}/compare/impacted_files",
+        incremental_fields=[_PULL_UPDATESTAMP_INCREMENTAL_FIELD],
+        default_incremental_field="pull_updatestamp",
+        primary_keys=["repo", "pullid", "file_name"],
+        fan_out_over_repos=True,
+        response_shape=CodecovResponseShape.IMPACTED_FILES,
+        parent=_PULL_PARENT,
+    ),
+    "pull_flag_comparisons": CodecovEndpointConfig(
+        name="pull_flag_comparisons",
+        path="/repos/{repo}/compare/flags",
+        incremental_fields=[_PULL_UPDATESTAMP_INCREMENTAL_FIELD],
+        default_incremental_field="pull_updatestamp",
+        primary_keys=["repo", "pullid", "name"],
+        fan_out_over_repos=True,
+        response_shape=CodecovResponseShape.BARE_LIST,
+        parent=_PULL_PARENT,
+    ),
+    "pull_component_comparisons": CodecovEndpointConfig(
+        name="pull_component_comparisons",
+        path="/repos/{repo}/compare/components",
+        incremental_fields=[_PULL_UPDATESTAMP_INCREMENTAL_FIELD],
+        default_incremental_field="pull_updatestamp",
+        primary_keys=["repo", "pullid", "component_id"],
+        fan_out_over_repos=True,
+        response_shape=CodecovResponseShape.BARE_LIST,
+        parent=_PULL_PARENT,
     ),
     "users": CodecovEndpointConfig(
         name="users",
