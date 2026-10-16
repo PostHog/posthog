@@ -9,8 +9,9 @@ from uuid import uuid4
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from posthog.models.person.divergence import team_scan, verbs
+from posthog.models.person.divergence import observe, restore_verbs, team_scan, verbs
 from posthog.models.person.test.divergence_fixtures import DivergenceFixturesMixin
+from posthog.models.person.util import tombstone_persons_in_postgres
 from posthog.personhog_client.fake_client import get_active_fake
 
 _CAPTURE = "posthog.models.person.divergence.restore_verbs.capture_internal"
@@ -19,6 +20,10 @@ _CAPTURE = "posthog.models.person.divergence.restore_verbs.capture_internal"
 class TestRestoreVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
     def setUp(self) -> None:
         super().setUp()
+        for name, value in (("_sleep", lambda _: None), ("_MERGE_CONFIRM_SECONDS", 0.0)):
+            patcher = patch.object(restore_verbs, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root)
         self.scans = 0
@@ -69,6 +74,22 @@ class TestRestoreVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         assert stored is not None
         assert (stored.version, json.loads(stored.properties)) == (5, {"email": "lost@example.com"})
         assert self._scan(purged_at=purged_at)[1] == {}
+
+    def test_merge_points_the_shared_ids_at_the_survivor_once_ingestion_merged(self):
+        old = self._live_person("a-own")
+        survivor = self._live_person("shared")
+        self._ch_mapping("shared", str(old.uuid), 5)
+        scan_dir, _ = self._scan()
+
+        def ingestion_merges(_: float) -> None:
+            tombstone_persons_in_postgres(self.team.pk, [old.uuid])
+
+        with patch(_CAPTURE), patch.object(restore_verbs, "_sleep", side_effect=ingestion_merges):
+            outcomes = self._run(scan_dir, "merge", apply=True)
+
+        assert outcomes == {"shared": "moved", str(old.uuid): "merged"}
+        shared = observe.ch_mapping_states(self.team.pk, ["shared"])["shared"]
+        assert (shared.winner_person_uuid, shared.winner_version > 5) == (str(survivor.uuid), True)
 
     def test_merge_asks_ingestion_to_merge_and_leaves_the_shared_ids_until_it_did(self):
         old = self._live_person("a-own")

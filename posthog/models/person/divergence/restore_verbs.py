@@ -4,6 +4,7 @@ live persons through ingestion."""
 from __future__ import annotations
 
 import json
+import time
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -347,6 +348,49 @@ def _owned_on_primary(team_id: int, owners: dict[str, str]) -> bool:
     )
 
 
+# Ingestion applies a merge within seconds, so a merge still pending after this wait is left for the next scan.
+_MERGE_CONFIRM_SECONDS = 60.0
+_MERGE_POLL_MAX_SECONDS = 8.0
+_sleep = time.sleep
+_monotonic = time.monotonic
+
+
+@frozen
+class _PendingMerge:
+    old: str
+    new: str
+    group: str
+    rows: list[dict[str, Any]]
+
+
+def _confirm_merges(context: VerbContext, pending: list[_PendingMerge], *, done: str) -> None:
+    """Wait for ingestion to merge each old person away, then point its diverged ids at the survivor.
+
+    Republishing those ids only after the merge landed means a merge that never lands leaves them diverged, so the
+    next scan finds the group again instead of a silent split. The wait polls one batched replica read at a time.
+    """
+    deadline = _monotonic() + _MERGE_CONFIRM_SECONDS
+    wait = 1.0
+    while pending:
+        _sleep(wait)
+        wait = min(wait * 2, _MERGE_POLL_MAX_SECONDS)
+        states = observe.pg_person_states(context.team_id, [p.old for p in pending])
+        landed = [p for p in pending if p.old not in states or states[p.old].is_deleted]
+        for merge in landed:
+            diverged = [r for r in merge.rows if r["kind"] == "mapping" and r["flavor"] == "diverged"]
+            _write_mappings(context, diverged, {r["key"]: merge.new for r in diverged}, "moved")
+            for row in merge.rows:
+                if row["kind"] == "person":
+                    context.action(row, done, survivor=merge.new)
+            if not any(r["kind"] == "person" and r["key"] == merge.old for r in merge.rows):
+                context.emit_extra(kind="person", key=merge.old, group=merge.group, outcome=done, survivor=merge.new)
+        pending = [p for p in pending if p not in landed]
+        if _monotonic() >= deadline:
+            break
+    for merge in pending:
+        _report_merge(context, merge.old, merge.new, merge.group, merge.rows, "merge_sent")
+
+
 def _send_merge(context: VerbContext, *, distinct_id: str, alias: str) -> str:
     """Send $merge_dangerously on B's distinct id, so B survives and ingestion merges the alias's person into it."""
     context.pacer.before_write()
@@ -378,8 +422,8 @@ def merge(rows: list[dict[str, Any]], context: VerbContext) -> None:
     """Merge a live old person A into the live person B that holds A's distinct ids in Postgres, through ingestion:
     send $merge_dangerously on a B id with an A id as the alias, so B survives.
 
-    The diverged ids stay as they are until ingestion merged A: a later scan then reports them for republish, or
-    reports the merge again if it did not land.
+    Once ingestion merged A, the same run points the diverged ids at B. A merge that does not land within the wait
+    leaves them diverged, so a later scan reports the merge again.
     """
     for row in rows:
         if not (row.get("group") or "").startswith("merge:"):
@@ -388,6 +432,7 @@ def merge(rows: list[dict[str, Any]], context: VerbContext) -> None:
         for row in rows:
             context.action(row, "skipped_person_processing_off")
         return
+    pending: list[_PendingMerge] = []
     for pair, group_rows in _pairs(rows, "merge").items():
         old, new = pair.old, pair.new
         states = observe.pg_person_states(context.team_id, [old, new])
@@ -415,4 +460,8 @@ def merge(rows: list[dict[str, Any]], context: VerbContext) -> None:
         outcome = repairs._retry_transient(
             partial(_send_merge, context, distinct_id=target, alias=alias), what=f"merge {old}>{new}", log=context.log
         )
-        _report_merge(context, old, new, group_rows[0]["group"], group_rows, outcome)
+        if outcome == "merge_sent":
+            pending.append(_PendingMerge(old=old, new=new, group=group_rows[0]["group"], rows=group_rows))
+        else:
+            _report_merge(context, old, new, group_rows[0]["group"], group_rows, outcome)
+    _confirm_merges(context, pending, done="merged")

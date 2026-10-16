@@ -34,6 +34,9 @@ DONE_OUTCOMES = frozenset(
         "buried",
         "restored",
         "already_restored",
+        "moved",
+        "already_moved",
+        "merged",
     }
 )
 
