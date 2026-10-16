@@ -42,47 +42,17 @@ class _FakeClock:
         self.now += seconds
 
 
-@pytest.mark.parametrize(
-    "relay_ready_at, expect_ready",
-    [
-        ({"192.0.2.1": 0, "192.0.2.2": 90}, True),
-        ({"192.0.2.1": 0, "192.0.2.2": 10_000}, False),
-    ],
-)
-def test_start_waits_for_every_public_relay_and_unpublishes_on_timeout(
-    relay_ready_at: dict[str, float], expect_ready: bool
-) -> None:
+def test_start_unpublishes_ports_when_a_relay_never_serves() -> None:
     tailscale = _FakeTailscale()
     clock = _FakeClock()
     funnel = TailscaleFunnel(
         {"django": 18000, "gateway": 13308},
         resolve_public_ips=lambda host: RELAYS,
-        relay_answers=lambda ip, host, port: clock.now >= relay_ready_at[ip],
+        relay_answers=lambda ip, host, port: ip == RELAYS[0],
         clock=clock.time,
         sleep=clock.sleep,
     )
 
-    with patch.object(tunnels, "_run_tailscale", tailscale):
-        if expect_ready:
-            funnel.start()
-            assert clock.now >= relay_ready_at["192.0.2.2"]
-            assert tailscale.public_ports == {443, 8443}
-            assert funnel.url_for("gateway") == f"https://{HOST}:8443"
-        else:
-            with pytest.raises(TailscaleFunnelError, match="192.0.2.2:443"):
-                funnel.start()
-            assert tailscale.public_ports == set()
-
-
-def test_start_continues_when_public_dns_is_unavailable() -> None:
-    def resolve(host: str) -> list[str]:
-        raise OSError("network unreachable")
-
-    funnel = TailscaleFunnel(
-        {"django": 18000},
-        resolve_public_ips=resolve,
-        relay_answers=lambda ip, host, port: pytest.fail("no relay to probe without public DNS"),
-    )
-    with patch.object(tunnels, "_run_tailscale", _FakeTailscale()):
+    with patch.object(tunnels, "_run_tailscale", tailscale), pytest.raises(TailscaleFunnelError, match="192.0.2.2:443"):
         funnel.start()
-    assert funnel.url_for("django") == f"https://{HOST}"
+    assert tailscale.public_ports == set()

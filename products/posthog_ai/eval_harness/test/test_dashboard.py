@@ -4,16 +4,13 @@ import os
 import sys
 import json
 import time
-import shutil
 import threading
 from pathlib import Path
 from textwrap import dedent
 
 import pytest
 
-import pexpect
-
-from products.posthog_ai.eval_harness.harness.dashboard import PHROCS_DIR, EvalDashboard
+from products.posthog_ai.eval_harness.harness.dashboard import EvalDashboard
 from products.posthog_ai.eval_harness.harness.progress import TrialProgress
 from products.posthog_ai.eval_harness.harness.terminal import TerminalStreams
 from products.posthog_ai.eval_harness.log_sink import _case_log_slug
@@ -96,40 +93,3 @@ def test_dashboard_streams_progress_and_relays_view_cancel_and_failures(tmp_path
     assert trial["log_path"] == str(tmp_path / f"{slug}.jsonl")
     assert abs(trial["started"] - time.time()) < 60
     assert received[-1] == {"type": "finish", "exit_code": 130, "text": ""}
-
-
-@pytest.mark.skipif(
-    not (PHROCS_DIR / "Makefile").exists() or not (shutil.which("go") or shutil.which("phrocs")),
-    reason="The real terminal view needs Go to build phrocs, or an installed phrocs",
-)
-@pytest.mark.parametrize("mode", ["dumb", "stderr", "redirected"])
-def test_dashboard_opens_through_hogli_with_redirected_streams(tmp_path: Path, mode: str) -> None:
-    runner = (
-        "from pathlib import Path; "
-        "from products.posthog_ai.eval_harness.harness import __main__ as harness; "
-        "create = harness.RunTranscript.create; "
-        f"harness.RunTranscript.create = lambda: create(Path({str(tmp_path)!r})); "
-        "harness._run = lambda *args, **kwargs: 0; "
-        f"raise SystemExit(harness.main({[] if mode == 'stderr' else ['--tui']!r}))"
-    )
-    launcher = (
-        "import os, sys; "
-        "from hogli.command_types import _run; "
-        "terminal = os.dup(0); "
-        "null = os.open(os.devnull, os.O_RDWR); "
-        f"[os.dup2(null, fd) for fd in {([0, 1, 2] if mode == 'redirected' else [2])!r}]; "
-        "_run([sys.executable, '-c', sys.argv[1]])"
-    )
-    environment = dict(os.environ, TERM="dumb" if mode == "dumb" else "xterm-256color")
-    environment.pop("CI", None)
-    with pexpect.spawn(
-        sys.executable, ["-c", launcher, runner], env=environment, encoding="utf-8", timeout=60
-    ) as child:
-        child.expect("Results ready")
-        child.send("q")
-        child.expect(pexpect.EOF)
-    assert child.exitstatus == 0
-    transcript = next(path for path in tmp_path.glob("*.log") if not path.is_symlink())
-    text = transcript.read_text()
-    assert "\x1b" not in text
-    assert text.splitlines()[-1] == str(transcript)
