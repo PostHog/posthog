@@ -1131,6 +1131,24 @@ class SignalReportReingestionStatusSerializer(serializers.Serializer):
 
 
 class SignalReportListPagination(LimitOffsetPagination):
+    def paginate_queryset(self, queryset, request, view=None):
+        # Fetch the page before the count. A page that ends before the limit already gives the
+        # total, so the second scan is not needed. A `search` filter rechecks the text of every
+        # candidate report, and that scan costs seconds in a large team.
+        self.limit = self.get_limit(request)
+        if self.limit is None:
+            return None
+        self.offset = self.get_offset(request)
+        self.request = request
+        page = list(queryset[self.offset : self.offset + self.limit])
+        if len(page) < self.limit and (page or self.offset == 0):
+            self.count = self.offset + len(page)
+        else:
+            self.count = self.get_count(queryset)
+        if self.count > self.limit and self.template is not None:
+            self.display_page_controls = True
+        return page
+
     def get_paginated_response_schema(self, schema):
         paginated = super().get_paginated_response_schema(schema)
         paginated["properties"]["ranker"] = {
