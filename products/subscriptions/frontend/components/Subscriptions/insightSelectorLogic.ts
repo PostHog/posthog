@@ -2,7 +2,7 @@ import { MakeLogicType, actions, kea, path, props, reducers, selectors } from 'k
 
 import { DashboardTile } from '~/types'
 
-// Keep in sync with MAX_INSIGHTS in ee/tasks/subscriptions/subscription_utils.py
+// Keep in sync with MAX_INSIGHTS in products/subscriptions/backend/logic/subscription_utils.py
 export const MAX_INSIGHTS = 20
 
 export interface InsightSelectorLogicProps {

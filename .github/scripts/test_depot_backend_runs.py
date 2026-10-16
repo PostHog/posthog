@@ -1,3 +1,4 @@
+import re
 import json
 import zipfile
 import subprocess
@@ -9,7 +10,8 @@ import pytest
 import ci_backend_relay
 import depot_backend_runs as script
 
-SCHEDULED_RUN = {"trigger": "schedule", "ref": ""}
+MASTER_SHA = "a" * 40
+BRANCH_SHA = "b" * 40
 
 
 @pytest.mark.parametrize(
@@ -32,7 +34,7 @@ def test_gate_run_reports_the_gate_verdict(
     jobs: list[dict[str, Any]] = [{"job_key": "ci-backend.yml:report-test-timings", "status": "failed"}]
     if gate_status:
         jobs.append({"job_key": script.GATE_JOB_KEY, "status": gate_status, "finished_at": "2026-10-05T13:00:00Z"})
-    shown = {"org_id": "org", "run": SCHEDULED_RUN, "jobs": jobs}
+    shown = {"org_id": "org", "jobs": jobs}
     monkeypatch.setattr(script, "depot", lambda *args: json.dumps(shown))
     listed = {
         "workflow_id": "wf",
@@ -54,17 +56,12 @@ def test_names_the_workflow_and_gate_job_the_relay_reads() -> None:
 
 
 @pytest.mark.parametrize(
-    "run,kept",
-    [
-        ({"trigger": "push", "ref": "refs/heads/master"}, 1),
-        ({"trigger": "push", "ref": "refs/heads/feature"}, 0),
-        (SCHEDULED_RUN, 1),
-        ({}, 0),
-    ],
-    ids=["master", "branch", "schedule", "no-ref"],
+    "trigger,sha,kept",
+    [("push", MASTER_SHA, 1), ("push", BRANCH_SHA, 0), ("schedule", BRANCH_SHA, 1)],
+    ids=["master", "branch", "schedule"],
 )
 def test_gate_runs_drop_runs_from_other_branches(
-    monkeypatch: pytest.MonkeyPatch, run: dict[str, str], kept: int
+    monkeypatch: pytest.MonkeyPatch, trigger: str, sha: str, kept: int
 ) -> None:
     def depot_response(*args: str) -> str:
         if args[:2] == ("workflow", "list"):
@@ -73,27 +70,22 @@ def test_gate_runs_drop_runs_from_other_branches(
                     {
                         "workflow_id": "wf",
                         "run_id": "run",
-                        "sha": "abc",
+                        "sha": sha,
                         "status": "finished",
                         "created_at": "2026-10-05T12:23:00Z",
                     }
                 ]
             )
-        return json.dumps(
-            {
-                "org_id": "org",
-                "run": run,
-                "jobs": [{"job_key": script.GATE_JOB_KEY, "status": "finished"}],
-            }
-        )
+        return json.dumps({"org_id": "org", "jobs": [{"job_key": script.GATE_JOB_KEY, "status": "finished"}]})
 
     monkeypatch.setattr(script, "depot", depot_response)
+    monkeypatch.setattr(script, "commits_on_master", lambda shas, *_: frozenset(shas) & {MASTER_SHA})
 
     if kept:
-        assert len(script.gate_runs("push", 40)) == 1
+        assert len(script.gate_runs(trigger, 40)) == 1
     else:
         with pytest.raises(ValueError, match="No settled Backend CI verdict"):
-            script.gate_runs("push", 40)
+            script.gate_runs(trigger, 40)
 
 
 def test_retries_a_workflow_listing_timeout_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -129,9 +121,7 @@ def test_gate_window_requires_a_settled_verdict(monkeypatch: pytest.MonkeyPatch,
                 if status
                 else []
             )
-        return json.dumps(
-            {"org_id": "org", "run": SCHEDULED_RUN, "jobs": [{"job_key": script.GATE_JOB_KEY, "status": status}]}
-        )
+        return json.dumps({"org_id": "org", "jobs": [{"job_key": script.GATE_JOB_KEY, "status": status}]})
 
     monkeypatch.setattr(script, "depot", depot_response)
 
@@ -157,19 +147,15 @@ def test_gate_window_keeps_in_progress_runs_alongside_a_settled_verdict(monkeypa
                     for status in ("finished", "running")
                 ]
             )
-        return json.dumps(
-            {"org_id": "org", "run": SCHEDULED_RUN, "jobs": [{"job_key": script.GATE_JOB_KEY, "status": args[2]}]}
-        )
+        return json.dumps({"org_id": "org", "jobs": [{"job_key": script.GATE_JOB_KEY, "status": args[2]}]})
 
     monkeypatch.setattr(script, "depot", depot_response)
 
     assert [run["status"] for run in script.gate_runs("schedule", 12)] == ["completed", "in_progress"]
 
 
-@pytest.mark.parametrize(
-    "ref,found", [("refs/heads/master", ["run-master"]), ("refs/heads/feature", [])], ids=["master", "branch"]
-)
-def test_find_trusts_only_push_runs_on_master(monkeypatch: pytest.MonkeyPatch, ref: str, found: list[str]) -> None:
+@pytest.mark.parametrize("sha,found", [(MASTER_SHA, ["run-master"]), (BRANCH_SHA, [])], ids=["master", "branch"])
+def test_find_trusts_only_push_runs_on_master(monkeypatch: pytest.MonkeyPatch, sha: str, found: list[str]) -> None:
     def depot_response(*args: str, **kwargs: object) -> str:
         if args[:2] == ("workflow", "list"):
             return json.dumps(
@@ -177,23 +163,40 @@ def test_find_trusts_only_push_runs_on_master(monkeypatch: pytest.MonkeyPatch, r
                     {
                         "workflow_id": "wf",
                         "run_id": "run-master",
-                        "sha": "abc",
+                        "sha": sha,
                         "status": "finished",
                         "created_at": "2099-01-01T00:00:00Z",
                     }
                 ]
             )
-        if args[:2] == ("workflow", "show"):
-            return json.dumps({"org_id": "org", "run": {"trigger": "push", "ref": ref}, "jobs": []})
         if args[:2] == ("artifacts", "list"):
             return json.dumps({"artifacts": [{"artifact_id": "a", "name": "migrated-schema", "created_at": "x"}]})
         raise AssertionError(args)
 
     monkeypatch.setattr(script, "depot", depot_response)
+    monkeypatch.setattr(script, "commits_on_master", lambda shas, *_: frozenset(shas) & {MASTER_SHA})
 
     workflows = script.find("migrated-schema", 1, 1, 2, trigger="push", statuses=["finished"])
 
     assert [workflow["run_id"] for workflow in workflows] == found
+
+
+def test_commits_on_master_trusts_only_comparisons_of_the_commit_asked_about(monkeypatch: pytest.MonkeyPatch) -> None:
+    unknown_sha = "c" * 40
+    comparisons: dict[str, dict[str, Any]] = {
+        MASTER_SHA: {"status": "BEHIND", "headTarget": {"oid": MASTER_SHA}},
+        BRANCH_SHA: {"status": "DIVERGED", "headTarget": {"oid": BRANCH_SHA}},
+        unknown_sha: {"status": "IDENTICAL", "headTarget": {"oid": "d" * 40}},
+    }
+
+    def github_response(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        query = next(arg for arg in args if arg.startswith("query="))
+        compared = {alias: comparisons[sha] for alias, sha in re.findall(r'(c\d+): compare\(headRef: "(\w+)"\)', query)}
+        return subprocess.CompletedProcess(args, 0, json.dumps({"data": {"repository": {"ref": compared}}}))
+
+    monkeypatch.setattr(subprocess, "run", github_response)
+
+    assert script.commits_on_master([MASTER_SHA, BRANCH_SHA, unknown_sha, "not-a-sha"]) == {MASTER_SHA}
 
 
 def test_download_keeps_the_newest_artifact_per_name() -> None:
