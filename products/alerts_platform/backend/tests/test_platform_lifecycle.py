@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -20,6 +21,7 @@ from products.alerts_platform.backend.facade.api import (
     slot_of,
     take_ownership,
     upsert_configuration,
+    upsert_if_running,
 )
 from products.alerts_platform.backend.facade.contracts import (
     MAX_INSTANCES_CEILING,
@@ -549,23 +551,58 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         assert len(due) == expected_slots
 
     def _copy(self, legacy_id: UUID, *, revive: bool = False, **overrides: Any) -> None:
-        fields: dict[str, Any] = {
-            "legacy_configuration_id": legacy_id,
-            "team_id": self.team.id,
-            "name": "Copied alert",
-            "enabled": True,
-            "source_kind": SourceKind.LOGS,
-            "source_config": {"condition": {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5}},
-            "check_interval_minutes": 5,
-            "evaluation_periods": 1,
-            "datapoints_to_alarm": 1,
-            "cooldown_minutes": 0,
-            "schedule_restriction": None,
-            "next_check_at": self.cutoff - timedelta(minutes=1),
-            "snooze_until": None,
-        }
-        fields.update(overrides)
-        upsert_configuration(PlatformAlertUpsert(**fields), revive=revive)
+        upsert_configuration(dataclasses.replace(self._upsert(legacy_id), **overrides), revive=revive)
+
+    def _upsert(self, legacy_id: UUID) -> PlatformAlertUpsert:
+        return PlatformAlertUpsert(
+            legacy_configuration_id=legacy_id,
+            team_id=self.team.id,
+            name="Copied alert",
+            enabled=True,
+            source_kind=SourceKind.LOGS,
+            source_config={"condition": {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5}},
+            check_interval_minutes=5,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            cooldown_minutes=0,
+            schedule_restriction=None,
+            next_check_at=self.cutoff - timedelta(minutes=1),
+            snooze_until=None,
+        )
+
+    def _own(self, legacy_id: UUID) -> None:
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(legacy_configuration_id=legacy_id).update(
+                owner=PlatformAlertOwner.PLATFORM
+            )
+
+    def _copies(self, *legacy_ids: UUID) -> dict[UUID, bool]:
+        with team_scope(self.team.id):
+            rows = PlatformAlertConfiguration.objects.filter(legacy_configuration_id__in=legacy_ids)
+            return {row.legacy_configuration_id: row.enabled for row in rows if row.legacy_configuration_id}
+
+    def test_a_cut_over_alert_comes_back_on_with_its_source(self) -> None:
+        cut_over = uuid4()
+        self._copy(cut_over)
+        self._own(cut_over)
+        # The parallel run is over, and the person then turned the alert off.
+        disable_configurations(SourceKind.LOGS, team_id=self.team.id)
+        self._copy(cut_over, enabled=False)
+
+        upsert_if_running(self._upsert(cut_over), revive=True)
+
+        assert self._copies(cut_over) == {cut_over: True}
+
+    def test_a_cut_over_alert_does_not_reopen_a_switched_off_parallel_run(self) -> None:
+        cut_over, parallel, created = uuid4(), uuid4(), uuid4()
+        self._copy(cut_over)
+        self._own(cut_over)
+        self._copy(parallel)
+        disable_configurations(SourceKind.LOGS, team_id=self.team.id)
+
+        upsert_if_running(self._upsert(created), revive=True)
+
+        assert self._copies(cut_over, parallel, created) == {cut_over: True, parallel: False}
 
     @parameterized.expand(
         [

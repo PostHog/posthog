@@ -634,23 +634,23 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
 def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
     """Copies one configuration in when its team already runs that source here.
 
-    A team runs a source here while any of its copies of that source is enabled. A team the backfill
-    left out of its sample, or one `disable_configurations` switched off, gets nothing, and neither
-    does a copy an operator switched off by name, so a write in the source never widens a sample or
-    undoes an operator's switch-off.
+    A copy the platform owns is the production alert, so it always follows its source, including
+    back on after the source turns it off. Otherwise a team runs a source here while any of its
+    parallel-run copies of that source is enabled. A team the backfill left out of its sample, or one
+    `disable_configurations` switched off, gets nothing, and neither does a copy an operator switched
+    off by name, so a write in the source never widens a sample or undoes an operator's switch-off.
     """
     with transaction.atomic():
         _hold_admission(upsert.source_kind.value, exclusive=False)
-        running = (
-            PlatformAlertConfiguration.objects.for_team(upsert.team_id)
-            .filter(source_kind=upsert.source_kind.value, enabled=True)
-            .exists()
+        team_copies = PlatformAlertConfiguration.objects.for_team(upsert.team_id).filter(
+            source_kind=upsert.source_kind.value
         )
-        switched_off = (
-            PlatformAlertConfiguration.objects.for_team(upsert.team_id)
-            .filter(legacy_configuration_id=upsert.legacy_configuration_id, switched_off_at__isnull=False)
-            .exists()
-        )
+        existing = team_copies.filter(legacy_configuration_id=upsert.legacy_configuration_id).first()
+        if existing is not None and existing.owner == PlatformAlertOwner.PLATFORM:
+            upsert_configuration(upsert, revive=revive)
+            return
+        running = team_copies.filter(owner=PlatformAlertOwner.SOURCE, enabled=True).exists()
+        switched_off = existing is not None and existing.switched_off_at is not None
         if running and not switched_off:
             upsert_configuration(upsert, revive=revive)
 
