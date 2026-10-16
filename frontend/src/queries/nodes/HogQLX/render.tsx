@@ -10,6 +10,8 @@ import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRec
 
 import { LightErrorBoundary } from '~/layout/ErrorBoundary/ErrorBoundary'
 
+import { BrandMarkLabel } from 'products/mcp_analytics/frontend/components/BrandMarkLabel'
+
 // NB!!! Sync this list with posthog/hogql/hogqlx.py
 // These tags only get the `key` and `children` attributes.
 const HOGQLX_TAGS_NO_ATTRIBUTES = [
@@ -122,6 +124,12 @@ export function renderHogQLX(value: any): JSX.Element {
                         data-attr="hog-ql-view-recording-button"
                         className="inline-block"
                     />
+                </LightErrorBoundary>
+            )
+        } else if (tag === 'BrandMarkLabel') {
+            return (
+                <LightErrorBoundary>
+                    <BrandMarkLabel label={String(rest.label ?? '')} mark={String(rest.mark ?? '')} />
                 </LightErrorBoundary>
             )
         } else if (tag === 'a') {
