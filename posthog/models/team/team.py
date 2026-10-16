@@ -85,7 +85,7 @@ assert len(CURRENCY_CODE_CHOICES) == 152
 
 DEFAULT_CURRENCY = CurrencyCode.USD.value
 
-ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD = 100
+ASYNC_DEFAULT_STARRED_PRODUCTS_THRESHOLD = 100
 
 
 class AvailableExtraSettings:
@@ -166,15 +166,15 @@ class TeamManager(models.Manager):
             )
         team.save()
 
-        # Add UserProductList for all users who have access to this new team
+        # Star the default products for all users who have access to this new team
         # For large orgs, dispatch async to avoid request timeouts
-        from posthog.tasks.tasks import sync_user_product_lists_for_new_team
+        from posthog.tasks.tasks import star_default_products_for_new_team
 
         user_count = OrganizationMembership.objects.filter(organization_id=team.organization_id).count()
-        if user_count > ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD:
-            transaction.on_commit(lambda: sync_user_product_lists_for_new_team.delay(team.id))
+        if user_count > ASYNC_DEFAULT_STARRED_PRODUCTS_THRESHOLD:
+            transaction.on_commit(lambda: star_default_products_for_new_team.delay(team.id))
         else:
-            sync_user_product_lists_for_new_team(team.id)
+            star_default_products_for_new_team(team.id)
 
         return team
 

@@ -155,28 +155,35 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
 
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+        const changes: CohortMembershipChange[] = []
+        for (const message of messages) {
+            let change: CohortMembershipChange
+            try {
+                change = CohortMembershipChangeSchema.parse(parseJSON(message.value!.toString()))
+            } catch (e) {
+                logger.error('Error parsing cohort membership change', e)
+                counterParseError.labels({ error: e.message }).inc()
+                continue
+            }
+
+            // Seed and reconcile messages restate membership the cohort already had. Starting runs
+            // on them would put every existing member through the workflow when a cohort is built.
+            if (change.origin) {
+                counterCohortMembershipTriggerSkipped.labels({ reason: 'backfill' }).inc()
+                continue
+            }
+            changes.push(change)
+        }
+
+        // One lookup per team per batch: a cohort recompute fills whole batches with one team's changes.
+        // Load errors propagate, so the batch fails, the offsets stay put and the consumer retries.
+        const teamIds = [...new Set(changes.map((change) => change.team_id))]
+        const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamIds)
+
         const events: HogFunctionInvocationGlobals[] = []
         await Promise.all(
-            messages.map(async (message) => {
-                let change: CohortMembershipChange
-                try {
-                    change = CohortMembershipChangeSchema.parse(parseJSON(message.value!.toString()))
-                } catch (e) {
-                    logger.error('Error parsing cohort membership change', e)
-                    counterParseError.labels({ error: e.message }).inc()
-                    return
-                }
-
-                // Seed and reconcile messages restate membership the cohort already had. Starting runs
-                // on them would put every existing member through the workflow when a cohort is built.
-                if (change.origin) {
-                    counterCohortMembershipTriggerSkipped.labels({ reason: 'backfill' }).inc()
-                    return
-                }
-
-                // Load errors propagate, so the batch fails, the offsets stay put and the consumer retries.
-                const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(change.team_id)
-                const triggered = teamHogFlows.some(
+            changes.map(async (change) => {
+                const triggered = (hogFlowsByTeam[change.team_id] ?? []).some(
                     (flow) => flow.trigger.type === 'cohort' && flow.trigger.cohort_id === change.cohort_id
                 )
                 if (!triggered) {

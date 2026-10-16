@@ -111,6 +111,7 @@ TRINO_PERMANENT_SYNC_ERROR_MESSAGES = frozenset(
 POSTHOG_MANAGED_TRINO_HOSTS = frozenset(
     {
         "trino.dw.dev.postwh.com",
+        "trino.dw.eu.postwh.com",
         "trino.dw.us.postwh.com",
     }
 )

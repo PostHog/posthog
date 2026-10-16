@@ -80,6 +80,47 @@ describe('bootTiming', () => {
         expect(capture).toHaveBeenCalledTimes(sends ? 1 : 0)
     })
 
+    it.each([
+        {
+            name: 'splits the entry phase with navigation timing',
+            navigationEntries: [{ type: 'navigate', requestStart: 120.4, responseStart: 310.6, responseEnd: 352.2 }],
+            expected: {
+                navigation_type: 'navigate',
+                request_start_ms: 120,
+                response_start_ms: 311,
+                response_end_ms: 352,
+            },
+        },
+        {
+            name: 'still sends the event without a navigation entry',
+            navigationEntries: [],
+            expected: { navigation_type: null },
+        },
+        {
+            name: 'still sends the event without the navigation timing API',
+            navigationEntries: undefined,
+            expected: { navigation_type: null },
+        },
+    ])('$name', async ({ navigationEntries, expected }) => {
+        // jsdom has no performance.getEntriesByType, so the test adds it and removes it again.
+        if (navigationEntries) {
+            Object.defineProperty(performance, 'getEntriesByType', {
+                configurable: true,
+                value: () => navigationEntries,
+            })
+        }
+        try {
+            markAt(50, 'entry')
+            markAt(900, 'scene_rendered')
+            await flushSend()
+        } finally {
+            Reflect.deleteProperty(performance, 'getEntriesByType')
+        }
+
+        const { navigation_type, request_start_ms, response_start_ms, response_end_ms } = capture.mock.calls[0][1]
+        expect({ navigation_type, request_start_ms, response_start_ms, response_end_ms }).toEqual(expected)
+    })
+
     it('reports a page hidden only between two marks', async () => {
         let visibilityState: DocumentVisibilityState = 'visible'
         jest.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibilityState)
