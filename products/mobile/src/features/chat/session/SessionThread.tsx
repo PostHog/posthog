@@ -74,7 +74,7 @@ export function SessionThread({ session, onRetryHistory }: SessionThreadProps): 
     const renderItem = (item: SessionDisplayItem): ReactNode => {
         switch (item.kind) {
             case 'user':
-                return <UserBubble key={item.id} text={item.text} />
+                return <UserBubble key={item.id} text={item.text} attachments={item.attachments} />
             case 'assistant':
                 return <AssistantRow key={item.id} item={item} />
             case 'activity':

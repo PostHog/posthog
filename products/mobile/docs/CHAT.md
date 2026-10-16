@@ -24,6 +24,7 @@ The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteraction
 | `src/features/chat/chatRunOptions.ts` | `ChatRunOptions` (model and permission mode), its reducer, the chip label, seeding from a run |
 | `src/features/chat/ChatOptionsSheet.tsx` | The Model and Mode pages in a sheet over the chat |
 | `src/features/chat/contextPrompt.ts` | The leading context blocks, `bareQuestion`, `stripInjectedContext` |
+| `src/features/chat/attachments/` | Files in the composer: the limits and content types (`attachmentRules.ts`), the pickers, the three-step upload (`uploadAttachments.ts`), `useComposerAttachments`, the Attach sheet and the file chip (see [Attachments](#attachments)) |
 | `src/features/chat/chatErrors.ts` | Maps HTTP and network failures to copy, including the PostHog Desktop gate |
 | `src/features/chat/*.tsx` | `Composer`, `ContextChip`, `MentionPopover`, `ChatEmptyState`, `ChatMarkdown`, `ChatErrorBubble`, `ChatProgressLine`, `UserBubble` |
 | `src/features/chats/` | The Chats screen: list, search, day groups and `useChatList()` (see [DESIGN.md](DESIGN.md)) |
@@ -57,8 +58,8 @@ draft after storage loads.
 
 A successful send clears the submitted text. A failed send keeps it, and a delayed completion
 does not replace text typed for a later message. Sign-out or session expiry clears the account's
-drafts. Demo drafts stay in the current composer; the web preview stores drafts in memory only. Photo
-attachments are still unavailable; this does not enable the dimmed Attach control.
+drafts. Demo drafts stay in the current composer; the web preview stores drafts in memory only.
+Picked files are not part of a draft. They stay in memory and go when the sheet closes (see [Attachments](#attachments)).
 
 ## Rich replies
 
@@ -193,17 +194,80 @@ On the next message to a live run, `useSession` first sends one command per chan
   A new message lifts that hold.
   A failed delivery puts its rows back in front of anything queued since and holds them; only Send now sends them again, because the failed send may have reached the agent.
 - Closing the sheet, an Android back, or New chat puts the queued messages back in front of the composer text, so the draft keeps them.
+- **Files.** A queued message takes the composer's files with it, as on the web, and the row shows "1 file" or "N files".
+  The drained message, or Send now, carries the files of every row in queue order. The 10-file cap applies per composer message, not to the join.
+  A failed delivery puts the rows back with their files. Removing a row drops its files.
+  Closing the sheet or New chat drops the queued files, as closing drops unsent composer files. The queued text folds into the chat's own draft, so its files must not follow into another chat.
+  Attach stays enabled while messages queue. Files of a direct send still in flight stay with that send and never join the queue.
 - `mobile_session_queued` is captured with `queue_length` when a message joins the queue, `mobile_session_queue_removed` with `queue_length` after a row is removed,
   and `mobile_session_queue_sent_now` with `queued_count` and `steer` (the session could steer at the tap).
-- `mobile_session_sent` is captured with `new_task`, `resumed_run`, `report_count`, `model`, `reasoning_effort`, `permission_mode`,
+- `mobile_session_sent` is captured with `new_task`, `resumed_run`, `report_count`, `attachment_count`, `model`, `reasoning_effort`, `permission_mode`,
   `delivery` (`steer` when the agent accepted a steered message, `queue` for a drained queue, else `direct`) and `queued_count`.
   Model and mode changes still go out as `set_config_option` before a steered message, as on the web.
 - `mobile_session_send_failed` is captured with `code` and `new_task` when a send shows a notice.
-  `code` is `config_rejected`, `command_failed`, `run_not_started`, `warm_run_unavailable`, or the `ChatError` kind from `chatErrors.ts`.
+  `code` is `upload_failed`, `config_rejected`, `command_failed`, `run_not_started`, `warm_run_unavailable`, or the `ChatError` kind from `chatErrors.ts`.
 - `mobile_session_finished` is captured once per turn the person started, with `status`, `duration_s` (from the accepted send) and `had_decision`.
   A steered message joins the turn it steers, so it adds no event of its own.
   `status` is `completed` (the turn ended), `failed` (the run failed, or the turn ended with a new run error), `cancelled` (the run was cancelled without Stop),
   `stopped` (the turn or run ended after Stop) or `abandoned` (the sheet closed or New chat dropped the chat first).
+
+## Attachments
+
+The Attach button opens a sheet with Photo library and Choose a file.
+Photo library uses `expo-image-picker` (images only, never the camera); Choose a file uses `expo-document-picker` (any type).
+Both allow several files. The keyboard drops before the sheet opens and comes back after the pick.
+The limits and content types are the web's (`products/posthog_ai/frontend/utils/attachments.ts`):
+
+- Any file type. At most 30 MiB per file, 10 MiB for a `.pdf`. An empty file is refused.
+- At most 10 files per message. At 10 the Attach button is dimmed, and its accessibility hint says "Up to 10 files fit in one message"; no visible text says it.
+  Files picked past the cap are left off, and one line says how many.
+- The content type comes from the extension, never from the picker. An unknown extension is `application/octet-stream`; a file is an image when its type starts with `image/`.
+  iOS gives a converted photo the name of its original (`IMG_0001.HEIC` for a JPEG), so the extension of the file the picker wrote wins.
+- A refused file shows in the notice line above the composer, such as "notes.txt is empty." or "slides.pdf is over the 10 MB limit for PDFs."
+
+Picked files show as chips after the report chips: an image with a small thumbnail, any other file with a document icon, each with a remove ×.
+They live in memory only, never in the draft store.
+Text stays required: a send with files and no text does not go, as on the web.
+
+Files upload when the message sends, in three steps per batch, as the web's `artifactUpload.ts` does:
+
+1. `POST .../prepare_upload/` with `{ "artifacts": [{ "name", "type": "user_attachment", "source": "posthog_ai", "size", "content_type" }] }`.
+   The answer keeps the request's order, and each entry has an `id`, a `storage_path` and a `presigned_post`.
+2. A `multipart/form-data` `POST` to each `presigned_post.url`, all files at once.
+   Every `presigned_post.fields` entry goes first, then the file as `file`. It is a plain `fetch`, so the PostHog token never goes to S3.
+3. `POST .../finalize_upload/` with each `id`, `name`, `type`, `source`, `storage_path` and the extension's `content_type`.
+
+One failed file fails the send, so a message never arrives with fewer files than the person attached.
+The order of a send:
+
+- **New chat.** `POST tasks/` (no `branch`, so it never claims a warm run and never answers with a run), then the staged upload against the new task (`tasks/{t}/staged_artifacts/...`),
+  then `POST tasks/{t}/run/` with `pending_user_artifact_ids`. A failed upload deletes the new task, as a refused run does.
+  If a create ever answers with a run while the send has files, the send fails the same way, because that run would never get the files.
+- **Live run.** The changed options, then the run-scoped upload against the current run (`tasks/{t}/runs/{r}/artifacts/...`),
+  then `user_message` with `params.artifact_ids`.
+- **Ended run, or a 409.** Run-scoped ids belong to that run only, so the files upload again, staged against the task, and the resume `run/` carries `pending_user_artifact_ids`.
+- **Demo.** Nothing uploads. The chips and the bubble show the files, and the canned reply plays.
+
+While a send uploads, its chips show a spinner instead of ×, and Attach is dimmed. A successful send clears its chips.
+A message that goes into the queue takes the composer's files with it (see [Follow-ups and resume](#follow-ups-and-resume)).
+A failed send keeps them, puts the text back, and the notice says "Your files didn't upload. Try again."
+Every failure while the files upload (prepare, the S3 post, finalize) shows this copy and counts as `upload_failed`, also when the server sent its own copy.
+The first failed S3 post stops the other posts of the batch.
+Closing the sheet or New chat aborts an upload in flight.
+
+The bubble shows a picked image as a thumbnail from the file on the device and any other file as a chip with its name.
+The echo names each file by a `resource_link` (or `image`) block whose URI ends in `.posthog/attachments/<runId>/<artifactId>/<name>`.
+The reducer reads the ids from that path, keeps one entry per artifact, and fills the first entry of the same name that has no id yet, so the optimistic bubble keeps its thumbnail.
+It also keeps each artifact's device file, so a resume, which draws the thread again from the log, keeps the thumbnails of files sent from this sheet.
+A message with files and no text, which another client can send, has no bubble of its own: its files join the previous bubble, as on the web.
+A file from history has no local copy and shows by name only (see [GAPS.md](GAPS.md#chat)).
+
+- `mobile_chat_attach_menu_opened` when the sheet opens.
+- `mobile_chat_file_attached` with `source` (`photos` or `files`), `attached_count` (files in the composer after the pick) and `image_count` (images in the pick).
+- `mobile_chat_file_rejected` with `reason` (`empty`, `too_large`, `unreadable` or `too_many`), once per refused file and once per pick that went past the cap.
+- `mobile_chat_file_removed` with `attached_count` when a chip's × removes a file.
+- `mobile_chat_file_upload_failed` with `status` (the HTTP status of prepare, finalize or the S3 post, when there was one) and `new_task`.
+- No event carries a file name or its content.
 
 ## Reading a run
 
@@ -334,7 +398,7 @@ The route takes an optional `entry` param; `chatSheetSource` falls back on `repo
 
 ## Demo mode
 
-No request goes out.
+No request goes out, and attached files do not upload.
 A new chat gets a demo task id, echoes the message and plays `DEMO_REPLY` through the session reducer: streamed chunks, the final message, then a turn end.
 Demo sessions replay the run logs in `src/demo/sessionThreads.ts`:
 "Fix the flaky checkout test" ended with a PR, "Add dark mode to settings" waits on a question,

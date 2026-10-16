@@ -7,10 +7,16 @@ import { PaperclipIcon } from '@/ui/icons/PaperclipIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, iconSizes, inputReset, radii, shadows, type } from '@/ui/tokens'
 
+import { MAX_ATTACHMENTS_PER_MESSAGE } from './attachments/attachmentRules'
+
 interface ComposerProps {
     text: string
     onChangeText: (text: string) => void
     chips?: ReactNode
+    onAttach: () => void
+    attachOpen: boolean
+    attachDisabled: boolean
+    attachFull: boolean
     mentionOpen: boolean
     onToggleMention: () => void
     modelLabel: string
@@ -75,6 +81,10 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
         text,
         onChangeText,
         chips,
+        onAttach,
+        attachOpen,
+        attachDisabled,
+        attachFull,
         mentionOpen,
         onToggleMention,
         modelLabel,
@@ -112,9 +122,21 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
             />
             <View style={styles.toolbar}>
                 <Pressable44
-                    disabled
+                    onPress={onAttach}
+                    disabled={attachDisabled || attachFull}
                     accessibilityLabel="Attach a file"
-                    style={[styles.tool, styles.placeholder, styles.toolDisabled]}
+                    accessibilityHint={
+                        attachFull ? `Up to ${MAX_ATTACHMENTS_PER_MESSAGE} files fit in one message` : undefined
+                    }
+                    accessibilityState={{ expanded: attachOpen, disabled: attachDisabled || attachFull }}
+                    pressedBackground={colors.background}
+                    style={[
+                        styles.tool,
+                        styles.attach,
+                        attachOpen && styles.toolActive,
+                        (attachDisabled || attachFull) && styles.toolDisabled,
+                    ]}
+                    testID="chat-attach"
                 >
                     <PaperclipIcon size={iconSizes.control} />
                 </Pressable44>
@@ -215,8 +237,8 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    // The default 6pt hit slop keeps the disabled placeholder at a 44pt target, so it can give the chips room.
-    placeholder: {
+    // The default 6pt hit slop keeps the narrow button at a 44pt target, so it can give the option chips room.
+    attach: {
         width: 32,
     },
     chip: {

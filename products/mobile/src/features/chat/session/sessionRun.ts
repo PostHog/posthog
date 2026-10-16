@@ -133,6 +133,17 @@ export function chatStartRequests(question: string, context: ChatContext, option
     }
 }
 
+/**
+ * Puts staged attachment ids on a `run/` body. Only `run/` takes them: the task create takes ids only for a warm run,
+ * and the app never claims one.
+ */
+export function withPendingArtifacts(
+    body: TaskRunCreateRequestApi,
+    artifactIds: readonly string[]
+): TaskRunCreateRequestApi {
+    return artifactIds.length > 0 ? { ...body, pending_user_artifact_ids: [...artifactIds] } : body
+}
+
 export function runConfigFromRun(run: TaskRunApi): TrackedRunConfig {
     return {
         runtimeAdapter: asRuntimeAdapter(run.runtime_adapter),

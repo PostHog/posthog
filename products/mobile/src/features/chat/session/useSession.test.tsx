@@ -5,6 +5,8 @@ import type { TaskApi, TaskCreateResponseApi, TaskRunApi } from '@/api/tasks'
 import * as tasks from '@/api/tasks'
 import { setAnalyticsClient } from '@/lib/analytics'
 
+import type { PendingAttachment } from '../attachments/types'
+import { AttachmentUploadError, uploadAttachments } from '../attachments/uploadAttachments'
 import type { ChatRunOptions } from '../chatRunOptions'
 import { chatPrompt } from '../contextPrompt'
 import type { ChatContext } from '../types'
@@ -36,7 +38,21 @@ jest.mock('@/api/tasks', () => ({
     ),
 }))
 
+jest.mock('../attachments/uploadAttachments', () => ({
+    ...jest.requireActual<typeof import('../attachments/uploadAttachments')>('../attachments/uploadAttachments'),
+    uploadAttachments: jest.fn(),
+}))
+
 const mocked = jest.mocked(tasks)
+const upload = jest.mocked(uploadAttachments)
+const SHOT: PendingAttachment = {
+    id: 'pick-1',
+    uri: 'file:///picked/shot.png',
+    name: 'shot.png',
+    size: 100,
+    contentType: 'image/png',
+    isImage: true,
+}
 const TASK_ID = 'task-1'
 
 function run(overrides: Partial<TaskRunApi>): TaskRunApi {
@@ -578,6 +594,93 @@ describe('useSession', () => {
         expect(sentCommands()).toEqual([{ method: 'user_message', params: { content: 'Why did signups drop?' } }])
         expect(result.current.runId).toBe('run-1')
     })
+
+    test('a new chat stages its files on the created task and starts the run with their ids', async () => {
+        mocked.createTask.mockResolvedValue({ ...task(run({})), latest_run: null })
+        mocked.startTaskRun.mockResolvedValue({ ...task(run({ status: 'queued' })), run: run({ status: 'queued' }) })
+        upload.mockResolvedValueOnce(['art-1'])
+
+        const { result } = renderHook(() => useSession({}))
+        await act(async () => {
+            await result.current.start('What is this?', { kind: 'none' }, DEFAULT_AUTO, { attachments: [SHOT] })
+        })
+
+        expect(upload).toHaveBeenCalledWith({ kind: 'staged', taskId: TASK_ID }, [SHOT], expect.any(AbortSignal))
+        expect(mocked.createTask.mock.invocationCallOrder[0]).toBeLessThan(upload.mock.invocationCallOrder[0] ?? 0)
+        expect(mocked.startTaskRun).toHaveBeenCalledWith(
+            TASK_ID,
+            expect.objectContaining({ pending_user_artifact_ids: ['art-1'] }),
+            expect.anything()
+        )
+        expect(mocked.createTask.mock.calls[0]?.[0]).not.toHaveProperty('pending_user_artifact_ids')
+    })
+
+    test('a follow-up uploads to the live run, and stages the files again when that run has ended', async () => {
+        mocked.getTask.mockResolvedValue(
+            task(run({ status: 'in_progress', state: { initial_permission_mode: 'auto' } }))
+        )
+        mocked.sendTaskRunCommand.mockRejectedValueOnce(new ApiError(409, { error: 'Task run workflow has ended' }))
+        mocked.startTaskRun.mockResolvedValue({
+            ...task(run({ id: 'run-2', status: 'queued' })),
+            run: run({ id: 'run-2' }),
+        })
+        upload.mockResolvedValueOnce(['run-art']).mockResolvedValueOnce(['staged-art'])
+
+        const { result } = renderHook(() => useSession({ taskId: TASK_ID }))
+        await waitFor(() => expect(result.current.runStatus).toBe('in_progress'))
+        let sent = false
+        await act(async () => {
+            sent = await result.current.send('What is this?', { kind: 'none' }, DEFAULT_AUTO, { attachments: [SHOT] })
+        })
+
+        expect(sent).toBe(true)
+        expect(upload.mock.calls.map(([target]) => target)).toEqual([
+            { kind: 'run', taskId: TASK_ID, runId: 'run-1' },
+            { kind: 'staged', taskId: TASK_ID },
+        ])
+        expect(sentCommands()).toEqual([
+            { method: 'user_message', params: { content: 'What is this?', artifact_ids: ['run-art'] } },
+        ])
+        expect(mocked.startTaskRun).toHaveBeenCalledWith(
+            TASK_ID,
+            expect.objectContaining({ resume_from_run_id: 'run-1', pending_user_artifact_ids: ['staged-art'] }),
+            expect.anything()
+        )
+    })
+
+    test.each<[string, Error, number]>([
+        ['an S3 post', new AttachmentUploadError("Couldn't upload shot.png", 403), 403],
+        ['prepare', new ApiError(400, { error: 'Artifact upload not found in object storage' }), 400],
+    ])(
+        'a failed upload in %s sends nothing, takes the bubble back and deletes the empty task',
+        async (_step, failure, status) => {
+            const capture = jest.fn()
+            setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
+            mocked.createTask.mockResolvedValue({ ...task(run({})), latest_run: null })
+            upload.mockRejectedValueOnce(failure)
+
+            const { result } = renderHook(() => useSession({}))
+            let sent = true
+            await act(async () => {
+                sent = await result.current.start('What is this?', { kind: 'none' }, DEFAULT_AUTO, {
+                    attachments: [SHOT],
+                })
+            })
+            setAnalyticsClient(null)
+
+            expect(sent).toBe(false)
+            expect(mocked.startTaskRun).not.toHaveBeenCalled()
+            expect(mocked.deleteTask).toHaveBeenCalledWith(TASK_ID)
+            expect(result.current.items).toEqual([])
+            expect(result.current.unsentText).toBe('What is this?')
+            expect(result.current.notice).toBe("Your files didn't upload. Try again.")
+            expect(capture).toHaveBeenCalledWith('mobile_chat_file_upload_failed', { status, new_task: true })
+            expect(capture).toHaveBeenCalledWith('mobile_session_send_failed', {
+                code: 'upload_failed',
+                new_task: true,
+            })
+        }
+    )
 
     test('a fresh run of an opened Inbox discussion task keeps its report as the run source', async () => {
         mocked.getTask.mockResolvedValue({ ...task(run({})), signal_report: 'rep-1', latest_run: null })

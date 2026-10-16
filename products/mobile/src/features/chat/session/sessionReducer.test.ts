@@ -36,6 +36,10 @@ function userChunk(text: string): Record<string, unknown> {
 
 const TURN_COMPLETE = notification('_posthog/turn_complete', {})
 
+function link(runId: string, artifactId: string, name: string): Record<string, unknown> {
+    return { type: 'resource_link', uri: `file:///workspace/.posthog/attachments/${runId}/${artifactId}/${name}`, name }
+}
+
 function play(
     steps: (SessionThreadAction | Record<string, unknown>)[],
     context: FrameContext = LIVE,
@@ -280,6 +284,92 @@ describe('session thread reducer', () => {
             'assistant…: Updating the docs.',
         ])
         expect(echoed.items[2]?.id).toBe('local-1')
+    })
+
+    test('an echoed file joins its message once, and keeps the preview of the bubble the app drew', () => {
+        const replayed = play(
+            [
+                notification('_posthog/user_message', {
+                    content: [{ type: 'text', text: 'Read the report' }, link('run-0', 'art-1', 'report.pdf')],
+                }),
+                userChunk('Read the report'),
+                update({ sessionUpdate: 'user_message_chunk', content: link('run-0', 'art-1', 'report.pdf') }),
+            ],
+            REPLAY
+        )
+        expect(replayed.items).toEqual([
+            {
+                kind: 'user',
+                id: 'user-0',
+                text: 'Read the report',
+                attachments: [{ name: 'report.pdf', isImage: false, runId: 'run-0', artifactId: 'art-1' }],
+            },
+        ])
+
+        const echoed = play([
+            {
+                type: 'local_user',
+                id: 'local-1',
+                text: 'What is this?',
+                attachments: [{ name: 'shot.png', isImage: true, localUri: 'file:///picked/shot.png' }],
+            },
+            notification('_posthog/user_message', {
+                content: [{ type: 'text', text: 'What is this?' }, link(RUN, 'art-2', 'shot.png')],
+            }),
+        ])
+        expect(echoed.items).toEqual([
+            {
+                kind: 'user',
+                id: 'local-1',
+                text: 'What is this?',
+                attachments: [
+                    {
+                        name: 'shot.png',
+                        isImage: true,
+                        localUri: 'file:///picked/shot.png',
+                        runId: RUN,
+                        artifactId: 'art-2',
+                    },
+                ],
+            },
+        ])
+    })
+
+    test('same-name files fill in send order, skip a send still waiting, and keep their previews through a rebuild', () => {
+        const echo = notification('_posthog/user_message', {
+            content: [
+                { type: 'text', text: 'Compare these' },
+                link(RUN, 'art-1', 'image.png'),
+                link(RUN, 'art-2', 'image.png'),
+            ],
+        })
+        const sent = play([
+            {
+                type: 'local_user',
+                id: 'local-1',
+                text: 'Compare these',
+                attachments: [
+                    { name: 'image.png', isImage: true, localUri: 'file:///picked/first.png' },
+                    { name: 'image.png', isImage: true, localUri: 'file:///picked/second.png' },
+                ],
+            },
+            echo,
+            { type: 'local_user', id: 'local-2', text: 'And this one?' },
+            update({ sessionUpdate: 'user_message_chunk', content: link(RUN, 'art-3', 'notes.md') }),
+        ])
+        const previews = (state: SessionThreadState): (string | undefined)[][] =>
+            state.items.map((item) =>
+                item.kind === 'user'
+                    ? (item.attachments ?? []).map((file) => `${file.artifactId}:${file.localUri ?? '-'}`)
+                    : []
+            )
+        expect(previews(sent)).toEqual([
+            ['art-1:file:///picked/first.png', 'art-2:file:///picked/second.png', 'art-3:-'],
+            [],
+        ])
+
+        const rebuilt = play([{ type: 'resuming' }, echo, TURN_COMPLETE], REPLAY, sent)
+        expect(previews(rebuilt)[0]).toEqual(['art-1:file:///picked/first.png', 'art-2:file:///picked/second.png'])
     })
 
     test('resuming rebuilds from the replayed chain, keeps the pending send, and skips the resume prompt', () => {

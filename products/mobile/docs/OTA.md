@@ -33,7 +33,7 @@ Do not run `pnpm update`. That is pnpm's own command, and it upgrades dependenci
 
 ## Runtime version
 
-`app.config.ts` sets `runtimeVersion.policy` to `appVersion`, so the runtime version equals `version` (now `1.1.0`).
+`app.config.ts` sets `runtimeVersion.policy` to `appVersion`, so the runtime version equals `version` (now `1.2.0`).
 An update reaches only the builds with the same runtime version.
 
 The policy does not detect native changes. You must raise `version` when a change needs native code, for example:

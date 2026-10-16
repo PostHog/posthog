@@ -60,6 +60,11 @@ export function QueuedMessages({
                         <Text style={styles.rowText} numberOfLines={2}>
                             {row.text}
                         </Text>
+                        {row.attachments.length > 0 ? (
+                            <Text style={styles.rowFiles} testID="chat-queue-row-files">
+                                {row.attachments.length === 1 ? '1 file' : `${row.attachments.length} files`}
+                            </Text>
+                        ) : null}
                         <Pressable44
                             onPress={() => onRemove(row.id)}
                             accessibilityLabel="Remove from queue"
@@ -147,6 +152,10 @@ const styles = StyleSheet.create({
         ...type.metaSmall,
         color: colors.ink,
         flex: 1,
+    },
+    rowFiles: {
+        ...type.metaSmall,
+        color: colors.tertiary,
     },
     remove: {
         width: 28,

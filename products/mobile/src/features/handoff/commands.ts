@@ -1,5 +1,10 @@
 import { ApiError } from '@/api/client'
-import { type PermissionResponseParams, sendTaskRunCommand, type TaskRunCommandResponseApi } from '@/api/tasks'
+import {
+    type PermissionResponseParams,
+    sendTaskRunCommand,
+    type TaskRunCommandResponseApi,
+    type UserMessageParams,
+} from '@/api/tasks'
 
 import { type Clock, realClock } from './clock'
 
@@ -101,16 +106,22 @@ export async function deliverPermissionResponse(
 export async function sendUserMessage(
     run: RunRef,
     content: string,
-    options: { id: string; signal?: AbortSignal; clock?: Clock; steer?: boolean }
+    options: { id: string; signal?: AbortSignal; clock?: Clock; steer?: boolean; artifactIds?: readonly string[] }
 ): Promise<'queued' | 'ended'> {
     const clock = options.clock ?? realClock
+    const artifactIds = options.artifactIds ?? []
+    const params: UserMessageParams = {
+        content,
+        ...(artifactIds.length > 0 ? { artifact_ids: [...artifactIds] } : {}),
+        ...(options.steer ? { steer: true } : {}),
+    }
     try {
         const response = await retryWhileStarting(
             () =>
                 sendTaskRunCommand(
                     run.taskId,
                     run.runId,
-                    { method: 'user_message', params: { content, ...(options.steer ? { steer: true } : {}) } },
+                    { method: 'user_message', params },
                     { id: options.id, signal: options.signal }
                 ),
             options.signal,

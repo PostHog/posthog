@@ -24,6 +24,10 @@ import { useSheetDrag } from '@/ui/useSheetDrag'
 import { defaultModelSelection, isPermissionMode, modeLabel } from '../handoff/runOptions'
 import { useModelCatalogue, useRunDefaults } from '../handoff/useRunOptions'
 import { useInboxItems } from '../inbox/hooks'
+import { AttachMenuSheet } from './attachments/AttachMenuSheet'
+import { AttachmentChip } from './attachments/AttachmentChip'
+import type { AttachmentSource, PendingAttachment } from './attachments/types'
+import { releaseAttachments, useComposerAttachments } from './attachments/useComposerAttachments'
 import { ChatAccessGate } from './ChatAccessGate'
 import { ChatEmptyState } from './ChatEmptyState'
 import { type ChatOptionsPage, ChatOptionsSheet } from './ChatOptionsSheet'
@@ -46,6 +50,7 @@ import {
     canDrain,
     EMPTY_QUEUE,
     joinQueue,
+    joinQueueAttachments,
     type QueueState,
     queueActions,
     queueReducer,
@@ -144,6 +149,11 @@ export function ChatSheet({
     const pickedOptions = useRef(false)
     const [optionsOpen, setOptionsOpen] = useState(false)
     const [optionsPage, setOptionsPage] = useState<ChatOptionsPage>('model')
+    const attachments = useComposerAttachments()
+    const [attachOpen, setAttachOpen] = useState(false)
+    // The files of the direct send in flight. They stay in the composer until it settles, and a queued message
+    // never takes them.
+    const [sendingFileIds, setSendingFileIds] = useState<readonly string[]>([])
     const input = useRef<TextInput>(null)
     const historyStatus = session.history.status
     const optionsDisabled =
@@ -242,6 +252,8 @@ export function ChatSheet({
         canSteer: session.canSteer,
         stopping: session.isStopping,
     })
+    // Files stay in the composer until the send that uploads them settles. A demo send uploads nothing.
+    const uploading = !demo && (preparing || session.isSending)
     const showEmptyState = session.taskId === null && session.items.length === 0 && historyStatus === 'idle'
     const webUrl = (reportId: string): string | undefined => (scope ? reportWebUrl(scope, reportId) : undefined)
 
@@ -300,6 +312,32 @@ export function ChatSheet({
         setOptionsOpen(false)
         input.current?.focus()
     }
+    const openAttach = (): void => {
+        if (uploading) {
+            return
+        }
+        // The keyboard would cover the sheet.
+        Keyboard.dismiss()
+        setMentionOpen(false)
+        setAttachOpen(true)
+        track('mobile_chat_attach_menu_opened')
+    }
+    const closeAttach = (): void => {
+        setAttachOpen(false)
+        input.current?.focus()
+    }
+    const pickAttachment = (source: AttachmentSource): void => {
+        setAttachOpen(false)
+        void attachments.pick(source).finally(() => input.current?.focus())
+    }
+    const notice = attachments.notice ?? session.notice
+    const dismissNotice = (): void => {
+        if (attachments.notice) {
+            attachments.dismissNotice()
+        } else {
+            session.dismissNotice()
+        }
+    }
     const changeOptions = (action: ChatRunOptionsAction): void => {
         pickedOptions.current = true
         dispatchRunOptions(action)
@@ -327,26 +365,29 @@ export function ChatSheet({
         setAttached((previous) => previous.filter((id) => id !== reportId))
     }
     // Queued messages go back into the composer draft, so closing the sheet or starting a new chat loses none.
-    const foldQueue = (): void => {
+    // Returns the queued files; the draft cannot hold them.
+    const foldQueue = (): PendingAttachment[] => {
         queueEpoch.current++
         const { queue: current, draft, change } = latest.current
         if (current.rows.length === 0) {
-            return
+            return []
         }
         const next = { ...draft, text: [joinQueue(current.rows), draft.text.trim()].filter(Boolean).join('\n\n') }
         latest.current = { queue: EMPTY_QUEUE, draft: next, change }
         dispatchQueue(queueActions.clear())
         change(next)
+        return joinQueueAttachments(current.rows)
     }
+    // The draft keeps text only, so a closed sheet loses the queued files, as it loses unsent composer files.
     // biome-ignore lint/correctness/useExhaustiveDependencies: `foldQueue` reads only refs.
     useEffect(() => {
         if (!visible) {
-            foldQueue()
+            releaseAttachments(foldQueue())
         }
     }, [visible])
     // An Android back pops the route without the sheet's own close.
     // biome-ignore lint/correctness/useExhaustiveDependencies: `foldQueue` reads only refs.
-    useEffect(() => () => foldQueue(), [])
+    useEffect(() => () => releaseAttachments(foldQueue()), [])
     // The mode the chip shows, already mapped onto the harness the message runs on.
     const sendOptions = (): ChatRunOptions => ({ ...runOptions, permissionMode })
     const deliverQueue = (steer: boolean): void => {
@@ -363,6 +404,7 @@ export function ChatSheet({
             .send(joinQueue(rows), buildContext(), sendOptions(), {
                 ...(steer ? { steer: true } : {}),
                 queuedCount: rows.length,
+                attachments: joinQueueAttachments(rows),
             })
             .catch(() => false)
             .then((sent) => {
@@ -394,6 +436,7 @@ export function ChatSheet({
         deliverQueue(true)
     }
     const removeQueued = (id: string): void => {
+        releaseAttachments(queue.rows.find((row) => row.id === id)?.attachments ?? [])
         dispatchQueue(queueActions.remove(id))
         track('mobile_session_queue_removed', {
             queue_length: queue.rows.filter((row) => row.id !== id).length,
@@ -411,7 +454,9 @@ export function ChatSheet({
         }
         if (queueing || preparingSend.current) {
             setMentionOpen(false)
-            dispatchQueue(queueActions.enqueue(message))
+            const queuedFiles = attachments.files.filter((file) => !sendingFileIds.includes(file.id))
+            dispatchQueue(queueActions.enqueue(message, queuedFiles))
+            attachments.clear({ only: queuedFiles.map((file) => file.id), release: false })
             track('mobile_session_queued', { queue_length: queue.rows.length + 1 })
             composerDraft.change({ text: '', reportIds: attached })
             return
@@ -422,25 +467,35 @@ export function ChatSheet({
         setMentionOpen(false)
         const options = sendOptions()
         const context = buildContext()
+        const files = attachments.files
+        attachments.dismissNotice()
         preparingSend.current = true
         setPreparing(true)
+        setSendingFileIds(files.map((file) => file.id))
+        if (demo) {
+            // The bubble already shows the files, and a demo send settles only after the canned reply plays.
+            attachments.clear({ only: files.map((file) => file.id), release: false })
+        }
         void composerDraft
             .beginSend({ text: message, reportIds: attached })
             .then(async (settle) => {
-                const sent = await session.send(message, context, options).catch(() => false)
+                const sent = await session.send(message, context, options, { attachments: files }).catch(() => false)
                 if (sent) {
                     sheetEvents.countSent()
+                    attachments.clear({ only: files.map((file) => file.id), release: false })
                 }
                 await settle(sent)
             })
             .finally(() => {
                 preparingSend.current = false
                 setPreparing(false)
+                setSendingFileIds([])
             })
     }
     const startNewChat = (): void => {
         sheetEvents.countNewChat()
-        foldQueue()
+        // The queued text folds into this chat's draft, so its files must not follow into the new chat.
+        releaseAttachments(foldQueue())
         if (target.taskId) {
             // The session reloads as an empty new chat when its task option goes.
             setTarget({})
@@ -451,23 +506,35 @@ export function ChatSheet({
         setDraftReportId(undefined)
         setMentionOpen(false)
         setOptionsOpen(false)
+        setAttachOpen(false)
+        attachments.clear()
         pickedOptions.current = false
         dispatchRunOptions({ type: 'reset' })
         input.current?.focus()
     }
 
     const chips =
-        attached.length > 0
-            ? attached.map((reportId) => (
-                  <ContextChip
-                      key={reportId}
-                      reportId={reportId}
-                      item={itemsById.get(reportId)}
-                      onReport={rememberReport}
-                      onRemove={() => detach(reportId)}
-                  />
-              ))
-            : null
+        attached.length > 0 || attachments.files.length > 0 ? (
+            <>
+                {attached.map((reportId) => (
+                    <ContextChip
+                        key={reportId}
+                        reportId={reportId}
+                        item={itemsById.get(reportId)}
+                        onReport={rememberReport}
+                        onRemove={() => detach(reportId)}
+                    />
+                ))}
+                {attachments.files.map((file) => (
+                    <AttachmentChip
+                        key={file.id}
+                        attachment={file}
+                        uploading={uploading && sendingFileIds.includes(file.id)}
+                        onRemove={() => attachments.remove(file.id)}
+                    />
+                ))}
+            </>
+        ) : null
 
     // The route is a native modal, so on Android the app's gesture root does not reach it and the sheet needs its own.
     return (
@@ -537,10 +604,10 @@ export function ChatSheet({
                                     />
                                     <SessionDecisionPanel
                                         decision={session.decision}
-                                        notice={session.notice}
+                                        notice={notice}
                                         pending={session.isSending}
                                         onAnswer={(answerInput) => void session.answer(answerInput)}
-                                        onDismissNotice={session.dismissNotice}
+                                        onDismissNotice={dismissNotice}
                                     />
                                     {/* A pending decision has its own reply field, so it replaces the composer, as on the web. */}
                                     {session.decision ? null : (
@@ -553,6 +620,10 @@ export function ChatSheet({
                                                 text={text}
                                                 onChangeText={changeText}
                                                 chips={chips}
+                                                onAttach={openAttach}
+                                                attachOpen={attachOpen}
+                                                attachDisabled={uploading}
+                                                attachFull={attachments.isFull}
                                                 mentionOpen={mentionOpen}
                                                 onToggleMention={toggleMention}
                                                 modelLabel={chipModelLabel(modelCatalogue.catalogue, runOptions.model)}
@@ -582,6 +653,7 @@ export function ChatSheet({
                         onChange={changeOptions}
                         onClose={closeOptions}
                     />
+                    <AttachMenuSheet visible={attachOpen} onPick={pickAttachment} onClose={closeAttach} />
                 </View>
             </OverlayHost>
         </GestureHandlerRootView>

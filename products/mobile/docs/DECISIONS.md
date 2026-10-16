@@ -74,7 +74,7 @@ Choices the build contract left open, with the reason for each.
 - **Text wrapping.** `lineBreakStrategyIOS="standard"` on iOS and CSS `text-wrap: pretty` on web
   match the prototype's wrapping of headlines, ledes, questions, PR titles and quotes.
 - **Focus ring.** Web text fields drop the browser outline; the field container is the affordance.
-- **Disabled chat tools.** Attach and Expand render at 40% opacity because they do nothing yet.
+- **Disabled chat tools.** Expand renders at 40% opacity because it does nothing yet.
 - **Nav pill** shows the handoff's three slots as Home, Chat and Products. The app has no Spaces or
   Views, so the chat-bubbles slot opens the chat sheet and the grid slot opens the web app's product
   library (`/project/{id}/library`, the web rail's Products pane), which has no product screen in the app.
@@ -150,6 +150,13 @@ Choices the build contract left open, with the reason for each.
 - **Global chat sends the inbox.** With no report attached, up to 20 inbox rows go in a
   `#### Context from my PostHog inbox` block, so "What needs me today?" has something to answer from.
 - **Context on every message** while a chip stays attached, because the chip says it is attached.
+- **Files upload at send time**, as on the web. A new chat has no task until it sends, and staged files expire, so an upload at pick time would need a task the person may never use.
+- **Text stays required with files.** The web never sends files alone, and the echo pairs the bubble by its text.
+- **Picked files stay in memory.** The draft store keeps text and report ids only. A file URI points into the picker's cache, which the system can clear, so a restored draft could point at nothing.
+- **The Attach menu is a bottom sheet**, as the Model and Mode pages are. The keyboard drops before it opens and moves the composer, so a menu anchored to the button would open where the button was.
+- **A new chat never claims a warm run.** The create sends no `branch`, so the server cold-creates the task, and the files always stage on it for `run/`.
+  The web uploads to a warm run before the create; the app has no warm run to upload to.
+- **A resume uploads the files again.** Ids from a run-scoped upload are valid only on that run, so a 409 on `user_message` stages the files against the task for the new run.
 - **`send(text, context)`** instead of `send(text, reportIds)`. Each context chip loads its report with
   `useReport`, so the sheet holds the views and builds the context. ARCHITECTURE.md's hook table still
   says `reportIds`.

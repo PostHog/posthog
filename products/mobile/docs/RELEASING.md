@@ -29,6 +29,12 @@ Version `1.1.0` adds a native module, Skia, for the report charts.
 The runtime version follows the app version, so an update published for `1.1.0` never reaches a `1.0.0` build.
 Every EAS profile (development, preview and production) needs a new native build before it can run `1.1.0` code.
 
+Version `1.2.0` adds native modules for chat attachments: `expo-image-picker` and `expo-document-picker`.
+`expo-file-system` becomes a direct dependency; it was already linked through `expo`, so it is not a new native module.
+The image picker's config plugin writes the photo library usage description and removes the camera and microphone permissions.
+Every EAS profile needs a new native build before it can run `1.2.0` code.
+Do not publish `1.2.0` code as an update to `1.1.0` builds: the runtime versions differ, so those builds never receive it, and the picker modules are not in them.
+
 ## Build profiles
 
 Profiles are in `eas.json`. Each profile has its own update channel and EAS environment.

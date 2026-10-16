@@ -55,7 +55,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         slug: 'posthog',
         owner: 'posthog',
         scheme,
-        version: '1.1.0',
+        version: '1.2.0',
         orientation: 'portrait',
         userInterfaceStyle: 'light',
         icon: icons.png,
@@ -102,6 +102,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
                     collected('NSPrivacyCollectedDataTypeCoarseLocation', ['Analytics']),
                     // Chat messages the user sends to PostHog AI.
                     collected('NSPrivacyCollectedDataTypeOtherUserContent', ['AppFunctionality']),
+                    // Photos the user attaches to a PostHog AI chat.
+                    collected('NSPrivacyCollectedDataTypePhotosorVideos', ['AppFunctionality']),
                 ],
             },
         },
@@ -133,6 +135,15 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
             ],
             'expo-font',
             'expo-updates',
+            [
+                'expo-image-picker',
+                {
+                    photosPermission: 'PostHog opens your photo library so you can attach images to PostHog AI chats.',
+                    // The composer attaches from the library only.
+                    cameraPermission: false,
+                    microphonePermission: false,
+                },
+            ],
             './plugins/withAndroidAdaptiveIconInsets',
             './plugins/withIosSceneLifecycle',
             '@bacons/apple-targets',

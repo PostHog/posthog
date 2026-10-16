@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { ApiError } from '@/api/client'
 import { readSse } from '@/api/sse'
 import {
+    type ArtifactUploadTarget,
     createTask,
     deleteTask,
     getTask,
@@ -50,6 +51,8 @@ import { track } from '@/lib/analytics'
 import { asRecord } from '@/lib/records'
 import { sleep } from '@/lib/sleep'
 import type { DecisionAnswerInput } from '@/model/types'
+import type { PendingAttachment } from '../attachments/types'
+import { AttachmentUploadError, uploadAttachments } from '../attachments/uploadAttachments'
 import { toChatError } from '../chatErrors'
 import { type ChatRunOptions, DEFAULT_CHAT_RUN_OPTIONS } from '../chatRunOptions'
 import { bareQuestion, chatPrompt } from '../contextPrompt'
@@ -68,10 +71,11 @@ import {
     runSourceFields,
     sentOptionProperties,
     type TrackedRunConfig,
+    withPendingArtifacts,
     withStreamModeReport,
 } from './sessionRun'
 import { SessionTurnTracker } from './sessionTurn'
-import type { SendOptions, Session, SessionDecision, SessionHistory, SessionPhase } from './types'
+import type { SendOptions, Session, SessionAttachment, SessionDecision, SessionHistory, SessionPhase } from './types'
 
 // Drives a sandbox task run in the chat sheet through the tasks API. Stream handling follows `docs/HANDOFF.md`.
 
@@ -91,6 +95,7 @@ const ANSWERED_ELSEWHERE = 'Someone else answered this already.'
 const ANSWER_RUN_ENDED = "Your answer wasn't sent. The run ended."
 const CONNECTION_LOST = 'The connection to the agent dropped. Close this chat and open it again.'
 const CONFIG_NOT_APPLIED = "Your model or mode change didn't reach the agent. Try again."
+const UPLOAD_FAILED = "Your files didn't upload. Try again."
 
 const LOADING: SessionHistory = { status: 'loading', error: null }
 const IDLE: SessionHistory = { status: 'idle', error: null }
@@ -160,6 +165,9 @@ function sendErrorMessage(error: unknown): string {
     if (error instanceof ConfigSyncError) {
         return error.message
     }
+    if (error instanceof AttachmentUploadError) {
+        return UPLOAD_FAILED
+    }
     if (error instanceof CommandFailedError) {
         return "The agent didn't take your message. Try again."
     }
@@ -178,6 +186,7 @@ function sendErrorMessage(error: unknown): string {
 }
 
 type SendErrorCode =
+    | 'upload_failed'
     | 'config_rejected'
     | 'command_failed'
     | 'run_not_started'
@@ -186,6 +195,9 @@ type SendErrorCode =
 
 /** The `code` of `mobile_session_send_failed`, which follows the cases of `sendErrorMessage`. */
 function sendErrorCode(error: unknown): SendErrorCode {
+    if (error instanceof AttachmentUploadError) {
+        return 'upload_failed'
+    }
     if (error instanceof ConfigSyncError) {
         return 'config_rejected'
     }
@@ -207,6 +219,41 @@ function sendErrorCode(error: unknown): SendErrorCode {
  */
 function isRunRefused(error: unknown): boolean {
     return error instanceof ApiError && ((error.status >= 400 && error.status < 500) || error.status === 503)
+}
+
+function localAttachments(files: readonly PendingAttachment[]): SessionAttachment[] {
+    return files.map((file) => ({ name: file.name, isImage: file.isImage, localUri: file.uri }))
+}
+
+/**
+ * Uploads a send's files and reports a failure. Every failure here becomes an `AttachmentUploadError`, so the person
+ * sees the upload copy instead of a server's copy for prepare or finalize. A send without files makes no request.
+ */
+async function uploadSendFiles(
+    target: ArtifactUploadTarget,
+    files: readonly PendingAttachment[],
+    signal: AbortSignal,
+    newTask: boolean
+): Promise<string[]> {
+    if (files.length === 0) {
+        return []
+    }
+    try {
+        return await uploadAttachments(target, files, signal)
+    } catch (error) {
+        if (isAbort(error, signal)) {
+            throw error
+        }
+        const failure =
+            error instanceof AttachmentUploadError
+                ? error
+                : new AttachmentUploadError(
+                      error instanceof Error ? error.message : 'Upload failed',
+                      error instanceof ApiError ? error.status : undefined
+                  )
+        track('mobile_chat_file_upload_failed', { status: failure.status, new_task: newTask })
+        throw failure
+    }
 }
 
 /** Retries while the sandbox's command channel comes up, as `deliverPermissionResponse` does. */
@@ -944,19 +991,23 @@ export function useSession(options: SessionOptions): Session {
             previousRunId: string | undefined,
             options: ChatRunOptions,
             signal: AbortSignal,
-            mine: number
+            mine: number,
+            artifactIds: readonly string[]
         ): Promise<PermissionModeApi> => {
             const id = taskIdRef.current
             if (!id) {
                 throw new RunNotStartedError()
             }
             const fields = chatRunFields(options, previousRunId ? configFor(previousRunId) : null)
-            const body: TaskRunCreateRequestApi = {
-                mode: 'interactive',
-                pending_user_message: content,
-                ...(previousRunId ? { resume_from_run_id: previousRunId } : runSource.current),
-                ...fields,
-            }
+            const body: TaskRunCreateRequestApi = withPendingArtifacts(
+                {
+                    mode: 'interactive',
+                    pending_user_message: content,
+                    ...(previousRunId ? { resume_from_run_id: previousRunId } : runSource.current),
+                    ...fields,
+                },
+                artifactIds
+            )
             const response = await withWarmRetry((headers) => startTaskRun(id, body, { headers, signal }), { signal })
             const run = response.run ?? response.latest_run ?? null
             if (!run) {
@@ -1038,6 +1089,7 @@ export function useSession(options: SessionOptions): Session {
                 return false
             }
             const steer = sendOptions.steer === true && canSteerRef.current
+            const attachments = sendOptions.attachments ?? []
             const content = chatPrompt(trimmed, context)
             const reportCount = context.kind === 'reports' ? context.reports.length : 0
             const localId = `local-${randomUUID()}`
@@ -1047,7 +1099,12 @@ export function useSession(options: SessionOptions): Session {
             actionController.current = controller
             setNotice(undefined)
             setUnsentText(undefined)
-            dispatchThread({ type: 'local_user', id: localId, text: bareQuestion(trimmed) })
+            dispatchThread({
+                type: 'local_user',
+                id: localId,
+                text: bareQuestion(trimmed),
+                attachments: localAttachments(attachments),
+            })
             if (demo) {
                 const runId = liveRef.current?.runId
                 if (runId) {
@@ -1061,6 +1118,7 @@ export function useSession(options: SessionOptions): Session {
                     new_task: false,
                     resumed_run: false,
                     report_count: reportCount,
+                    attachment_count: attachments.length,
                     ...sentOptionProperties(options, options.permissionMode),
                     ...deliveryProperties(steer, sendOptions),
                 })
@@ -1096,10 +1154,18 @@ export function useSession(options: SessionOptions): Session {
                     }
                     if (!ended) {
                         // `ended` (a 409) falls through to a resume run, which has no live turn to steer.
+                        // Run-scoped ids belong to this run only, so a resume below uploads the files again.
+                        const artifactIds = await uploadSendFiles(
+                            { kind: 'run', ...run },
+                            attachments,
+                            controller.signal,
+                            false
+                        )
                         const outcome = await sendUserMessage(run, content, {
                             id: randomUUID(),
                             signal: controller.signal,
                             steer,
+                            artifactIds,
                         })
                         delivered = outcome === 'queued'
                         steered = delivered && steer
@@ -1111,13 +1177,27 @@ export function useSession(options: SessionOptions): Session {
                 }
                 if (!delivered) {
                     resumed = current !== null
-                    permissionMode = await startRun(content, current?.runId, options, controller.signal, mine)
+                    const stagedIds = await uploadSendFiles(
+                        { kind: 'staged', taskId },
+                        attachments,
+                        controller.signal,
+                        false
+                    )
+                    permissionMode = await startRun(
+                        content,
+                        current?.runId,
+                        options,
+                        controller.signal,
+                        mine,
+                        stagedIds
+                    )
                 }
                 if (epoch.current === mine) {
                     track('mobile_session_sent', {
                         new_task: false,
                         resumed_run: resumed,
                         report_count: reportCount,
+                        attachment_count: attachments.length,
                         ...sentOptionProperties(options, permissionMode),
                         ...deliveryProperties(steered, sendOptions),
                     })
@@ -1158,11 +1238,13 @@ export function useSession(options: SessionOptions): Session {
             if (taskIdRef.current || !trimmed || sendingRef.current) {
                 return false
             }
+            const attachments = sendOptions.attachments ?? []
             const requests = chatStartRequests(trimmed, context, options)
             const sentProperties = {
                 new_task: true,
                 resumed_run: false,
                 report_count: context.kind === 'reports' ? context.reports.length : 0,
+                attachment_count: attachments.length,
                 ...sentOptionProperties(options, requests.fields.initial_permission_mode),
                 ...deliveryProperties(false, sendOptions),
             }
@@ -1174,7 +1256,12 @@ export function useSession(options: SessionOptions): Session {
             const { signal } = controller
             setNotice(undefined)
             setUnsentText(undefined)
-            dispatchThread({ type: 'local_user', id: localId, text: bareQuestion(trimmed) })
+            dispatchThread({
+                type: 'local_user',
+                id: localId,
+                text: bareQuestion(trimmed),
+                attachments: localAttachments(attachments),
+            })
             if (demo) {
                 const demoTaskId = `demo-new-${randomUUID()}`
                 const runId = `demo-run-${randomUUID()}`
@@ -1207,15 +1294,33 @@ export function useSession(options: SessionOptions): Session {
                 runSource.current = requests.runSource
                 setCreatedTaskId(task.id)
                 setTitle(task.title || null)
+                // The create sends no `branch`, so it never claims a warm run, and the files stage on the task for `run/`.
+                if (task.latest_run && attachments.length > 0) {
+                    // A run from the create would never get the files, so the send fails rather than drop them.
+                    deleteTask(task.id).catch(() => undefined)
+                    taskIdRef.current = null
+                    runSource.current = {}
+                    setCreatedTaskId(null)
+                    setTitle(null)
+                    throw new AttachmentUploadError('The create started a run before the files uploaded')
+                }
                 let run = task.latest_run ?? null
                 if (!run) {
+                    let runRequested = false
                     try {
+                        const artifactIds = await uploadSendFiles(
+                            { kind: 'staged', taskId: task.id },
+                            attachments,
+                            signal,
+                            true
+                        )
+                        runRequested = true
                         const response = await withWarmRetry((headers) =>
-                            startTaskRun(task.id, requests.run, { headers })
+                            startTaskRun(task.id, withPendingArtifacts(requests.run, artifactIds), { headers })
                         )
                         run = response.run ?? response.latest_run ?? null
                     } catch (error) {
-                        if (isRunRefused(error)) {
+                        if (!runRequested || isRunRefused(error)) {
                             // No run started, so the task would only sit empty in the Chats list.
                             deleteTask(task.id).catch(() => undefined)
                             if (epoch.current === mine) {

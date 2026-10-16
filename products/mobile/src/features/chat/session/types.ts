@@ -1,5 +1,6 @@
 import type { DecisionAnswerInput, DecisionQuestion, PullRequestView, TaskRunStatus } from '@/model/types'
 
+import type { PendingAttachment } from '../attachments/types'
 import type { ChatRunOptions } from '../chatRunOptions'
 import type { ChatContext, ChatError } from '../types'
 import type { SessionRunConfig } from './sessionRun'
@@ -30,10 +31,21 @@ export interface SessionProgressStep {
     detail?: string
 }
 
+/** A file a message carried. The ids come from the echo's sandbox path; an optimistic send has only the name. */
+export interface SessionAttachment {
+    artifactId?: string
+    runId?: string
+    name: string
+    isImage: boolean
+    /** The picked file on this device, so the bubble can draw a thumbnail. History has none. */
+    localUri?: string
+}
+
 export interface SessionUserItem {
     kind: 'user'
     id: string
     text: string
+    attachments?: SessionAttachment[]
 }
 
 export interface SessionAssistantItem {
@@ -133,6 +145,8 @@ export interface SendOptions {
     steer?: boolean
     /** How many staged messages this text carries, for analytics. 0 for a message typed and sent directly. */
     queuedCount?: number
+    /** Files that upload before the message goes; see docs/CHAT.md. */
+    attachments?: readonly PendingAttachment[]
 }
 
 export interface Session {
@@ -161,7 +175,7 @@ export interface Session {
     notice?: string
     unsentText?: string
     runConfig?: SessionRunConfig
-    start: (text: string, context: ChatContext, options: ChatRunOptions) => Promise<boolean>
+    start: (text: string, context: ChatContext, options: ChatRunOptions, sendOptions?: SendOptions) => Promise<boolean>
     /**
      * Sends to the live run after it applies the changed options, or starts a run that continues this task when the
      * run has ended. Without a task it starts one, as `start` does.

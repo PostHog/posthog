@@ -1,8 +1,11 @@
+import type { PendingAttachment } from './attachments/types'
 import type { SessionPhase } from './session/types'
 
 export interface QueuedMessage {
     id: string
     text: string
+    /** The composer's files when the message was queued. They go with it, as on the web. */
+    attachments: PendingAttachment[]
 }
 
 /**
@@ -17,7 +20,7 @@ export interface QueueState {
 }
 
 export type QueueAction =
-    | { type: 'enqueue'; id: string; text: string }
+    | { type: 'enqueue'; id: string; text: string; attachments: PendingAttachment[] }
     | { type: 'remove'; id: string }
     | { type: 'clear' }
     | { type: 'restore'; rows: QueuedMessage[] }
@@ -29,7 +32,12 @@ export const EMPTY_QUEUE: QueueState = { rows: [], hold: null }
 let lastId = 0
 
 export const queueActions = {
-    enqueue: (text: string): QueueAction => ({ type: 'enqueue', id: `queued-${++lastId}`, text }),
+    enqueue: (text: string, attachments: readonly PendingAttachment[] = []): QueueAction => ({
+        type: 'enqueue',
+        id: `queued-${++lastId}`,
+        text,
+        attachments: [...attachments],
+    }),
     remove: (id: string): QueueAction => ({ type: 'remove', id }),
     clear: (): QueueAction => ({ type: 'clear' }),
     restore: (rows: QueuedMessage[]): QueueAction => ({ type: 'restore', rows }),
@@ -41,7 +49,7 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
     switch (action.type) {
         case 'enqueue':
             return {
-                rows: [...state.rows, { id: action.id, text: action.text }],
+                rows: [...state.rows, { id: action.id, text: action.text, attachments: action.attachments }],
                 // A new message is an explicit "send this", so it lifts a Stop's hold. An `unconfirmed` hold stays,
                 // because the failed send may have reached the agent and only Send now should repeat it.
                 hold: state.hold === 'cancelled' ? null : state.hold,
@@ -65,6 +73,11 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
 /** The queued rows go out as one message, so follow-ups never fan out into separate turns. */
 export function joinQueue(rows: QueuedMessage[]): string {
     return rows.map((row) => row.text).join('\n\n')
+}
+
+/** The files of the joined message, in queue order. The 10-file cap is per composer message, so a join can carry more. */
+export function joinQueueAttachments(rows: QueuedMessage[]): PendingAttachment[] {
+    return rows.flatMap((row) => row.attachments)
 }
 
 export interface SendGate {

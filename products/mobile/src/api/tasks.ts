@@ -124,6 +124,8 @@ export interface TaskRunCreateRequestApi extends HandoffRunFieldsApi {
     resume_from_run_id?: string
     mode: 'interactive'
     pending_user_message: string
+    /** Staged artifact ids from `staged_artifacts/finalize_upload/`. The server copies them into the new run. */
+    pending_user_artifact_ids?: string[]
 }
 
 export interface ModelChoiceApi {
@@ -161,6 +163,8 @@ export interface UserMessageParams {
     content: string
     /** Joins the agent's live turn. The server queues the message as an ordinary follow-up when the agent declines. */
     steer?: boolean
+    /** Artifact ids already on this run's manifest, from `runs/{r}/artifacts/finalize_upload/`. */
+    artifact_ids?: string[]
 }
 
 type SessionConfigId = 'model' | 'effort' | 'mode'
@@ -205,6 +209,77 @@ export function startTaskRun(
         method: 'POST',
         json: body,
         ...options,
+    })
+}
+
+/**
+ * Where an upload goes. `staged` holds files on a task whose run does not exist yet, and `run` adds them to a live
+ * run's manifest. Both take and return the same shapes.
+ */
+export type ArtifactUploadTarget = { kind: 'staged'; taskId: string } | { kind: 'run'; taskId: string; runId: string }
+
+/** `TaskStagedArtifactPrepareUploadSerializer` and `TaskRunArtifactPrepareUploadSerializer`, for a user attachment. */
+export interface ArtifactPrepareRequestApi {
+    name: string
+    type: 'user_attachment'
+    source: 'posthog_ai'
+    size: number
+    content_type: string
+}
+
+export interface PresignedPostApi {
+    url: string
+    fields: Record<string, string>
+}
+
+/** `TaskStagedArtifactPrepareUploadResponseSerializer`. The array keeps the request's order. */
+export interface PreparedArtifactApi {
+    id: string
+    name: string
+    storage_path: string
+    content_type?: string
+    presigned_post: PresignedPostApi
+}
+
+/** `TaskStagedArtifactFinalizeUploadSerializer` and `TaskRunArtifactFinalizeUploadSerializer`. */
+export interface ArtifactFinalizeRequestApi {
+    id: string
+    name: string
+    type: 'user_attachment'
+    source: 'posthog_ai'
+    storage_path: string
+    content_type: string
+}
+
+function artifactUploadPath(target: ArtifactUploadTarget, step: 'prepare_upload' | 'finalize_upload'): string {
+    const task = `tasks/${encodeURIComponent(target.taskId)}`
+    return target.kind === 'staged'
+        ? projectPath(`${task}/staged_artifacts/${step}/`)
+        : projectPath(`${task}/runs/${encodeURIComponent(target.runId)}/artifacts/${step}/`)
+}
+
+export async function prepareArtifactUpload(
+    target: ArtifactUploadTarget,
+    artifacts: ArtifactPrepareRequestApi[],
+    signal?: AbortSignal
+): Promise<PreparedArtifactApi[]> {
+    const body = await apiJson<{ artifacts?: PreparedArtifactApi[] }>(artifactUploadPath(target, 'prepare_upload'), {
+        method: 'POST',
+        json: { artifacts },
+        signal,
+    })
+    return body.artifacts ?? []
+}
+
+export async function finalizeArtifactUpload(
+    target: ArtifactUploadTarget,
+    artifacts: ArtifactFinalizeRequestApi[],
+    signal?: AbortSignal
+): Promise<void> {
+    await apiJson<unknown>(artifactUploadPath(target, 'finalize_upload'), {
+        method: 'POST',
+        json: { artifacts },
+        signal,
     })
 }
 

@@ -18,7 +18,7 @@ Known gaps and behavior that stays on the device.
   free-text stage only.
 - **Impact avatars.** The prototype data has avatar stacks on Impact facts that its template never
   draws; the app does not draw them either.
-- **Chat** has no attachments or expanded composer; Attach and Expand are dimmed.
+- **Chat** has no expanded composer; Expand is dimmed.
 
 ## Platform
 
@@ -56,8 +56,11 @@ Known gaps and behavior that stays on the device.
 - **In-progress reopen relies on the server backlog.** A live run is followed without a cursor and without reading `logs/`,
   which shows the whole thread only on thin-tail runs. The web reads `logs/` and reconciles on every connect.
 - **Approvals, forms, charts and notebooks** the agent links show as links to the web app.
+- **Files from history show by name only.** A picked image draws from the file on the device.
+  A file in a stored thread has no local copy, and the app neither downloads it nor draws a thumbnail.
+  `runs/{r}/artifacts/{id}/download/` answers with a 302 to a presigned S3 URL, and the app's bearer header must not follow the redirect to S3.
+  `runs/{r}/artifacts/presign/` would avoid the redirect, but it needs the `storage_path` from the run's manifest, which the app does not read.
 - **Sessions in the chat sheet.**
-  - No attachments.
   - No artifacts or diff view. Only the PR card shows what the agent changed.
   - No undo of an answer.
   - Stop needs a started agent. Before the stream shows it generating, the sheet says the agent hasn't started yet.

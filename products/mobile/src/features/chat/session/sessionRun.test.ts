@@ -7,6 +7,7 @@ import {
     configSyncPlan,
     type SessionRunConfig,
     type TrackedRunConfig,
+    withPendingArtifacts,
 } from './sessionRun'
 
 const OPUS_PLAN: ChatRunOptions = {
@@ -88,6 +89,15 @@ describe('session run requests', () => {
             fields,
             runSource: {},
         })
+    })
+
+    test('staged file ids go on the run body only when the send has files', () => {
+        const { run } = chatStartRequests('Read this', { kind: 'none' }, { model: 'default', permissionMode: 'auto' })
+        expect(withPendingArtifacts(run, ['art-1', 'art-2'])).toEqual({
+            ...run,
+            pending_user_artifact_ids: ['art-1', 'art-2'],
+        })
+        expect(withPendingArtifacts(run, [])).not.toHaveProperty('pending_user_artifact_ids')
     })
 
     test('one report starts an Inbox discussion with the raw question, cut by code point', () => {

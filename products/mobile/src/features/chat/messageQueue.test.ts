@@ -1,6 +1,8 @@
+import type { PendingAttachment } from './attachments/types'
 import {
     canDrain,
     EMPTY_QUEUE,
+    joinQueueAttachments,
     type QueueAction,
     type QueueState,
     queueActions,
@@ -15,6 +17,10 @@ function apply(...actions: QueueAction[]): QueueState {
 }
 
 const IDLE: SendGate = { phase: 'idle', sending: false, decisionPending: false }
+
+function file(name: string): PendingAttachment {
+    return { id: name, uri: `file:///picked/${name}`, name, size: 1, contentType: 'text/plain', isImage: false }
+}
 
 describe('message queue', () => {
     test.each<[string, QueueAction[], QueueState['hold']]>([
@@ -33,6 +39,22 @@ describe('message queue', () => {
         const state = apply(queueActions.enqueue('typed during the send'), queueActions.restore(taken))
         expect(state.rows.map((row) => row.text)).toEqual(['first', 'second', 'typed during the send'])
         expect(state.hold).toBe('unconfirmed')
+    })
+
+    it('keeps each row with its files through a restore, joins them in queue order, and drops them with the row', () => {
+        const taken = apply(
+            queueActions.enqueue('first', [file('a.txt'), file('b.txt')]),
+            queueActions.enqueue('second', [file('c.txt')])
+        ).rows
+        const restored = apply(queueActions.enqueue('typed during the send'), queueActions.restore(taken))
+        expect(joinQueueAttachments(restored.rows).map((attachment) => attachment.name)).toEqual([
+            'a.txt',
+            'b.txt',
+            'c.txt',
+        ])
+
+        const removed = queueReducer(restored, queueActions.remove(restored.rows[0]?.id ?? ''))
+        expect(joinQueueAttachments(removed.rows).map((attachment) => attachment.name)).toEqual(['c.txt'])
     })
 
     it('drops the hold with the last removed row, so the next queue drains', () => {

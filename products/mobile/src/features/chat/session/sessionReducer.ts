@@ -3,9 +3,11 @@ import { extractAgentToolName, isPostHogExecTool, resolveToolCall } from '@/feat
 import { describeToolCall } from '@/features/handoff/toolTitle'
 import { asRecord, isRecord } from '@/lib/records'
 
+import { isImageName } from '../attachments/attachmentRules'
 import { stripInjectedContext } from '../contextPrompt'
 import type {
     SessionAssistantItem,
+    SessionAttachment,
     SessionErrorItem,
     SessionNoticeItem,
     SessionProgressItem,
@@ -16,8 +18,8 @@ import type {
     SessionToolStatus,
 } from './types'
 
-// Mirrors `foldLogToThread` in `products/posthog_ai/frontend/logics/runStreamLogic.ts`, without timestamps, debug rows
-// and attachments, which the phone does not draw.
+// Mirrors `foldLogToThread` in `products/posthog_ai/frontend/logics/runStreamLogic.ts`, without timestamps and debug
+// rows, which the phone does not draw.
 
 /** The agent server writes this prompt into a resume run's log before the real message. It is not the person's. */
 const RESUME_CONTEXT_PREFIX = 'You are resuming a previous conversation.'
@@ -63,6 +65,11 @@ export interface SessionThreadState {
     replayedHumanTexts: ReadonlyMap<string, number>
     /** Live sends this turn already placed, so the second wire form of the same send draws nothing. */
     pairedSends: ReadonlyMap<string, number>
+    /**
+     * The device file behind each artifact a send carried. A rebuild draws the thread again from the log, which has
+     * no local URI, so the previews come back from here.
+     */
+    localPreviews: ReadonlyMap<string, string>
     counters: Readonly<Record<CounterKey, number>>
 }
 
@@ -77,7 +84,7 @@ export type SessionThreadAction =
     | { type: 'frame'; frame: unknown; context: FrameContext }
     | { type: 'frames'; frames: readonly SessionFrame[] }
     /** `echo: false` for text the agent never echoes, such as an answered decision. */
-    | { type: 'local_user'; id: string; text: string; echo?: boolean }
+    | { type: 'local_user'; id: string; text: string; echo?: boolean; attachments?: SessionAttachment[] }
     /** Takes back an optimistic send that did not reach the server. */
     | { type: 'withdraw'; id: string }
     /** `resumeRun` when the run the thread follows now resumes an earlier one. */
@@ -97,6 +104,7 @@ export function initialSessionThread(resumeRun = false): SessionThreadState {
         rebuildPending: false,
         replayedHumanTexts: new Map(),
         pairedSends: new Map(),
+        localPreviews: new Map(),
         counters: ZERO_COUNTERS,
     }
 }
@@ -109,10 +117,65 @@ function isHiddenUserContent(content: unknown): boolean {
     return asRecord(asRecord(asRecord(content)?._meta)?.ui)?.hidden === true
 }
 
-/** An attached file arrives as its own content block with no text. */
-function isAttachmentBlock(content: unknown): boolean {
-    const type = asRecord(content)?.type
-    return type === 'resource_link' || type === 'image'
+function uriPathSegments(uri: string): string[] {
+    // React Native's `URL` has no `pathname`, so the scheme, host, query and fragment come off by hand.
+    const path = uri.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '').split(/[?#]/)[0] ?? ''
+    return path.split('/').filter(Boolean)
+}
+
+function decodeSegment(segment: string): string {
+    try {
+        return decodeURIComponent(segment)
+    } catch {
+        return segment
+    }
+}
+
+/**
+ * The agent server writes each file to `.posthog/attachments/<runId>/<artifactId>/<name>`, and that path is the only
+ * place the wire carries the ids. Any other path keeps only the name.
+ */
+function artifactRefFromUri(uri: string): Pick<SessionAttachment, 'runId' | 'artifactId'> {
+    const segments = uriPathSegments(uri)
+    const marker = segments.lastIndexOf('attachments')
+    if (marker < 1 || segments[marker - 1] !== '.posthog' || segments.length < marker + 4) {
+        return {}
+    }
+    return { runId: segments[marker + 1] as string, artifactId: segments[marker + 2] as string }
+}
+
+function userAttachment(content: unknown): SessionAttachment | undefined {
+    const block = asRecord(content)
+    if (block?.type !== 'resource_link' && block?.type !== 'image') {
+        return undefined
+    }
+    const uri = typeof block.uri === 'string' ? block.uri : ''
+    const named = typeof block.name === 'string' ? block.name.trim() : ''
+    const fromUri = uri ? uriPathSegments(uri).at(-1) : undefined
+    const name = named || (fromUri ? decodeSegment(fromUri) : '')
+    if (!name) {
+        return undefined
+    }
+    return { name, isImage: block.type === 'image' || isImageName(name), ...(uri ? artifactRefFromUri(uri) : {}) }
+}
+
+/**
+ * Identity is the artifact, never the name, because two pasted screenshots are both `image.png`. A known artifact
+ * merges into its entry, so a file echoed in both wire forms shows once. Otherwise the file fills the first entry of
+ * that name with no artifact yet, which is what an optimistic send drew, and so keeps its local preview.
+ */
+function mergeAttachment(existing: readonly SessionAttachment[], incoming: SessionAttachment): SessionAttachment[] {
+    const byArtifact = incoming.artifactId
+        ? existing.findIndex((candidate) => candidate.artifactId === incoming.artifactId)
+        : -1
+    const target =
+        byArtifact !== -1
+            ? byArtifact
+            : existing.findIndex((candidate) => candidate.name === incoming.name && !candidate.artifactId)
+    if (target === -1) {
+        return [...existing, incoming]
+    }
+    return existing.map((candidate, index) => (index === target ? { ...candidate, ...incoming } : candidate))
 }
 
 function userMessageText(content: unknown): string {
@@ -207,6 +270,7 @@ class Draft {
     rebuildPending: boolean
     replayedHumanTexts: Map<string, number>
     pairedSends: Map<string, number>
+    localPreviews: Map<string, string>
     counters: Record<CounterKey, number>
     private readonly openAssistants = new Set<SessionAssistantItem>()
     private readonly openThoughts = new Set<SessionThoughtItem>()
@@ -236,6 +300,7 @@ class Draft {
         this.rebuildPending = state.rebuildPending
         this.replayedHumanTexts = new Map(state.replayedHumanTexts)
         this.pairedSends = new Map(state.pairedSends)
+        this.localPreviews = new Map(state.localPreviews)
         this.counters = { ...state.counters }
     }
 
@@ -249,6 +314,7 @@ class Draft {
             rebuildPending: this.rebuildPending,
             replayedHumanTexts: this.replayedHumanTexts,
             pairedSends: this.pairedSends,
+            localPreviews: this.localPreviews,
             counters: this.counters,
         }
     }
@@ -314,17 +380,18 @@ class Draft {
         this.rebuildPending = false
     }
 
-    localUser(id: string, text: string, echo: boolean): void {
+    localUser(id: string, text: string, echo: boolean, attachments: SessionAttachment[]): void {
         if (this.items.some((item) => item.id === id)) {
             return
         }
+        const item: SessionThreadItem = { kind: 'user', id, text, ...(attachments.length > 0 ? { attachments } : {}) }
         if (echo) {
-            this.items.push({ kind: 'user', id, text })
+            this.items.push(item)
             this.waiting.push({ id, text, turns: 0 })
             return
         }
         this.closeOpenBuffers()
-        this.push({ kind: 'user', id, text })
+        this.push(item)
     }
 
     withdraw(id: string): void {
@@ -402,6 +469,30 @@ class Draft {
         }
         if (primary) {
             credits.set(text, (credits.get(text) ?? 0) + 1)
+        }
+    }
+
+    /**
+     * A message's files follow its text, in the same frame or the frames after it, so they belong to the latest user
+     * bubble the agent took up. A send still waiting at the foot has not echoed, so it is never the target.
+     */
+    noteAttachment(incoming: SessionAttachment): void {
+        const preview = incoming.artifactId ? this.localPreviews.get(incoming.artifactId) : undefined
+        const attachment = preview && !incoming.localUri ? { ...incoming, localUri: preview } : incoming
+        // A message with files and no text, which another client can send, has no bubble of its own, so its files
+        // join the previous bubble, as on the web.
+        for (let index = this.items.length - 1; index >= 0; index -= 1) {
+            const item = this.items[index]
+            if (item?.kind === 'user' && !this.isWaiting(item.id)) {
+                const attachments = mergeAttachment(item.attachments ?? [], attachment)
+                for (const merged of attachments) {
+                    if (merged.artifactId && merged.localUri) {
+                        this.localPreviews.set(merged.artifactId, merged.localUri)
+                    }
+                }
+                this.items[index] = { ...item, attachments }
+                return
+            }
         }
     }
 
@@ -691,7 +782,12 @@ function notificationOf(frame: unknown): Record<string, unknown> | undefined {
 }
 
 function applyUserUpdate(draft: Draft, update: Record<string, unknown>, source: FrameContext['source']): void {
-    if (isHiddenUserContent(update.content) || isAttachmentBlock(update.content)) {
+    if (isHiddenUserContent(update.content)) {
+        return
+    }
+    const attachment = userAttachment(update.content)
+    if (attachment) {
+        draft.noteAttachment(attachment)
         return
     }
     const content = asRecord(update.content)
@@ -769,6 +865,14 @@ function applyFrame(draft: Draft, frame: unknown, context: FrameContext): void {
         }
         case '_posthog/user_message':
             draft.human(userMessageText(params.content), context.source, true)
+            if (Array.isArray(params.content)) {
+                for (const block of params.content) {
+                    const attachment = isHiddenUserContent(block) ? undefined : userAttachment(block)
+                    if (attachment) {
+                        draft.noteAttachment(attachment)
+                    }
+                }
+            }
             return
         case '_posthog/turn_complete':
             draft.turnEnd()
@@ -824,7 +928,7 @@ export function sessionThreadReducer(state: SessionThreadState, action: SessionT
                 return state
             }
             const draft = new Draft(state)
-            draft.localUser(action.id, text, action.echo !== false)
+            draft.localUser(action.id, text, action.echo !== false, action.attachments ?? [])
             return draft.toState()
         }
         case 'withdraw': {
