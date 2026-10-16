@@ -4082,7 +4082,7 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
             client,
             channel=channel,
             thread_ts=thread_ts,
-            text=reply_suggestions.picked_reply_text(clicker_slack_user_id, clicked.text),
+            text=f"<@{clicker_slack_user_id}> picked a suggested reply: *{clicked.text}*",
         )
         if posted is not None and isinstance(posted.get("ts"), str):
             reply_ts = posted_reply_ts = posted["ts"]

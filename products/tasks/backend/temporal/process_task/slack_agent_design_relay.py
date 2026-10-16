@@ -483,6 +483,9 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 mention_sent=mention_sent,
                 actor_slack_user_id=self._stream.actor_slack_user_id,
                 answer_markdown=final_answer if self._turn_complete else None,
+                message_id=input.message_id,
+                # Only the relay that opens during provisioning sets a setup title, and it streams the first turn.
+                first_turn=input.setup_title is not None,
             ),
             # Attachments upload inside this activity. One attempt, because a retry would
             # append the answer a second time.

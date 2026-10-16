@@ -20,7 +20,7 @@ from products.tasks.backend.temporal.process_task.activities.slack_agent_design 
     start_slack_agent_design_stream,
     stop_slack_agent_design_stream,
 )
-from products.tasks.backend.temporal.process_task.utils import record_message_actor
+from products.tasks.backend.temporal.process_task.utils import record_message_actor, record_message_person_message
 
 PROJECT_URL = "https://us.posthog.com/project/7"
 
@@ -118,6 +118,38 @@ class TestSlackAgentDesignStream(TestCase):
         )
 
         assert mock_stop.call_args.args[0].turn_trace_id == trace_id
+
+    @parameterized.expand(
+        [
+            ("first_turn_answers_the_mention", None, True, "Why is the export slow?"),
+            ("follow_up_answers_its_own_message", "msg-2", False, "Add the index too"),
+            # The record expired. The mention is not what this turn answers, so it gets nothing.
+            ("follow_up_without_a_record", "msg-3", False, None),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.stop_status_stream", autospec=True)
+    def test_closing_the_stream_hands_the_suggestions_what_the_turn_answers(
+        self, _name, message_id, first_turn, expected, mock_stop
+    ) -> None:
+        record_message_person_message(str(self.task_run.id), "msg-2", "Add the index too")
+
+        stop_slack_agent_design_stream(
+            StopSlackAgentDesignStreamInput(
+                slack_thread_context={
+                    "integration_id": self.integration.id,
+                    "channel": "C1",
+                    "thread_ts": "1.0",
+                    "person_message": "Why is the export slow?",
+                },
+                ts="2.0",
+                final_markdown="Should I add the index?",
+                run_id=str(self.task_run.id),
+                message_id=message_id,
+                first_turn=first_turn,
+            )
+        )
+
+        assert mock_stop.call_args.args[0].turn_person_message == expected
 
     @patch("products.tasks.backend.logic.services.living_artifacts.deliver_pending_slack_file_artifacts")
     @patch.object(SlackThreadHandler, "_get_client")

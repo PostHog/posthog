@@ -23,7 +23,6 @@ from products.slack_app.backend.logic.reply_suggestions import (
     ReplySuggestionAttribution,
     SuggestedReply,
     clear_open_suggestions,
-    last_person_message,
     remember_open_suggestions,
     reply_suggestions_block,
     reply_suggestions_fallback_text,
@@ -175,6 +174,8 @@ class SlackThreadContext:
     thread_ts: str
     user_message_ts: str | None = None
     mentioning_slack_user_id: str | None = None
+    # The mention that opened the run. Only the run's first turn answers it.
+    person_message: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -186,6 +187,8 @@ class SlackThreadContext:
             d["user_message_ts"] = self.user_message_ts
         if self.mentioning_slack_user_id is not None:
             d["mentioning_slack_user_id"] = self.mentioning_slack_user_id
+        if self.person_message is not None:
+            d["person_message"] = self.person_message
         return d
 
     @classmethod
@@ -196,6 +199,7 @@ class SlackThreadContext:
             thread_ts=data["thread_ts"],
             user_message_ts=data.get("user_message_ts"),
             mentioning_slack_user_id=data.get("mentioning_slack_user_id"),
+            person_message=data.get("person_message"),
         )
 
     @classmethod
@@ -253,12 +257,15 @@ class SlackThreadHandler:
         run_footer: RunFooter | None = None,
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
+        turn_person_message: str | None = None,
     ) -> None:
         self.context = context
         self.run_footer = run_footer or RunFooter()
         # Beside the footer rather than in it: a trace id belongs to one turn, and the
         # next turn in the same thread has its own.
         self.turn_trace_id = turn_trace_id
+        # What the person said to start this turn, so reply suggestions know what they asked for.
+        self.turn_person_message = turn_person_message
         # Who this reply is for, which can differ from the task creator because a thread
         # outlives its opener.
         self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
@@ -277,6 +284,7 @@ class SlackThreadHandler:
         *,
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
+        turn_person_message: str | None = None,
     ) -> "SlackThreadHandler":
         """A handler whose footer describes ``run_id``.
 
@@ -288,6 +296,7 @@ class SlackThreadHandler:
             load_run_footer(run_id, integration_id=context.integration_id),
             actor_slack_user_id=actor_slack_user_id,
             turn_trace_id=turn_trace_id,
+            turn_person_message=turn_person_message,
         )
 
     def _get_integration(self) -> Integration:
@@ -1004,22 +1013,10 @@ class SlackThreadHandler:
             task_id=self.run_footer.task_id,
             run_id=self.run_footer.run_id,
         )
-        suggestions = suggest_replies(answer_markdown, attribution, self._last_person_message())
+        suggestions = suggest_replies(answer_markdown, attribution, self.turn_person_message)
         if not suggestions:
             return None
         return suggestions, reply_suggestions_block(integration.id, suggestions, self.turn_trace_id)
-
-    def _last_person_message(self) -> str | None:
-        """Read from Slack, because the run holds a follow-up only inside the agent's prompt.
-
-        A failed read sends no message, and the buttons come from the answer alone.
-        """
-        try:
-            response = self._get_client().conversations_replies(channel=self.context.channel, ts=self.context.thread_ts)
-            return last_person_message(response.get("messages") or [], self._get_bot_user_id())
-        except Exception:
-            logger.warning("slack_app_reply_suggestions_person_message_failed", exc_info=True)
-            return None
 
     def _append_reply_suggestions(self, ts: str, answer_markdown: str) -> list[SuggestedReply]:
         """Add the buttons to an open stream, under the answer and its attachments and above the footer."""

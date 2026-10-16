@@ -56,6 +56,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     mark_sandbox_mcp_session,
     mcp_exclude_tools_from_state,
     record_message_actor,
+    record_message_person_message,
     sandbox_identity_scope,
     upgrade_run_to_user_authorship,
 )
@@ -444,6 +445,9 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
 
     if input.message_id and actor_slack_user_id:
         record_message_actor(input.run_id, input.message_id, actor_slack_user_id)
+    person_message = (input.context or {}).get("person_message")
+    if input.message_id and isinstance(person_message, str) and person_message:
+        record_message_person_message(input.run_id, input.message_id, person_message)
 
     result = send_user_message(
         task_run,

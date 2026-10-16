@@ -1766,6 +1766,22 @@ def get_message_actor(run_id: str, message_id: str) -> str | None:
     return get_tasks_cache().get(_message_actor_cache_key(run_id, message_id))
 
 
+def _message_person_message_cache_key(run_id: str, message_id: str) -> str:
+    return f"tasks:followup-person-message:{run_id}:{message_id}"
+
+
+def record_message_person_message(run_id: str, message_id: str, text: str) -> None:
+    """Keep a delivered message's own words beside its sender, so the reply to it can offer
+    suggestions that fit what the person asked. Same lifetime as the sender."""
+    get_tasks_cache().set(
+        _message_person_message_cache_key(run_id, message_id), text, timeout=MESSAGE_ACTOR_TTL_SECONDS
+    )
+
+
+def get_message_person_message(run_id: str, message_id: str) -> str | None:
+    return get_tasks_cache().get(_message_person_message_cache_key(run_id, message_id))
+
+
 def slack_reply_target(task_run: TaskRun, mapping: SlackThreadTaskMapping | None, message_id: str | None) -> str | None:
     """The recorded sender of the message a reply answers, else the run's actor, else the thread's actors."""
     state = task_run.state or {}
