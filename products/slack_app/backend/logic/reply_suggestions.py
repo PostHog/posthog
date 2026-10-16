@@ -29,7 +29,7 @@ MAX_SUGGESTIONS = 3
 MAX_LABEL_CHARS = 75
 MAX_REPLY_CHARS = 300
 
-SUGGESTIONS_MODEL = "gpt-5.6-luna"
+SUGGESTIONS_MODEL = "gpt-6-luna"
 # A reasoning model spends its thinking and the JSON reply from one token budget.
 SUGGESTIONS_MAX_COMPLETION_TOKENS = 2048
 # The activity that delivers the answer is sync and runs once, so the call must end well inside it.
