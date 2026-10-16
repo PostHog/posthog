@@ -107,7 +107,9 @@ def _batches(response: SourceResponse) -> list[list[dict[str, Any]]]:
 def _synced_rows(session: mock.MagicMock, created_after: dt.datetime | str | None) -> list[dict[str, Any]]:
     with scripted_network([]), mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
         batches = _batches(
-            depot_source(API_TOKEN, REPOSITORY, created_after, None, _resume_manager(), mock.MagicMock())
+            depot_source(
+                API_TOKEN, REPOSITORY, created_after, None, _resume_manager(), mock.MagicMock(), mock.MagicMock()
+            )
         )
     return [row for batch in batches for row in batch]
 
@@ -166,7 +168,10 @@ class TestDepotReconciliation:
             (1, 30, True, ["recent"], False),
             (7, 30, True, ["recent", "old"], True),
             (1, 30, False, ["recent", "old"], True),
-            (None, None, True, ["recent", "old"], True),
+            (None, None, True, ["recent", "old", "outside"], True),
+            (1, None, False, ["recent", "old", "outside"], True),
+            (7, None, True, ["recent", "old"], True),
+            (12, None, True, ["recent", "old", "outside"], True),
             (1, 1, True, [], False),
         ],
     )

@@ -42,10 +42,9 @@ _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
 
 _RETRY_LOOKBACK = datetime.timedelta(days=7)
 _RECONCILIATION_INTERVAL = datetime.timedelta(days=7)
-# GitHub Actions lets a run be re-run for 30 days after it starts. One extra interval makes sure the
-# reconciliation after a day-30 retry still reads that run. Without a bound, each reconciliation
-# replays all history since the schema's fixed floor, so it takes longer every week.
-_RECONCILIATION_WINDOW = datetime.timedelta(days=30) + _RECONCILIATION_INTERVAL
+# GitHub Actions lets a run be re-run for 30 days after it starts. Depot CI documents no limit of its
+# own, so this assumes GitHub's.
+_RERUN_WINDOW = datetime.timedelta(days=30)
 _APPEND_UNSUPPORTED = (
     "Depot CI replays job attempts. Switch this table to incremental merge or full refresh to avoid duplicates."
 )
@@ -164,14 +163,18 @@ class DepotSource(ResumableSource[DepotSourceConfig, DepotResumeState], CursorSo
             if inputs.should_use_incremental_field
             else None
         )
-        reconcile = reconciled_at is None or now - reconciled_at >= _RECONCILIATION_INTERVAL or watermark is None
-        # Creation time cannot reveal a late retry. Replay recent runs each sync and the reconciliation
-        # window weekly; history_start is the schema's fixed initial floor, not a rolling seven-day window.
-        if reconcile or watermark is None:
-            lower_bound = now - _RECONCILIATION_WINDOW
+        # Creation time cannot reveal a late retry, so each sync replays recent runs and a weekly
+        # reconciliation replays older ones. A run re-run after the last reconciliation listed it was
+        # created at most _RERUN_WINDOW before that re-run. A sync without a watermark or a past
+        # reconciliation reads everything since history_start, the schema's fixed initial floor.
+        lower_bound: datetime.datetime | None
+        if watermark is None or reconciled_at is None:
+            reconcile, lower_bound = True, inputs.history_start
+        elif now - reconciled_at >= _RECONCILIATION_INTERVAL:
+            reconcile, lower_bound = True, reconciled_at - _RERUN_WINDOW
         else:
-            lower_bound = watermark - _RETRY_LOOKBACK
-        if inputs.history_start is not None:
+            reconcile, lower_bound = False, watermark - _RETRY_LOOKBACK
+        if lower_bound is not None and inputs.history_start is not None:
             lower_bound = max(lower_bound, inputs.history_start)
 
         return depot_source(
