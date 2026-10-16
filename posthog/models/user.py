@@ -233,6 +233,7 @@ class OnboardingSkippedReason(models.TextChoices):
     LATER = "later", "Skipped for later"
     OTHER = "other", "Other"
     PROVISIONED = "provisioned", "Account provisioned by a partner"
+    CONNECTOR = "connector", "Signed up through an OAuth connector"
 
 
 class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
