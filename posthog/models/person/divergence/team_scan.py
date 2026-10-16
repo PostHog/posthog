@@ -1,14 +1,9 @@
-"""Classify every person and mapping of one team in fixed key order, into resumable per-chunk row files.
+"""Classify every person and mapping of one team, in ClickHouse primary key order, into resumable chunk files.
 
-A scan directory holds a plan and the files of each ClickHouse chunk. Each chunk runs two phases in
-ClickHouse primary key order:
-- persons: ClickHouse persons by (team_id, id), compared with Postgres by uuid.
-- mappings: ClickHouse mappings by (team_id, distinct_id), compared with Postgres by distinct id.
-Each phase also writes the hash of every key it classified, for a later pass over Postgres.
-
-Every page is classified completely, appended to the rows file, and only then recorded in the cursor, so a
-run that stops resumes at the first page it did not record. Rows hold the raw keys a repair needs, so the
-scan directory is private to the user who runs the scan.
+Each chunk reads persons by (team_id, id) and mappings by (team_id, distinct_id), compares them with Postgres,
+and writes a hash of every key it classified for a later Postgres pass. A page is recorded in the cursor only
+after its rows are written, so a stopped run resumes at the first unrecorded page. Rows hold raw keys, so the
+scan directory is private to its owner.
 """
 
 from __future__ import annotations
