@@ -41,6 +41,7 @@ import { biDrilldownLogic } from 'products/business_intelligence/frontend/biDril
 import { BIDrilldownModal } from 'products/business_intelligence/frontend/BIDrilldownModal'
 import { getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
 import { createBIMemberFormatter } from 'products/business_intelligence/frontend/biMemberAliases'
+import { BIPaneCharts } from 'products/business_intelligence/frontend/BIPaneCharts'
 import { BIPivotTable } from 'products/business_intelligence/frontend/BIPivotTable'
 import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 import { BIScatterGraph } from 'products/business_intelligence/frontend/BIScatterGraph'
@@ -254,7 +255,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             deferInitialAlertsLoad: !insight?.id,
         })
     )
-    const alertThresholdLines = insight?.id ? alertsToThresholdGoalLines(alerts) : []
+    const alertThresholdLines = useMemo(
+        () => (insight?.id ? alertsToThresholdGoalLines(alerts) : []),
+        [insight?.id, alerts]
+    )
+    const paneGoalLines = useMemo(() => [...alertThresholdLines, ...goalLines], [alertThresholdLines, goalLines])
+    const biConfig = query.kind === NodeKind.BIVisualizationNode ? query.config : undefined
+    const paneConfig = useMemo(
+        () => (biConfig ? { ...biConfig, chartType: effectiveVisualizationType } : undefined),
+        [biConfig, effectiveVisualizationType]
+    )
 
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
@@ -291,7 +301,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
 
-    const biConfig = query.kind === NodeKind.BIVisualizationNode ? query.config : undefined
     const sqlChartData = useMemo(() => {
         if (!isSqlChartVisualizationType(effectiveVisualizationType)) {
             return null
@@ -451,6 +460,21 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     card={effectiveVisualizationType !== ChartDisplayType.ActionsTable}
                 />
             )
+    } else if (
+        query.kind === NodeKind.BIVisualizationNode &&
+        query.config.panes?.fields.length &&
+        isSqlChartVisualizationType(effectiveVisualizationType)
+    ) {
+        component = (
+            <BIPaneCharts
+                config={paneConfig!}
+                settings={chartSettings}
+                columns={columns}
+                rows={'results' in response && Array.isArray(response.results) ? response.results : []}
+                goalLines={paneGoalLines}
+                onInspect={canDrill ? inspect : undefined}
+            />
+        )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <Table

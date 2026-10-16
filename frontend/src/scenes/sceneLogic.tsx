@@ -57,7 +57,7 @@ import { AccessControlLevel } from '~/types'
 
 import { handleLoginRedirect } from './authentication/login/loginLogic'
 import { parseCouponCampaign } from './coupons/utils'
-import { isOnboardingRedirectSuppressed } from './onboarding/legacy/onboardingDelegationState'
+import { isOnboardingRedirectSuppressed } from './onboarding/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { isPathOpenWhileProjectPendingDeletion, projectLogic } from './projectLogic'

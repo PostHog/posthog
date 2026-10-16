@@ -12,6 +12,7 @@ from products.logs.backend.natural_language_query import (
     is_valid_date,
     translate_natural_language_query,
 )
+from products.logs.backend.platform_alert_backfill import logs_state_of_platform
 from products.logs.backend.tasks.tasks import follow_logs_alert_task
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "close_incident_on_commit",
     "follow_logs_alert",
     "is_valid_date",
+    "logs_state_of_platform",
     "next_allowed_check_at",
     "translate_natural_language_query",
 ]

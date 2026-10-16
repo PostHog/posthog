@@ -374,6 +374,8 @@ class LogsAlertEvent(UUIDModel):
         UNSNOOZE = "unsnooze", "Unsnooze"
         THRESHOLD_CHANGE = "threshold_change", "Threshold change"
         BROKEN_CONFIG = "broken_config", "Broken config"
+        # An operator handed the alert back from the alerts platform, carrying its state over.
+        HANDBACK = "handback", "Handback"
 
     alert = models.ForeignKey(
         LogsAlertConfiguration,

@@ -262,7 +262,7 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
 
                 const response = await api.surveys.create(surveyData)
 
-                eventUsageLogic.actions.reportSurveyCreated(response)
+                eventUsageLogic.actions.reportSurveyCreated(response, false, 'quick_create', props.source)
                 addProductIntent({
                     product_type: ProductKey.SURVEYS,
                     intent_context: ProductIntentContext.SURVEY_CREATED,

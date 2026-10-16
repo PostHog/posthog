@@ -558,6 +558,8 @@ class TestEvaluationBackfillActivities:
             "failed_count": 1,
             "remaining_count": 1,
             "billed_evaluations": 6,
+            "completed_count": None,
+            "evaluation_skipped_count": 0,
             "duration_seconds": 300.0,
             "stop_reason": None,
         }
@@ -602,7 +604,8 @@ class TestEvaluationBackfillActivities:
             async_to_sync(fail_evaluation_backfill_activity)(_activity_inputs(backfill_data))
 
         backfill_data["backfill"].refresh_from_db()
-        assert backfill_data["backfill"].status == EvaluationBackfillStatus.CANCELLED
+        assert backfill_data["backfill"].status == EvaluationBackfillStatus.INTERRUPTED
+        assert backfill_data["backfill"].status_reason == "execution_failed"
 
     @pytest.mark.parametrize("status", [EvaluationBackfillStatus.COMPLETED, EvaluationBackfillStatus.CANCELLED, None])
     def test_prepare_returns_finished_for_missing_or_terminal_row(self, backfill_data, status) -> None:
@@ -636,7 +639,8 @@ class TestEvaluationBackfillActivities:
 
         assert result.action == TickAction.FINISHED
         backfill_data["backfill"].refresh_from_db()
-        assert backfill_data["backfill"].status == EvaluationBackfillStatus.CANCELLED
+        assert backfill_data["backfill"].status == EvaluationBackfillStatus.INTERRUPTED
+        assert backfill_data["backfill"].status_reason == stop_reason
         assert backfill_data["backfill"].finished_at is not None
         assert [(event["status"], event["stop_reason"]) for event in _finished_events(capture)] == [
             ("stopped", stop_reason)
