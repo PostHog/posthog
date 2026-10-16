@@ -9,7 +9,7 @@ from uuid import UUID
 from products.logs.backend import platform_ownership
 from products.logs.backend.models import LogsAlertConfiguration
 
-__all__ = ["before_deleted", "on_created", "on_deleted", "on_updated"]
+__all__ = ["before_delete", "on_created", "on_deleted", "on_updated"]
 
 
 def _alert(team_id: int, alert_id: UUID) -> LogsAlertConfiguration | None:
@@ -37,5 +37,9 @@ def on_deleted(*, team_id: int, alert_id: UUID) -> None:
     platform_ownership.on_deleted(team_id=team_id, alert_id=alert_id)
 
 
-def before_deleted(*, team_id: int, alert_id: UUID) -> None:
-    platform_ownership.before_deleted(team_id=team_id, alert_id=alert_id)
+def before_delete(*, team_id: int, alert_id: UUID) -> None:
+    """Closes the incident of a firing alert while its destinations still exist, on whichever stack
+    owns it."""
+    alert = _alert(team_id, alert_id)
+    if alert is not None:
+        platform_ownership.before_delete(alert)

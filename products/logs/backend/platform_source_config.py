@@ -5,6 +5,8 @@ Imported from `ready()` through the message wording, so it stays light: no model
 
 from typing import Any, Final, Literal, get_args
 
+from posthog.utils import absolute_uri
+
 from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, SourceConfigSpec
 
 FILTERS_KEY: Final = "filters"
@@ -43,3 +45,8 @@ def load_logs_source_config() -> SourceConfigSpec:
 
 def has_any_filter(filters: dict[str, Any]) -> bool:
     return any(filters.get(key) for key in LOGS_FILTER_KEYS)
+
+
+def logs_alert_url(team_id: int, alert_id: object) -> str:
+    """The alert's page in the logs product, which messages and incidents link to."""
+    return absolute_uri(f"/project/{team_id}/logs/alerts/{alert_id}")
