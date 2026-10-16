@@ -68,8 +68,7 @@ class TestSigningSecretAPI(APIBaseTest):
 
     @parameterized.expand([("get",), ("post",)])
     def test_scoped_tokens_cannot_reach_the_raw_secret(self, method):
-        # The viewset is INTERNAL (session only): a programmatic token must never read
-        # or rotate the raw signing secret, whatever scopes it holds.
+        # INTERNAL viewset: no scoped token may read or rotate the raw secret.
         self._make_admin()
         key_value = self.create_personal_api_key_with_scopes(["*"])
         self.client.logout()

@@ -882,8 +882,7 @@ class TestWidgetIdentityVerification(BaseTest):
 
     @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
     def test_list_tickets_independently_rotated_secret_verifies(self):
-        # Rotation via the conversations endpoint diverges from the legacy column by
-        # design; the staleness guard must not exclude it or rotating locks the team out.
+        # The staleness guard excluding an independently rotated secret locks the team out.
         independent_secret = "an_independent_secret"
         SigningSecret.objects.for_team(self.team.id).create(
             team=self.team, secret=independent_secret, rotated_independently=True

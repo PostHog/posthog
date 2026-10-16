@@ -37,8 +37,7 @@ class TestSigningSecret(BaseTest):
         self.assertEqual(SigningSecret.objects.for_team(self.team.id).count(), 1)
 
     def test_legacy_rotation_does_not_clobber_an_independent_secret(self):
-        # Once the secret is rotated via the conversations endpoint, a legacy-token
-        # rotation syncing over it would silently break customer identity verification.
+        # A legacy rotation syncing over an independent secret silently breaks verification.
         self.team.secret_api_token = "phs_previous_secret"
         self.team.save()
         SigningSecret.objects.for_team(self.team.id).update_or_create(
