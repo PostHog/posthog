@@ -233,20 +233,15 @@ struct RevokedPartition {
 fn revoke_hook(
     revoker: Revoker,
     ledger: Arc<TopicOffsetLedger>,
-    settlement: Arc<dyn Settlement>,
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
 ) -> RevokeHook {
     Box::new(move |partitions| {
         revoker.purge_revoked(partitions);
-        let topic_partitions: Vec<TopicPartition> = partitions
-            .iter()
-            .map(|(topic, partition)| TopicPartition::new(topic, *partition))
-            .collect();
-        settlement.forget_partitions(&topic_partitions);
         revoked_partitions
             .lock()
             .unwrap()
-            .extend(topic_partitions.into_iter().map(|topic_partition| {
+            .extend(partitions.iter().map(|(topic, partition)| {
+                let topic_partition = TopicPartition::new(topic, *partition);
                 let generation = ledger.generation(&topic_partition);
                 RevokedPartition {
                     topic_partition,
@@ -453,9 +448,9 @@ impl IngestionConsumer {
         consumer.context().set_revoke_hook(revoke_hook(
             batcher.revoker(),
             Arc::clone(&topic_offset_ledger),
-            Arc::clone(&settlement),
             Arc::clone(&revoked_partitions),
         ));
+        consumer.context().set_settlement(Arc::clone(&settlement));
         let consumer = Arc::new(consumer);
         Self {
             debug_recorder: options.debug_recorder,
@@ -519,9 +514,9 @@ impl IngestionConsumer {
         context.set_revoke_hook(revoke_hook(
             batcher.revoker(),
             Arc::clone(&topic_offset_ledger),
-            Arc::clone(&settlement),
             Arc::clone(&revoked_partitions),
         ));
+        context.set_settlement(Arc::clone(&settlement));
         let consumer: StreamConsumer<SentinelContext> =
             client_config.create_with_context(context)?;
         consumer.subscribe(&[&config.ingestion_consumer_consume_topic])?;
