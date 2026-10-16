@@ -388,7 +388,7 @@ UpdateItem  SET deleted = :true REMOVE wrapped_key, sealed_key, key_nonce
 
 - A session tombstone makes every block of that session unreadable.
 - A team day tombstone makes every session key sealed under that day unreadable, and every image of that team and day.
-- To delete a team, tombstone every team day row inside the raw window, and also create a tombstone for the current day so the recorder cannot create a key for it.
+- To delete a team, tombstone every team day row of the team (query `pk = team:{team_id}`), and also create a tombstone for the current day so the recorder cannot create a key for it. Rows older than the raw window matter too: a session keeps its first key day while it records, so new objects can use a key day up to about 15 days old.
 - A conditional put cannot replace a tombstone, so no writer creates a new key for a deleted row. A writer that meets a tombstone drops the data.
 - A tombstone keeps its `expires_at`. After 90 days no session of that day can be admitted again.
 - A process that already holds a key can use it until its cache entry expires: 5 minutes for a session row, one hour for a team day row.
@@ -437,12 +437,17 @@ The lifecycle rounds up to midnight and runs late, so plan for data to stay read
 
 A flush can write its blocks and index rows and then fail before it commits its Kafka offsets.
 The next attempt for that partition starts at the same committed offset and writes the same messages again.
-Every row therefore names its flush and its Kafka position, and readers drop duplicates with one rule:
-for each (`topic`, `partition`, `start_offset`), keep only the rows of the flush with the highest (`flushed_at_ms`, `flush_id`).
+A retry can also cover a different range than the attempt it replaces, for example one flush that replays two earlier flushes.
+Every row therefore names its flush and its Kafka position, and readers drop duplicates with one rule per (`topic`, `partition`):
+
+1. Give each flush the range from its `start_offset` to the highest `end_offset` of its rows.
+2. Walk the flushes from the highest (`flushed_at_ms`, `flush_id`) to the lowest.
+3. Keep a flush only if its range does not overlap the range of a flush already kept.
 
 A session row is a fold over its block rows: sort them by `first_ts_ms`, then merge each into the result in order.
-Counts sum, times take the minimum or maximum, flags take the logical or, `host` takes the first value and the viewport takes the last.
-`max_gap_ms` also counts the gap between one block's last event and the next block's first event.
+Counts sum, times take the minimum or maximum, flags take the logical or, `host` takes the first value and the viewport takes the one with the highest `viewport_ts_ms`.
+`events_before_first_full_snapshot` counts the events before the session's first full snapshot, so the fold stops adding it after the first block that has a full snapshot.
+`max_gap_ms` also counts the gap between one block's last event and the next block's first event. When blocks overlap, for example the main and overflow topics, it is an upper bound.
 `fold_session` in `replay-core-v4` implements this fold.
 
 | Group       | Columns                                                                                                                                                                                                                                               |
@@ -453,7 +458,7 @@ Counts sum, times take the minimum or maximum, flags take the logical or, `host`
 | Source      | `snapshot_source`, `snapshot_library`, `host`                                                                                                                                                                                                         |
 | Playability | `full_snapshots`, `events_before_first_full_snapshot`, `orphan_mutations`, `max_gap_ms`, `dom_nodes`, `dom_text_chars`, `remote_stylesheets`, `inline_stylesheets`, `iframes`, `canvases`, `videos`, `shadow_roots`, `cold_start`, `node_cap_reached` |
 | Activity    | `active_ms`, `clicks`, `rage_clicks`, `dead_clicks`, `keypresses`, `scrolls`, `mouse_moves`, `touches`, `selections`, `media_events`, `viewport_resizes`, `navigations`, `console_errors`, `console_warnings`, `network_requests`, `network_failures` |
-| Context     | `viewport_width`, `viewport_height`, `touch_input`                                                                                                                                                                                                    |
+| Context     | `viewport_width`, `viewport_height`, `viewport_ts_ms` (the time of the viewport event), `touch_input`                                                                                                                                                 |
 | Images      | `images_extracted`, `image_bytes`, `images_inline`, `image_urls`                                                                                                                                                                                      |
 | Moments     | `moments`: a list of `{kind, window_id, ts_ms, event_index}` for full snapshots, navigations, clicks and large DOM changes                                                                                                                            |
 | Sealed      | `urls`: the visited URLs as a sealed index value                                                                                                                                                                                                      |
