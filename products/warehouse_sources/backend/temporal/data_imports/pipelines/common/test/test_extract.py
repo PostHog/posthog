@@ -6,6 +6,9 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
+import pyarrow as pa
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from redis import exceptions as redis_exceptions
@@ -13,7 +16,11 @@ from redis import exceptions as redis_exceptions
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    attempt_run_uuid,
+    staged_run_last_value,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
@@ -21,6 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     NON_RETRYABLE_ERROR_RETRY_LIMIT,
     UNREADABLE_JOB_INPUTS_MESSAGE,
     _get_redis,
+    count_worker_deaths,
+    finalize_desc_sort_incremental_value,
     handle_corrupted_delta_log,
     handle_non_retryable_error,
     handle_reset_or_full_refresh,
@@ -31,12 +40,20 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     resolve_primary_keys,
     should_check_shutdown,
     trim_source_job_inputs,
+    update_incremental_field_values,
     validate_incremental_sync,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     MissingPrimaryKeysException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
+    finish_row_tracking,
+    get_rows,
+    increment_rows,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
 
@@ -315,6 +332,21 @@ class TestReportHeartbeatTimeoutRecording(BaseTest):
             assert event.self_phase is None and event.self_peak_buffer_bytes is None
             assert event.self_report_age_at_death_seconds is None
 
+    def test_counts_the_deaths_of_this_run_only(self) -> None:
+        schema = self._schema()
+        other_schema = self._schema()
+        events = ExternalDataSchemaOOMEvent.objects.for_team(self.team.pk)
+        for schema_id, run_id in [
+            (schema.id, "run-1"),
+            (schema.id, "run-1"),
+            (schema.id, "run-0"),
+            (other_schema.id, "run-1"),
+        ]:
+            events.create(team_id=self.team.pk, schema_id=schema_id, run_id=run_id)
+        inputs = MagicMock(team_id=self.team.pk, schema_id=schema.id, run_id="run-1")
+
+        assert count_worker_deaths(inputs, MagicMock()) == 2
+
     def test_row_snapshots_workload_evidence_without_co_tenant_identifiers(self) -> None:
         # The whole point of the stack: the dead attempt's own self-report and its pod's aggregates
         # must survive onto the durable row (the Redis source expires in hours), and nothing on the
@@ -377,6 +409,74 @@ class TestReportHeartbeatTimeoutRecording(BaseTest):
         assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 0
 
 
+# transaction=True: the staging writes run on the async thread pool (database_sync_to_async_pool),
+# which can't see an atomic TestCase's uncommitted rows.
+@pytest.mark.django_db(transaction=True)
+class TestDescSortIncrementalHandoff:
+    def _schema(self, team) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Persona"
+        )
+        return ExternalDataSchema.objects.create(
+            name="inquiries",
+            team=team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created_at",
+                "incremental_field_type": IncrementalFieldType.DateTime,
+            },
+        )
+
+    def _batch(self, *created_at: datetime) -> pa.Table:
+        return pa.table({"id": list(range(len(created_at))), "created_at": list(created_at)})
+
+    def test_a_resumed_attempt_promotes_the_high_water_mark_of_the_whole_run(self, team):
+        # Newest-first: attempt 1 yields the newest rows and dies. Attempt 2 resumes below them and
+        # only ever sees older rows. The promoted watermark must be attempt 1's newest row, otherwise
+        # the next run re-reads everything newer than the resume point.
+        schema = self._schema(team)
+        resource = SourceResponse(name="inquiries", items=lambda: iter([]), primary_keys=["id"], sort_mode="desc")
+        logger = MagicMock(adebug=AsyncMock())
+        newest = datetime(2026, 3, 1, tzinfo=UTC)
+        resume_point = datetime(2026, 1, 1, tzinfo=UTC)
+
+        values = async_to_sync(update_incremental_field_values)(
+            schema,
+            self._batch(newest, resume_point),
+            resource,
+            None,
+            None,
+            logger,
+            staging_run_uuid=attempt_run_uuid("wf-1", 1),
+        )
+        assert values.last_value == newest
+        schema.refresh_from_db()
+        assert schema.sync_type_config["incremental_staged"]["last_value"] == newest.isoformat()
+        assert "incremental_field_last_value" not in schema.sync_type_config
+
+        seed = staged_run_last_value(schema.sync_type_config, "wf-1")
+        assert seed == newest
+
+        values = async_to_sync(update_incremental_field_values)(
+            schema,
+            self._batch(datetime(2025, 12, 1, tzinfo=UTC)),
+            resource,
+            seed,
+            None,
+            logger,
+            staging_run_uuid=attempt_run_uuid("wf-1", 2),
+        )
+        async_to_sync(finalize_desc_sort_incremental_value)(
+            resource, schema, values.last_value, logger, staging_run_uuid=attempt_run_uuid("wf-1", 2)
+        )
+        schema.refresh_from_db()
+        assert "incremental_field_last_value" not in schema.sync_type_config
+
+        assert schema.promote_staged_incremental_values(attempt_run_uuid("wf-1", 2)) is True
+        assert schema.sync_type_config["incremental_field_last_value"] == newest.isoformat()
+
+
 # transaction=True: handle_corrupted_delta_log writes to the DB from the async thread pool
 # (database_sync_to_async_pool), which can't see an atomic TestCase's uncommitted rows.
 @pytest.mark.django_db(transaction=True)
@@ -420,13 +520,21 @@ class TestHandleCorruptedDeltaLog:
         schema, job = self._schema_and_job(team)  # sync_type_config has no repartition_swap → no salvage path
         helper = MagicMock(is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock())
 
-        with patch(f"{_EXTRACT_MODULE}.posthoganalytics") as ph:
+        with (
+            patch(f"{_EXTRACT_MODULE}.posthoganalytics") as ph,
+            override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
+        ):
+            # The run registers its row estimate before the corruption check, while it is still billable.
+            async_to_sync(increment_rows)(team.pk, schema.id, 20)
             result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
+            rows_counted_toward_the_limit = async_to_sync(get_rows)(team.pk, schema.id)
+            async_to_sync(finish_row_tracking)(team.pk, schema.id)
 
         assert result is True
         helper.reset_table.assert_awaited_once()
         job.refresh_from_db()
         assert job.billable is False
+        assert rows_counted_toward_the_limit == 0
         # A revival must be observable, tagged with how it recovered and that the rebuild was made non-billable.
         assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"

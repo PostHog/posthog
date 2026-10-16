@@ -33,6 +33,7 @@ from posthog.dags.deletes import (
     _count_unswept_rows,
     _delete_predicate_params,
     cleanup_old_events_by_partition,
+    delete_events,
     deletes_job,
     ensure_no_concurrent_deletes_run,
     manual_deletes_job,
@@ -42,12 +43,13 @@ from posthog.dags.deletes import (
     plan_old_events_cleanup,
     resolve_sweep_targets,
     run_deletes_after_manual_trigger,
+    wait_for_delete_mutations_in_shards,
 )
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS, EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
 from posthog.models.organization import Organization
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
@@ -1087,6 +1089,76 @@ def test_a_target_on_another_cluster_is_also_counted_on_its_storage_table(cluste
 
         storage = counts[EVENTS.data_table]
         assert storage is not None and storage >= 1, "the storage table was not counted for an off-cluster target"
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(adhoc.drop).result()
+        cluster.any_host(table.drop).result()
+
+
+@pytest.mark.django_db
+def test_events_json_deletes_reach_every_partition_for_person_and_team_deletions(cluster: ClickhouseCluster):
+    # sharded_events_json deletes person rows one partition at a time with patch parts, and team rows
+    # with a separate mutation. A partition the loop misses, or a team arm left out of both, keeps
+    # rows the request is about to be marked verified for.
+    person_team, deleted_team = 424250, 424251
+    person_uuid, kept_person_uuid = UUID(int=21), UUID(int=22)
+    created_at = datetime(2026, 8, 28, 10, 0, 0)
+
+    table = PendingDeletesTable(timestamp=created_at)
+    dictionary = PendingDeletesDictionary(source=table)
+    adhoc = AdhocEventDeletesDictionary(source=AdhocEventDeletesTable())
+
+    def insert_deletions(client: Client) -> None:
+        client.execute(
+            table.populate_query,
+            [
+                {
+                    "id": id,
+                    "deletion_type": int(deletion_type),
+                    "key": key,
+                    "group_type_index": None,
+                    "created_at": created_at,
+                    "delete_verified_at": None,
+                    "created_by_id": None,
+                    "team_id": team_id,
+                }
+                for id, deletion_type, key, team_id in [
+                    (1, DeletionType.Person, str(person_uuid), person_team),
+                    (2, DeletionType.Team, str(deleted_team), deleted_team),
+                ]
+            ],
+        )
+
+    kept = UUID(int=2003)
+    rows = [
+        (UUID(int=2001), person_team, person_uuid, created_at - relativedelta(months=1)),
+        (UUID(int=2002), person_team, person_uuid, created_at - timedelta(hours=1)),
+        (kept, person_team, kept_person_uuid, created_at - timedelta(hours=1)),
+        (UUID(int=2004), deleted_team, person_uuid, created_at - relativedelta(months=1)),
+        (UUID(int=2005), deleted_team, kept_person_uuid, created_at - timedelta(hours=1)),
+    ]
+
+    try:
+        cluster.map_one_host_per_shard(Query(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")).result()
+        cluster.any_host(
+            Query(
+                f"INSERT INTO {EVENTS_JSON_DATA_TABLE} (uuid, team_id, event, distinct_id, person_id, timestamp, inserted_at) VALUES",
+                [(uuid, team_id, "$pageview", "d", person_id, ts, ts) for uuid, team_id, person_id, ts in rows],
+            )
+        ).result()
+        cluster.any_host(table.create).result()
+        cluster.any_host(insert_deletions).result()
+        cluster.any_host(partial(dictionary.create, shards=1, max_execution_time=0, max_memory_usage=0)).result()
+        cluster.any_host(dictionary.load).result()
+        cluster.any_host(partial(adhoc.create, shards=1, max_execution_time=0, max_memory_usage=0)).result()
+        cluster.any_host(adhoc.load).result()
+
+        context = build_op_context()
+        delete_mutations = delete_events(context, cluster, dictionary, adhoc, [EVENTS_JSON_DATA_TABLE])
+        wait_for_delete_mutations_in_shards(context, cluster, delete_mutations)
+
+        for surviving in cluster.map_all_hosts(Query(f"SELECT uuid FROM {EVENTS_JSON_DATA_TABLE}")).result().values():
+            assert [row[0] for row in surviving] == [kept]
     finally:
         cluster.any_host(dictionary.drop).result()
         cluster.any_host(adhoc.drop).result()

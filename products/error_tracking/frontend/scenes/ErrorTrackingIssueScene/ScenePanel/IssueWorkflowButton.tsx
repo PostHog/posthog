@@ -4,7 +4,11 @@ import { IconSend } from '@posthog/icons'
 
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-import { captureMessageAudienceClicked } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import {
+    captureMessageAudienceClicked,
+    messageAudienceAccessDisabledReason,
+} from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { draftMessage } from 'products/workflows/frontend/MessageAudience/messageDrafts'
 import {
     type WorkflowTriggerConfig,
     urlForNewWorkflowWithTrigger,
@@ -24,14 +28,23 @@ function issueWorkflowTrigger(issueId: string): WorkflowTriggerConfig {
 }
 
 export function IssueWorkflowButton({ issueId }: { issueId: string }): JSX.Element {
+    const accessDisabledReason = messageAudienceAccessDisabledReason()
     return (
         <ButtonPrimitive
             fullWidth
             tooltip="Open a workflow that emails people each time they hit this issue"
             onClick={() => {
                 captureMessageAudienceClicked(SOURCE, 'workflow')
-                router.actions.push(urlForNewWorkflowWithTrigger(issueWorkflowTrigger(issueId), SOURCE))
+                router.actions.push(
+                    urlForNewWorkflowWithTrigger(
+                        issueWorkflowTrigger(issueId),
+                        SOURCE,
+                        draftMessage({ kind: 'issue_hit' }),
+                        { source: 'error_tracking', source_id: issueId }
+                    )
+                )
             }}
+            disabledReasons={accessDisabledReason ? { [accessDisabledReason]: true } : {}}
             data-attr="issue-panel-start-workflow"
         >
             <IconSend />

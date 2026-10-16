@@ -46,6 +46,11 @@ REMOTE_CONFIG_CDN_PURGE_COUNTER = Counter(
 
 logger = structlog.get_logger(__name__)
 
+
+class RemoteConfigTokenChangeSyncError(Exception):
+    pass
+
+
 # Sorted set tracking each team's array/config.json cache-entry expiry, so the hourly
 # refresh task can re-stamp entries before the TTL lapses and reads fall through to S3.
 REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET = "remote_config_cache_expiry"
@@ -60,6 +65,14 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
 
     return joined
+
+
+class UnreadableTriggerGroupsError(Exception):
+    """
+    A team's stored session recording trigger groups hold a shape that posthog-js cannot read.
+    The Team API rejects these shapes.
+    A write that skipped the Team API validation stored this one.
+    """
 
 
 class RemoteConfig(UUIDTModel):
@@ -99,12 +112,13 @@ class RemoteConfig(UUIDTModel):
             expiry_sorted_set_key=REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
         )
 
-    def _build_session_recording_config(self, team: Team) -> dict:
+    def _build_session_recording_config(self, team: Team) -> dict | bool:
         """
         Build session recording configuration with V1/V2 support.
 
         V2: If team.session_recording_trigger_groups is set, use new trigger groups format
         V1: Otherwise, use legacy trigger fields for backward compatibility
+        Returns False when team.session_recording_trigger_groups is set but holds no readable group.
         """
         # Build base config (common to both V1 and V2)
         capture_console_logs = True if team.capture_console_log_opt_in else False
@@ -169,27 +183,49 @@ class RemoteConfig(UUIDTModel):
             "triggerMatchType": team.session_recording_trigger_match_type_config,
         }
 
+        # The Team API validates this column. A write that skips the Team API can still store malformed JSON.
+        trigger_groups_config = team.session_recording_trigger_groups
+
         # V2: If trigger groups configured, send V2 + V1 fallback fields
-        if team.session_recording_trigger_groups:
-            trigger_groups_config = team.session_recording_trigger_groups
-            groups = trigger_groups_config.get("groups", [])
+        if trigger_groups_config:
+            groups = trigger_groups_config.get("groups", []) if isinstance(trigger_groups_config, dict) else None
 
             # Normalize events to objects for SDK: ["purchase"] -> [{"name": "purchase"}]
             # This future-proofs the contract so WHERE clauses (property filters on events)
             # can be added later without a breaking SDK change.
             # Build normalized copies to avoid mutating the team's stored data.
             normalized_groups = []
-            for group in groups:
-                conditions = group.get("conditions", {})
-                if "events" in conditions:
+            for group in groups if isinstance(groups, list) else []:
+                # The SDK throws on a group whose conditions is not an object.
+                # It also throws on events that is neither null nor a list.
+                conditions = group.get("conditions") if isinstance(group, dict) else None
+                if not isinstance(conditions, dict):
+                    continue
+                events = conditions.get("events")
+                if isinstance(events, list):
                     group = {
                         **group,
                         "conditions": {
                             **conditions,
-                            "events": [{"name": e} if isinstance(e, str) else e for e in conditions["events"]],
+                            "events": [{"name": e} if isinstance(e, str) else e for e in events],
                         },
                     }
+                elif events is not None:
+                    continue
                 normalized_groups.append(group)
+
+            if not isinstance(groups, list) or len(normalized_groups) < len(groups):
+                capture_exception(
+                    UnreadableTriggerGroupsError(
+                        "Dropped session recording trigger groups that posthog-js cannot read"
+                    ),
+                    additional_properties={"team_id": team.id, "readable_groups": len(normalized_groups)},
+                )
+                # posthog-js uses the V1 fields when triggerGroups is empty.
+                # A team that set up only trigger groups has empty V1 fields.
+                # Empty V1 fields record every session.
+                if not normalized_groups:
+                    return False
 
             return {
                 **base_config,
@@ -357,10 +393,10 @@ class RemoteConfig(UUIDTModel):
     def _build_site_apps_js(self):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
-        from posthog.cdp.site_functions import exposed_secret_input_keys, get_transpiled_function
         from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
 
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.site_functions import exposed_secret_input_keys, get_transpiled_function
 
         # Add in the site apps as an array of objects
         site_apps_js = []
@@ -408,9 +444,13 @@ class RemoteConfig(UUIDTModel):
 
         return site_apps_js + site_functions_js
 
-    def sync(self, force: bool = False, bypass_recordings_quota_cache: bool = False):
+    def sync(self, force: bool = False, bypass_recordings_quota_cache: bool = False) -> bool:
         """
         When called we sync to any configured CDNs as well as redis for the /decide endpoint.
+
+        Returns False when the cache write failed. The failure is logged and captured, not raised.
+        Without force, an unchanged config writes Redis only, so True does not mean object storage
+        holds a copy.
         """
 
         logger.info(f"Syncing RemoteConfig for team {self.team_id}")
@@ -426,10 +466,11 @@ class RemoteConfig(UUIDTModel):
                 except Exception as e:
                     logger.exception(f"Failed to refresh hypercache TTL for team {self.team_id}")
                     capture_exception(e)
+                    return False
 
                 CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="no_changes").inc()
                 logger.info(f"RemoteConfig for team {self.team_id} is unchanged")
-                return
+                return True
 
             self.config = config
             self.synced_at = timezone.now()
@@ -438,22 +479,58 @@ class RemoteConfig(UUIDTModel):
             try:
                 # Pass the already-built config via data= so update_cache() reuses it
                 # instead of rebuilding via load_fn.
-                RemoteConfig.get_hypercache().update_cache(self.team, data=config)
+                cache_written = RemoteConfig.get_hypercache().update_cache(self.team, data=config)
             except Exception as e:
                 logger.exception(f"Failed to update hypercache for team {self.team_id}")
                 capture_exception(e)
+                cache_written = False
 
             # Invalidate Cloudflare CDN cache
             self._purge_cdn()
 
             CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="success").inc()
+            return cache_written
         except Exception as e:
             capture_exception(e)
             logger.exception(f"Failed to sync RemoteConfig for team {self.team_id}", exception=str(e))
             CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="failure").inc()
             raise
 
-    def _purge_cdn(self):
+    def sync_after_token_change(self, old_token: str) -> None:
+        """
+        Re-sync every tier after the team's project API token changed.
+
+        The cache entry is keyed by the token, but the payload holds no token, so a
+        token change leaves the rebuilt config identical and sync() takes the
+        unchanged fast path, which writes Redis only. The new token would then have
+        no object-storage copy to fall back on, and the old token would keep serving
+        until its own entries expire.
+
+        Raises RemoteConfigTokenChangeSyncError when the old token's entry was not evicted or
+        the new token's entry was not written, so that the task retries.
+        """
+        evicted = True
+        try:
+            # hypercache-server reads the secondary Redis, so a failed delete there must fail the sync.
+            RemoteConfig.get_hypercache().delete_cache_entry(old_token, strict_mirror=True)
+        except Exception as e:
+            # A failed eviction leaves the revoked token serving. The new token still needs
+            # its object-storage copy, so the forced sync runs before the failure is raised.
+            logger.exception(f"Failed to evict old token cache entry for team {self.team_id}")
+            capture_exception(e)
+            evicted = False
+
+        self._purge_cdn(token=old_token)
+        try:
+            written = self.sync(force=True)
+        except Exception as e:
+            raise RemoteConfigTokenChangeSyncError(f"Token change sync for team {self.team_id} failed") from e
+        if not evicted or not written:
+            raise RemoteConfigTokenChangeSyncError(
+                f"Token change sync for team {self.team_id} is incomplete: evicted={evicted}, written={written}"
+            )
+
+    def _purge_cdn(self, token: str | None = None):
         if (
             not settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT
             or not settings.REMOTE_CONFIG_CDN_PURGE_TOKEN
@@ -461,13 +538,14 @@ class RemoteConfig(UUIDTModel):
         ):
             return
 
+        token = token or self.team.api_token
         data: dict[str, Any] = {"files": []}
 
         for domain in settings.REMOTE_CONFIG_CDN_PURGE_DOMAINS:
             # Check if the domain starts with https:// and if not add it
             full_domain = domain if domain.startswith("https://") else f"https://{domain}"
-            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config"})
-            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config.js"})
+            data["files"].append({"url": f"{full_domain}/array/{token}/config"})
+            data["files"].append({"url": f"{full_domain}/array/{token}/config.js"})
 
         logger.info(f"Purging CDN for team {self.team_id}", {"data": data})
 

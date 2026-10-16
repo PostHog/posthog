@@ -26,20 +26,19 @@ from products.data_modeling.backend.facade.managed_viewset_hooks import get_expe
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.node import Node
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True)
 class ExpectedView:
     name: str
     query: dict[str, Any]
     columns: dict[str, dict[str, Any]]
-    # Materialized views get a 12h sync schedule and a managed DAG node. A non-materialized view
-    # (e.g. engineering analytics) is computed at query time — no schedule, no DAG, no S3 table.
+    # Materialized views get a 12h sync schedule. A non-materialized view (e.g. engineering
+    # analytics) is computed at query time — no schedule, no S3 table.
     materialized: bool = True
 
 
@@ -77,7 +76,11 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         Materializes views by default.
         """
         # Deferred: schedule_reconcile pulls in temporalio; a module-level import would drag it onto django.setup()
-        from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag  # noqa: PLC0415
+        from products.data_modeling.backend.logic.saved_query_dag_sync import (  # noqa: PLC0415
+            ManagedNodeMaterializingError,
+            move_node_out_of_managed_dag,
+            sync_saved_query_to_dag,
+        )
         from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag  # noqa: PLC0415
 
         provider = get_expected_views_provider(self.kind)
@@ -133,6 +136,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         views_created = 0
         views_updated = 0
         saved_queries_to_schedule: list[DataWarehouseSavedQuery] = []
+        saved_queries_to_sync: list[DataWarehouseSavedQuery] = []
         orphaned_views_to_revert: list[DataWarehouseSavedQuery] = []
 
         # Keep this transaction short: persist DB changes only. The post-commit work
@@ -172,10 +176,11 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 saved_query.external_tables = external_tables_by_view[view.name]
                 saved_query.is_materialized = view.materialized
                 # A non-materialized view is computed at query time — no sync schedule, and it never
-                # enters the schedule/DAG lists below.
+                # enters the schedule list below.
                 saved_query.sync_frequency_interval = timedelta(hours=12) if view.materialized else None
 
                 saved_query.save()
+                saved_queries_to_sync.append(saved_query)
                 if view.materialized:
                     saved_queries_to_schedule.append(saved_query)
 
@@ -188,42 +193,33 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 self.saved_queries.exclude(name__in=expected_view_names).exclude(deleted=True)
             )
 
-        # Managed views get their own DAG (Revenue Analytics runs on a single 12h schedule), kept
-        # separate from the team's Default DAG so each DAG has exactly one sync frequency. Maintained
-        # on every sync — create, update, and resync. saved_queries_to_schedule is in expected_views
-        # order (dependencies first), so edges resolve in a single pass.
-        #
         # No cross-call advisory lock here on purpose: a SESSION-level pg_advisory_lock acquired and
         # released across separate autocommit statements leaks under transaction-mode PgBouncer — the
         # unlock can be routed to a different backend than the one that holds the lock, stranding it
         # and eventually exhausting the connection pool. Concurrent sync_views for the same team+kind
         # can therefore race on node/edge placement; that is tolerated for now, pending a pooling-safe
         # guard. The transaction-scoped lock above still serializes the saved-query writes.
-        # Only materialized views get a managed DAG (the revenue-analytics 12h schedule). When
-        # nothing is scheduled (e.g. the non-materialized engineering-analytics view), skip DAG
-        # creation entirely — no managed DAG is created for that kind.
-        if saved_queries_to_schedule:
-            managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+        dag = DAG.get_or_create_default(self.team)
+        left_managed_dags: set[DAG] = set()
+        if saved_queries_to_sync:
             dag_database = Database.create_for(
                 team=self.team,
                 bypass_warehouse_access_control=True,
                 allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
             )
-            for saved_query in saved_queries_to_schedule:
+            for saved_query in saved_queries_to_sync:
                 try:
+                    left_dag = move_node_out_of_managed_dag(saved_query, dag)
+                    if left_dag is not None:
+                        left_managed_dags.add(left_dag)
                     # reconcile once after both loops, not once per view
-                    sync_saved_query_to_dag(
-                        saved_query,
-                        dag=managed_dag,
-                        allow_managed=True,
-                        reconcile=False,
-                        database=dag_database,
+                    sync_saved_query_to_dag(saved_query, dag=dag, reconcile=False, database=dag_database)
+                except ManagedNodeMaterializingError:
+                    logger.info(
+                        "deferred_moving_managed_view_while_materializing",
+                        team_id=self.team_id,
+                        view_name=saved_query.name,
                     )
-                    # Drop any stale node left in another DAG (e.g. a legacy Default-DAG placement),
-                    # unless something there still depends on it (don't orphan a dependent).
-                    for stale in Node.objects.filter(team=self.team, saved_query=saved_query).exclude(dag=managed_dag):
-                        if not stale.outgoing_edges.exists():
-                            stale.delete()
                 except Exception as e:
                     capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
                     logger.warning(
@@ -245,8 +241,10 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                     error=str(e),
                 )
 
-        if saved_queries_to_schedule:
-            maybe_reconcile_dag(managed_dag)
+        if saved_queries_to_sync:
+            maybe_reconcile_dag(dag)
+        for left_dag in left_managed_dags:
+            maybe_reconcile_dag(left_dag)
 
         views_deleted = 0
         for orphaned_view in orphaned_views_to_revert:

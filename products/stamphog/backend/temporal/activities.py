@@ -33,7 +33,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any, Literal
 from urllib.parse import urlparse
 
@@ -63,6 +63,12 @@ from products.stamphog.backend.facade.enums import (
     ReviewTrigger,
     ReviewVerdict,
 )
+from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun, get_finished_review_hooks
+from products.stamphog.backend.facade.review_evidence import (
+    ReviewEvidenceProvider,
+    ReviewEvidenceState,
+    get_review_evidence_providers,
+)
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.engine_pregate import (
@@ -87,6 +93,7 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.tasks.tasks import request_rereview_after_external_review
 from products.stamphog.backend.temporal.constants import (
     CLONE_STEP_TIMEOUT_SECONDS,
     NETWORK_RESTRICTED_AGENT_ENV,
@@ -100,7 +107,6 @@ from products.stamphog.backend.temporal.constants import (
     STAMPHOG_OPTIONAL_POLICY_PATHS,
     STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_POLICY_PATHS,
-    STAMPHOG_REVIEW_GUIDANCE_PATH,
     STAMPHOG_REVIEWHOG_LABEL,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_ENGINE_DIR,
@@ -128,12 +134,6 @@ _CONTEXT_RELATIVE_PATH = PurePosixPath(STAMPHOG_SANDBOX_CONTEXT_PATH).relative_t
 
 # The context reads are a dozen GitHub round trips plus the familiarity reads, which run their own pool.
 _CONTEXT_FETCH_WORKERS = 8
-
-# Server-shipped default policy files, the base layer every repo's config sits on. Named by the
-# basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
-# config reviews under these as-is, a repo's policy.yml overlays its sections onto the default's
-# (see _effective_policy_files), and a repo's review-guidance.md replaces the default wholesale.
-_POLICY_DEFAULTS_DIR = Path(__file__).resolve().parent.parent / "logic" / "policy_defaults"
 
 
 @dataclass
@@ -683,20 +683,72 @@ def signal_review_started(input: StamphogReviewInput) -> dict:
     return {"reaction_id": reaction_id}
 
 
+def _provider_key(provider: ReviewEvidenceProvider) -> str:
+    """A name for the provider that stays the same across activity attempts and workers."""
+    return f"{provider.__module__}.{getattr(provider, '__qualname__', '')}"
+
+
+def _read_review_evidence(run: ReviewRun, earlier: list[dict]) -> list[dict]:
+    """Each registered external reviewer's evidence for the run's head, as the engine reads it.
+
+    A provider that answers None or answers for another head adds nothing. A provider that raises
+    adds nothing too, unless ``earlier`` (the evidence of an earlier poll in this run) holds a
+    pending review from it. That review stays pending, marked ``provider_error``, so an error after
+    a pending answer ends the run in WAIT and never lets it approve. An error can never read as a
+    clean review, and one failing provider never hides another's answer.
+    """
+    pending_earlier = {
+        item.get("provider"): item
+        for item in earlier
+        if item.get("state") == ReviewEvidenceState.PENDING and item.get("head_sha") == run.head_sha
+    }
+    pull_request = run.pull_request
+    evidence: list[dict] = []
+    for provider in get_review_evidence_providers():
+        key = _provider_key(provider)
+        try:
+            item = provider(pull_request.repo_config.repository, pull_request.pr_number, run.head_sha)
+        except Exception:
+            activity.logger.warning(f"Run {run.id}: review evidence provider {key} failed", exc_info=True)
+            if key in pending_earlier:
+                evidence.append({**pending_earlier[key], "provider_error": True})
+            continue
+        if item is None or item.head_sha != run.head_sha:
+            continue
+        evidence.append(
+            {
+                "provider": key,
+                "provider_error": False,
+                "state": str(item.state),
+                "reviewer": item.reviewer,
+                "review_kind": item.review_kind,
+                "findings_count": item.findings_count,
+                "published": item.published,
+                "head_sha": item.head_sha,
+                "base_ref": item.base_ref,
+                "base_sha": item.base_sha,
+                "skipped_paths": list(item.skipped_paths),
+            }
+        )
+    return evidence
+
+
 @activity.defn
 @asyncify
 def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
-    """Allowlisted reviewer bots with a fresh 👀 on the PR, refreshing the stored snapshot.
+    """Reviewers still working on the PR, refreshing the stored reactions and review status.
 
-    The Action waits these bots out by polling GitHub from the runner; the hosted sandbox holds no
+    Two signals count. An allowlisted reviewer bot with a fresh 👀 on the PR, and a registered
+    external reviewer (``facade/review_evidence.py``) reporting a pending review of this head.
+    The Action waits bots out by polling GitHub from the runner; the hosted sandbox holds no
     token, so the WORKFLOW polls this activity instead, sleeping on durable timers between calls.
-    Each call re-fetches the reactions and refreshes ``run.output["pr_reactions"]`` so the sandbox
-    context reflects the latest snapshot — if the wait budget expires with a bot still in flight,
-    the engine sees the fresh 👀 and returns WAIT rather than approving over an unfinished review.
+    Each call refreshes ``run.output["pr_reactions"]`` and ``run.output["review_evidence"]`` so the
+    sandbox context reflects the latest snapshot. If the wait budget expires with a reviewer still
+    in flight, the engine sees it and returns WAIT rather than approving over an unfinished review.
     """
     run = _load_run(input)
     if run.status == ReviewRunStatus.SUPERSEDED:
-        return {"in_flight": []}
+        return {"in_flight": [], "reviews_completed": False}
     started_at = timezone.now()
     repo_config = run.pull_request.repo_config
     client = StamphogGitHubClient(repo_config.installation_id)
@@ -711,7 +763,8 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
         "polls": int(bot_wait.get("polls") or 0) + 1,
         "ms": int((now - first_started_at).total_seconds() * 1000),
     }
-    _merge_run_output(run, {"pr_reactions": reactions, "bot_wait": bot_wait})
+    review_evidence = _read_review_evidence(run, (run.output or {}).get("review_evidence") or [])
+    _merge_run_output(run, {"pr_reactions": reactions, "review_evidence": review_evidence, "bot_wait": bot_wait})
 
     # Exclude stamphog's own bot login: STAMPHOG_TRUSTED_REACTOR_BOTS is a hardcoded set of OTHER
     # reviewer bots' logins, so this app's own 👀 (posted by signal_review_started) can't collide
@@ -729,9 +782,39 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
             and (now - created).total_seconds() <= STAMPHOG_BOT_EYES_MAX_AGE_SECONDS
         }
     )
+    in_flight += [item["reviewer"] for item in review_evidence if item["state"] == ReviewEvidenceState.PENDING]
     if in_flight:
-        activity.logger.info(f"Run {run.id}: reviewer bot(s) in flight: {', '.join(in_flight)}")
-    return {"in_flight": in_flight}
+        activity.logger.info(f"Run {run.id}: reviewer(s) in flight: {', '.join(in_flight)}")
+    reviews_completed = any(item["state"] == ReviewEvidenceState.COMPLETED for item in review_evidence)
+    return {"in_flight": in_flight, "reviews_completed": reviews_completed}
+
+
+@activity.defn
+@asyncify
+def refresh_review_evidence(input: StamphogReviewInput) -> dict:
+    """Re-read the reviews, discussion and inline threads before the engine counts an external review.
+
+    ``fetch_review_context`` reads them before the wait polls. A review posted during the wait, or
+    one that completed just before the first poll, can be missing from that read, and the engine
+    would then count the completed review over threads it never saw. The reactions and the review
+    evidence are already fresh, because the last wait poll read them.
+    """
+    run = _load_run(input)
+    if run.status == ReviewRunStatus.SUPERSEDED:
+        return {"skipped": "superseded"}
+    repo_config = run.pull_request.repo_config
+    repo = repo_config.repository
+    number = run.pull_request.pr_number
+    client = StamphogGitHubClient(repo_config.installation_id)
+    _merge_run_output(
+        run,
+        {
+            "reviews": client.get_pr_reviews(repo, number),
+            "discussion": client.get_pr_discussion(repo, number),
+            "review_threads": client.get_pr_review_threads(repo, number),
+        },
+    )
+    return {"refreshed": True}
 
 
 def _sandbox_deadline(timeout: timedelta) -> float:
@@ -799,6 +882,7 @@ def _review_invocation(run: ReviewRun, merge_base_sha: str | None) -> ReviewerIn
         review_threads=output.get("review_threads", []),
         check_runs=output.get("check_runs", []),
         pr_reactions=output.get("pr_reactions", []),
+        review_evidence=output.get("review_evidence") or [],
         author_pr_numbers=output.get("author_pr_numbers", []),
         author_team_slugs=output.get("author_team_slugs", []),
         # A run whose context predates the server facts gets None, which the engine reads as an
@@ -1122,6 +1206,7 @@ def _run_reviewer(
     command = (
         f'export AI_GATEWAY_API_KEY="$(cat {token_path})" && rm -f {token_path} && '
         f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
+        f"STAMPHOG_REPO_ROOT={shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} "
         f"STAMPHOG_LAUNCHED_AT_MS=$(date +%s%3N) {_harden_reviewer_command(invocation.command)}"
     )
     with timer.step("reviewer"):
@@ -1532,6 +1617,46 @@ def _capture_review_timings(run: ReviewRun, verdict: str, post_verdict_ms: int) 
         activity.logger.exception(f"Failed to capture review timings for run {run.id}")
 
 
+def _waited_on_external_review(run: ReviewRun) -> bool:
+    """True when the run saved a WAIT while an external review of its head was pending."""
+    if run.status != ReviewRunStatus.COMPLETED or run.verdict != ReviewVerdict.WAIT:
+        return False
+    return any(
+        item.get("state") == ReviewEvidenceState.PENDING and item.get("head_sha") == run.head_sha
+        for item in (run.output or {}).get("review_evidence") or []
+    )
+
+
+@activity.defn
+@asyncify
+def rereview_after_external_review_finished(input: StamphogReviewInput) -> dict:
+    """Queue a re-review when this WAIT waited on an external review that finished since the last poll.
+
+    The external reviewer asks stamphog to re-review when its review ends, but that request finds
+    no WAIT while this run is still in flight and does nothing. So the run asks the providers once
+    more after it saved its WAIT. A dispatch error raises, so Temporal retries it, because a lost
+    dispatch leaves the PR at WAIT until the next push.
+    """
+    run = _load_run(input)
+    if not _waited_on_external_review(run):
+        return {"requested": False}
+    # The run's own evidence is the earlier answer, so a provider error keeps the review pending. A
+    # re-review queued on an error would start without that evidence and could approve too early.
+    earlier = (run.output or {}).get("review_evidence") or []
+    pending = [item for item in _read_review_evidence(run, earlier) if item["state"] == ReviewEvidenceState.PENDING]
+    # The reviewer's nudge can come before the WAIT is saved and find nothing to re-review, so an
+    # unanswered provider must retry here rather than leave the PR at WAIT.
+    if any(item.get("provider_error") for item in pending):
+        raise RuntimeError(f"Run {run.id}: a review evidence provider failed; retrying the recheck")
+    if pending:
+        return {"requested": False}
+    pull_request = run.pull_request
+    request_rereview_after_external_review(
+        repository=pull_request.repo_config.repository, pr_number=pull_request.pr_number, head_sha=run.head_sha
+    )
+    return {"requested": True}
+
+
 @activity.defn
 @asyncify
 def post_verdict(input: StamphogReviewInput) -> dict:
@@ -1718,6 +1843,10 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         activity.logger.info(f"Run {run.id} superseded during verdict posting; verdict not saved")
         return {"verdict": "skipped_superseded"}
 
+    # Right after the save wins: the GitHub steps below can still fail the activity, and the
+    # outcome must not wait on them.
+    _notify_finished_review(run, input.team_id, ReviewRunStatus(run.status))
+
     # Hand a refused/escalated PR to ReviewHog only AFTER the refusal verdict wins the terminal save
     # above — running it before would trigger ReviewHog for a stale refusal that a superseding delivery
     # then overrode (a newer run might approve the same head). Adding the ReviewHog trigger label starts
@@ -1765,7 +1894,26 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     _capture_review_timings(run, str(parsed.verdict), int((time.monotonic() - post_started) * 1000))
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
-    return {"verdict": str(parsed.verdict)}
+    return {"verdict": str(parsed.verdict), "waited_on_external_review": _waited_on_external_review(run)}
+
+
+def _notify_finished_review(run: ReviewRun, team_id: int, status: ReviewRunStatus) -> None:
+    """Tell the registered callbacks the outcome the run just saved. Called after the terminal save."""
+    pull_request = run.pull_request
+    finished = FinishedReviewRun(
+        run_id=run.id,
+        team_id=team_id,
+        repository=pull_request.repo_config.repository,
+        pr_number=pull_request.pr_number,
+        status=status,
+        verdict=ReviewVerdict(run.verdict),
+    )
+    for hook in get_finished_review_hooks():
+        # A callback belongs to another product, and the outcome is already saved and posted.
+        try:
+            hook(finished)
+        except Exception:
+            activity.logger.exception(f"stamphog: finished-review callback failed for run {run.id}")
 
 
 @activity.defn
@@ -1806,6 +1954,10 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
         .exclude(status__in=TERMINAL_STATUSES)
         .update(status=ReviewRunStatus.FAILED, error=first_error_line, completed_at=now, updated_at=now)
     )
+    # Right after the save wins, before the cleanup below can fail the activity: a retry stops at
+    # the terminal guard and would never report.
+    if marked_failed:
+        _notify_finished_review(run, input.team_id, ReviewRunStatus.FAILED)
     # This run is done reviewing (unrecoverably) — clean up its own "review in flight" 👀 too. After
     # the terminal save on purpose: the removal's live-peer check must see this run as terminal, or
     # two concurrently failing runs could each defer to the other and leak the reaction.
@@ -1839,9 +1991,9 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
             },
         )
 
-    # Last, because this step raises. A retry returns through the terminal guard, which posts the
-    # notice and nothing else, so the event above must reach PostHog on this attempt.
     if marked_failed:
+        # Last, because this step raises. A retry returns through the terminal guard, which posts the
+        # notice and nothing else, so the event above must reach PostHog on this attempt.
         _post_failure_notice(client, run, input.team_id)
 
 
@@ -2025,28 +2177,13 @@ def _prefetch_review_blobs(sandbox: SandboxBase, merge_base_sha: str, token: str
         )
 
 
-def _read_default_policy_file(path: str) -> str:
-    """Read a shipped default by the policy path's basename; missing means a server packaging bug."""
-    default_file = _POLICY_DEFAULTS_DIR / Path(path).name
-    if not default_file.is_file():
-        raise RuntimeError(f"server-shipped default policy file missing: {default_file} (for {path})")
-    return default_file.read_text()
+def _checked_repo_policy_yaml(repo: str, repo_text: str) -> str:
+    """The repository's policy.yml as it is, once it parses as a YAML mapping.
 
-
-def _overlay_policy_yaml(repo: str, default_text: str, repo_text: str | None) -> str:
-    """Overlay the repo's policy.yml top-level sections onto the shipped default.
-
-    Lets a repo declare only the sections it wants to change (e.g. just ``size_gate``); each
-    present section replaces the default's section wholesale. The engine's strict loader still
-    validates the merged doc inside the sandbox, so required sections and the self-governance
-    deny can't be dropped by omission, and a full-schema repo file overlays to exactly itself.
-    The ``digest:`` key passes through harmlessly (the engine tolerates and ignores it).
-
-    A present-but-unusable repo file (malformed YAML, non-mapping root) fails closed: the repo
-    declared *something*, and silently reviewing under pure defaults would be wrong.
+    The engine merges it onto the default it ships (`merge_policy` in the engine's policy.py) and
+    validates the result. This check only fails a malformed file closed before a sandbox exists:
+    the repository declared something, and reviewing under pure defaults would be wrong.
     """
-    if repo_text is None:
-        return default_text
     try:
         overlay = yaml.safe_load(repo_text)
     except yaml.YAMLError as exc:
@@ -2056,34 +2193,27 @@ def _overlay_policy_yaml(repo: str, default_text: str, repo_text: str | None) ->
         raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml") from exc
     if not isinstance(overlay, dict):
         raise RuntimeError(f"repo {repo} .stamphog/policy.yml must be a YAML mapping to overlay the defaults")
-    merged = {**yaml.safe_load(default_text), **overlay}
-    # sort_keys=False keeps the default's section order stable in the dumped doc.
-    return yaml.safe_dump(merged, sort_keys=False)
+    return repo_text
 
 
 def _effective_policy_files(repo: str, policy_files: dict[str, str]) -> dict[str, str]:
-    """The final injection set: the repo's default-branch files layered over the hosted defaults.
+    """The repository's default-branch policy files that go into the tree, as they are.
 
-    policy.yml: section overlay onto the shipped default (see _overlay_policy_yaml).
-    review-guidance.md: the repo's copy if present, else the shipped default.
-    Optional paths (steering.md): the repo's copy if present, else omitted — no default exists.
+    The engine ships the defaults and layers these over them: it merges policy.yml onto its default
+    policy, a review-guidance.md replaces its default guidance, and steering.md is appended. A file
+    the repository does not carry is left out, and the PR head's copy is still wiped.
     """
     defaulted = [path for path in STAMPHOG_POLICY_PATHS if path not in policy_files]
     if defaulted:
-        activity.logger.info(f"Policy files for {repo} using hosted defaults: {defaulted}")
+        activity.logger.info(f"Policy files for {repo} using shipped defaults: {defaulted}")
 
     effective = {
-        STAMPHOG_POLICY_ENTRYPOINT: _overlay_policy_yaml(
-            repo,
-            _read_default_policy_file(STAMPHOG_POLICY_ENTRYPOINT),
-            policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
-        ),
-        STAMPHOG_REVIEW_GUIDANCE_PATH: policy_files.get(STAMPHOG_REVIEW_GUIDANCE_PATH)
-        or _read_default_policy_file(STAMPHOG_REVIEW_GUIDANCE_PATH),
+        path: policy_files[path]
+        for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS)
+        if path in policy_files
     }
-    for path in STAMPHOG_OPTIONAL_POLICY_PATHS:
-        if path in policy_files:
-            effective[path] = policy_files[path]
+    if STAMPHOG_POLICY_ENTRYPOINT in effective:
+        effective[STAMPHOG_POLICY_ENTRYPOINT] = _checked_repo_policy_yaml(repo, effective[STAMPHOG_POLICY_ENTRYPOINT])
     return effective
 
 
@@ -2116,8 +2246,9 @@ def _review_payload_command() -> str:
     """Wipe the PR head's copies of everything the archive carries, then extract the archive.
 
     Written AFTER checkout, so the trusted default-branch policy and review norms win over whatever
-    the (untrusted) PR head carried. The engine reads them from the tree at import via its repo-root
-    walk, which is what makes the run judge the PR against our policy, not the PR's own.
+    the (untrusted) PR head carried. The engine reads them at import from the checkout root that the
+    reviewer command names in STAMPHOG_REPO_ROOT, which is what makes the run judge the PR against our
+    policy, not the PR's own.
 
     Every policy path's PR-head copy is deleted first, required AND optional: an uninjected optional
     file (a repo with no steering.md) must not leave the PR head's planted copy behind for the engine
@@ -2143,8 +2274,8 @@ def _ship_review_payload(
 ) -> None:
     """Place the trusted policy, the engine, the owners resolver and the review context in the checkout.
 
-    The engine goes under ``<checkout>/tools/pr-approval-agent``, so its repo-root walk lands on the
-    checkout and reads the injected trusted policy. We always run our version, not the PR's.
+    The engine goes under ``<checkout>/tools/pr-approval-agent`` and reads the injected trusted policy
+    from the checkout root. We always run our version, not the PR's.
     """
     sandbox.write_file(STAMPHOG_SANDBOX_PAYLOAD_PATH, _review_payload_archive(policy_files, context_json))
     result = sandbox.execute(_review_payload_command(), timeout_seconds=_step_timeout(deadline, 60))

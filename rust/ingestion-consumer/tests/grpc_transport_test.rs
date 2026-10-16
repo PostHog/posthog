@@ -3,7 +3,7 @@
 //! Each test targets one property the worker stream must hold for per-key ordering:
 //! wire order equals enqueue order, acks correlate out of order, and a
 //! failure fences everything outstanding (in order, with the messages handed
-//! back) so the dispatcher's deferral path can replay it.
+//! back) so the batcher can requeue and replay it.
 
 mod common;
 
@@ -13,12 +13,12 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use common::key_table_batcher;
+use common::one_message_batcher;
 use common_kafka_consumer::Partition;
-use ingestion_consumer::dispatcher::Dispatcher;
-use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
+use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
+use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport, SendOptions};
 use ingestion_consumer::routing::RoutingStrategy;
-use ingestion_consumer::transport::TransportError;
+use ingestion_consumer::transport::{SendOutcome, TransportError};
 use ingestion_consumer::types::{Accumulator, SerializedKafkaMessage};
 use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
 use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
@@ -26,8 +26,9 @@ use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
 };
 use ingestion_worker_proto::ingestion::worker::v1::{
     ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
-    StreamReady, SubBatch, SubBatchAck, SubBatchStatus,
+    MessageRef, StreamReady, SubBatch, SubBatchAck, SubBatchStatus,
 };
+use rstest::rstest;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
@@ -50,10 +51,10 @@ enum AckMode {
 }
 
 /// Manual mode: the test drives the worker's acks through this.
-#[derive(Clone, Copy)]
 enum ManualAck {
     Ok { seq: u64, accepted: u32 },
     Nack(u64),
+    Ack(SubBatchAck),
 }
 
 type ManualAcks = Arc<Mutex<Option<mpsc::UnboundedReceiver<ManualAck>>>>;
@@ -98,13 +99,16 @@ impl WorkerIngest for MockWorker {
                                 status: SubBatchStatus::Ok as i32,
                                 accepted,
                                 error: String::new(),
+                                unfinished: vec![],
                             },
                             ManualAck::Nack(seq) => SubBatchAck {
                                 seq,
                                 status: SubBatchStatus::Failed as i32,
                                 accepted: 0,
                                 error: "poisoned".to_string(),
+                                unfinished: vec![],
                             },
+                            ManualAck::Ack(ack) => ack,
                         };
                         let _ = tx.send(Ok(IngestStreamResponse {
                             msg: Some(ingest_stream_response::Msg::Ack(ack)),
@@ -129,6 +133,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Ok as i32,
                                         accepted,
                                         error: String::new(),
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -139,6 +144,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Failed as i32,
                                         accepted: 0,
                                         error: "poisoned".to_string(),
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -149,6 +155,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Ok as i32,
                                         accepted,
                                         error: String::new(),
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -159,6 +166,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Busy as i32,
                                         accepted: 0,
                                         error: "at capacity".to_string(),
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -169,6 +177,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Ok as i32,
                                         accepted,
                                         error: String::new(),
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -180,6 +189,7 @@ impl WorkerIngest for MockWorker {
                                         status: SubBatchStatus::Ok as i32,
                                         accepted,
                                         error: String::new(),
+                                        unfinished: vec![],
                                     })),
                                 }));
                             }
@@ -269,8 +279,11 @@ async fn sub_batches_reach_the_worker_in_enqueue_order() {
         .map(|i| transport.begin_send(&url, &format!("batch-{i}"), vec![msg("d1", i)], false))
         .collect();
     for (i, p) in pending.into_iter().enumerate() {
-        let accepted = p.wait().await.expect("send should succeed");
-        assert_eq!(accepted, 1, "sub-batch {i}");
+        let outcome = p.wait().await.expect("send should succeed");
+        assert!(
+            matches!(outcome, SendOutcome::Accepted(1)),
+            "sub-batch {i}: {outcome:?}"
+        );
     }
 
     let received = mock.received.lock().await;
@@ -316,8 +329,14 @@ async fn out_of_order_acks_resolve_the_right_sends() {
             accepted: 2,
         })
         .unwrap();
-    assert_eq!(first.wait().await.expect("first ack"), 2);
-    assert_eq!(second.await.unwrap().expect("second ack"), 1);
+    assert!(matches!(
+        first.wait().await.expect("first ack"),
+        SendOutcome::Accepted(2)
+    ));
+    assert!(matches!(
+        second.await.unwrap().expect("second ack"),
+        SendOutcome::Accepted(1)
+    ));
 }
 
 async fn wait_for_received(mock: &MockHandle, count: usize) {
@@ -331,12 +350,241 @@ async fn wait_for_received(mock: &MockHandle, count: usize) {
     }
 }
 
+const BUDGET: Duration = Duration::from_millis(250);
+
+fn partial_ack(seq: u64, accepted: u32, unfinished: &[i64]) -> SubBatchAck {
+    SubBatchAck {
+        seq,
+        status: SubBatchStatus::Partial as i32,
+        accepted,
+        error: String::new(),
+        unfinished: unfinished
+            .iter()
+            .map(|&offset| MessageRef {
+                partition: 0,
+                offset,
+            })
+            .collect(),
+    }
+}
+
 #[tokio::test]
-async fn a_failure_fences_a_later_sub_batch_the_worker_already_acked() {
+async fn a_partial_ack_resolves_the_send_without_fencing_the_stream() {
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
+    let url = worker_url(mock.addr);
+    let budgeted = SendOptions {
+        replay: false,
+        soft_budget: Some(BUDGET),
+    };
+
+    let pending = transport.begin_send_with(
+        &url,
+        "batch-1",
+        vec![msg("d1", 1), msg("d2", 2), msg("d1", 3)],
+        budgeted,
+    );
+    wait_for_received(&mock, 1).await;
+    // The worker lists its unfinished messages in its own order.
+    ack_tx
+        .send(ManualAck::Ack(partial_ack(1, 1, &[3, 1])))
+        .unwrap();
+    match pending
+        .wait()
+        .await
+        .expect("a partial ack is not a failure")
+    {
+        SendOutcome::Partial {
+            accepted,
+            unfinished,
+        } => {
+            assert_eq!(accepted, 1);
+            let offsets: Vec<i64> = unfinished.iter().map(|message| message.offset).collect();
+            assert_eq!(
+                offsets,
+                vec![1, 3],
+                "unfinished messages come back in send order"
+            );
+        }
+        other => panic!("expected a partial outcome, got {other:?}"),
+    }
+
+    let next = transport.begin_send(&url, "batch-2", vec![msg("d1", 4)], false);
+    wait_for_received(&mock, 2).await;
+    ack_tx
+        .send(ManualAck::Ok {
+            seq: 2,
+            accepted: 1,
+        })
+        .unwrap();
+    assert!(matches!(
+        next.wait().await.expect("the stream stays up"),
+        SendOutcome::Accepted(1)
+    ));
+    assert_eq!(mock.hellos.lock().await.len(), 1, "no reconnect");
+}
+
+#[rstest]
+#[case::both_copies_unfinished(partial_ack(1, 0, &[1, 1]), vec![1, 1])]
+#[case::one_copy_unfinished(partial_ack(1, 1, &[1]), vec![1])]
+#[tokio::test]
+async fn a_partial_ack_counts_a_message_the_sub_batch_carries_twice(
+    #[case] ack: SubBatchAck,
+    #[case] expected_unfinished: Vec<i64>,
+) {
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
+    let url = worker_url(mock.addr);
+    let budgeted = SendOptions {
+        replay: false,
+        soft_budget: Some(BUDGET),
+    };
+
+    let pending =
+        transport.begin_send_with(&url, "batch-1", vec![msg("d1", 1), msg("d1", 1)], budgeted);
+    wait_for_received(&mock, 1).await;
+    ack_tx.send(ManualAck::Ack(ack)).unwrap();
+
+    match pending
+        .wait()
+        .await
+        .expect("a partial ack is not a failure")
+    {
+        SendOutcome::Partial {
+            accepted,
+            unfinished,
+        } => {
+            let offsets: Vec<i64> = unfinished.iter().map(|message| message.offset).collect();
+            assert_eq!(offsets, expected_unfinished);
+            assert_eq!(
+                accepted as usize + offsets.len(),
+                2,
+                "each copy is either accepted or unfinished"
+            );
+        }
+        other => panic!("expected a partial outcome, got {other:?}"),
+    }
+}
+
+#[rstest]
+#[case::partial_without_a_budget(None, partial_ack(1, 1, &[1]))]
+#[case::partial_with_no_unfinished_messages(Some(BUDGET), partial_ack(1, 2, &[]))]
+#[case::partial_listing_a_message_not_sent(Some(BUDGET), partial_ack(1, 1, &[9]))]
+#[case::partial_listing_the_offset_on_another_partition(
+    Some(BUDGET),
+    SubBatchAck { unfinished: vec![MessageRef { partition: 1, offset: 1 }], ..partial_ack(1, 1, &[]) }
+)]
+#[case::partial_listing_a_message_more_often_than_carried(Some(BUDGET), partial_ack(1, 0, &[1, 1]))]
+#[case::partial_missing_a_message(Some(BUDGET), partial_ack(1, 0, &[1]))]
+#[case::unfinished_messages_on_an_ok_ack(
+    Some(BUDGET),
+    SubBatchAck { status: SubBatchStatus::Ok as i32, ..partial_ack(1, 2, &[1]) }
+)]
+#[tokio::test]
+async fn a_malformed_ack_fences_the_stream_as_a_fault(
+    #[case] soft_budget: Option<Duration>,
+    #[case] ack: SubBatchAck,
+) {
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
+    let url = worker_url(mock.addr);
+    let options = SendOptions {
+        replay: false,
+        soft_budget,
+    };
+    let pending =
+        transport.begin_send_with(&url, "batch-1", vec![msg("d1", 1), msg("d1", 2)], options);
+    wait_for_received(&mock, 1).await;
+
+    ack_tx.send(ManualAck::Ack(ack)).unwrap();
+    let error = pending
+        .wait()
+        .await
+        .expect_err("a malformed ack fails the send");
+    assert!(
+        matches!(error.error, TransportError::WorkerStreamFailed(_)),
+        "{:?}",
+        error.error
+    );
+    assert_eq!(
+        error.messages.len(),
+        2,
+        "every message comes back for a retry"
+    );
+}
+
+#[rstest]
+#[case::a_single_frame_carries_the_budget(1_000, Some(BUDGET), vec![250])]
+#[case::a_split_send_carries_no_budget(200, Some(BUDGET), vec![0, 0, 0])]
+#[case::no_budget_carries_none(1_000, None, vec![0])]
+#[case::a_zero_budget_carries_none(1_000, Some(Duration::ZERO), vec![0])]
+#[case::a_sub_millisecond_budget_rounds_up(1_000, Some(Duration::from_micros(500)), vec![1])]
+#[tokio::test]
+async fn a_budget_rides_only_a_single_frame_send(
+    #[case] max_body_bytes: usize,
+    #[case] soft_budget: Option<Duration>,
+    #[case] frame_budgets: Vec<u64>,
+) {
+    let mock = start_mock(AckMode::Immediate, None).await;
+    let mut transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        4,
+        Duration::from_secs(30),
+    );
+    transport.set_max_body_bytes(max_body_bytes);
+    let url = worker_url(mock.addr);
+    let options = SendOptions {
+        replay: false,
+        soft_budget,
+    };
+
+    transport
+        .begin_send_with(
+            &url,
+            "batch-1",
+            vec![msg("d1", 1), msg("d1", 2), msg("d1", 3)],
+            options,
+        )
+        .wait()
+        .await
+        .expect("the worker accepts every frame");
+
+    let budgets: Vec<u64> = mock
+        .received
+        .lock()
+        .await
+        .iter()
+        .map(|sub_batch| sub_batch.soft_budget_ms)
+        .collect();
+    assert_eq!(budgets, frame_budgets);
+}
+
+#[rstest]
+#[case::ok(ManualAck::Ok { seq: 2, accepted: 2 })]
+#[case::partial(ManualAck::Ack(partial_ack(2, 1, &[3])))]
+#[tokio::test]
+async fn a_failure_fences_a_later_sub_batch_the_worker_already_acked(
+    #[case] second_ack: ManualAck,
+) {
     // Regression: with more than one un-acked sub-batch, the worker may ack
     // seq 2 before seq 1. If seq 2 resolved on its own ack, its caller would
     // release its keys and never replay it, while seq 1's later failure
-    // stashed only seq 1 — the older messages would replay after the newer
+    // requeued only seq 1 — the older messages would replay after the newer
     // ones. A failure must fence the acked-but-unresolved tail too.
     let (ack_tx, ack_rx) = mpsc::unbounded_channel();
     let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
@@ -346,17 +594,17 @@ async fn a_failure_fences_a_later_sub_batch_the_worker_already_acked() {
         Duration::from_secs(30),
     );
     let url = worker_url(mock.addr);
+    let budgeted = SendOptions {
+        replay: false,
+        soft_budget: Some(BUDGET),
+    };
 
     let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
-    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], false);
+    let second =
+        transport.begin_send_with(&url, "batch-2", vec![msg("d1", 2), msg("d1", 3)], budgeted);
     wait_for_received(&mock, 2).await;
 
-    ack_tx
-        .send(ManualAck::Ok {
-            seq: 2,
-            accepted: 1,
-        })
-        .unwrap();
+    ack_tx.send(second_ack).unwrap();
     let second = tokio::spawn(second.wait());
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!second.is_finished(), "seq 2 must wait for seq 1");
@@ -372,18 +620,20 @@ async fn a_failure_fences_a_later_sub_batch_the_worker_already_acked() {
         .await
         .unwrap()
         .expect_err("an acked send behind a failure must fence with it");
-    assert_eq!(
-        second_err.messages[0].offset, 2,
-        "messages come back for deferral"
-    );
+    let offsets: Vec<i64> = second_err
+        .messages
+        .iter()
+        .map(|message| message.offset)
+        .collect();
+    assert_eq!(offsets, vec![2, 3], "every message comes back for deferral");
 }
 
 #[tokio::test]
-async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_stash() {
-    // Regression: a fence resolves its sends before their callers stash the
+async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_requeue() {
+    // Regression: a fence resolves its sends before their callers requeue the
     // messages. In that gap the consumer loop can still enqueue a fenced
     // key's next group; if the next stream sent it, it would reach the worker
-    // ahead of the stashed older group. The worker stream must keep fencing until
+    // ahead of the requeued older messages. The worker stream must keep fencing until
     // every fenced caller drops its guard.
     let mock = start_mock(AckMode::NackSeq(1), None).await;
     let transport = GrpcTransport::new(
@@ -413,7 +663,7 @@ async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_stash() {
     ));
     assert_eq!(mock.received.lock().await.len(), 1);
 
-    // Both callers stashed: the worker stream resumes and the next send reaches the
+    // Both callers requeued: the worker stream resumes and the next send reaches the
     // worker on a fresh stream.
     drop(guard);
     drop(second_err);
@@ -453,8 +703,11 @@ async fn an_oversized_sub_batch_rides_the_stream_as_ordered_chunks() {
         vec![msg("d1", 1), msg("d1", 2), msg("d1", 3)],
         false,
     );
-    let accepted = pending.wait().await.expect("all chunks accepted");
-    assert_eq!(accepted, 3, "accepted counts sum across chunks");
+    let outcome = pending.wait().await.expect("all chunks accepted");
+    assert!(
+        matches!(outcome, SendOutcome::Accepted(3)),
+        "accepted counts sum across chunks: {outcome:?}"
+    );
 
     let received = mock.received.lock().await;
     let frames: Vec<(u64, &str, Vec<i64>)> = received
@@ -570,7 +823,7 @@ async fn a_nack_fences_everything_outstanding_in_order() {
     assert_eq!(first_err.messages.len(), 1);
     assert_eq!(
         first_err.messages[0].offset, 1,
-        "messages come back for deferral"
+        "messages come back for the requeue"
     );
     assert!(matches!(
         first_err.error,
@@ -665,7 +918,7 @@ async fn a_worker_that_stops_acking_fences_after_the_watchdog_window() {
         .await
         .expect("watchdog must fence, not wait forever")
         .expect_err("un-acked send fails back to the caller");
-    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+    assert_eq!(err.messages.len(), 1, "messages come back for the requeue");
     assert_eq!(err.messages[0].offset, 1);
 }
 
@@ -713,7 +966,7 @@ async fn a_stuck_oldest_sub_batch_fences_even_while_siblings_keep_acking() {
         .await
         .expect("stuck send must fence on its own deadline, not wait for the feed to stop")
         .expect_err("un-acked oldest send fails back to the caller");
-    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+    assert_eq!(err.messages.len(), 1, "messages come back for the requeue");
     assert_eq!(err.messages[0].offset, 1);
 
     feeder.abort();
@@ -754,7 +1007,7 @@ async fn removing_a_worker_fences_its_in_flight_send_with_messages() {
         .await
         .expect("reaped worker stream must fence, not hang")
         .expect_err("reaped worker fences the in-flight send");
-    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+    assert_eq!(err.messages.len(), 1, "messages come back for the requeue");
     assert_eq!(err.messages[0].offset, 1);
 }
 
@@ -776,7 +1029,7 @@ async fn a_busy_status_fences_as_retriable_with_messages() {
         .wait()
         .await
         .expect_err("busy fences the worker stream");
-    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+    assert_eq!(err.messages.len(), 1, "messages come back for the requeue");
     assert!(err.error.is_retriable(), "busy is retriable backpressure");
     assert!(matches!(err.error, TransportError::WorkerStreamBusy(_)));
 }
@@ -841,6 +1094,7 @@ impl WorkerIngest for ControlledBusyWorker {
                         status,
                         accepted,
                         error,
+                        unfinished: vec![],
                     })),
                 }));
             }
@@ -884,7 +1138,7 @@ fn registry_config() -> WorkerRegistryConfig {
 }
 
 #[tokio::test]
-async fn key_table_watchdog_bounds_overlapping_busy_retries() {
+async fn the_watchdog_bounds_overlapping_busy_retries() {
     let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
     let first_addr = start_controlled_busy_worker(0, attempts_tx.clone()).await;
     let second_addr = start_controlled_busy_worker(1, attempts_tx).await;
@@ -893,17 +1147,14 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
         format!("http://{second_addr}"),
     ];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_strategy(
-        registry,
-        RoutingStrategy::BinPack,
-    ));
+    let pool_source = WorkerPoolSource::new(registry, RoutingStrategy::P2c);
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
         Duration::from_secs(30),
     ));
-    let (batcher, mut outputs) = key_table_batcher(
-        &dispatcher,
+    let (batcher, mut outputs) = one_message_batcher(
+        pool_source,
         transport,
         Duration::from_millis(100),
         Duration::from_millis(20),
@@ -975,22 +1226,19 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
 }
 
 #[tokio::test]
-async fn key_table_retries_a_busy_send_until_it_completes() {
+async fn a_busy_send_is_retried_until_it_completes() {
     let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_strategy(
-        registry,
-        RoutingStrategy::BinPack,
-    ));
+    let pool_source = WorkerPoolSource::new(registry, RoutingStrategy::P2c);
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
         Duration::from_secs(30),
     ));
-    let (batcher, mut outputs) = key_table_batcher(
-        &dispatcher,
+    let (batcher, mut outputs) = one_message_batcher(
+        pool_source,
         transport,
         Duration::from_millis(500),
         Duration::from_millis(20),
@@ -1024,22 +1272,19 @@ async fn key_table_retries_a_busy_send_until_it_completes() {
 }
 
 #[tokio::test]
-async fn key_table_watchdog_allows_in_flight_success_after_the_deadline() {
+async fn the_watchdog_allows_in_flight_success_after_the_deadline() {
     let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_strategy(
-        registry,
-        RoutingStrategy::BinPack,
-    ));
+    let pool_source = WorkerPoolSource::new(registry, RoutingStrategy::P2c);
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
         Duration::from_secs(30),
     ));
-    let (batcher, mut outputs) = key_table_batcher(
-        &dispatcher,
+    let (batcher, mut outputs) = one_message_batcher(
+        pool_source,
         transport,
         Duration::from_millis(100),
         Duration::from_millis(20),

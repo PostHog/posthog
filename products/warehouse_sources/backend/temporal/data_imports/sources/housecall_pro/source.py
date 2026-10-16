@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HousecallProSource(ResumableSource[HousecallProSourceConfig, HousecallProResumeConfig]):
+    codebase_detection = detect(env=("^(HOUSECALL_PRO|HOUSECALLPRO)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # No URL path segment, version header, or dated query param — the vendor's API has no
     # meaningful version scheme to pin.

@@ -111,7 +111,11 @@ import {
   type CodexAppServerProcessOptions,
   spawnCodexAppServerProcess,
 } from "./spawn";
-import { parseStructuredOutput } from "./structured-output";
+import {
+  parseStructuredOutput,
+  stripSyntheticNulls,
+  toStrictOutputSchema,
+} from "./structured-output";
 import { TurnController } from "./turn-controller";
 import { mergeUsage, UsageTracker } from "./usage-tracker";
 
@@ -1131,6 +1135,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private turnStartParams(input: CodexUserInput[]): Record<string, unknown> {
     const approvalPolicy = this.config.approvalPolicy();
     const sandboxPolicy = this.sandboxPolicyForTurn();
+    const outputSchema = this.jsonSchema
+      ? toStrictOutputSchema(this.jsonSchema)
+      : null;
     return {
       threadId: this.threadId,
       input,
@@ -1150,7 +1157,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         ? { sandboxPolicy }
         : {}),
       // Constrain the final message to the task schema for parseable structured output.
-      ...(this.jsonSchema ? { outputSchema: this.jsonSchema } : {}),
+      ...(outputSchema ? { outputSchema } : {}),
     };
   }
 
@@ -2159,7 +2166,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       const parsed = parseStructuredOutput(message);
       if (parsed) {
         try {
-          await this.onStructuredOutput(parsed);
+          await this.onStructuredOutput(
+            stripSyntheticNulls(parsed, this.jsonSchema),
+          );
         } catch (err) {
           this.logger.warn("onStructuredOutput callback threw", { error: err });
         }

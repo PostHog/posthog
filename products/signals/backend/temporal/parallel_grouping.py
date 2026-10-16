@@ -168,6 +168,7 @@ async def _process_signal(
     match_result = await workflow.execute_activity(
         match_signal_to_report_activity,
         MatchSignalToReportInput(
+            signal_id=signal_id,
             team_id=team_id,
             description=signal.description,
             source_product=signal.source_product,
@@ -197,6 +198,7 @@ async def _process_signal(
         specificity_result: VerifyMatchSpecificityOutput = await workflow.execute_activity(
             verify_match_specificity_activity,
             VerifyMatchSpecificityInput(
+                signal_id=signal_id,
                 team_id=team_id,
                 report_id=match_result.report_id,
                 report_title=report_title,
@@ -328,7 +330,7 @@ async def _process_parallel_batch(
     coroutines = []
     for idx in batch_indices:
         signal = batch[idx]
-        signal_id = str(uuid.uuid4())
+        signal_id = signal.signal_id or str(uuid.uuid4())
 
         # Augment CH candidates with all previously processed signals (from earlier batches)
         augmented_results = _augment_candidates_with_batch(
@@ -381,7 +383,9 @@ async def _process_parallel_batch(
             old_ctx = report_contexts.get(result.assign_result.report_id)
             report_contexts[result.assign_result.report_id] = ReportContext(
                 report_id=result.assign_result.report_id,
-                title=result.updated_title or (old_ctx.title if old_ctx else ""),
+                title=result.assign_result.report_title
+                if result.assign_result.report_title is not None
+                else result.updated_title or (old_ctx.title if old_ctx else ""),
                 signal_count=(old_ctx.signal_count if old_ctx else 0) + 1,
             )
         else:

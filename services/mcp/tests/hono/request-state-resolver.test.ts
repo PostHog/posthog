@@ -8,7 +8,9 @@ const {
     mockRefreshTtlCalls,
     mockRedisFailures,
     mockPinned,
+    mockGetApiKey,
 } = vi.hoisted(() => ({
+    mockGetApiKey: vi.fn(),
     mockSessionStore: new Map<string, unknown>(),
     mockTokenStore: new Map<string, unknown>(),
     mockApiKey: {
@@ -32,7 +34,7 @@ const {
 }))
 
 vi.mock('@/lib/posthog/flags', () => ({
-    evaluateFeatureFlags: vi.fn(async () => ({})),
+    evaluateFeatureFlags: vi.fn(async () => ({ flags: {}, payloads: {} })),
     resolveFeatureFlagOverrides: vi.fn(() => ({})),
 }))
 
@@ -122,7 +124,7 @@ vi.mock('@/hono/request-context', () => {
                     return {
                         stateManager: {
                             setDefaultOrganizationAndProject: vi.fn(async () => {}),
-                            getApiKey: vi.fn(async () => mockApiKey),
+                            getApiKey: mockGetApiKey,
                             getAiConsentGiven: vi.fn(async () => undefined),
                             getAvailableFeatures: vi.fn(async () => undefined),
                         },
@@ -141,6 +143,7 @@ vi.mock('@/hono/request-context', () => {
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
@@ -192,6 +195,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockRedisFailures.legacyReadError = undefined
         mockRedisFailures.contextReads = 0
         mockPinned.last = undefined
+        mockGetApiKey.mockReset().mockImplementation(async () => mockApiKey)
         mockApiKey.scopes = ['*']
         mockApiKey.is_impersonated = undefined
         mockApiKey.suppress_analytics = undefined
@@ -268,7 +272,10 @@ describe('RequestStateResolver MCP client contexts', () => {
         if (sandbox) {
             mockApiKey.scopes.push('internal_run:read')
         }
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'tasks-mcp-agent-run-start': true, tasks: true })
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
+            flags: { 'tasks-mcp-agent-run-start': true, tasks: true },
+            payloads: {},
+        })
         const catalog = new ToolCatalog()
         await catalog.warmup()
         const resolver = new RequestStateResolver(catalog, {} as RedisLike, {} as Env)
@@ -483,18 +490,117 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
-    it('evaluates the exec skills flag even though no generated tool declares it', async () => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ [MCP_EXEC_SKILLS_FEATURE_FLAG]: true })
+    it.each([MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INTERVIEW_RECRUITMENT_FLAG])(
+        'evaluates %s even though no generated tool declares it',
+        async (flag) => {
+            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ flags: { [flag]: true }, payloads: {} })
 
-        const result = await makeResolver().resolve(makeProps())
+            const result = await makeResolver().resolve(makeProps())
 
-        expect(evaluateFeatureFlags).toHaveBeenCalledWith(
-            expect.arrayContaining([MCP_EXEC_SKILLS_FEATURE_FLAG]),
-            'distinct-id',
-            undefined
-        )
-        expect(result.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG]).toBe(true)
+            expect(evaluateFeatureFlags).toHaveBeenCalledWith(expect.arrayContaining([flag]), 'distinct-id', undefined)
+            expect(result.toolFeatureFlags?.[flag]).toBe(true)
+        }
+    )
+
+    it.each([
+        { taskId: 'test-task' },
+        { taskOriginProduct: 'signals_scout' },
+        { taskOriginProduct: 'research' },
+        { scopes: ['internal_run:read'] },
+        { oauthClientId: 'jpSRPhGBBbDGpKprit9bgJEuo6oUTa8ULymqf8PE' },
+        { oauthClientId: 'N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu' },
+        { oauthClientId: 'jpSRPhGBBbDGpKprit9bgJEuo6oUTa8ULymqf8PE', cold: true },
+        { oauthClientId: 'N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu', cold: true },
+        { oauthClientId: 'https://posthog.com/.well-known/oauth/webmcp/client-metadata.json' },
+        { mcpConsumer: 'posthog-cli' },
+    ])('enforces recruitment eligibility even when the flag is forced on: %j', async (input) => {
+        if (input.scopes) {
+            mockApiKey.scopes = input.scopes
+        }
+        if (input.oauthClientId) {
+            if (input.cold) {
+                mockGetApiKey.mockImplementationOnce(async () => {
+                    await new Promise<void>((resolve) => setImmediate(resolve))
+                    mockTokenStore.set('oauthClientId', input.oauthClientId)
+                    mockTokenStore.set('clientName', 'Synthetic first-party application')
+                    return mockApiKey
+                })
+            } else {
+                mockTokenStore.set('oauthClientId', input.oauthClientId)
+            }
+        }
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
+            flags: {},
+            payloads: {
+                [MCP_INTERVIEW_RECRUITMENT_FLAG]: {
+                    message: 'Synthetic interview',
+                    booking_url: 'https://example.com/book',
+                },
+            },
+        })
+        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ [MCP_INTERVIEW_RECRUITMENT_FLAG]: true })
+        const result = await makeResolver().resolve(makeProps(input))
+        if (input.oauthClientId) {
+            expect(result.oauthClientId).toBe(input.oauthClientId)
+        }
+        expect(result.interviewRecruitmentConfig).toBeUndefined()
     })
+
+    it.each([
+        {
+            payload: { message: 'Synthetic interview', booking_url: 'https://example.com/book' },
+            expected: {
+                campaign_id: 'mcp-research',
+                booking_url: 'https://example.com/book',
+                min_completed_tool_calls: 3,
+                min_session_age_seconds: 120,
+            },
+        },
+        {
+            payload: { message: 'A new invitation', booking_url: 'https://example.com/book' },
+            expected: { message: 'A new invitation', booking_url: 'https://example.com/book' },
+        },
+        { payload: { message: '' }, expected: undefined },
+        { payload: { booking_url: 'javascript:alert(1)' }, expected: undefined },
+        { payload: { booking_url: 'http://example.com/book' }, expected: undefined },
+        { payload: { booking_url: 'not a URL' }, expected: undefined },
+        { payload: 'invalid', expected: undefined },
+        { payload: undefined, expected: undefined },
+        { payload: null, expected: undefined },
+        { payload: {}, expected: undefined },
+        { payload: { message: 'Synthetic interview' }, expected: undefined },
+        { payload: { booking_url: 'https://example.com/book' }, expected: undefined },
+        {
+            value: 'other-study',
+            payload: { message: 'Another interview', booking_url: 'https://example.com/other' },
+            expected: {
+                campaign_id: 'other-study',
+                booking_url: 'https://example.com/other',
+                min_completed_tool_calls: 3,
+                min_session_age_seconds: 120,
+            },
+        },
+        { value: 'other-study', payload: undefined, expected: undefined },
+        { value: 'other-study', payload: {}, expected: undefined },
+        { value: 'other-study', payload: { message: 'Another interview' }, expected: undefined },
+        { value: 'other-study', payload: { booking_url: 'https://example.com/other' }, expected: undefined },
+        { value: '', payload: {}, expected: undefined },
+        { value: false, payload: {}, expected: undefined },
+    ])(
+        'validates recruitment configuration from the flag payload: $payload',
+        async ({ value = true, payload, expected }) => {
+            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
+                flags: { [MCP_INTERVIEW_RECRUITMENT_FLAG]: value },
+                payloads: { [MCP_INTERVIEW_RECRUITMENT_FLAG]: payload },
+            })
+            const state = await makeResolver().resolve(makeProps())
+            if (expected) {
+                expect(state.interviewRecruitmentConfig).toMatchObject(expected)
+            } else {
+                expect(state.interviewRecruitmentConfig).toBeUndefined()
+            }
+        }
+    )
 
     it('honors a dev/test flag override even when evaluation returns nothing', async () => {
         // Evaluation stays empty (analytics client disabled, as in local dev/evals);
@@ -504,6 +610,45 @@ describe('RequestStateResolver MCP client contexts', () => {
         const result = await makeResolver().resolve(props)
 
         expect(result.toolFeatureFlags?.['dev-forced-flag']).toBe(true)
+    })
+
+    it.each([
+        { mode: 'development', override: undefined, payload: 'valid', enabled: false },
+        { mode: 'development', override: true, payload: undefined, enabled: false },
+        { mode: 'development', override: true, payload: '{', enabled: false },
+        { mode: 'development', override: true, payload: '{}', enabled: false },
+        { mode: 'development', override: true, payload: 'valid', enabled: true },
+        { mode: 'development', override: 'other-study', payload: 'valid', enabled: true },
+        { mode: 'test', override: true, payload: 'valid', enabled: true },
+        { mode: 'production', override: true, payload: 'valid', enabled: false },
+    ])('requires explicit local recruitment opt-in and payload: %j', async ({ mode, override, payload, enabled }) => {
+        vi.stubEnv('POSTHOG_API_BASE_URL', 'http://localhost:8000')
+        vi.stubEnv('NODE_ENV', mode)
+        vi.stubEnv(
+            'MCP_INTERVIEW_RECRUITMENT_PAYLOAD',
+            payload === 'valid'
+                ? JSON.stringify({ message: 'Synthetic local interview', booking_url: 'https://example.com/book' })
+                : payload
+        )
+        try {
+            if (override) {
+                vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({
+                    [MCP_INTERVIEW_RECRUITMENT_FLAG]: override,
+                })
+            }
+            const result = await makeResolver().resolve(makeProps())
+            if (enabled) {
+                expect(result.interviewRecruitmentConfig).toMatchObject({
+                    campaign_id: typeof override === 'string' ? override : 'mcp-research',
+                    message: 'Synthetic local interview',
+                    booking_url: 'https://example.com/book',
+                })
+            } else {
+                expect(result.interviewRecruitmentConfig).toBeUndefined()
+            }
+        } finally {
+            vi.unstubAllEnvs()
+        }
     })
 
     describe('pinned project/org context', () => {

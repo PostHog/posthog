@@ -4,9 +4,7 @@ import { router, urlToAction } from 'kea-router'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -44,6 +42,7 @@ const WORKFLOW_SCENE_TABS = [
     'opt-outs',
     'suppression',
     'reputation',
+    'settings',
     'onboarding',
 ] as const
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
@@ -68,6 +67,7 @@ export interface workflowsSceneLogicActions {
             | 'onboarding'
             | 'opt-outs'
             | 'reputation'
+            | 'settings'
             | 'suppression'
             | 'templates'
             | 'workflows'
@@ -85,6 +85,7 @@ export interface workflowsSceneLogicMeta {
                 | 'onboarding'
                 | 'opt-outs'
                 | 'reputation'
+                | 'settings'
                 | 'suppression'
                 | 'templates'
                 | 'workflows'
@@ -175,8 +176,6 @@ function topTabFor(tab: WorkflowsSceneTab): WorkflowsTopTab {
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const guidedOnboardingEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_GUIDED_ONBOARDING]
     const { startNewWorkflow } = useActions(newWorkflowLogic)
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
     const { filters } = useValues(workflowsLogic)
@@ -251,7 +250,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                         content: <WorkflowsTemplates tab={currentTab === 'templates' ? 'templates' : 'library'} />,
                     },
                     {
-                        label: guidedOnboardingEnabled ? <MessagingSetupTabLabel /> : 'Messaging',
+                        label: <MessagingSetupTabLabel />,
                         key: 'messaging-setup',
                         link: urls.workflows('channels'),
                         content: (

@@ -1313,11 +1313,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "The original person always retains its properties. To clear individual "
             "properties afterward, use the `delete_property` endpoint.\n\n"
             "The split runs asynchronously: a 201 response means the task was enqueued. "
-            "Newly-created split-off persons get a deterministic UUID derived from "
-            "`(team_id, distinct_id)`, so they can be located client-side without polling. "
-            "If you need to delete a split-off person after this call, prefer looking it up by "
-            "that deterministic UUID rather than by distinct_id, since the latter still "
-            "resolves to the original merged person until the async task completes."
+            "A split-off person usually gets a UUID derived from `(team_id, distinct_id)`, "
+            "but gets a random UUID when another person already holds that UUID, so do not "
+            "compute it client-side. To find or delete a split-off person, look it up by its "
+            "distinct_id once the task completes. Until then the distinct_id still resolves "
+            "to the original person."
         ),
         request=PersonSplitRequestSerializer,
         responses={201: PersonSplitResponseSerializer},
@@ -1343,6 +1343,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             unknown = set(distinct_ids_to_split) - set(distinct_ids)
             if unknown:
                 raise ValidationError({"distinct_ids_to_split": f"not on this person: {sorted(unknown)}"})
+            if set(distinct_ids) <= set(distinct_ids_to_split):
+                raise ValidationError({"distinct_ids_to_split": "must leave at least one distinct ID on this person"})
+        elif main_distinct_id and main_distinct_id not in distinct_ids:
+            # An unknown main ID would split off every distinct ID and leave the person unreachable.
+            raise ValidationError({"main_distinct_id": "not on this person"})
 
         split_person.delay(
             person.id,

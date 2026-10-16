@@ -72,9 +72,6 @@ export interface aiOnboardingLogicActions {
     closeOnboarding: () => {
         value: true
     }
-    finishOnboarding: () => {
-        value: true
-    }
     markOnboardingSeen: () => {
         value: true
     }
@@ -157,7 +154,6 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
     actions({
         openOnboarding: (isReplay: boolean = false) => ({ isReplay }),
         closeOnboarding: true,
-        finishOnboarding: true,
         setStepIndex: (stepIndex: number) => ({ stepIndex }),
         markStepViewed: (stepKey: string) => ({ stepKey }),
         selectStarterPrompt: (prompt: string) => ({ prompt }),
@@ -172,7 +168,6 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             {
                 openOnboarding: () => true,
                 closeOnboarding: () => false,
-                finishOnboarding: () => false,
                 selectStarterPrompt: () => false,
             },
         ],
@@ -281,12 +276,6 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             // A replay writes nothing on the way out either, matching the open carve-out above, because it
             // re-opened the takeover on a surface that never showed it and persisting here would swallow the
             // one real showing.
-            if (!values.isReplay) {
-                actions.markOnboardingSeen()
-            }
-        },
-        finishOnboarding: () => {
-            posthog.capture('posthog ai onboarding completed', values.reportProperties)
             if (!values.isReplay) {
                 actions.markOnboardingSeen()
             }

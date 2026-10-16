@@ -12,7 +12,7 @@ SALESFORCE_UPDATE_BATCH_SIZE: int = 200  # Max records per sObject Collections A
 DEFAULT_CHUNK_SIZE: int = 5000
 
 # Harmonic GraphQL query for company enrichment
-HARMONIC_COMPANY_ENRICHMENT_QUERY = """
+_HARMONIC_ENRICHMENT_QUERY_HEAD = """
 mutation($identifiers: CompanyEnrichmentIdentifiersInput!) {
     enrichCompanyByIdentifiers(identifiers: $identifiers) {
         companyFound
@@ -110,10 +110,35 @@ mutation($identifiers: CompanyEnrichmentIdentifiersInput!) {
                 displayValue
                 dateAdded
             }
-        }
+"""
+_HARMONIC_ENRICHMENT_QUERY_TAIL = """        }
     }
 }
 """
+HARMONIC_COMPANY_ENRICHMENT_QUERY = _HARMONIC_ENRICHMENT_QUERY_HEAD + _HARMONIC_ENRICHMENT_QUERY_TAIL
+
+# The Salesforce Account job also writes the company's LinkedIn page. It has its own query so that the payload the
+# other callers of the client fetch, and archive, does not include it.
+HARMONIC_ACCOUNT_ENRICHMENT_QUERY = (
+    _HARMONIC_ENRICHMENT_QUERY_HEAD
+    + """            socials {
+                linkedin {
+                    url
+                }
+            }
+"""
+    + _HARMONIC_ENRICHMENT_QUERY_TAIL
+)
+
+# Canonical Account fields that the Harmonic enrichment writes only when they hold no value. The job reads their
+# current values immediately before it writes.
+ACCOUNT_FILL_FIELDS: tuple[str, ...] = (
+    "Industry",
+    "NumberOfEmployees",
+    "Company_LinkedIn__c",
+    "LinkedIn_Engineer_Count__c",
+    "LinkedIn_Rolecount__c",
+)
 
 # Salesforce query for accounts with websites
 SALESFORCE_ACCOUNTS_QUERY = """

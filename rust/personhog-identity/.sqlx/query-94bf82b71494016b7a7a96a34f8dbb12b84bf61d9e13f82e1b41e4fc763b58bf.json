@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='publish_advance_cursors' */ \n                UPDATE person_publish_outbox o\n                SET cursor_person_id = u.person_id,\n                    cursor_mapping_ordinal = u.mapping_ordinal,\n                    attempts = o.attempts + 1,\n                    last_error = NULL\n                FROM unnest($1::bigint[], $2::bigint[], $3::bigint[]) AS u(id, person_id, mapping_ordinal)\n                WHERE o.id = u.id\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "94bf82b71494016b7a7a96a34f8dbb12b84bf61d9e13f82e1b41e4fc763b58bf"
+}

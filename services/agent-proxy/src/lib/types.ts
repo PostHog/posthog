@@ -1,7 +1,7 @@
 // Domain types, error classes and discriminated unions for the agent-proxy.
 // Shapes defined here must stay compatible with the Python counterparts in
-// products/tasks/backend/stream/redis_stream.py and
-// products/tasks/backend/proxy/event_ingest.py — both sides share the same
+// products/tasks/backend/logic/stream/redis_stream.py and
+// products/tasks/backend/logic/stream/event_ingest.py — both sides share the same
 // Redis stream and HTTP contracts.
 
 import type { Redis } from 'ioredis'

@@ -6,6 +6,13 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klaus import KlausSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.klaus import (
     DEFAULT_FROM_DATE,
     KlausResumeConfig,
@@ -17,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.klau
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.settings import KLAUS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.source import KlausSource
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.klaus.klaus"
 
@@ -62,8 +70,8 @@ def _drive(
     return batches, session, manager
 
 
-def _sent(session: MagicMock) -> list[tuple[str, dict[str, Any]]]:
-    return [(call.args[0], dict(call.kwargs.get("params") or {})) for call in session.get.call_args_list]
+def _driver() -> SourceDriver:
+    return SourceDriver(KlausSource(), KlausSourceConfig(subdomain="acme", api_token="test-token"))
 
 
 class TestGetBaseUrl:
@@ -125,103 +133,105 @@ class TestPagination:
 
     def test_stuck_page_echo_raises_instead_of_looping(self) -> None:
         stuck = self._page([{"externalId": "a"}, {"externalId": "b"}], page=1, page_size=2)
-        responses = [_response(stuck), _response(stuck)]
+        result = _driver().run("reviews", [ScriptedResponse(json=stuck), ScriptedResponse(json=stuck)])
 
-        with pytest.raises(Exception, match="did not advance"):
-            _drive("reviews", responses)
+        assert isinstance(result.raised, Exception)
+        assert "did not advance" in str(result.raised)
 
     def test_incremental_from_date_sent_on_every_page(self) -> None:
         responses = [
-            _response(self._page([{"externalId": "a"}, {"externalId": "b"}], page=1, page_size=2)),
-            _response(self._page([], page=2, page_size=2)),
+            ScriptedResponse(json=self._page([{"externalId": "a"}, {"externalId": "b"}], page=1, page_size=2)),
+            ScriptedResponse(json=self._page([], page=2, page_size=2)),
         ]
-        _, session, _ = _drive(
+        result = _driver().run(
             "reviews",
             responses,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 2, 12, 0, tzinfo=UTC),
         )
 
-        for _url, params in _sent(session):
-            assert params["fromDate"] == "2026-01-02T11:00:00Z"
+        assert result.raised is None
+        assert result.params("fromDate") == ["2026-01-02T11:00:00Z"] * 2
 
 
 class TestFanOut:
     def test_fans_out_over_workspaces_and_injects_workspace_id(self) -> None:
         responses = [
-            _response({"workspaces": [{"id": 1, "name": "Support"}, {"id": 2, "name": "Sales"}]}),
-            _response({"data": [{"id": "10"}]}),
-            _response({"data": [{"id": "10"}]}),
+            ScriptedResponse(json={"workspaces": [{"id": 1, "name": "Support"}, {"id": 2, "name": "Sales"}]}),
+            ScriptedResponse(json={"data": [{"id": "10"}]}),
+            ScriptedResponse(json={"data": [{"id": "10"}]}),
         ]
-        batches, session, manager = _drive("scorecards", responses)
+        result = _driver().run("scorecards", responses)
 
-        urls = [url for url, _ in _sent(session)]
-        assert urls == [
+        assert result.raised is None
+        assert result.urls == [
             "https://acme.zendesk.com/qa/api/export/workspaces",
             "https://acme.zendesk.com/qa/api/export/workspace/1/scorecards",
             "https://acme.zendesk.com/qa/api/export/workspace/2/scorecards",
         ]
         # The injected workspace id keeps the composite primary key unique table-wide
         # when the same scorecard id exists in more than one workspace.
-        assert batches == [[{"id": "10", "workspace_id": "1"}], [{"id": "10", "workspace_id": "2"}]]
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [
-            KlausResumeConfig(next_page=None, workspace_id="2")
-        ]
+        assert result.items == [[{"id": "10", "workspace_id": "1"}], [{"id": "10", "workspace_id": "2"}]]
+        assert result.saved_states == [KlausResumeConfig(next_page=None, workspace_id="2")]
 
     def test_resume_skips_completed_workspaces(self) -> None:
-        manager = _manager(KlausResumeConfig(next_page=None, workspace_id="2"))
         responses = [
-            _response({"workspaces": [{"id": 1}, {"id": 2}]}),
-            _response({"data": [{"id": "10"}]}),
+            ScriptedResponse(json={"workspaces": [{"id": 1}, {"id": 2}]}),
+            ScriptedResponse(json={"data": [{"id": "10"}]}),
         ]
-        batches, session, _ = _drive("scorecards", responses, manager=manager)
+        result = _driver().run(
+            "scorecards", responses, resume_state=KlausResumeConfig(next_page=None, workspace_id="2")
+        )
 
-        urls = [url for url, _ in _sent(session)]
-        assert urls == [
+        assert result.raised is None
+        assert result.urls == [
             "https://acme.zendesk.com/qa/api/export/workspaces",
             "https://acme.zendesk.com/qa/api/export/workspace/2/scorecards",
         ]
-        assert batches == [[{"id": "10", "workspace_id": "2"}]]
+        assert result.items == [[{"id": "10", "workspace_id": "2"}]]
 
     def test_fans_out_over_quizzes_and_injects_quiz_id(self) -> None:
         responses = [
-            _response({"quizzes": [{"id": "7", "name": "Refunds"}, {"id": "8", "name": "Tone"}]}),
-            _response({"responses": [{"responseId": "100", "userId": "1", "correctAnswerPercentage": "80"}]}),
-            _response({}),
+            ScriptedResponse(json={"quizzes": [{"id": "7", "name": "Refunds"}, {"id": "8", "name": "Tone"}]}),
+            ScriptedResponse(
+                json={"responses": [{"responseId": "100", "userId": "1", "correctAnswerPercentage": "80"}]}
+            ),
+            ScriptedResponse(json={}),
         ]
-        batches, session, _ = _drive("quiz_responses", responses)
+        result = _driver().run("quiz_responses", responses)
 
-        assert [url for url, _ in _sent(session)] == [
+        assert result.raised is None
+        assert result.urls == [
             "https://acme.zendesk.com/qa/api/export/quizzes",
             "https://acme.zendesk.com/qa/api/export/quizzes/7/responses",
             "https://acme.zendesk.com/qa/api/export/quizzes/8/responses",
         ]
         # proto3 JSON drops an empty repeated field, so a quiz with no responses
         # returns `{}` and must yield nothing.
-        assert batches == [[{"responseId": "100", "userId": "1", "correctAnswerPercentage": "80", "quiz_id": "7"}]]
+        assert result.items == [[{"responseId": "100", "userId": "1", "correctAnswerPercentage": "80", "quiz_id": "7"}]]
 
     def test_single_object_response_becomes_one_row_per_quiz(self) -> None:
         responses = [
-            _response({"quizzes": [{"id": "7"}]}),
-            _response({"id": "7", "name": "Refunds", "responseCount": "3", "fields": [{"id": "1"}]}),
+            ScriptedResponse(json={"quizzes": [{"id": "7"}]}),
+            ScriptedResponse(json={"id": "7", "name": "Refunds", "responseCount": "3", "fields": [{"id": "1"}]}),
         ]
-        batches, session, _ = _drive("quiz_overviews", responses)
+        result = _driver().run("quiz_overviews", responses)
 
-        assert _sent(session)[1][0] == "https://acme.zendesk.com/qa/api/export/quizzes/7/overview"
-        assert batches == [
+        assert result.raised is None
+        assert result.urls[1] == "https://acme.zendesk.com/qa/api/export/quizzes/7/overview"
+        assert result.items == [
             [{"id": "7", "name": "Refunds", "responseCount": "3", "fields": [{"id": "1"}], "quiz_id": "7"}]
         ]
 
     def test_from_date_applies_to_workspace_requests_but_not_workspace_listing(self) -> None:
         responses = [
-            _response({"workspaces": [{"id": 1}]}),
-            _response({"calibrationSessions": [{"id": "s1"}], "pagination": {"page": 1, "pageSize": 100}}),
+            ScriptedResponse(json={"workspaces": [{"id": 1}]}),
+            ScriptedResponse(json={"calibrationSessions": [{"id": "s1"}], "pagination": {"page": 1, "pageSize": 100}}),
         ]
-        _, session, _ = _drive("calibration_sessions", responses)
+        result = _driver().run("calibration_sessions", responses)
 
-        sent = _sent(session)
-        assert "fromDate" not in sent[0][1]
-        assert sent[1][1]["fromDate"] == _format_datetime(DEFAULT_FROM_DATE)
+        assert result.raised is None
+        assert result.params("fromDate") == [None, _format_datetime(DEFAULT_FROM_DATE)]
 
 
 class TestRetry:
@@ -251,11 +261,10 @@ class TestValidateCredentials:
         ],
     )
     def test_status_code_mapping(self, status_code: int, expected_valid: bool) -> None:
-        with patch(f"{MODULE}.make_tracked_session") as MockSession:
-            MockSession.return_value.get.return_value = _response({}, status=status_code)
-
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
             valid, error = validate_credentials("acme", "test-token")
 
+        assert {request.path for request in network.requests_log} == {"/qa/api/export/users"}
         assert valid is expected_valid
         if expected_valid:
             assert error is None
@@ -263,16 +272,16 @@ class TestValidateCredentials:
             assert error is not None
 
     def test_invalid_subdomain_fails_without_a_request(self) -> None:
-        with patch(f"{MODULE}.make_tracked_session") as MockSession:
+        with scripted_network([]) as network:
             valid, error = validate_credentials("acme.evil.com", "test-token")
 
         assert valid is False
         assert error is not None
-        MockSession.assert_not_called()
+        assert network.requests_log == []
+        assert network.session_options == []
 
     def test_network_error_returns_message(self) -> None:
-        with patch(f"{MODULE}.make_tracked_session") as MockSession:
-            MockSession.return_value.get.side_effect = Exception("boom")
+        with scripted_network([Exception("boom")]):
             valid, error = validate_credentials("acme", "test-token")
 
         assert valid is False

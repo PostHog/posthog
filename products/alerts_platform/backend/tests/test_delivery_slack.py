@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
@@ -13,8 +14,13 @@ from posthog.slack.channels import MAX_HEADER_CHARS, MAX_SECTION_CHARS
 
 from products.alerts_platform.backend.delivery.slack import SlackTransport, blocks_for
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
-from products.alerts_platform.backend.facade.contracts import AlertDestinationData, MessageDetail, MessageLink
-from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    AlertEventKind,
+    MessageDetail,
+    MessageLink,
+)
+from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, announced_transition
 
 MESSAGE = alert_message(
     headline="API errors is firing",
@@ -105,7 +111,7 @@ class TestSlackTransport(APIBaseTest):
             handle = SlackTransport().deliver(
                 team_id=overrides.pop("team_id", self.team.id),
                 target=overrides.pop("target", self.target),
-                message=MESSAGE,
+                message=overrides.pop("message", MESSAGE),
                 **overrides,
             )
         return handle, slack_integration.return_value.client.chat_postMessage
@@ -117,10 +123,19 @@ class TestSlackTransport(APIBaseTest):
         assert handle.root_content == {"blocks": blocks_for(MESSAGE), "text": post.call_args.kwargs["text"]}
         assert post.call_args.kwargs["thread_ts"] is None
 
-    def test_a_reply_goes_into_the_thread_it_names_and_keeps_no_content(self) -> None:
-        handle, post = self._send(in_reply_to=MessageHandle(external_ref={"channel": "C-ENG", "ts": "1699999999.9"}))
+    @parameterized.expand(
+        [("a_resolve", AlertEventKind.RESOLVED, True), ("a_repeat_firing", AlertEventKind.FIRING, False)]
+    )
+    def test_a_reply_goes_into_the_thread_it_names_and_keeps_no_content(
+        self, _name: str, kind: AlertEventKind, broadcast: bool
+    ) -> None:
+        handle, post = self._send(
+            in_reply_to=MessageHandle(external_ref={"channel": "C-ENG", "ts": "1699999999.9"}),
+            message=alert_message(transition=announced_transition(kind=kind)),
+        )
 
         assert post.call_args.kwargs["thread_ts"] == "1699999999.9"
+        assert post.call_args.kwargs["reply_broadcast"] is broadcast
         assert handle.root_content is None
 
     def test_an_edit_keeps_the_opening_content_and_adds_the_state_above_the_buttons(self) -> None:

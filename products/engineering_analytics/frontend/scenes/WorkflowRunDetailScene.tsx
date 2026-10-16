@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconCheckCircle, IconExternal, IconHourglass, IconPause, IconXCircle } from '@posthog/icons'
@@ -12,20 +12,22 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { GroupedJobsTable } from '../components/GroupedJobsTable'
 import { MetricTile } from '../components/MetricTile'
+import { ProductNav } from '../components/ProductNav'
+import { RepoSceneTitle } from '../components/RepoSceneTitle'
 import { formatCost, formatMinutes, runPrNumber } from '../components/runTables'
-import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
+import { ScopeBar } from '../components/ScopeBar'
 import { Section } from '../components/Section'
 import { githubCommitUrl, githubRunUrl } from '../lib/github'
 import { isDecisiveFailure } from '../lib/lifecycle'
 import { verdictTag } from '../lib/runStatus'
 import { withScope } from '../lib/scope'
+import { repoScopeLogic } from './repoScopeLogic'
 import { WorkflowRunDetailLogicProps, workflowRunDetailLogic } from './workflowRunDetailLogic'
 
 export const scene: SceneExport<WorkflowRunDetailLogicProps> = {
@@ -41,6 +43,8 @@ export const scene: SceneExport<WorkflowRunDetailLogicProps> = {
 }
 
 export function WorkflowRunDetailScene(): JSX.Element {
+    // Remembers this repository, so the product root reopens it.
+    useMountedLogic(repoScopeLogic)
     const {
         run,
         runLoading,
@@ -54,14 +58,17 @@ export function WorkflowRunDetailScene(): JSX.Element {
         failureLogs,
         failureLogsLoading,
     } = useValues(workflowRunDetailLogic)
+    const { repoOwner, repoName } = useMountedLogic(workflowRunDetailLogic).props
     const { loadRun, loadJobs, loadFailureLogs } = useActions(workflowRunDetailLogic)
     const { searchParams } = useValues(router)
 
     if (!isValidRunId) {
         return (
             <SceneContent className="pb-16">
-                <SceneTitleSection name="Workflow run" resourceType={{ type: 'health' }} />
-                <span className="text-secondary">That run id isn't valid.</span>
+                <RepoSceneTitle repo={`${repoOwner}/${repoName}`} />
+                <ProductNav activeTab="workflows" repo={`${repoOwner}/${repoName}`} sourceId={sourceId}>
+                    <span className="text-secondary">That run id isn't valid.</span>
+                </ProductNav>
             </SceneContent>
         )
     }
@@ -104,23 +111,23 @@ export function WorkflowRunDetailScene(): JSX.Element {
     if (loadFailed) {
         return (
             <SceneContent className="pb-16">
-                <SceneTitleSection name="Workflow run" resourceType={{ type: 'health' }} />
-                <CIAnalyticsLoadError
-                    title="Couldn't load this workflow run"
-                    description="It may not exist in the connected GitHub source. Retry, or check the source's sync status."
-                    onRetry={loadRun}
-                    loading={runLoading}
-                />
+                <RepoSceneTitle repo={`${repoOwner}/${repoName}`} />
+                <ProductNav activeTab="workflows" repo={`${repoOwner}/${repoName}`} sourceId={sourceId}>
+                    <CIAnalyticsLoadError
+                        title="Couldn't load this workflow run"
+                        description="It may not exist in the connected GitHub source. Retry, or check the source's sync status."
+                        onRetry={loadRun}
+                        loading={runLoading}
+                    />
+                </ProductNav>
             </SceneContent>
         )
     }
 
     return (
         <SceneContent className="pb-16">
-            {/* Scene chrome keeps the generic label; the EntityHeader below owns the title. */}
-            <SceneTitleSection
-                name="Workflow run"
-                resourceType={{ type: 'health' }}
+            <RepoSceneTitle
+                repo={`${repoOwner}/${repoName}`}
                 actions={
                     githubUrl ? (
                         <LemonButton
@@ -136,156 +143,165 @@ export function WorkflowRunDetailScene(): JSX.Element {
                 }
             />
 
-            {run ? (
-                <>
-                    <ScopeBar
-                        repoSlot={
-                            <RepoScopeChip
-                                label={`${run.repo.owner}/${run.repo.name}`}
-                                to={withScope(urls.engineeringAnalytics(), searchParams, sourceId)}
+            <ProductNav activeTab="workflows" repo={`${repoOwner}/${repoName}`} sourceId={sourceId}>
+                <div className="flex flex-col gap-4">
+                    {run ? (
+                        <>
+                            <ScopeBar
+                                crumbs={[
+                                    {
+                                        label: 'Workflows',
+                                        to: withScope(
+                                            urls.engineeringAnalyticsWorkflows(`${repoOwner}/${repoName}`),
+                                            searchParams,
+                                            sourceId
+                                        ),
+                                    },
+                                    {
+                                        label: run.workflow_name,
+                                        // Carries the window scope back so stepping up doesn't reset it.
+                                        to: withScope(
+                                            urls.engineeringAnalyticsWorkflowRuns(
+                                                run.repo.owner,
+                                                run.repo.name,
+                                                run.workflow_name
+                                            ),
+                                            searchParams,
+                                            sourceId
+                                        ),
+                                    },
+                                    { label: `run #${run.id}` },
+                                ]}
+                                showDate={false}
                             />
-                        }
-                        crumbs={[
-                            {
-                                label: run.workflow_name,
-                                // Carries the window scope back so stepping up doesn't reset it.
-                                to: withScope(
-                                    urls.engineeringAnalyticsWorkflowRuns(
-                                        run.repo.owner,
-                                        run.repo.name,
-                                        run.workflow_name
-                                    ),
-                                    searchParams,
-                                    sourceId
-                                ),
-                            },
-                            { label: `run #${run.id}` },
-                        ]}
-                        showDate={false}
-                    />
-                    <EntityHeader
-                        icon={
-                            run.conclusion == null ? (
-                                <IconHourglass className="text-muted" />
-                            ) : isDecisiveFailure(run.conclusion) ? (
-                                <IconXCircle className="text-danger" />
-                            ) : run.conclusion === 'success' ? (
-                                <IconCheckCircle className="text-success" />
-                            ) : (
-                                <IconPause className="text-muted" />
-                            )
-                        }
-                        title={run.workflow_name}
-                        titleSuffix={`#${run.id}`}
-                        slug={
-                            <>
-                                {run.head_branch && <span>{run.head_branch}</span>}
-                                {run.head_sha && (
+                            <EntityHeader
+                                icon={
+                                    run.conclusion == null ? (
+                                        <IconHourglass className="text-muted" />
+                                    ) : isDecisiveFailure(run.conclusion) ? (
+                                        <IconXCircle className="text-danger" />
+                                    ) : run.conclusion === 'success' ? (
+                                        <IconCheckCircle className="text-success" />
+                                    ) : (
+                                        <IconPause className="text-muted" />
+                                    )
+                                }
+                                title={run.workflow_name}
+                                titleSuffix={`#${run.id}`}
+                                slug={
                                     <>
-                                        <span>· commit</span>
-                                        <Link
-                                            to={githubCommitUrl(run.repo.owner, run.repo.name, run.head_sha)}
-                                            target="_blank"
+                                        {run.head_branch && <span>{run.head_branch}</span>}
+                                        {run.head_sha && (
+                                            <>
+                                                <span>· commit</span>
+                                                <Link
+                                                    to={githubCommitUrl(run.repo.owner, run.repo.name, run.head_sha)}
+                                                    target="_blank"
+                                                >
+                                                    {run.head_sha.slice(0, 7)}
+                                                </Link>
+                                            </>
+                                        )}
+                                        {prUrl && (
+                                            <>
+                                                <span>· pull request</span>
+                                                <Link to={prUrl}>#{prNumber}</Link>
+                                            </>
+                                        )}
+                                        {run.run_attempt > 1 && <span>· attempt {run.run_attempt}</span>}
+                                        {run.run_started_at && (
+                                            <span>
+                                                · started <TZLabel time={run.run_started_at} />
+                                            </span>
+                                        )}
+                                    </>
+                                }
+                                right={
+                                    verdict ? (
+                                        <VerdictPill
+                                            kind={
+                                                run.conclusion == null
+                                                    ? 'warning'
+                                                    : isDecisiveFailure(run.conclusion)
+                                                      ? 'danger'
+                                                      : run.conclusion === 'success'
+                                                        ? 'success'
+                                                        : 'muted'
+                                            }
                                         >
-                                            {run.head_sha.slice(0, 7)}
-                                        </Link>
-                                    </>
-                                )}
-                                {prUrl && (
-                                    <>
-                                        <span>· pull request</span>
-                                        <Link to={prUrl}>#{prNumber}</Link>
-                                    </>
-                                )}
-                                {run.run_attempt > 1 && <span>· attempt {run.run_attempt}</span>}
-                                {run.run_started_at && (
-                                    <span>
-                                        · started <TZLabel time={run.run_started_at} />
-                                    </span>
-                                )}
-                            </>
-                        }
-                        right={
-                            verdict ? (
-                                <VerdictPill
-                                    kind={
-                                        run.conclusion == null
-                                            ? 'warning'
-                                            : isDecisiveFailure(run.conclusion)
-                                              ? 'danger'
-                                              : run.conclusion === 'success'
-                                                ? 'success'
-                                                : 'muted'
+                                            {verdict.label}
+                                        </VerdictPill>
+                                    ) : undefined
+                                }
+                            />
+
+                            <div className="flex flex-wrap gap-2.5">
+                                <MetricTile
+                                    label="Duration"
+                                    tooltip="Wall-clock time of the run."
+                                    value={
+                                        run.duration_seconds == null ? '—' : humanFriendlyDuration(run.duration_seconds)
                                     }
-                                >
-                                    {verdict.label}
-                                </VerdictPill>
-                            ) : undefined
-                        }
-                    />
+                                />
+                                <MetricTile
+                                    label="Queue time"
+                                    tooltip="From run started to the first job starting."
+                                    value={queueSeconds != null ? humanFriendlyDuration(queueSeconds) : '—'}
+                                    loading={jobsPending}
+                                />
+                                <MetricTile
+                                    label="Jobs"
+                                    tooltip={jobRollupLabel}
+                                    value={jobs ? `${jobs.length}` : '—'}
+                                    loading={jobsPending}
+                                />
+                                <MetricTile
+                                    label="Estimated cost"
+                                    tooltip={
+                                        runCost
+                                            ? `${formatMinutes(runCost.billableMinutes)} billable × runner-tier rate${
+                                                  runCost.unsettledJobs > 0
+                                                      ? ` · ${pluralize(runCost.unsettledJobs, 'unsettled job')} excluded`
+                                                      : ''
+                                              }.`
+                                            : jobsFailed
+                                              ? "Couldn't load this run's jobs."
+                                              : 'Available once the job-level source is synced.'
+                                    }
+                                    value={runCost ? formatCost(runCost.estimatedCostUsd) : '—'}
+                                    loading={jobsPending}
+                                />
+                            </div>
 
-                    <div className="flex flex-wrap gap-2.5">
-                        <MetricTile
-                            label="Duration"
-                            tooltip="Wall-clock time of the run."
-                            value={run.duration_seconds == null ? '—' : humanFriendlyDuration(run.duration_seconds)}
-                        />
-                        <MetricTile
-                            label="Queue time"
-                            tooltip="From run started to the first job starting."
-                            value={queueSeconds != null ? humanFriendlyDuration(queueSeconds) : '—'}
-                            loading={jobsPending}
-                        />
-                        <MetricTile
-                            label="Jobs"
-                            tooltip={jobRollupLabel}
-                            value={jobs ? `${jobs.length}` : '—'}
-                            loading={jobsPending}
-                        />
-                        <MetricTile
-                            label="Estimated cost"
-                            tooltip={
-                                runCost
-                                    ? `${formatMinutes(runCost.billableMinutes)} billable × runner-tier rate${
-                                          runCost.unsettledJobs > 0
-                                              ? ` · ${pluralize(runCost.unsettledJobs, 'unsettled job')} excluded`
-                                              : ''
-                                      }.`
-                                    : jobsFailed
-                                      ? "Couldn't load this run's jobs."
-                                      : 'Available once the job-level source is synced.'
-                            }
-                            value={runCost ? formatCost(runCost.estimatedCostUsd) : '—'}
-                            loading={jobsPending}
-                        />
-                    </div>
+                            <Section id="jobs" title="Jobs">
+                                {jobsFailed ? (
+                                    <CIAnalyticsLoadError
+                                        title="Couldn't load this run's jobs"
+                                        onRetry={loadJobs}
+                                        loading={jobsLoading}
+                                    />
+                                ) : (
+                                    <GroupedJobsTable jobs={jobs} loading={jobsLoading} />
+                                )}
+                            </Section>
 
-                    <Section id="jobs" title="Jobs">
-                        {jobsFailed ? (
-                            <CIAnalyticsLoadError
-                                title="Couldn't load this run's jobs"
-                                onRetry={loadJobs}
-                                loading={jobsLoading}
-                            />
-                        ) : (
-                            <GroupedJobsTable jobs={jobs} loading={jobsLoading} />
-                        )}
-                    </Section>
-
-                    {isDecisiveFailure(run.conclusion) && (
-                        <Section id="failure-logs" title="Failure logs">
-                            <FailureLogGroups
-                                logs={failureLogs}
-                                loading={failureLogsLoading}
-                                onRetry={loadFailureLogs}
-                                jobNames={jobNamesById}
-                            />
-                        </Section>
+                            {isDecisiveFailure(run.conclusion) && (
+                                <Section id="failure-logs" title="Failure logs">
+                                    <FailureLogGroups
+                                        logs={failureLogs}
+                                        loading={failureLogsLoading}
+                                        onRetry={loadFailureLogs}
+                                        jobNames={jobNamesById}
+                                        logsOnGitHub={githubUrl !== null}
+                                    />
+                                </Section>
+                            )}
+                        </>
+                    ) : (
+                        <LemonSkeleton className="h-64 w-full" />
                     )}
-                </>
-            ) : (
-                <LemonSkeleton className="h-64 w-full" />
-            )}
+                </div>
+            </ProductNav>
         </SceneContent>
     )
 }

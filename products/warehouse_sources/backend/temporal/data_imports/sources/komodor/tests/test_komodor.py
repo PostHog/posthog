@@ -10,6 +10,11 @@ from requests import Response, Session
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.komodor import (
     KomodorSourceConfig,
@@ -55,6 +60,10 @@ def source_items(source: SourceResponse) -> Iterable[Any]:
     return cast(Iterable[Any], source.items())
 
 
+def driver(config: KomodorSourceConfig | None = None) -> SourceDriver:
+    return SourceDriver(KomodorSource(), config or KomodorSourceConfig(api_key="test-key", region="us"))
+
+
 @pytest.mark.parametrize(
     ("table", "cursor_field", "body_field", "cursor"),
     [("services", "token", "token", "next-service"), ("jobs", "nextPage", "page", 2)],
@@ -95,16 +104,18 @@ def test_pagination_auth_and_checkpoint(
 )
 @pytest.mark.parametrize("terminal_meta", [{}, {"token": None, "nextPage": None}, {"token": "", "nextPage": 0}])
 def test_resume_and_empty_terminal_page(
-    transport: MagicMock, table: str, body_field: str, cursor: str | int, terminal_meta: dict[str, Any]
+    table: str, body_field: str, cursor: str | int, terminal_meta: dict[str, Any]
 ) -> None:
-    transport.return_value = response({"data": {table: []}, "meta": terminal_meta})
-    resume = manager(cursor)
-    source = komodor_source(KomodorSourceConfig(api_key="test-key", region="us"), table, 1, "test", "v2", resume)
-    assert list(source_items(source)) == []
-    transport.assert_called_once()
-    request = transport.call_args.args[0]
-    assert json.loads(request.body) == {"pagination": {"pageSize": 100, body_field: cursor}}
-    resume.save_state.assert_not_called()
+    result = driver().run(
+        table,
+        [ScriptedResponse(json={"data": {table: []}, "meta": terminal_meta})],
+        resume_state=KomodorResumeConfig(cursor=cursor),
+    )
+    assert result.raised is None
+    assert result.rows == []
+    assert len(result.requests) == 1
+    assert result.requests[0].json() == {"pagination": {"pageSize": 100, body_field: cursor}}
+    assert result.saved_states == []
 
 
 @pytest.mark.parametrize("rows", [[], [{"service": "example"}]])
@@ -121,51 +132,56 @@ def test_credential_probe_is_one_small_request(transport: MagicMock, rows: list[
 
 
 @pytest.mark.parametrize("status", [401, 403])
-def test_auth_errors_are_terminal(transport: MagicMock, status: int) -> None:
-    transport.return_value = response({"Status": "Forbidden"}, status)
-    valid, message = validate_credentials(KomodorSourceConfig(api_key="test-key", region="us"), "v2")
+def test_auth_errors_are_terminal(status: int) -> None:
+    config = KomodorSourceConfig(api_key="test-key", region="us")
+    answer = ScriptedResponse(status=status, json={"Status": "Forbidden"})
+    with scripted_network([answer]) as network:
+        valid, message = validate_credentials(config, "v2")
     assert not valid
     assert message is not None and "API key" in message and "region" in message
-    transport.assert_called_once()
-    source = komodor_source(
-        KomodorSourceConfig(api_key="test-key", region="us"), "services", 1, "test", "v2", manager()
-    )
-    with pytest.raises(HTTPError) as error:
-        list(source_items(source))
+    assert len(network.requests_log) == 1
+    result = driver(config).run("services", [answer])
+    assert isinstance(result.raised, HTTPError)
+    assert len(result.requests) == 1
     matches = [
-        text for pattern, text in KomodorSource().get_non_retryable_errors().items() if pattern in str(error.value)
+        text for pattern, text in KomodorSource().get_non_retryable_errors().items() if pattern in str(result.raised)
     ]
     assert matches == [message]
 
 
-def test_other_client_errors_propagate(transport: MagicMock) -> None:
-    transport.return_value = response({"error": "bad_request"}, 400)
-    with pytest.raises(HTTPError):
-        validate_credentials(KomodorSourceConfig(api_key="test-key", region="us"), "v2")
-    transport.assert_called_once()
+def test_other_client_errors_propagate() -> None:
+    with scripted_network([ScriptedResponse(status=400, json={"error": "bad_request"})]) as network:
+        with pytest.raises(HTTPError):
+            validate_credentials(KomodorSourceConfig(api_key="test-key", region="us"), "v2")
+    assert len(network.requests_log) == 1
 
 
 @pytest.mark.parametrize("region", ["", "https://example.com", "US"])
-def test_invalid_region_never_sends_credentials(transport: MagicMock, region: str) -> None:
+def test_invalid_region_never_sends_credentials(region: str) -> None:
     config = KomodorSourceConfig(api_key="test-key", region=cast(Any, region))
-    assert validate_credentials(config, "v2") == (False, "Select a valid Komodor region: US or EU.")
-    with pytest.raises(ValueError, match="Select a valid Komodor region"):
-        komodor_source(config, "clusters", 1, "test", "v2", manager())
-    transport.assert_not_called()
+    with scripted_network([]) as network:
+        assert validate_credentials(config, "v2") == (False, "Select a valid Komodor region: US or EU.")
+    assert network.requests_log == []
+    result = driver(config).run("clusters", [])
+    assert isinstance(result.raised, ValueError)
+    assert "Select a valid Komodor region" in str(result.raised)
+    assert result.requests == []
 
 
-def test_unknown_table(transport: MagicMock) -> None:
-    with pytest.raises(ValueError, match="Unknown Komodor table"):
-        komodor_source(KomodorSourceConfig(api_key="test-key", region="us"), "unknown", 1, "test", "v2", manager())
-    transport.assert_not_called()
+def test_unknown_table() -> None:
+    result = driver().run("unknown", [])
+    assert isinstance(result.raised, ValueError)
+    assert "Unknown Komodor table" in str(result.raised)
+    assert result.requests == []
 
 
 @pytest.mark.parametrize(("table", "cursor_field", "cursor"), [("services", "token", "same"), ("jobs", "nextPage", 2)])
-def test_repeated_resume_cursor_fails(transport: MagicMock, table: str, cursor_field: str, cursor: str | int) -> None:
-    transport.return_value = response({"data": {table: [{"name": "example"}]}, "meta": {cursor_field: cursor}})
-    source = komodor_source(
-        KomodorSourceConfig(api_key="test-key", region="us"), table, 1, "test", "v2", manager(cursor)
+def test_repeated_resume_cursor_fails(table: str, cursor_field: str, cursor: str | int) -> None:
+    result = driver().run(
+        table,
+        [ScriptedResponse(json={"data": {table: [{"name": "example"}]}, "meta": {cursor_field: cursor}})],
+        resume_state=KomodorResumeConfig(cursor=cursor),
     )
-    with pytest.raises(ValueError, match="not advancing"):
-        list(source_items(source))
-    transport.assert_called_once()
+    assert isinstance(result.raised, ValueError)
+    assert "not advancing" in str(result.raised)
+    assert len(result.requests) == 1

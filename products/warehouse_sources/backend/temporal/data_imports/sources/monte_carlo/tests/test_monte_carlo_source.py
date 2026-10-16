@@ -1,7 +1,9 @@
-from unittest.mock import patch
-
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.montecarlo import (
     MonteCarloSourceConfig,
 )
@@ -20,6 +22,13 @@ class TestMonteCarloSource:
     @parameterized.expand(
         [
             ("alerts", True),
+            ("dbt_runs", False),
+            ("dbt_test_results", True),
+            ("domains", False),
+            ("events", True),
+            ("fh_events", True),
+            ("job_executions", True),
+            ("job_schedules", False),
             ("monitors", False),
             ("tables", False),
             ("users", False),
@@ -34,12 +43,16 @@ class TestMonteCarloSource:
 
     @parameterized.expand([(True, None), (False, "Invalid Monte Carlo API key ID or secret")])
     def test_validate_credentials(self, is_valid: bool, expected_error: str | None) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.monte_carlo.source.validate_monte_carlo_credentials",
-            return_value=is_valid,
-        ) as mock_validate:
+        response = (
+            ScriptedResponse(json={"data": {"getUser": {"email": "a@example.com"}}})
+            if is_valid
+            else ScriptedResponse(status=401)
+        )
+        with scripted_network([response]) as network:
             result, error = self.source.validate_credentials(self.config, team_id=1)
 
         assert result is is_valid
         assert error == expected_error
-        mock_validate.assert_called_once_with("key-id", "key-secret")
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].headers["x-mcd-id"] == "key-id"
+        assert network.requests_log[0].headers["x-mcd-token"] == "key-secret"

@@ -32,7 +32,6 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
-from posthog.cdp.services.icons import CDPIconsService
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
 from posthog.models import User
@@ -46,6 +45,8 @@ from posthog.rate_limit import (
     MCPProxyBurstThrottle,
     MCPProxySustainedThrottle,
 )
+
+from products.cdp.backend.presentation.icons import CDPIconsService
 
 from ..agents import sync_built_in_agents
 from ..facade.api import check_mcp_url_policy, resolve_member_tool_states

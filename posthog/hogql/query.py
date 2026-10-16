@@ -46,7 +46,7 @@ from posthog.hogql.direct_sql import (
     DirectQueryRequest,
     DirectSQLAdapter,
     ensure_single_direct_statement,
-    get_adapter,
+    get_adapter_for_source,
     get_raw_adapter_for_source,
 )
 from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
@@ -69,10 +69,11 @@ from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Product, get_query_tag_value, get_query_tags, tag_queries
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
+from posthog.models.event.new_events_schema import new_events_cluster_host_scope, use_new_events_cluster
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -132,6 +133,7 @@ class HogQLQueryExecutor:
     direct_values: dict[str, object] | None = None
     direct_dialect: Optional[HogQLDialect] = None
     connection_id: Optional[str] = None
+    expected_direct_engine: str | None = None
     send_raw_query: bool = False
     user: Optional[User] = None
     bypass_warehouse_access_control: bool = False
@@ -159,6 +161,8 @@ class HogQLQueryExecutor:
             self.context.user_access_control = self.user_access_control
 
         self.query_modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
+        if self.connection_id and self.query_modifiers.useNewEventsCluster:
+            raise ExposedHogQLError("Native events cluster queries cannot use a warehouse connection.")
         self.debug = self.modifiers is not None and self.modifiers.debug
         self.error: Optional[str] = None
         self.explain: Optional[list[str]] = None
@@ -173,6 +177,7 @@ class HogQLQueryExecutor:
         self.used_data_warehouse_sources: list[WarehouseSourceUsage] = []
         self._direct_source: Optional[ExternalDataSource] = None
         self._direct_source_resolved = False
+        self._compilation_adapter: DirectSQLAdapter | None = None
         self._prompt_jev_tables: list[PromptJevTable] = []
         self._prompt_jev_warehouse_sources: list[WarehouseSourceUsage] = []
         self._executing = False
@@ -243,6 +248,8 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._apply_optimizers")
     def _apply_optimizers(self):
+        if self.query_modifiers.useNewEventsCluster:
+            return
         if self.query_modifiers.usePreaggregatedTableTransforms:
             with self.timings.measure("preaggregated_table_transforms"):
                 assert self.hogql_context is not None
@@ -444,8 +451,7 @@ class HogQLQueryExecutor:
         if self.connection_id != direct_source_id:
             raise ExposedHogQLError("The query references a different source than the selected connection.")
 
-        source = self._direct_source
-        adapter = get_adapter(source.direct_engine) if source is not None else None
+        adapter = self._compilation_adapter
         if adapter is not None and adapter.dialect is None:
             # A raw-only engine (BigQuery) has no HogQL printer; falling back to another
             # dialect would send SQL the engine cannot parse.
@@ -627,9 +633,17 @@ class HogQLQueryExecutor:
         if source is None:
             raise ExposedHogQLError("Connection not found or has been deleted")
 
-        adapter = adapter or get_adapter(source.direct_engine)
+        adapter = adapter or get_adapter_for_source(source, team=self.team)
         if adapter is None:
             raise InternalHogQLError(f"No direct SQL adapter registered for engine: {source.direct_engine}")
+        if self.expected_direct_engine is not None and (
+            (self.expected_direct_engine == "trino") != (adapter.engine == "trino")
+        ):
+            raise ExposedHogQLError("The warehouse engine changed. Run the query again.")
+        if source.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN and (
+            (self.direct_dialect == "trino") != (adapter.engine == "trino")
+        ):
+            raise ExposedHogQLError("The warehouse engine changed. Run the query again.")
 
         stats = query_stats.get_active()
         if stats is not None:
@@ -826,7 +840,9 @@ class HogQLQueryExecutor:
             self.context.limit_top_select = False
 
         source = self._resolve_direct_source()
-        if source is not None and source.direct_engine == "trino":
+        adapter = get_adapter_for_source(source, team=self.team) if source is not None else None
+        self._compilation_adapter = adapter
+        if adapter is not None and adapter.engine == "trino":
             trino_execution = self._prepare_pure_trino_query()
             if trino_execution is not None:
                 return trino_execution
@@ -875,7 +891,7 @@ class HogQLQueryExecutor:
         self.connection_id = str(source.id)
         self.direct_source_id = self.connection_id
         managed_warehouse_mode = source.managed_warehouse_sql_mode if source.has_managed_warehouse_prefix else None
-        adapter = get_raw_adapter_for_source(source)
+        adapter = get_raw_adapter_for_source(source, team=self.team)
         if adapter is None:
             raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
         if managed_warehouse_mode != ManagedWarehouseSQLMode.BUILT_IN and raw_query_denied_by_table_access(
@@ -928,6 +944,19 @@ class HogQLQueryExecutor:
             workload = self.workload
             if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
                 workload = clickhouse_context.workload
+            if use_new_events_cluster(self.team.pk, self.query_modifiers):
+                if get_query_tags().product == Product.ENDPOINTS or workload not in (
+                    Workload.DEFAULT,
+                    Workload.ONLINE,
+                    Workload.OFFLINE,
+                    Workload.NEW_EVENTS_CLUSTER,
+                ):
+                    raise ExposedHogQLError(
+                        "New events cluster opt-ins support analytics workloads only. Remove useNewEventsCluster for logs or endpoints queries."
+                    )
+                if not clickhouse_context.uses_new_events_schema():
+                    raise ExposedHogQLError("New events cluster queries require the native events schema.")
+                workload = Workload.NEW_EVENTS_CLUSTER
 
             def run_clickhouse_query() -> Any:
                 return sync_execute(
@@ -1019,6 +1048,7 @@ class HogQLQueryExecutor:
         )
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
+    @new_events_cluster_host_scope()
     def execute(self) -> HogQLQueryResponse:
         self._executing = True
         trace.get_current_span().set_attribute("team_id", self.team.pk)

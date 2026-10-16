@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TempoSource(ResumableSource[TempoSourceConfig, TempoResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     supported_versions = ("4",)
     default_version = "4"
     api_docs_url = "https://apidocs.tempo.io/"

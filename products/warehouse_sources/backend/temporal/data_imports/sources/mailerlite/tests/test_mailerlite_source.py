@@ -40,6 +40,23 @@ class TestMailerLiteSourceClass:
         ):
             assert MailerLiteSource().validate_credentials(_config(), team_id=1) == probe_result
 
+    @pytest.mark.parametrize(
+        ("schema_name", "expected_path"),
+        [
+            ("campaigns", "/campaigns"),
+            ("campaign_subscriber_activity", "/campaigns"),
+            ("automation_activity", "/automations"),
+        ],
+    )
+    def test_validate_credentials_probes_a_listable_path(self, schema_name: str, expected_path: str) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.source.validate_mailerlite_credentials",
+            return_value=(True, None),
+        ) as probe:
+            MailerLiteSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
+
+        probe.assert_called_once_with("test-key", expected_path)
+
     def test_default_version_is_v2(self) -> None:
         source = MailerLiteSource()
         assert source.default_version == MAILERLITE_V2

@@ -34,6 +34,7 @@ import { AutomationSuggestionBanner } from '../setupGuide/AutomationSuggestionBa
 import { MessagingSetupReminderBanner } from '../setupGuide/MessagingSetupReminderBanner'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
+import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSuggestionsAvailabilityLogic'
 import { workflowLogic } from './workflowLogic'
 import { findMatchingWorkflowSteps } from './workflowSearchMatches'
 import {
@@ -117,8 +118,8 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 
 export function WorkflowsTable(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
-    const guidedOnboardingEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_GUIDED_ONBOARDING]
+    const overviewTabEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_OVERVIEW_TAB]
+    const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
     const logic = workflowsLogic()
     const {
         workflowsLoading,
@@ -131,7 +132,6 @@ export function WorkflowsTable(): JSX.Element {
     } = useValues(logic)
     // Only an unfiltered Automations tab is truly empty. With a search or filter, the plain message fits.
     const showAutomationEmptyState =
-        guidedOnboardingEnabled &&
         filters.type === 'automation' &&
         !filters.search &&
         filters.createdBy === null &&
@@ -205,11 +205,16 @@ export function WorkflowsTable(): JSX.Element {
                             </Tooltip>
                         ) : (
                             <LemonTableLink
-                                to={urls.workflow(item.id, 'workflow')}
+                                to={urls.workflow(
+                                    item.id,
+                                    overviewTabEnabled && item.status === 'active' && item.trigger?.type !== 'batch'
+                                        ? 'overview'
+                                        : 'workflow'
+                                )}
                                 title={
                                     <span className="flex items-center gap-2 flex-wrap">
                                         {item.name}
-                                        {selfOptimisingEnabled &&
+                                        {suggestionsAvailable &&
                                             item.status === 'active' &&
                                             item.suggestions_enabled && (
                                                 // Reads only: the row link already renders an anchor, and an
@@ -403,7 +408,7 @@ export function WorkflowsTable(): JSX.Element {
     return (
         <div className="workflows-section" data-attr="workflows-table" data-loading={workflowsLoading}>
             <>
-                {guidedOnboardingEnabled && <MessagingSetupReminderBanner />}
+                <MessagingSetupReminderBanner />
                 <div className="mb-3">
                     <LemonSegmentedButton<WorkflowTypeFilter>
                         size="small"
@@ -485,7 +490,7 @@ export function WorkflowsTable(): JSX.Element {
                     nouns={['workflow', 'workflows']}
                     emptyState={showAutomationEmptyState ? <AutomationEmptyState /> : 'No workflows matching filters'}
                 />
-                {guidedOnboardingEnabled && <AutomationSuggestionBanner />}
+                <AutomationSuggestionBanner />
             </>
         </div>
     )

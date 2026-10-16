@@ -9,7 +9,8 @@ from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.context import HealthContext, parse_flag_state
 
 # The flag documents and cases of the `experimentWarning` test in
-# frontend/src/scenes/experiments/experimentLogic.test.ts, so that both sides answer alike.
+# frontend/src/scenes/experiments/experimentLogic.test.ts, so that both sides answer alike. A running
+# experiment with a deleted flag is the exception: only the server reports it.
 MULTIVARIANT = {
     "groups": [{"properties": [], "rollout_percentage": 100}],
     "multivariate": {
@@ -39,9 +40,9 @@ SHIPPED_TO_SOME = {
     "multivariate": SHIPPED_VARIANT["multivariate"],
 }
 
-RUNNING = {"is_launched": True, "has_ended": False}
-ENDED = {"is_launched": True, "has_ended": True}
-DRAFT = {"is_launched": False, "has_ended": False}
+RUNNING = {"is_launched": True, "is_running": True, "has_ended": False}
+ENDED = {"is_launched": True, "is_running": False, "has_ended": True}
+DRAFT = {"is_launched": False, "is_running": False, "has_ended": False}
 
 
 def _context(
@@ -49,6 +50,7 @@ def _context(
 ) -> HealthContext:
     return HealthContext(
         **status,
+        is_paused=status["is_running"] and not active,
         archived=archived,
         flag=parse_flag_state(
             active=active,
@@ -56,9 +58,13 @@ def _context(
             groups=filters.get("groups"),
             variants=(filters.get("multivariate") or {}).get("variants"),
         ),
+        baseline_variant_key=None,
         primary_metric_count=1,
         secondary_metric_count=0,
         exposures=None,
+        split_history=None,
+        condition_set_traffic=None,
+        excluded_variant_keys=frozenset(),
     )
 
 
@@ -120,6 +126,16 @@ class TestFlagState(TestCase):
             ),
             ("draft_zero_rollout", _context(DRAFT, active=True, filters=ZERO_ROLLOUT), None),
             ("draft_flag_disabled", _context(DRAFT, active=False, filters=MULTIVARIANT), None),
+            (
+                "running_deleted_flag",
+                _context(RUNNING, active=True, filters=MULTIVARIANT, deleted=True),
+                (ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING, "running_but_flag_deleted", None),
+            ),
+            (
+                "running_deleted_flag_disabled_first",
+                _context(RUNNING, active=False, filters=MULTIVARIANT, deleted=True),
+                (ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING, "running_but_flag_deleted", None),
+            ),
             ("ended_deleted_flag", _context(ENDED, active=True, filters=MULTIVARIANT, deleted=True), None),
             ("draft_deleted_flag", _context(DRAFT, active=True, filters=MULTIVARIANT, deleted=True), None),
             ("running_groups_are_null", _context(RUNNING, active=True, filters={**ZERO_ROLLOUT, "groups": None}), None),

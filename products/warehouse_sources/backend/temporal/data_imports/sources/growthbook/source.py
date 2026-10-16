@@ -2,6 +2,9 @@ from typing import cast
 
 from requests.exceptions import HTTPError
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -43,6 +46,66 @@ MISSING_PERMISSIONS = "Your GrowthBook API key lacks read access to this table. 
 
 @SourceRegistry.register
 class GrowthBookSource(ResumableSource[GrowthBookSourceConfig, GrowthBookResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^GROWTHBOOK_",
+            "^NEXT_PUBLIC_GROWTHBOOK_",
+            "^GB_MCP_",
+            "^GB_API_KEY$",
+            "^GB_API_URL$",
+            "^GB_APP_URL$",
+            "^GB_API_HOST$",
+            "^GB_CLIENT_KEY$",
+            "^GB_SDK_KEY$",
+            "^GB_OAUTH_ISSUER$",
+            "^GB_SKILLS_ENABLED$",
+        ),
+        script_hosts=("cdn.growthbook.io",),
+        npm=(
+            "@growthbook/growthbook",
+            "@growthbook/growthbook-react",
+            "growthbook",
+            "@growthbook/edge-cloudflare",
+            "@growthbook/edge-lambda",
+            "@growthbook/edge-fastly",
+            "@growthbook/edge-utils",
+            "@growthbook/proxy",
+            "@growthbook/proxy-eval",
+            "@growthbook/mcp",
+            "@growthbook/wizard",
+            "@growthbook/dev",
+            "@flags-sdk/growthbook",
+            "@openfeature/growthbook-provider",
+            "@openfeature/growthbook-client-provider",
+            "growthbook-roku",
+        ),
+        pypi=("growthbook", "growthbook-openfeature-provider"),
+        cargo=("growthbook-rust", "growthbook-rust-sdk"),
+        cocoapods=("GrowthBook-IOS", "GrowthBook"),
+        composer=("growthbook/growthbook",),
+        go=("github.com/growthbook/growthbook-golang", "github.com/growthbook/growthbook-openfeature-provider-go"),
+        hex=("growthbook",),
+        maven=(
+            "io.growthbook.sdk:GrowthBook",
+            "io.growthbook.sdk:GrowthBook-jvm",
+            "io.growthbook.sdk:NetworkDispatcherKtor",
+            "io.growthbook.sdk:NetworkDispatcherKtor-jvm",
+            "io.growthbook.sdk:NetworkDispatcherOkHttp",
+            "io.growthbook.sdk:NetworkDispatcherOkHttp-jvm",
+            "io.growthbook.sdk:GrowthBookKotlinxSerialization",
+            "io.growthbook.sdk:GrowthBookKotlinxSerialization-jvm",
+            "com.github.growthbook:growthbook-sdk-java",
+            "com.github.growthbook.growthbook-sdk-java:lib",
+            "com.github.growthbook.growthbook-sdk-java:growthbook-cache-caffeine",
+            "com.github.growthbook.growthbook-sdk-java:growthbook-cache-jcache",
+            "com.github.growthbook:growthbook-openfeature-provider-java",
+        ),
+        pub=("growthbook_sdk_flutter",),
+        rubygems=("growthbook",),
+        swiftpm=("github.com/growthbook/growthbook-swift",),
+        alternative_to=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"

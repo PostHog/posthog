@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
     PageNumberPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
@@ -296,6 +297,16 @@ def _unified_child_endpoint(config: LeadfeederEndpointConfig, account_id: str, s
     return child_endpoint
 
 
+def _unified_account_scoped_endpoint(config: LeadfeederEndpointConfig, account_id: str) -> Endpoint:
+    """One account's slice of a fan-out endpoint that has no date window and no pagination."""
+    return {
+        "path": config.unified_path,
+        "params": {"account_id": account_id},
+        "data_selector": "data",
+        "paginator": SinglePagePaginator(),
+    }
+
+
 def _split_window(start: str, end: str, parts: int) -> list[_DateWindow]:
     """Cut a date window into at most `parts` day-aligned sub-windows, oldest first.
 
@@ -401,8 +412,29 @@ def _unified_leadfeeder_source(
 
     # The unified fan-out endpoints take `account_id` as a query param, which the shared REST
     # framework can't resolve from a parent resource (it only binds resolved params into the path),
-    # so iterate accounts explicitly and sync each account's window with the id baked in. The date
-    # range is computed from the incremental watermark (if any) or the configured start date;
+    # so iterate accounts explicitly and sync each account with the id baked in.
+    if not config.supports_date_filter:
+
+        def _per_account() -> Iterator[list[dict[str, Any]]]:
+            for account_id in _unified_account_ids(client, team_id, job_id):
+                yield from _unified_single_resource(
+                    client,
+                    endpoint,
+                    _unified_account_scoped_endpoint(config, account_id),
+                    team_id,
+                    job_id,
+                    partial(_flatten_item, account_id=account_id),
+                )
+
+        return SourceResponse(
+            name=endpoint,
+            items=_per_account,
+            primary_keys=config.primary_keys,
+            partition_count=1,
+            partition_size=1,
+        )
+
+    # The date range is computed from the incremental watermark (if any) or the configured start date;
     # re-reading the floored day is self-healing since merge dedupes on the primary key.
     start = (
         _to_date_str(db_incremental_field_last_value)
@@ -544,9 +576,12 @@ def leadfeeder_source(
         )
     else:
         child_params: dict[str, Any] = {
-            **_base_params(),
+            **(_base_params() if config.paginated else {}),
             "account_id": {"type": "resolve", "resource": _ACCOUNTS_RESOURCE, "field": "id"},
         }
+        child_endpoint: Endpoint = {"path": config.path, "params": child_params, "data_selector": "data"}
+        if config.supports_date_filter:
+            child_endpoint["incremental"] = _date_range_incremental(config, start_date_config)
         resources: list[str | EndpointResource] = [
             {
                 "name": _ACCOUNTS_RESOURCE,
@@ -554,12 +589,7 @@ def leadfeeder_source(
             },
             {
                 "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": child_params,
-                    "data_selector": "data",
-                    "incremental": _date_range_incremental(config, start_date_config),
-                },
+                "endpoint": child_endpoint,
                 "include_from_parent": ["id"],
                 "data_map": _flatten_fan_out,
             },

@@ -5,6 +5,7 @@
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
+        "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
@@ -14,6 +15,7 @@
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
+        "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",
         "kea-test-utils": "catalog:",
         "timekeeper": "*"
@@ -24,6 +26,7 @@
         "@posthog/quill-components": "workspace:*",
         "@types/d3": "*",
         "@types/react": "*",
+        "@types/react-dom": "*",
         "@types/react-simple-maps": "*",
         "@xyflow/react": "*",
         "clsx": "*",
@@ -32,6 +35,7 @@
         "fuse.js": "*",
         "natural-orderby": "*",
         "react": "*",
+        "react-dom": "*",
         "react-simple-maps": "*",
         "react-toastify": "*",
         "use-resize-observer": "*"
