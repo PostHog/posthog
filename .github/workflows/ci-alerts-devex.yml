@@ -108,6 +108,8 @@ jobs:
               timeout-minutes: 2
               env:
                   DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
+                  # One GraphQL query per tick checks that master contains each push run's commit.
+                  GH_TOKEN: ${{ github.token }}
                   RUNS_DIR: ${{ runner.temp }}/depot-runs
               run: |
                   mkdir -p "$RUNS_DIR"
