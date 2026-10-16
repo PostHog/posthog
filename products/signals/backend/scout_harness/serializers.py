@@ -43,6 +43,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.background_pilot import OPT_OUT_DISABLED, capture_background_scout_opted_out
 from products.signals.backend.enums import ReportLinkKind, ToolPreset
 from products.signals.backend.models import SignalReportCheck, SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.presentation.scout_suggestion_serializers import ScoutOrigin
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
@@ -922,6 +923,7 @@ class ScoutFleetSyncQuerySerializer(serializers.Serializer):
             "Which surface asked for the materialization, recorded on the "
             "`signals_scout_fleet_synced` analytics event so a fleet a person's tab-open "
             "delivered is separable from one the coordinator was going to deliver anyway. "
+            "The onboarding surface creates new configs disabled until the user activates them. "
             "Omitted means unknown."
         ),
     )
@@ -3390,11 +3392,6 @@ def validate_allowed_mcp_tools(value: list[str] | None) -> list[str] | None:
             "Choose holdable tools from the catalogue, excluding built-in run context tools."
         )
     return sorted(set(value))
-
-
-class ScoutOrigin(models.TextChoices):
-    CANONICAL = "canonical", "canonical"
-    CUSTOM = "custom", "custom"
 
 
 class ScoutRole(models.TextChoices):

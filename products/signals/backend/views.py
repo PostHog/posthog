@@ -143,6 +143,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.ranking.inbox_sort import (
@@ -200,7 +201,6 @@ from products.signals.backend.report_read_state import (
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
-from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
