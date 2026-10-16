@@ -838,10 +838,12 @@ jobs:
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
+            # A key of its own: the other jobs on the shared key save it first on each master
+            # push, so it never held the dev-profile deps this job builds.
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
-                  shared-key: 'v2-rust-nodejs'
+                  shared-key: 'v2-rust-nodejs-e2e'
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
