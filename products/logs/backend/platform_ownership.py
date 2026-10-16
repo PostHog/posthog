@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from products.alerts_platform.backend.facade.api import delete_owned_copy, update_owned_copy
 from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, PlatformAlertConfigurationEdit
+from products.logs.backend.alert_state_machine import apply_enabled
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import CONDITION_FIELDS, SETTINGS_FIELDS, platform_upsert_of
 from products.logs.backend.platform_cutover import hand_over, has_begun_cutover
@@ -65,9 +66,8 @@ def mirror_platform_edit(legacy_configuration_id: UUID) -> Callable[[PlatformAle
 def _write_logs_row(alert: LogsAlertConfiguration, edit: PlatformAlertConfigurationEdit) -> None:
     # The inverse of `platform_upsert_of`, over the same field lists.
     condition = edit.source_config[SOURCE_CONDITION_KEY]
-    if edit.enabled and alert.first_enabled_at is None:
-        alert.first_enabled_at = timezone.now()
-    alert.enabled = edit.enabled
+    # The shadow evaluation still runs this row, so an on or off moves its state the way the logs API does.
+    enabled_fields = apply_enabled(alert, edit.enabled, now=timezone.now())
     alert.filters = filters_of(edit.source_config)
     for field in CONDITION_FIELDS:
         setattr(alert, field, condition[field])
@@ -76,8 +76,7 @@ def _write_logs_row(alert: LogsAlertConfiguration, edit: PlatformAlertConfigurat
             setattr(alert, field, getattr(edit, field))
     alert.save(
         update_fields=[
-            "first_enabled_at",
-            "enabled",
+            *enabled_fields,
             "filters",
             *CONDITION_FIELDS,
             *(field for field in SETTINGS_FIELDS if field != "source_config"),

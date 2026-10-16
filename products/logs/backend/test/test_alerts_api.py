@@ -2354,6 +2354,17 @@ class TestLogsAlertAPI(APIBaseTest):
         assert LogsAlertConfiguration.objects.get(pk=created["id"]).platform_owned
         assert self._copy(created["id"]).owner == "platform"
 
+    def test_turning_a_broken_platform_alert_off_and_on_on_the_logs_page_revives_it(self) -> None:
+        created = self._owned_by_the_platform()
+        with team_scope(self.team.id):
+            platform_testing.set_check_status(self._copy(created["id"]).id, "broken")
+
+        for enabled in (False, True):
+            response = self.client.patch(f"{self.base_url}{created['id']}/", {"enabled": enabled}, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+        assert self._copy(created["id"]).check_status == "ok"
+
     def test_deleting_an_alert_the_platform_owns_deletes_its_copy(self) -> None:
         created = self._owned_by_the_platform()
 

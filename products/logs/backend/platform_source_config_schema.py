@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from posthog.schema import LogsAlertFilters
 
 from products.alerts_platform.backend.facade.contracts import (
+    MAX_STORED_INTEGER,
     GroupingMode,
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
@@ -27,6 +28,8 @@ class LogsPlatformAlertCondition(BaseModel):
     threshold_count: int = Field(
         ...,
         ge=0,
+        # The logs row stores it in an `integer` column, which a mirrored edit writes.
+        le=MAX_STORED_INTEGER,
         description="Number of matching log entries in the window that breaches the threshold. "
         "Use 0 with the above operator to fire on any matching log.",
     )
