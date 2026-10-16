@@ -1364,8 +1364,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         loadBlastRadiusSuccess: ({ blastRadius }) => {
             // A realtime cohort has to be the only condition, so picking one replaces the others.
             const mixed = blastRadius?.realtime_cohort_with_other_conditions
-            if (mixed) {
-                actions.setAudienceProperties(keepOnlyRealtimeCohort(values.audienceProperties, mixed.id))
+            const onlyCohort = mixed ? keepOnlyRealtimeCohort(values.audienceProperties, mixed.id) : null
+            if (onlyCohort) {
+                actions.setAudienceProperties(onlyCohort)
             }
         },
         applyDefaultSender: () => {
