@@ -229,6 +229,7 @@ class TestBatchedQuotaRun(BaseTest):
         for team in self.teams[str(failed_org.id)]:
             self.redis.zadd("@posthog/quota-limits/events", {team.api_token: 1_782_864_000})
             self.redis.zadd("@posthog/quota-limiting-suspended/signals_credits", {team.api_token: 1_782_864_000})
+            self.redis.zadd("@posthog/quota-limits/recordings", {team.api_token: 1_780_000_000})
         with (
             patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=0),
             patch(
@@ -236,9 +237,13 @@ class TestBatchedQuotaRun(BaseTest):
                 side_effect=DatabaseError("synthetic query failure"),
             ),
             patch("ee.billing.quota_limiting.capture_exception"),
+            patch("posthog.tasks.remote_config.update_team_remote_config") as update_remote_config,
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = update_all_orgs_billing_quotas()
+
+        rebuilt_team_ids = {call.kwargs["args"][0] for call in update_remote_config.apply_async.call_args_list}
+        assert rebuilt_team_ids == {team.id for team in self.teams[str(failed_org.id)]}
 
         failed_org.refresh_from_db()
         assert failed_org.usage == usage

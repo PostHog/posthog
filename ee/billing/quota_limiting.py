@@ -1520,11 +1520,14 @@ def update_all_orgs_billing_quotas(
         orgs_with_changes: set[str] = set()
         # Convert the org ids to team tokens
         for team in teams:
+            team_was_in_recordings_zset = team.api_token in previously_recordings_zset_tokens
             if str(team.organization_id) in failed_org_ids:
+                # Reconciliation still purges expired entries, and only a rebuild clears an expired recordings limit.
+                if team_was_in_recordings_zset:
+                    recordings_transitioned_team_ids.add(team.id)
                 continue
             for field in quota_limited_orgs:
                 org_id = str(team.organization.id)
-                team_was_in_recordings_zset = team.api_token in previously_recordings_zset_tokens
                 if org_id in quota_limited_orgs[field]:
                     quota_limited_teams[field][team.api_token] = quota_limited_orgs[field][org_id]
 
