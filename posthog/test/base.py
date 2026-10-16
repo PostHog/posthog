@@ -1813,7 +1813,7 @@ def _create_flag_evaluations(
     distinct_id: str = "evaluator",
     person_id: uuid.UUID | str | None = None,
     person_created_at: dt.datetime | None = None,
-    response: str | bool = True,
+    response: str | bool | None = True,
     properties: dict[str, Any] | None = None,
     person_properties: dict[str, str] | None = None,
 ) -> None:
