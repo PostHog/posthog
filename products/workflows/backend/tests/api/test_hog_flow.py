@@ -7426,6 +7426,14 @@ class TestClassifyActionValidation(APIBaseTest):
             },
             {"key": "categories", "type": "dictionary", "label": "Categories", "secret": False, "required": True},
             {"key": "model", "type": "choice", "label": "Model", "secret": False, "required": False},
+            {
+                "key": "token",
+                "type": "string",
+                "label": "Token",
+                "secret": True,
+                "required": False,
+                "templating": False,
+            },
         ]
         sync_template_to_db(template)
 
@@ -7508,3 +7516,24 @@ class TestClassifyActionValidation(APIBaseTest):
 
         changed = patch_actions({"value": "Who is {{ person.name }}?", "templating": "liquid"})
         assert changed.status_code == status.HTTP_400_BAD_REQUEST, changed.json()
+        assert changed.json()["attr"] == "actions__1__inputs__question"
+        assert changed.json()["detail"] == "This input does not support templating."
+
+    def test_grandfathers_a_live_liquid_secret_while_a_draft_stages_another(self):
+        create_response = self._post_flow({"spam": "x", "support": "help"})
+        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+        flow = HogFlow.objects.get(id=create_response.json()["id"])
+        live_token = {"value": "Bearer {{ event.uuid }}", "templating": "liquid"}
+        flow.status = HogFlow.State.ACTIVE
+        flow.encrypted_inputs = {"action_1": {"token": live_token}}
+        flow.draft_encrypted_inputs = {"action_1": {"token": {"value": "staged-token"}}}
+        flow.save()
+
+        actions = deepcopy(flow.actions)
+        actions[1]["config"]["inputs"]["token"] = live_token
+        with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}", {"name": "Renamed", "actions": actions}
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()

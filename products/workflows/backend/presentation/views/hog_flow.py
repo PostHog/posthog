@@ -949,7 +949,7 @@ def _existing_email_from_by_action(instance: WorkflowEditState) -> dict[str, lis
 
 
 def _existing_inputs_by_action(instance: WorkflowEditState) -> dict[str, list[dict]]:
-    """Stored function inputs keyed by action id, live and draft variants both kept, like sender overrides."""
+    """Stored function inputs and secrets keyed by action id, live and draft variants each kept, like sender overrides."""
     result: dict[str, list[dict]] = {}
     draft = instance.draft if isinstance(instance.draft, dict) else {}
     for actions in (instance.actions, draft.get("actions")):
@@ -959,6 +959,10 @@ def _existing_inputs_by_action(instance: WorkflowEditState) -> dict[str, list[di
             inputs = (stored_action.get("config") or {}).get("inputs")
             if isinstance(inputs, dict):
                 result.setdefault(stored_action["id"], []).append(inputs)
+    for secrets in (instance.encrypted_inputs, instance.draft_encrypted_inputs):
+        for action_id, inputs in (secrets or {}).items():
+            if isinstance(inputs, dict):
+                result.setdefault(action_id, []).append(inputs)
     return result
 
 
@@ -1728,10 +1732,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         "existing_email_from": (self.context.get("existing_action_email_from") or {}).get(
                             data.get("id")
                         ),
-                        "stored_inputs": [
-                            *((self.context.get("existing_action_inputs") or {}).get(data.get("id")) or []),
-                            (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id")) or {},
-                        ],
+                        "stored_inputs": (self.context.get("existing_action_inputs") or {}).get(data.get("id")) or [],
                         # Request-scoped: a drip sequence's steps share senders, and the actions
                         # list validates one action at a time (mirrors _message_template_cache).
                         "email_integration_domain_cache": self.context.setdefault(
