@@ -105,11 +105,15 @@ def _is_sql_reference(name: str) -> bool:
     return name in _SQL_TIME_PLACEHOLDERS or _is_variable_reference(name)
 
 
+def _backslashes_before(text: str, position: int) -> int:
+    count = 0
+    while position - count > 0 and text[position - count - 1] == "\\":
+        count += 1
+    return count
+
+
 def _is_escaped(text: str, position: int) -> bool:
-    backslashes = 0
-    while position - backslashes > 0 and text[position - backslashes - 1] == "\\":
-        backslashes += 1
-    return backslashes % 2 == 1
+    return _backslashes_before(text, position) % 2 == 1
 
 
 def _filter_references(metric_filter: MetricsQueryFilter) -> Iterator[re.Match[str]]:
@@ -263,6 +267,11 @@ def substitute_promql(expr: str, variables: Mapping[str, Variable], *, keep: Col
         context = scanner.context_at(match.start())
         if context is None:
             return match.group(0)
+        # A regex reads `\$` as a literal dollar sign. A quoted string writes that backslash as `\\`.
+        if context.quote is not None:
+            backslashes = _backslashes_before(expr, match.start())
+            if (backslashes if context.quote == "`" else backslashes // 2) % 2 == 1:
+                return match.group(0)
         variable = variables.get(name)
         # A string outside a label matcher can be a label_replace replacement, where $name is a named regex group.
         if variable is None and context.quote is not None and not context.in_matcher:

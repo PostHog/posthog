@@ -61,6 +61,8 @@ QUOTED = Variable(values=("api'worker\nnext",), is_all=False, all_value=None, op
             ONE,
             'label_replace(rate(x{env="pro\\"d"}[$__rate_interval]), "a", "$1", "b", "(.*)")',
         ),
+        ("escaped_dollar_in_a_matcher", 'up{c=~"\\\\$env", env="$env"}', ONE, 'up{c=~"\\\\$env", env="pro\\"d"}'),
+        ("escaped_dollar_in_a_raw_string", "up{c=~`\\$env`}", ONE, "up{c=~`\\$env`}"),
         (
             "named_regex_groups_stay",
             'label_replace(up, "dst", "$name", "src", "(?P<name>.*)")',
