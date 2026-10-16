@@ -283,3 +283,11 @@ class TrinoSource(SQLSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
             "name=COLUMN_NOT_FOUND": TRINO_COLUMN_NOT_FOUND_ERROR,
             TrinoSchemaDiscoveryError.__name__: None,
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # The customer's cluster lost contact with one of its workers. `trino_failures_as_sync_error`
+        # keeps this failure retryable and the next attempt recovers, so it is not a PostHog defect.
+        return {
+            "name=TOO_MANY_REQUESTS_FAILED",
+            "Encountered too many errors talking to a worker node",
+        }

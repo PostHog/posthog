@@ -10,7 +10,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
-from trino.exceptions import HttpError, TrinoConnectionError, TrinoExternalError, TrinoUserError
+from trino.exceptions import HttpError, TrinoConnectionError, TrinoExternalError, TrinoQueryError, TrinoUserError
 from trino.types import NamedRowTuple
 
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
@@ -725,20 +725,48 @@ def _trino_user_error(name: str, message: str) -> TrinoUserError:
 
 
 @pytest.mark.parametrize(
-    ("error", "is_permanent"),
+    ("error", "is_permanent", "is_retryable"),
     [
-        (_trino_user_error("PERMISSION_DENIED", "Access Denied: Cannot select from table hive.s.t"), True),
-        (HttpError("error 401: b'Unauthorized'"), True),
-        (_trino_user_error("TABLE_NOT_FOUND", "line 1:15: Table 'hive.s.t' does not exist"), True),
-        (_trino_user_error("COLUMN_NOT_FOUND", "line 1:8: Column 'gone' cannot be resolved"), True),
-        (_trino_external_error("Failed to query OPA backend"), False),
-        (TrinoConnectionError("failed to execute: ('Connection aborted.', ConnectionResetError(104))"), False),
+        (_trino_user_error("PERMISSION_DENIED", "Access Denied: Cannot select from table hive.s.t"), True, False),
+        (HttpError("error 401: b'Unauthorized'"), True, False),
+        (_trino_user_error("TABLE_NOT_FOUND", "line 1:15: Table 'hive.s.t' does not exist"), True, False),
+        (_trino_user_error("COLUMN_NOT_FOUND", "line 1:8: Column 'gone' cannot be resolved"), True, False),
+        (_trino_external_error("Failed to query OPA backend"), False, False),
+        (
+            TrinoConnectionError("failed to execute: ('Connection aborted.', ConnectionResetError(104))"),
+            False,
+            False,
+        ),
+        (
+            TrinoQueryError(
+                {
+                    "message": "Encountered too many errors talking to a worker node. The node may have crashed or be under too much load.",
+                    "errorName": "TOO_MANY_REQUESTS_FAILED",
+                    "errorCode": 65541,
+                    "errorType": "INTERNAL_ERROR",
+                    "failureInfo": {},
+                },
+                "20260902_120000_00000_abcde",
+            ),
+            False,
+            True,
+        ),
     ],
-    ids=["access_denied", "unauthorized", "table_not_found", "column_not_found", "opa_unavailable", "connection_reset"],
+    ids=[
+        "access_denied",
+        "unauthorized",
+        "table_not_found",
+        "column_not_found",
+        "opa_unavailable",
+        "connection_reset",
+        "worker_node_unreachable",
+    ],
 )
-def test_sync_failures_are_classified_for_retry(error: Exception, is_permanent: bool) -> None:
+def test_sync_failures_are_classified_for_retry(error: Exception, is_permanent: bool, is_retryable: bool) -> None:
     with pytest.raises(Exception) as raised:
         with trino_failures_as_sync_error():
             raise error
 
-    assert error_message_matches(str(raised.value), TrinoSource().get_non_retryable_errors()) is is_permanent
+    source = TrinoSource()
+    assert error_message_matches(str(raised.value), source.get_non_retryable_errors()) is is_permanent
+    assert error_message_matches(str(raised.value), source.get_retryable_errors()) is is_retryable
