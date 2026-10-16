@@ -15549,6 +15549,36 @@
             "readOnlyHint": true
         }
     },
+    "wizard-install-start": {
+        "description": "Start Wizard, PostHog's setup agent, in the cloud on a GitHub repository of the current project. The setup agent adds the PostHog SDK and first events to the code and opens a pull request for the user to review. The project must be connected to GitHub (integrations-github-connect-url) and the repository must be one the GitHub connection can access (integrations-github-repos-retrieve). In this version the setup agent works at the repository root, so a monorepo app in a subdirectory may not be set up. Pass an idempotency_key and reuse it when you retry the same request. Only one setup run can be active per project. Returns run_id; poll wizard-install-status with it about every 30 seconds until the status is completed, failed, or cancelled.",
+        "category": "Wizard",
+        "feature": "wizard",
+        "summary": "Start PostHog setup on a GitHub repository",
+        "title": "Start PostHog setup on a GitHub repository",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "wizard-mcp-install"
+    },
+    "wizard-install-status": {
+        "description": "Get the status of a setup run started with wizard-install-start: lifecycle status, current stage, task list, failure reason, and the pull request URL once it exists. Poll about every 30 seconds while status is created or running. Always relay next_step to the user; it says what is happening or what to do next. When pull_request_url is set, share it so the user can review and merge the changes.",
+        "category": "Wizard",
+        "feature": "wizard",
+        "summary": "Get PostHog setup run status",
+        "title": "Get PostHog setup run status",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "wizard-mcp-install"
+    },
     "workflow-health": {
         "description": "Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use this for \"is CI getting faster or slower\", \"which GitHub Actions workflow is the slow or flaky long pole\", and CI duration trends. Success rate covers runs that succeeded or ended in failure, timeout, startup failure, or staleness. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so superseded cancels and failed runs never bias the duration percentile. Runs under 10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every successful run. Pass run_scope to report on one group of runs: default_branch, pull_request (PR branches only, same-repo PRs: fork PRs carry no PR attribution), merge_queue, or all. To get a trend, call this over two adjacent windows and compare.",
         "category": "Engineering analytics",
