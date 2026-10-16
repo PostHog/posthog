@@ -132,6 +132,7 @@ The per-PR friction view is the exception, below: it also needs the `pull_reques
 #### `engineering_analytics_pr_friction`
 
 - One row per pull request merged in the last 30 days: what its author went through. Red stretches counted by what turned them green, re-runs that failed again, CI running time per push, the wait for the first approval, pushes after approval, merge-queue time and kickouts.
+- `kickout_count` counts merge-queue gate attempts where any workflow run failed. A queue removes a pull request only when a check it requires fails, and the GitHub source does not record which checks those are, so a failed optional check also counts. The figure is an upper bound on queue removals. The column keeps its name because saved queries over the view select it.
 - The red and running time is the PR timeline replay (§6) written as set-based HogQL, so one query covers every pull request in the window. `tests/test_pr_friction.py` replays seeded pull requests through both and asserts they agree, the way the cost view is held to the Python cost model.
 - It counts friction and does not score it. Curves and weights are applied when the view is read, so a weight change needs no rematerialization.
 - Materialized on the managed-view schedule, because the replay is too heavy to run on every read. Each run replaces the table, so it only holds the pull requests inside the window.
