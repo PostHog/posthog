@@ -119,14 +119,16 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
     pr_number = "ifNull(toInt(extract(a.ref, '^refs/pull/([0-9]+)/')), 0)"
     if pull_requests_table:
         head_branch = "nullIf(pr.head_branch, '')"
+        actor = "pr.actor"
         branch_join = f"""
             LEFT JOIN (
-                SELECT number, any(JSONExtractString(ifNull(head, '{{}}'), 'ref')) AS head_branch
+                SELECT number, any(JSONExtractString(ifNull(head, '{{}}'), 'ref')) AS head_branch, any(user) AS actor
                 FROM {pull_requests_table}
                 GROUP BY number
             ) AS pr ON {pr_number} = pr.number"""
     else:
         head_branch = "NULL"
+        actor = "NULL"
         branch_join = ""
     # A push run's id carries a prefix outside the alphabet, and such a run holds no workflows.
     return f"""(
@@ -135,6 +137,7 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
             {_id_to_int("a.attempt_id")} AS github_job_id,
             {pr_number} AS pr_number,
             coalesce(nullIf(extract(ifNull(a.ref, ''), '^refs/heads/(.+)$'), ''), {head_branch}) AS head_branch,
+            {actor} AS actor,
             a.repo AS repo,
             coalesce(nullIf(a.head_sha, ''), a.sha) AS head_sha,
             a.run_id AS native_run_id,
@@ -181,7 +184,9 @@ def _runs(attempts: str) -> str:
             ) AS pull_requests,
             concat('{{"id":{_REPOSITORY_ID},"full_name":"', any(repo), '"}}') AS repository,
             NULL AS head_commit,
-            NULL AS actor,
+            -- Depot reports no actor. The PR author stands in for it, because the merge queue opens its
+            -- gate PRs as itself, and the runs builder needs that identity to accept a gate branch.
+            any(actor) AS actor,
             {OPTIONAL_WORKFLOW_RUNS_COLUMNS["workflow_id"]} AS workflow_id,
             {OPTIONAL_WORKFLOW_RUNS_COLUMNS["event"]} AS event,
             'depot_ci' AS ci_engine,

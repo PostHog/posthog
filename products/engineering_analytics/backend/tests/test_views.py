@@ -332,7 +332,12 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         prs_table = self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
-            [_pr_row(101991, "octocat", "open", 0, "2026-09-24T14:00:00Z", head_ref="feature/depot")],
+            [
+                _pr_row(101991, "octocat", "open", 0, "2026-09-24T14:00:00Z", head_ref="feature/depot"),
+                _pr_row(
+                    101993, "trunk-io[bot]", "open", 1, "2026-09-24T14:30:00Z", head_ref="trunk-merge/pr-101991/aaaa"
+                ),
+            ],
         )
 
         def attempt(
@@ -463,6 +468,18 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     workflow_status="failed",
                     job_key="ci-backend.yml:wait-for-handoff",
                 ),
+                # A merge-queue gate run tests through the PR the queue opened, and lands PR 101991.
+                attempt(
+                    "g7h8j9k0l1",
+                    1,
+                    "finished",
+                    "2026-09-24T14:52:00.000Z",
+                    "2026-09-24T14:53:00.000Z",
+                    job_id="g1h2j3k4l5",
+                    run_id="7777777777",
+                    workflow_id="8888888888",
+                    ref="refs/pull/101993/merge",
+                ),
                 # Synced before the source moved to another repository, so no read of this one keeps it.
                 attempt(
                     "k3w9v2rq8b",
@@ -494,6 +511,17 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (908, "Backend CI", "success", 101991, "main", 900, "PostHog", 2),
             (80213453736890, "Backend CI on Depot", "success", 101991, "feature/depot", 600, "PostHog", 2),
             (101808620689656, "Backend CI on Depot", "failure", 101991, "feature/depot", 600, "PostHog", 1),
+            # Re-keyed from gate PR 101993 to the landed PR only when the queue bot corroborates the branch.
+            (
+                142532068965517,
+                "Backend CI on Depot",
+                "success",
+                101991,
+                "trunk-merge/pr-101991/aaaa",
+                600,
+                "PostHog",
+                1,
+            ),
             (223978965517241, "Monitor", "success", 0, "master", 600, "PostHog", 1),
             (244340689655172, "Timing", "failure", 0, "master", 600, "PostHog", 1),
         ]
@@ -509,6 +537,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (908,),
             (80213453736890,),
             (101808620689656,),
+            (142532068965517,),
             (223978965517241,),
             (244340689655172,),
         ]
