@@ -160,6 +160,14 @@ class Grouping:
             on_overflow=OnOverflow(stored.get("on_overflow", OnOverflow.DEGRADE_VISIBLE)),
         )
 
+    def splits_like(self, other: Grouping) -> bool:
+        """Whether the two key a check's results the same way, so their instances are interchangeable.
+
+        `max_instances` and `on_overflow` are left out, because they bound how many groups are kept and
+        change no group's key.
+        """
+        return (self.mode, self.keys) == (other.mode, other.keys)
+
     def to_stored(self) -> dict[str, Any]:
         return {
             "mode": self.mode.value,

@@ -106,7 +106,7 @@ def update_configuration(
         current = edit_of(configuration)
         edit = _validated(SourceKind(configuration.source_kind), current, change(current))
 
-        regrouped = (edit.grouping.mode, edit.grouping.keys) != (current.grouping.mode, current.grouping.keys)
+        regrouped = not edit.grouping.splits_like(current.grouping)
         platform_lifecycle.write_edit(configuration, edit, regrouped=regrouped, now=django_timezone.now())
 
     return platform_reads.get_configuration(
