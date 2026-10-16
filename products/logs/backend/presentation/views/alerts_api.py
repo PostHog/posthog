@@ -822,7 +822,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             updated = super().update(instance, validated_data)
             if updated.platform_owned:
                 try:
-                    on_updated(updated, snooze_changed=snooze_data is not _SENTINEL)
+                    on_updated(
+                        team_id=updated.team_id, alert_id=updated.id, snooze_changed=snooze_data is not _SENTINEL
+                    )
                 except InvalidPlatformAlertEdit as error:
                     raise ValidationError({error.field_name: str(error)}) from error
             elif enabled_change is True:
@@ -857,7 +859,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     schedule_restriction=schedule_restriction,
                 )
             created = super().create(validated_data)
-            if not on_created(created, timezone.now()) and created.enabled:
+            if on_created(team_id=created.team_id, alert_id=created.id, at=timezone.now()):
+                created.refresh_from_db(fields=["owner", "owner_changed_at"])
+            elif created.enabled:
                 transaction.on_commit(
                     lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
                 )
@@ -1643,6 +1647,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 allowed_event_ids=LOGS_ALERT_EVENT_IDS,
             )
             if locked_instance.platform_owned:
-                on_deleted(locked_instance)
+                on_deleted(team_id=locked_instance.team_id, alert_id=locked_instance.id)
             super().perform_destroy(locked_instance)
             transaction.on_commit(lambda: self._track("deleted", locked_instance), robust=True)
