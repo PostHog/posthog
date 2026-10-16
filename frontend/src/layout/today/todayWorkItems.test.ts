@@ -1,4 +1,6 @@
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
+import { PromiseTimeoutError } from 'lib/utils/async'
 
 import { ConversationDetail } from '~/types'
 
@@ -19,6 +21,7 @@ import {
     sortRecentItems,
 } from './todayRecentOrder'
 import { libraryRecentKey, pickRecentKey, touchRecentKey } from './todayRecentProducts'
+import { TodayRecentEntry, canvasLookupEntries } from './todayRecentViewsLogic'
 import {
     activeCloudRunId,
     analysisRunId,
@@ -208,6 +211,27 @@ describe('todayWorkItems', () => {
                 5
             ).map((row) => row.key)
         ).toEqual(['a', 'b'])
+    })
+
+    it('drops deleted canvases but keeps cached ones when a refresh lookup fails', () => {
+        const canvas = (id: string): TodayRecentEntry => ({
+            key: `canvas-${id}`,
+            type: 'canvas',
+            name: id,
+            href: `/canvases/${id}`,
+            viewedAt: '2026-01-01T00:00:00Z',
+        })
+        const views = ['live', 'deleted', 'timed-out'].map((ref) => ({ ref, viewed_at: '2026-01-02T00:00:00Z' }))
+        const results: PromiseSettledResult<TodayRecentEntry>[] = [
+            { status: 'fulfilled', value: canvas('live') },
+            { status: 'rejected', reason: new ApiError('Not found', 404) },
+            { status: 'rejected', reason: new PromiseTimeoutError('timed out') },
+        ]
+
+        expect(canvasLookupEntries(views, results, [canvas('deleted'), canvas('timed-out')])).toEqual([
+            canvas('live'),
+            { ...canvas('timed-out'), viewedAt: '2026-01-02T00:00:00Z' },
+        ])
     })
 
     it.each([

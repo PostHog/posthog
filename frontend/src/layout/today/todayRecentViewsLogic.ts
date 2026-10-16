@@ -2,6 +2,7 @@ import { MakeLogicType, afterMount, connect, kea, listeners, path, reducers, sel
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { withTimeout } from 'lib/utils/async'
 import { VIEW_FILE_SYSTEM_TYPES, baseObjectType, libraryObjectHref } from 'scenes/library/libraryUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -10,7 +11,7 @@ import { ViewType } from 'scenes/views/viewsUtils'
 
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { recentItemsModel } from '~/models/recentItemsModel'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemViewLogEntry } from '~/queries/schema/schema-general'
 
 import { canvasesRetrieve } from 'products/canvas/frontend/generated/api'
 
@@ -26,6 +27,32 @@ export interface TodayRecentEntry {
     name: string
     href: string
     viewedAt: string
+}
+
+function canvasRecentKey(id: string): string {
+    return `canvas-${id}`
+}
+
+/**
+ * The canvases a refresh found, in view order. A deleted canvas answers 404 and drops out.
+ * Any other failure, like a timeout, keeps the row the list already had.
+ */
+export function canvasLookupEntries(
+    views: Pick<FileSystemViewLogEntry, 'ref' | 'viewed_at'>[],
+    results: PromiseSettledResult<TodayRecentEntry>[],
+    cached: TodayRecentEntry[]
+): TodayRecentEntry[] {
+    return results.flatMap((result, index): TodayRecentEntry[] => {
+        if (result.status === 'fulfilled') {
+            return [result.value]
+        }
+        if (result.reason instanceof ApiError && result.reason.status === 404) {
+            return []
+        }
+        const { ref, viewed_at } = views[index]
+        const previous = cached.find((recent) => recent.key === canvasRecentKey(ref))
+        return previous ? [{ ...previous, viewedAt: viewed_at }] : []
+    })
 }
 
 function fileSystemRecentEntry(entry: FileSystemEntry): TodayRecentEntry | null {
@@ -136,7 +163,7 @@ export const todayRecentViewsLogic = kea<todayRecentViewsLogicType>([
                                 CANVAS_LOOKUP_TIMEOUT_MS
                             )
                             return {
-                                key: `canvas-${canvas.id}`,
+                                key: canvasRecentKey(canvas.id),
                                 type: 'canvas',
                                 name: canvas.name || 'Untitled canvas',
                                 href: urls.canvasDetail(canvas.id),
@@ -145,10 +172,7 @@ export const todayRecentViewsLogic = kea<todayRecentViewsLogicType>([
                         })
                     )
                     breakpoint()
-                    // A deleted canvas fails its lookup, so it drops out of the list.
-                    return results
-                        .flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
-                        .slice(0, TODAY_RECENTS_LIMIT)
+                    return canvasLookupEntries(views, results, values.recentCanvases).slice(0, TODAY_RECENTS_LIMIT)
                 },
             },
         ],
@@ -160,7 +184,9 @@ export const todayRecentViewsLogic = kea<todayRecentViewsLogicType>([
             recordView: (state, { type, ref }) =>
                 type === 'canvas'
                     ? state.map((recent) =>
-                          recent.key === `canvas-${ref}` ? { ...recent, viewedAt: new Date().toISOString() } : recent
+                          recent.key === canvasRecentKey(ref)
+                              ? { ...recent, viewedAt: new Date().toISOString() }
+                              : recent
                       )
                     : state,
         },
