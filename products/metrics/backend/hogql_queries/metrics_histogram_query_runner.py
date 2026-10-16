@@ -219,11 +219,11 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
                 date_from=dashboard_filter.date_from,
                 date_to=dashboard_filter.date_to,
             )
+        if dashboard_filter.metricFilters:
+            self.query.filters = [*(self.query.filters or []), *dashboard_filter.metricFilters]
         if dashboard_filter.metricVariables:
             # The values go into the query, so each selection has its own cache entry and reaches the async worker.
             self.query.variables = (
                 to_query(from_dashboard(dashboard_filter.metricVariables), filter_referenced_names(self.query.filters))
                 or None
             )
-        if dashboard_filter.metricFilters:
-            self.query.filters = [*(self.query.filters or []), *dashboard_filter.metricFilters]

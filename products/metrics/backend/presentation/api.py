@@ -30,6 +30,7 @@ from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
 from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -1125,6 +1126,12 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team_id=self.team.pk,
         ):
             raise PermissionDenied("PromQL variable queries are not enabled for this project.")
+        if data["source"] == MetricVariableSource.PROMQL and api_queries_budget_enforcement_enabled(self.team):
+            budget = get_api_queries_budget_status(self.team)
+            if budget is not None and budget.remaining_bytes <= 0:
+                raise Throttled(
+                    wait=budget.retry_after_seconds, detail="ClickHouse query byte budget exhausted. Try again later."
+                )
         variables = [
             MetricsDashboardVariable(
                 name=selection["name"],

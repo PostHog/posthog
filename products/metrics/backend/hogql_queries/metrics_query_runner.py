@@ -7,6 +7,7 @@ bypasses the facade, so the viewer, MCP tools, and insights all share one
 query path.
 """
 
+from functools import partial
 from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.schema import (
@@ -50,9 +51,11 @@ from products.metrics.backend.facade.enums import (
     MetricType,
 )
 from products.metrics.backend.promql import run_promql_range
+from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.sql_mode import run_metrics_sql
 from products.metrics.backend.variable_options import fill_all_values
 from products.metrics.backend.variables import (
+    Variable,
     all_definitions,
     filter_referenced_names,
     from_dashboard,
@@ -74,6 +77,7 @@ if TYPE_CHECKING:
 class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
     query: MetricsQuery
     cached_response: CachedMetricsQueryResponse
+    _loaded_variables: dict[str, Variable] | None = None
 
     def validate_query_runner_access(self, user: "User") -> bool:
         user_access_control = UserAccessControl(user=user, team=self.team)
@@ -201,19 +205,37 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             return run_promql_range(self.team, text, date_from, date_to, self.query.interval)
         if not (self.query.sql or "").strip():
             raise ValueError("Write a SQL query first.")
-        if definitions := query_definitions(self.query.variables):
-            variables = fill_all_values(
-                team=self.team,
-                names=sql_referenced_names(self.query.sql),
-                variables=variables,
-                definitions=definitions,
-                date_from=date_from,
-                date_to=date_to,
-            )
-        sql = substitute_sql(self.query.sql or "", variables)
+        sql = substitute_sql(self.query.sql or "", self._load_all_options())
         if sql.unresolved:
             raise ValueError(unresolved_message(sql.unresolved))
         return run_metrics_sql(self.team, sql.sql, date_from, date_to, self.query.interval, sql.placeholders)
+
+    def _call_with_rate_limits(self, *, dashboard_id: int | None) -> tuple[MetricsQueryResponse, float]:
+        # Tiles that wait for one shared load of the All options must not hold the runner's concurrency slots.
+        try:
+            self._load_all_options()
+        except ValueError as exc:
+            raise ExposedHogQLError(str(exc)) from exc
+        return super()._call_with_rate_limits(dashboard_id=dashboard_id)
+
+    def _load_all_options(self) -> dict[str, Variable]:
+        if self._loaded_variables is None:
+            self._enforce_alpha_gates_without_a_request_user()
+            variables = from_query(self.query.variables)
+            definitions = query_definitions(self.query.variables)
+            if definitions and self.query.language == MetricsQueryLanguage.SQL:
+                date_range = metrics_query_date_range(self.team, self.query.dateRange)
+                variables = fill_all_values(
+                    team=self.team,
+                    names=sql_referenced_names(self.query.sql),
+                    variables=variables,
+                    definitions=definitions,
+                    date_from=date_range.date_from(),
+                    date_to=date_range.date_to(),
+                    slot=partial(query_concurrency_slots, self.team),
+                )
+            self._loaded_variables = variables
+        return self._loaded_variables
 
     def _calculate(self) -> MetricsQueryResponse:
         self._enforce_alpha_gates_without_a_request_user()
@@ -247,13 +269,13 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
                 date_from=dashboard_filter.date_from,
                 date_to=dashboard_filter.date_to,
             )
-        if dashboard_filter.metricVariables:
-            self._apply_variables(dashboard_filter)
         if dashboard_filter.metricFilters:
             self.query.clauses = [
                 clause.model_copy(update={"filters": [*(clause.filters or []), *dashboard_filter.metricFilters]})
                 for clause in self.query.clauses
             ]
+        if dashboard_filter.metricVariables:
+            self._apply_variables(dashboard_filter)
 
     def _apply_variables(self, dashboard_filter: DashboardFilter) -> None:
         # The values go into the query, so each selection has its own cache entry and reaches the async worker.

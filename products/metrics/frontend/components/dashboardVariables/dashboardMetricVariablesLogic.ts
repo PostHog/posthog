@@ -15,7 +15,7 @@ import {
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { MetricsDashboardVariable } from '~/queries/schema/schema-general'
+import type { MetricsDashboardVariable, MetricsDashboardVariableSelection } from '~/queries/schema/schema-general'
 
 import { metricsVariableOptionsCreate } from 'products/metrics/frontend/generated/api'
 
@@ -44,6 +44,7 @@ export interface dashboardMetricVariablesLogicValues {
     errors: Record<string, string>
     loadingNames: string[]
     options: Record<string, string[]>
+    pendingVariables: MetricsDashboardVariable[] | null
     reconciledVariables: MetricsDashboardVariable[] | null
 }
 
@@ -57,6 +58,13 @@ export interface dashboardMetricVariablesLogicActions {
         reconcile: boolean
     }
     retry: (name: string) => {
+        name: string
+    }
+    select: (
+        name: string,
+        current: MetricsDashboardVariableSelection | null
+    ) => {
+        current: MetricsDashboardVariableSelection | null
         name: string
     }
     setError: (
@@ -80,8 +88,11 @@ export interface dashboardMetricVariablesLogicActions {
         name: string
         options: string[]
     }
-    setReconciledVariables: (variables: MetricsDashboardVariable[]) => {
-        variables: MetricsDashboardVariable[]
+    setPendingVariables: (variables: MetricsDashboardVariable[] | null) => {
+        variables: MetricsDashboardVariable[] | null
+    }
+    setReconciledVariables: (variables: MetricsDashboardVariable[] | null) => {
+        variables: MetricsDashboardVariable[] | null
     }
 }
 
@@ -114,7 +125,9 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
         setOptions: (name: string, options: string[]) => ({ name, options }),
         setError: (name: string, error: string | null) => ({ name, error }),
         setLoading: (name: string, loading: boolean) => ({ name, loading }),
-        setReconciledVariables: (variables: MetricsDashboardVariable[]) => ({ variables }),
+        setReconciledVariables: (variables: MetricsDashboardVariable[] | null) => ({ variables }),
+        setPendingVariables: (variables: MetricsDashboardVariable[] | null) => ({ variables }),
+        select: (name: string, current: MetricsDashboardVariableSelection | null) => ({ name, current }),
         retry: (name: string) => ({ name }),
     }),
     reducers({
@@ -142,18 +155,23 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
             null as MetricsDashboardVariable[] | null,
             { setReconciledVariables: (_, { variables }) => variables },
         ],
+        // A selection whose dependents still load. The dashboard gets it once they reconcile, so tiles refresh once.
+        pendingVariables: [
+            null as MetricsDashboardVariable[] | null,
+            { setPendingVariables: (_, { variables }) => variables },
+        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         loadOptions: async ({ names, reconcile }, breakpoint) => {
             // A newer load cancels this one at its next breakpoint, so its unfinished names move to the newer load.
-            const pending: Set<string> | null =
-                names === null || cache.pending === null
-                    ? null
-                    : new Set([...((cache.pending as Set<string> | undefined) ?? []), ...names])
+            const pending = new Set<string>([
+                ...((cache.pending as Set<string> | undefined) ?? []),
+                ...(names ?? props.variables.map((variable) => variable.name)),
+            ])
             const shouldReconcile = reconcile || !!cache.pendingReconcile
             cache.pending = pending
             cache.pendingReconcile = shouldReconcile
-            let variables = props.variables
+            let variables = values.pendingVariables ?? props.variables
 
             // Each variable loads when its parents finish, and shows its options at once, so a slow
             // query delays only the variables that depend on it.
@@ -162,7 +180,7 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
                 const { name } = definition
                 await Promise.all(variableParents(definition, props.variables).map((parent) => loads.get(parent)))
                 breakpoint()
-                if ((pending !== null && !pending.has(name)) || definition.source === 'textbox') {
+                if (!pending.has(name) || definition.source === 'textbox') {
                     return
                 }
                 // The parents may have changed their selections, which the request must use.
@@ -170,6 +188,7 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
                 let options: string[]
                 if (variable.source === 'custom') {
                     options = [...new Set((variable.customValues ?? []).filter(Boolean))]
+                    actions.setLoading(name, false)
                 } else {
                     actions.setLoading(name, true)
                     try {
@@ -186,14 +205,14 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
                     } catch (error) {
                         breakpoint()
                         actions.setLoading(name, false)
-                        pending?.delete(name)
+                        pending.delete(name)
                         // Keep the options and the selection: they are unknown now, not empty.
                         actions.setError(name, errorMessage(error))
                         return
                     }
                     actions.setLoading(name, false)
                 }
-                pending?.delete(name)
+                pending.delete(name)
                 actions.setError(name, null)
                 actions.setOptions(name, options)
                 const current = reconcileSelection(variable, options)
@@ -210,10 +229,22 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
             cache.pending = undefined
             cache.pendingReconcile = false
             // The first load only shows options. A saved selection changes only after the user changes something.
-            if (shouldReconcile && variables !== props.variables) {
+            if (shouldReconcile && !objectsEqual(variables, props.variables)) {
                 actions.setReconciledVariables(variables)
                 props.onSelectionsChange(variables)
             }
+            actions.setPendingVariables(null)
+        },
+        select: ({ name, current }) => {
+            const base = values.pendingVariables ?? props.variables
+            const next = base.map((variable) => (variable.name === name ? { ...variable, current } : variable))
+            const dependents = dependentsOf(props.variables, [name])
+            if (!dependents.length && !values.pendingVariables) {
+                props.onSelectionsChange(next)
+                return
+            }
+            actions.setPendingVariables(next)
+            actions.loadOptions(dependents, true)
         },
         retry: ({ name }) => {
             // The variables that depend on a failed variable kept options that its new values can change.
@@ -229,6 +260,7 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
             return
         }
         if (values.reconciledVariables && objectsEqual(props.variables, values.reconciledVariables)) {
+            actions.setReconciledVariables(null)
             return
         }
         const names = variablesToReload(oldProps.variables, props.variables)

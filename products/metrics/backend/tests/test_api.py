@@ -1,6 +1,7 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from functools import partial
 from typing import Any
 
 import pytest
@@ -155,6 +156,65 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
         )
 
         assert filled["env"].values == ("api", "web")
+
+    @parameterized.expand(
+        [
+            (
+                "chain_without_a_loop",
+                {"v1": "$v0", "v2": "$v1", "v3": "$v2", "v4": "$v3", "v5": "$v4", "v6": "$v5"},
+                None,
+            ),
+            ("loop", {"v1": "$v2", "v2": "$v1"}, "loop"),
+        ]
+    )
+    def test_all_expansion_reports_only_real_loops(
+        self, _name: str, parents: dict[str, str], error: str | None
+    ) -> None:
+        all_value = Variable(values=(), is_all=True, all_value=None, options=())
+        definitions = {
+            "v0": MetricsDashboardVariable(
+                name="v0", source=MetricsDashboardVariableSource.CUSTOM, customValues=["a"], includeAll=True
+            ),
+            **{
+                name: MetricsDashboardVariable(
+                    name=name,
+                    source=MetricsDashboardVariableSource.SQL,
+                    query=f"SELECT service_name FROM posthog.metrics WHERE service_name IN {parent}",
+                    includeAll=True,
+                )
+                for name, parent in parents.items()
+            },
+        }
+        names = [name for name in definitions if name != "v0"]
+        with patch("products.metrics.backend.variable_options.run_metrics_sql_values", return_value=["a"]):
+            fill = partial(
+                fill_all_values,
+                team=self.team,
+                names=names[-1:],
+                variables=dict.fromkeys(definitions, all_value),
+                definitions=definitions,
+                date_from=timezone.now() - timedelta(hours=1),
+                date_to=timezone.now(),
+            )
+            if error:
+                with pytest.raises(ValueError, match=error):
+                    fill()
+            else:
+                assert fill()[names[-1]].values == ("a",)
+
+    def test_promql_options_respect_the_query_byte_budget(self) -> None:
+        exhausted = MagicMock(remaining_bytes=0, retry_after_seconds=30)
+        with (
+            patch(
+                "products.metrics.backend.presentation.api.api_queries_budget_enforcement_enabled", return_value=True
+            ),
+            patch("products.metrics.backend.presentation.api.get_api_queries_budget_status", return_value=exhausted),
+            patch("posthog.api.snuffle_proxy.internal_requests.request") as request,
+        ):
+            response = self._post({"source": "promql", "query": "query_result(up)"})
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        request.assert_not_called()
 
     def test_clickhouse_limits_are_shown_to_the_user(self) -> None:
         with patch(

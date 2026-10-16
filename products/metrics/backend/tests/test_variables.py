@@ -12,6 +12,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 
+from products.metrics.backend.variable_options import _has_capture_group, re2_pattern
 from products.metrics.backend.variables import (
     Variable,
     from_dashboard,
@@ -26,6 +27,7 @@ ALL = Variable(values=("x", "y"), is_all=True, all_value=None, options=())
 ALL_WITH_VALUE = Variable(values=(), is_all=True, all_value="api-.*", options=())
 DOTTED = Variable(values=("10.0.0.1",), is_all=False, all_value=None, options=())
 INJECTED = Variable(values=("' OR 1=1 --",), is_all=False, all_value=None, options=())
+QUOTED = Variable(values=("api'worker\nnext",), is_all=False, all_value=None, options=())
 
 
 @parameterized.expand(
@@ -33,6 +35,9 @@ INJECTED = Variable(values=("' OR 1=1 --",), is_all=False, all_value=None, optio
         ("one_value_is_escaped", 'up{env="$env"}', ONE, 'up{env="pro\\"d"}'),
         ("many_values_are_a_regex", 'up{env=~"$env"}', MANY, 'up{env=~"(a\\\\.b|c)"}'),
         ("one_value_in_a_regex_matcher_is_escaped", 'up{env=~"$env"}', DOTTED, 'up{env=~"10\\\\.0\\\\.0\\\\.1"}'),
+        ("single_quotes_and_newlines", "up{env='$env'}", QUOTED, "up{env='api\\'worker\\nnext'}"),
+        ("double_quotes_keep_single_quotes", 'up{env="$env"}', QUOTED, 'up{env="api\'worker\\nnext"}'),
+        ("single_quoted_regex_matcher", "up{env=~'$env'}", DOTTED, "up{env=~'10\\\\.0\\\\.0\\\\.1'}"),
         ("csv_format", 'up{env=~"${env:csv}"}', MANY, 'up{env=~"a.b,c"}'),
         ("all_matches_everything", 'up{env=~"$env"}', ALL, 'up{env=~".*"}'),
         ("all_value", 'up{env=~"[[env]]"}', ALL_WITH_VALUE, 'up{env=~"api-.*"}'),
@@ -164,3 +169,28 @@ def test_all_needs_include_all(include_all: bool) -> None:
         current=MetricsDashboardVariableSelection(values=["a"], all=True),
     )
     assert from_dashboard([definition])["env"].is_all is include_all
+
+
+@parameterized.expand(
+    [
+        ("plain", "^api", "^api"),
+        ("slashes", "/api-(.*)/", "api-(.*)"),
+        ("flags_become_inline", "/API-(.*)/ig", "(?i)API-(.*)"),
+    ]
+)
+def test_re2_pattern(_name: str, regex: str, expected: str) -> None:
+    assert re2_pattern(regex) == expected
+
+
+@parameterized.expand(
+    [
+        ("numbered", "api-(.*)", True),
+        ("named", "api-(?P<value>.*)", True),
+        ("named_short", "api-(?<value>.*)", True),
+        ("non_capturing", "api-(?:a|b)", False),
+        ("lookbehind_like", "api-(?<=x)", False),
+        ("inline_flags", "(?i)api", False),
+    ]
+)
+def test_capture_groups(_name: str, regex: str, expected: bool) -> None:
+    assert _has_capture_group(regex) is expected

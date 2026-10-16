@@ -35,8 +35,8 @@ export function DashboardMetricVariables(): JSX.Element | null {
         dateTo: effectiveEditBarFilters.date_to,
         onSelectionsChange: change,
     })
-    const { options, loadingNames, errors } = useValues(logic)
-    const { retry } = useActions(logic)
+    const { options, loadingNames, errors, pendingVariables } = useValues(logic)
+    const { retry, select } = useActions(logic)
 
     if (!dashboard) {
         return null
@@ -44,7 +44,7 @@ export function DashboardMetricVariables(): JSX.Element | null {
 
     return (
         <div className="flex items-end gap-2 flex-wrap">
-            {variables.map((variable) => (
+            {(pendingVariables ?? variables).map((variable) => (
                 <MetricVariableSelect
                     key={variable.name}
                     variable={variable}
@@ -52,9 +52,7 @@ export function DashboardMetricVariables(): JSX.Element | null {
                     loading={loadingNames.includes(variable.name)}
                     error={ownValue(errors, variable.name) ?? null}
                     onRetry={() => retry(variable.name)}
-                    onChange={(current) =>
-                        change(variables.map((other) => (other.name === variable.name ? { ...other, current } : other)))
-                    }
+                    onChange={(current) => select(variable.name, current)}
                 />
             ))}
             <LemonButton

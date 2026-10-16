@@ -42,8 +42,6 @@ from products.metrics.backend.variables import (
 )
 
 MAX_VARIABLE_OPTIONS = 1000
-# All in a SQL variable query fills its values from the queries of other variables. This stops a loop.
-_MAX_ALL_DEPTH = 5
 _FUNCTION = re.compile(r"^\s*(?P<name>label_values|label_names|metrics|query_result)\s*\((?P<args>.*)\)\s*$", re.DOTALL)
 _LABEL_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _REGEX_QUERY = "SELECT arrayDistinct(arrayFilter(x -> match(x, {pattern}), {options}))"
@@ -168,10 +166,24 @@ def _has_capture_group(regex: str) -> bool:
             in_class = char != "]"
         elif char == "[":
             in_class = True
-        elif char == "(" and not regex.startswith("?", index + 1):
+        elif char == "(" and (
+            not regex.startswith("?", index + 1)
+            or regex.startswith("?P<", index + 1)
+            or (regex.startswith("?<", index + 1) and not regex.startswith(("?<=", "?<!"), index + 1))
+        ):
             return True
         index += 1
     return False
+
+
+def re2_pattern(regex: str | None) -> str:
+    """The RE2 pattern of a variable regex. Grafana writes `/pattern/flags`, and RE2 takes the flags inline."""
+    pattern = (regex or "").strip()
+    if not (pattern.startswith("/") and pattern.rfind("/") > 0):
+        return pattern
+    flags = "".join(flag for flag in "ims" if flag in pattern[pattern.rfind("/") + 1 :])
+    body = pattern[1 : pattern.rfind("/")]
+    return f"(?{flags}){body}" if flags and body else body
 
 
 def apply_regex(team: Team, options: list[str], regex: str | None) -> list[str]:
@@ -179,9 +191,7 @@ def apply_regex(team: Team, options: list[str], regex: str | None) -> list[str]:
 
     ClickHouse runs the pattern with RE2, so a user pattern cannot backtrack without end.
     """
-    pattern = (regex or "").strip()
-    if pattern.startswith("/") and pattern.rfind("/") > 0:
-        pattern = pattern[1 : pattern.rfind("/")]
+    pattern = re2_pattern(regex)
     if not pattern or not options:
         return options
     query = parse_select(
@@ -209,7 +219,8 @@ def fill_all_values(
     definitions: Mapping[str, MetricsDashboardVariable],
     date_from: dt.datetime,
     date_to: dt.datetime,
-    depth: int = 0,
+    path: frozenset[str] = frozenset(),
+    slot: Callable[[], AbstractContextManager[None]] = nullcontext,
 ) -> dict[str, Variable]:
     """Give each variable that is set to All the values of every option, for SQL, which cannot match everything.
 
@@ -222,7 +233,7 @@ def fill_all_values(
         definition = definitions.get(name)
         if variable is None or not variable.is_all or variable.values or definition is None:
             continue
-        if depth >= _MAX_ALL_DEPTH:
+        if name in path:
             raise ValueError(f"The variable queries refer to each other in a loop through ${name}.")
         options = list_variable_options(
             team=team,
@@ -233,7 +244,8 @@ def fill_all_values(
             definitions=definitions,
             date_from=date_from,
             date_to=date_to,
-            depth=depth + 1,
+            path=path | {name},
+            slot=slot,
         )
         # A list has no query, and its select shows every value, so a regex left over from a query does not apply.
         if definition.regex and definition.source in (
@@ -241,7 +253,7 @@ def fill_all_values(
             MetricsDashboardVariableSource.SQL,
         ):
             regex_key = _cache_key(team, ["regex", definition.regex, options])
-            options = _shared_options(regex_key, partial(apply_regex, team, options, definition.regex))
+            options = _shared_options(regex_key, partial(apply_regex, team, options, definition.regex), slot)
         filled[name] = with_values(variable, options)
     return filled
 
@@ -327,13 +339,13 @@ def list_variable_options(
     date_from: dt.datetime,
     date_to: dt.datetime,
     definitions: Mapping[str, MetricsDashboardVariable] | None = None,
-    depth: int = 0,
+    path: frozenset[str] = frozenset(),
     slot: Callable[[], AbstractContextManager[None]] = nullcontext,
 ) -> list[str]:
     """The options of one variable, in the order the source gives them. Raises `ValueError` for a bad query.
 
     `definitions` lets a SQL query use another variable that is set to All, by loading its options.
-    `slot` holds a concurrency slot while the query runs. A query runner already holds one, so it passes none.
+    `slot` holds a concurrency slot while the query runs.
     """
     options: list[Any]
     if source == MetricsDashboardVariableSource.CUSTOM:
@@ -357,7 +369,8 @@ def list_variable_options(
                 definitions=definitions,
                 date_from=date_from,
                 date_to=date_to,
-                depth=depth,
+                path=path,
+                slot=slot,
             )
         sql = substitute_sql(query or "", variables)
         if sql.unresolved:

@@ -41,11 +41,7 @@ def _regex(item: dict[str, Any]) -> str | None:
     regex = item.get("regex")
     if not isinstance(regex, str) or not regex.strip():
         return None
-    regex = regex.strip()
-    # Grafana writes the pattern as /pattern/ or /pattern/flags.
-    if regex.startswith("/") and regex.rfind("/") > 0:
-        regex = regex[1 : regex.rfind("/")]
-    return regex or None
+    return regex.strip()
 
 
 def _live_definition(name: str, kind: Any, item: dict[str, Any], variable: Variable) -> MetricsDashboardVariable | None:

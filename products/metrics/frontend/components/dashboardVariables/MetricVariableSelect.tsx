@@ -34,6 +34,7 @@ export function MetricVariableSelect({
                     noPadding
                     icon={<IconWarning className="text-warning" />}
                     tooltip={error}
+                    disabledReason={loading ? 'Loading values' : undefined}
                     onClick={onRetry}
                     data-attr="dashboard-metric-variable-retry"
                 />
@@ -137,7 +138,12 @@ function MetricVariableOptionsSelect({
                 <div className="flex flex-col items-start gap-1 p-1 max-w-80">
                     <p className="text-secondary italic m-0">{error ?? 'No values'}</p>
                     {error && (
-                        <LemonButton size="small" type="secondary" onClick={onRetry}>
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            disabledReason={loading ? 'Loading values' : undefined}
+                            onClick={onRetry}
+                        >
                             Try again
                         </LemonButton>
                     )}

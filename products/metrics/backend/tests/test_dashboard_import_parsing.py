@@ -483,6 +483,14 @@ def test_live_variable_queries_get_the_saved_values_of_other_variables() -> None
     assert queries["job"] == 'query_result(rate(up{env="$env"}[5m]))'
 
 
+def test_imported_variable_regex_keeps_its_flags() -> None:
+    variables = TemplateVariables.from_templating(
+        [{"name": "job", "type": "query", "query": "label_values(job)", "regex": "/api-(.*)/i", "current": {}}]
+    )
+
+    assert [definition.regex for definition in variables.definitions()] == ["/api-(.*)/i"]
+
+
 @pytest.mark.parametrize(
     "color, token",
     [
