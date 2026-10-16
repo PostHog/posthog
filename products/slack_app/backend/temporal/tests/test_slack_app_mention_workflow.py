@@ -78,7 +78,7 @@ class _Recorder:
         # ts -> mapping lookup result; missing means the forward result.
         self.has_task_results: dict[str, bool] = {}
         # ts per project route and thread fetch call, in execution order.
-        self.project_route_calls: list[str] = []
+        self.project_route_calls: list[str | None] = []
         self.thread_fetches: list[str] = []
         # When set, the model override, project route and thread fetch fakes wait on it.
         self.new_thread_barrier: asyncio.Barrier | None = None
