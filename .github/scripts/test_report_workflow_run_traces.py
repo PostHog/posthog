@@ -450,8 +450,8 @@ class TestDepotTraces:
             listed_triggers.append(str(kwargs["trigger"]))
             # Newest first, as the CLI lists them; the old one must end this trigger's walk only.
             return [
-                {"workflow_id": "wf", "sha": "abc", "created_at": _iso(0)},
-                {"workflow_id": "old", "sha": "abc", "created_at": _iso(-100000)},
+                {"workflow_id": "wf", "created_at": _iso(0)},
+                {"workflow_id": "old", "created_at": _iso(-100000)},
             ]
 
         monkeypatch.setattr(reporter.depot_backend_runs, "master_workflows", list_workflows)

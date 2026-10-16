@@ -75,14 +75,8 @@ class Job(TypedDict, total=False):
     finished_at: str
 
 
-class ShownRun(TypedDict):
-    trigger: str
-    sha: str
-
-
 class ShownWorkflow(TypedDict):
     org_id: str
-    run: ShownRun
     jobs: list[Job]
 
 
@@ -103,8 +97,48 @@ def depot(*args: str, timeout: int = CLI_TIMEOUT_SECONDS) -> str:
     return result.stdout
 
 
+def commits_on_master(shas: Iterable[str], repo: str = REPO) -> frozenset[str]:
+    """The given commits that master contains, from one GitHub GraphQL query for all of them.
+
+    A commit GitHub cannot resolve fails the whole query, so callers fail closed.
+    """
+    candidates = sorted({sha for sha in shas if COMMIT_SHA.fullmatch(sha)})
+    if not candidates:
+        return frozenset()
+    owner, name = repo.split("/")
+    # GitHub has answered IDENTICAL for a commit it does not have, so each comparison must also
+    # name the commit it compared before it counts.
+    fields = " ".join(
+        f'c{i}: compare(headRef: "{sha}") {{ status headTarget {{ oid }} }}' for i, sha in enumerate(candidates)
+    )
+    query = (
+        f"query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) "
+        f'{{ ref(qualifiedName: "{MASTER_REF}") {{ {fields} }} }} }}'
+    )
+    result = subprocess.run(
+        ["gh", "api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}", "-f", f"name={name}"],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+        timeout=GITHUB_TIMEOUT_SECONDS,
+    )
+    compared = json.loads(result.stdout)["data"]["repository"]["ref"]
+    return frozenset(
+        sha
+        for i, sha in enumerate(candidates)
+        if (comparison := compared.get(f"c{i}"))
+        and comparison["status"] in ON_MASTER_STATUSES
+        and comparison["headTarget"]["oid"] == sha
+    )
+
+
 def master_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str = REPO) -> list[ListedWorkflow]:
-    """The master Backend CI workflows of one trigger in the given states, newest first."""
+    """The master Backend CI workflows of one trigger in the given states, newest first.
+
+    The schedule fires only on the default branch. A branch can add itself to the push trigger
+    in its own copy of the workflow, and Depot records a push run's ref as its commit sha, so a
+    push workflow counts only when GitHub says master contains its commit.
+    """
     args = ["workflow", "list", "--repo", repo, "--name", WORKFLOW_NAME, "--trigger", trigger, "-n", str(limit)]
     for status in statuses:
         args += ["--status", status]
@@ -114,6 +148,9 @@ def master_workflows(statuses: list[str], limit: int, *, trigger: str, repo: str
     except subprocess.TimeoutExpired:
         output = depot(*args, "--output", "json")
     workflows = cast(list[ListedWorkflow], json.loads(output or "null") or [])
+    if trigger != "schedule":
+        on_master = commits_on_master((w["sha"] for w in workflows), repo)
+        workflows = [w for w in workflows if w["sha"] in on_master]
     return sorted(workflows, key=lambda w: w["created_at"], reverse=True)
 
 
@@ -145,15 +182,6 @@ def find(
         try:
             names = {a["name"] for a in artifacts(workflow["run_id"]) if a["name"].startswith(prefix)}
             sys.stderr.write(f"Run {workflow['run_id']} has {len(names)} {prefix}* artifacts\n")
-            # A branch can add itself to the push trigger in its own copy of the workflow.
-            # Only a candidate push run pays for the GitHub call that places its commit.
-            if (
-                len(names) >= min_artifacts
-                and trigger == "push"
-                and workflow["sha"] not in commits_on_master([workflow["sha"]])
-            ):
-                sys.stderr.write(f"Run {workflow['run_id']} did not run on master, skipping it\n")
-                continue
         except (subprocess.SubprocessError, json.JSONDecodeError) as error:
             sys.stderr.write(f"Run {workflow['run_id']}: could not read it, skipping it: {error!r}\n")
             continue
@@ -201,56 +229,9 @@ def download(run_id: str, patterns: list[str], directory: Path) -> int:
     return len(matching)
 
 
-def commits_on_master(shas: Iterable[str], repo: str = REPO) -> frozenset[str]:
-    """The given commits that master contains, from one GitHub GraphQL query.
-
-    Depot records a push run's ref as its commit sha, so only GitHub can say which branch a
-    push ran on. The query costs one GraphQL point however many commits it compares.
-    A commit GitHub cannot resolve fails the whole query, so callers fail closed.
-    """
-    candidates = sorted({sha for sha in shas if COMMIT_SHA.fullmatch(sha)})
-    if not candidates:
-        return frozenset()
-    owner, name = repo.split("/")
-    # GitHub has answered IDENTICAL for a commit it does not have, so each comparison must also
-    # name the commit it compared before it counts.
-    fields = " ".join(
-        f"c{i}: compare(headRef: $c{i}) {{ status headTarget {{ oid }} }}" for i in range(len(candidates))
-    )
-    params = "".join(f", $c{i}: String!" for i in range(len(candidates)))
-    query = (
-        f"query($owner: String!, $name: String!{params}) {{ repository(owner: $owner, name: $name) "
-        f'{{ ref(qualifiedName: "{MASTER_REF}") {{ {fields} }} }} }}'
-    )
-    args = ["gh", "api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}", "-f", f"name={name}"]
-    for i, sha in enumerate(candidates):
-        args += ["-f", f"c{i}={sha}"]
-    result = subprocess.run(args, check=True, stdout=subprocess.PIPE, text=True, timeout=GITHUB_TIMEOUT_SECONDS)
-    compared = json.loads(result.stdout)["data"]["repository"]["ref"]
-    return frozenset(
-        sha
-        for i, sha in enumerate(candidates)
-        if (comparison := compared.get(f"c{i}"))
-        and comparison["status"] in ON_MASTER_STATUSES
-        and comparison["headTarget"]["oid"] == sha
-    )
-
-
-def ran_on_master(shown: ShownWorkflow, master_commits: frozenset[str]) -> bool:
-    """A branch can add itself to the push trigger in its own copy of the workflow.
-
-    The schedule fires only on the default branch. Any other run counts as master only when
-    master contains its commit, so a payload without a sha fails closed.
-    """
-    run = shown.get("run") or {}
-    return run.get("trigger") == "schedule" or run.get("sha") in master_commits
-
-
-def gate_run(listed: ListedWorkflow, master_commits: frozenset[str]) -> GateRun | None:
+def gate_run(listed: ListedWorkflow) -> GateRun:
     """One workflow as a GitHub-shaped run. A workflow whose gate job has not ended is not completed."""
     shown = show(listed["workflow_id"])
-    if not ran_on_master(shown, master_commits):
-        return None
     gate = next((job for job in shown.get("jobs") or [] if job.get("job_key") == GATE_JOB_KEY), None)
     conclusion: str | None = None
     if gate and gate.get("status") in GATE_CONCLUSIONS:
@@ -273,10 +254,8 @@ def gate_run(listed: ListedWorkflow, master_commits: frozenset[str]) -> GateRun 
 
 def gate_runs(trigger: str, limit: int) -> list[GateRun]:
     listed = master_workflows(["queued", "running", *sorted(ENDED)], limit, trigger=trigger)
-    # The schedule lane makes no GitHub call, so a GitHub outage leaves it readable.
-    master_commits = commits_on_master(w["sha"] for w in listed) if trigger == "push" else frozenset()
     with ThreadPoolExecutor(max_workers=PARALLEL_CLI_CALLS) as pool:
-        runs = [run for run in pool.map(lambda w: gate_run(w, master_commits), listed) if run is not None]
+        runs = list(pool.map(gate_run, listed))
     # An empty or inconclusive window must not resolve an existing CI incident.
     if not any(
         run["status"] == "completed" and run["conclusion"] not in (None, "cancelled", "skipped") for run in runs

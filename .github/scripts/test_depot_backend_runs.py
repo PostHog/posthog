@@ -1,3 +1,4 @@
+import re
 import json
 import zipfile
 import subprocess
@@ -9,7 +10,6 @@ import pytest
 import ci_backend_relay
 import depot_backend_runs as script
 
-SCHEDULED_RUN = {"trigger": "schedule", "ref": ""}
 MASTER_SHA = "a" * 40
 BRANCH_SHA = "b" * 40
 
@@ -34,7 +34,7 @@ def test_gate_run_reports_the_gate_verdict(
     jobs: list[dict[str, Any]] = [{"job_key": "ci-backend.yml:report-test-timings", "status": "failed"}]
     if gate_status:
         jobs.append({"job_key": script.GATE_JOB_KEY, "status": gate_status, "finished_at": "2026-10-05T13:00:00Z"})
-    shown = {"org_id": "org", "run": SCHEDULED_RUN, "jobs": jobs}
+    shown = {"org_id": "org", "jobs": jobs}
     monkeypatch.setattr(script, "depot", lambda *args: json.dumps(shown))
     listed = {
         "workflow_id": "wf",
@@ -44,7 +44,7 @@ def test_gate_run_reports_the_gate_verdict(
         "created_at": "2026-10-05T12:23:00Z",
     }
 
-    run = script.gate_run(listed, frozenset())
+    run = script.gate_run(listed)
 
     assert (run["status"], run["conclusion"]) == expected
     assert run["head_sha"] == "abc"
@@ -56,18 +56,12 @@ def test_names_the_workflow_and_gate_job_the_relay_reads() -> None:
 
 
 @pytest.mark.parametrize(
-    "run,kept",
-    [
-        # Depot records a push run's ref as its commit sha, whatever branch it ran on.
-        ({"trigger": "push", "ref": MASTER_SHA, "sha": MASTER_SHA}, 1),
-        ({"trigger": "push", "ref": BRANCH_SHA, "sha": BRANCH_SHA}, 0),
-        (SCHEDULED_RUN, 1),
-        ({}, 0),
-    ],
-    ids=["master", "branch", "schedule", "no-sha"],
+    "trigger,sha,kept",
+    [("push", MASTER_SHA, 1), ("push", BRANCH_SHA, 0), ("schedule", BRANCH_SHA, 1)],
+    ids=["master", "branch", "schedule"],
 )
 def test_gate_runs_drop_runs_from_other_branches(
-    monkeypatch: pytest.MonkeyPatch, run: dict[str, str], kept: int
+    monkeypatch: pytest.MonkeyPatch, trigger: str, sha: str, kept: int
 ) -> None:
     def depot_response(*args: str) -> str:
         if args[:2] == ("workflow", "list"):
@@ -76,28 +70,22 @@ def test_gate_runs_drop_runs_from_other_branches(
                     {
                         "workflow_id": "wf",
                         "run_id": "run",
-                        "sha": run.get("sha", ""),
+                        "sha": sha,
                         "status": "finished",
                         "created_at": "2026-10-05T12:23:00Z",
                     }
                 ]
             )
-        return json.dumps(
-            {
-                "org_id": "org",
-                "run": run,
-                "jobs": [{"job_key": script.GATE_JOB_KEY, "status": "finished"}],
-            }
-        )
+        return json.dumps({"org_id": "org", "jobs": [{"job_key": script.GATE_JOB_KEY, "status": "finished"}]})
 
     monkeypatch.setattr(script, "depot", depot_response)
-    monkeypatch.setattr(script, "commits_on_master", lambda shas: frozenset(shas) & {MASTER_SHA})
+    monkeypatch.setattr(script, "commits_on_master", lambda shas, *_: frozenset(shas) & {MASTER_SHA})
 
     if kept:
-        assert len(script.gate_runs("push", 40)) == 1
+        assert len(script.gate_runs(trigger, 40)) == 1
     else:
         with pytest.raises(ValueError, match="No settled Backend CI verdict"):
-            script.gate_runs("push", 40)
+            script.gate_runs(trigger, 40)
 
 
 def test_retries_a_workflow_listing_timeout_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -133,9 +121,7 @@ def test_gate_window_requires_a_settled_verdict(monkeypatch: pytest.MonkeyPatch,
                 if status
                 else []
             )
-        return json.dumps(
-            {"org_id": "org", "run": SCHEDULED_RUN, "jobs": [{"job_key": script.GATE_JOB_KEY, "status": status}]}
-        )
+        return json.dumps({"org_id": "org", "jobs": [{"job_key": script.GATE_JOB_KEY, "status": status}]})
 
     monkeypatch.setattr(script, "depot", depot_response)
 
@@ -161,9 +147,7 @@ def test_gate_window_keeps_in_progress_runs_alongside_a_settled_verdict(monkeypa
                     for status in ("finished", "running")
                 ]
             )
-        return json.dumps(
-            {"org_id": "org", "run": SCHEDULED_RUN, "jobs": [{"job_key": script.GATE_JOB_KEY, "status": args[2]}]}
-        )
+        return json.dumps({"org_id": "org", "jobs": [{"job_key": script.GATE_JOB_KEY, "status": args[2]}]})
 
     monkeypatch.setattr(script, "depot", depot_response)
 
@@ -190,7 +174,7 @@ def test_find_trusts_only_push_runs_on_master(monkeypatch: pytest.MonkeyPatch, s
         raise AssertionError(args)
 
     monkeypatch.setattr(script, "depot", depot_response)
-    monkeypatch.setattr(script, "commits_on_master", lambda shas: frozenset(shas) & {MASTER_SHA})
+    monkeypatch.setattr(script, "commits_on_master", lambda shas, *_: frozenset(shas) & {MASTER_SHA})
 
     workflows = script.find("migrated-schema", 1, 1, 2, trigger="push", statuses=["finished"])
 
@@ -199,16 +183,15 @@ def test_find_trusts_only_push_runs_on_master(monkeypatch: pytest.MonkeyPatch, s
 
 def test_commits_on_master_trusts_only_comparisons_of_the_commit_asked_about(monkeypatch: pytest.MonkeyPatch) -> None:
     unknown_sha = "c" * 40
-    # Each commit's comparison against master, as GitHub's GraphQL API returns it.
-    comparisons: dict[str, dict[str, Any] | None] = {
+    comparisons: dict[str, dict[str, Any]] = {
         MASTER_SHA: {"status": "BEHIND", "headTarget": {"oid": MASTER_SHA}},
         BRANCH_SHA: {"status": "DIVERGED", "headTarget": {"oid": BRANCH_SHA}},
         unknown_sha: {"status": "IDENTICAL", "headTarget": {"oid": "d" * 40}},
     }
 
     def github_response(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        variables = dict(arg.split("=", 1) for arg in args if arg.startswith("c") and "=" in arg)
-        compared = {alias: comparisons[sha] for alias, sha in variables.items()}
+        query = next(arg for arg in args if arg.startswith("query="))
+        compared = {alias: comparisons[sha] for alias, sha in re.findall(r'(c\d+): compare\(headRef: "(\w+)"\)', query)}
         return subprocess.CompletedProcess(args, 0, json.dumps({"data": {"repository": {"ref": compared}}}))
 
     monkeypatch.setattr(subprocess, "run", github_response)

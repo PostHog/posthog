@@ -592,15 +592,11 @@ def _depot_workflows_since(
     return kept, len(listed) < depot_backend_runs.MAX_LISTED
 
 
-def _read_depot_run(
-    workflow: depot_backend_runs.ListedWorkflow, since: datetime, master_commits: frozenset[str]
-) -> WorkflowRun | None:
+def _read_depot_run(workflow: depot_backend_runs.ListedWorkflow, since: datetime) -> WorkflowRun | None:
     shown = cast(
         DepotShownWorkflow,
         json.loads(depot_backend_runs.depot("workflow", "show", workflow["workflow_id"], "--output", "json")),
     )
-    if not depot_backend_runs.ran_on_master(cast(depot_backend_runs.ShownWorkflow, shown), master_commits):
-        return None
     finished = parse_iso_utc(shown["workflow"]["finished_at"])
     if finished is None:
         raise ValueError("Completed Depot workflow has no finish timestamp")
@@ -615,7 +611,6 @@ def _read_depot_run(
 def collect_depot_runs(repo: str, since: datetime) -> Collection:
     # Each listing is newest first, so the floor ends one trigger's walk without hiding the other's.
     listed: list[depot_backend_runs.ListedWorkflow] = []
-    push_shas: list[str] = []
     complete = True
     for trigger, slack in DEPOT_LISTING_SLACK.items():
         try:
@@ -626,21 +621,11 @@ def collect_depot_runs(repo: str, since: datetime) -> Collection:
             complete = False
             continue
         listed += workflows
-        if trigger == "push":
-            push_shas += [workflow["sha"] for workflow in workflows]
         complete = complete and reached_floor
-
-    try:
-        master_commits = depot_backend_runs.commits_on_master(push_shas, repo)
-    except Exception:
-        # Every push run is then dropped, so the watermark holds until a tick can place them.
-        logger.exception("could not check which Depot push commits master contains")
-        master_commits = frozenset()
-        complete = False
 
     def read(workflow: depot_backend_runs.ListedWorkflow) -> tuple[WorkflowRun | None, bool]:
         try:
-            return _read_depot_run(workflow, since, master_commits), True
+            return _read_depot_run(workflow, since), True
         except Exception:
             logger.exception("could not read Depot workflow %s", workflow["workflow_id"])
             return None, False
