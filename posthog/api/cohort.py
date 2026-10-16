@@ -154,28 +154,44 @@ def _workflows_relying_on_cohort(cohort: Cohort) -> list[CohortDependentWorkflow
     return get_active_workflows_using_realtime_cohort(team_id=cohort.team_id, cohort_ids=cohort_ids)
 
 
+def _visible_workflows(
+    request: Request,
+    user_access_control: Optional[UserAccessControl],
+    team_id: int,
+    workflows: list[CohortDependentWorkflow],
+) -> list[CohortDependentWorkflow]:
+    # The caller sees the workflows it can view. Callers count every workflow.
+    scopes = get_authenticator_scopes(request.successful_authenticator)
+    if user_access_control is None or (
+        scopes is not None and not {"*", "hog_flow:read", "hog_flow:write"} & set(scopes)
+    ):
+        return []
+    references = [
+        HogFlowReference(id=workflow.id, name=workflow.name, status=workflow.status) for workflow in workflows
+    ]
+    visible_ids = {
+        reference.id
+        for reference in filter_hog_flow_references_by_access_level(
+            team_id, {"blocking": references}, user_access_control
+        ).get("blocking", [])
+    }
+    return [workflow for workflow in workflows if workflow.id in visible_ids]
+
+
 def _workflow_names_suffix(
     request: Request,
     user_access_control: Optional[UserAccessControl],
     team_id: int,
     workflows: list[CohortDependentWorkflow],
 ) -> str:
-    # The caller sees the names of the workflows it can view. The count covers every workflow.
-    scopes = get_authenticator_scopes(request.successful_authenticator)
-    if user_access_control is None or (
-        scopes is not None and not {"*", "hog_flow:read", "hog_flow:write"} & set(scopes)
-    ):
-        return ""
-    references = [
-        HogFlowReference(id=workflow.id, name=workflow.name, status=workflow.status) for workflow in workflows
-    ]
-    visible = filter_hog_flow_references_by_access_level(team_id, {"blocking": references}, user_access_control).get(
-        "blocking", []
-    )
+    visible = _visible_workflows(request, user_access_control, team_id, workflows)
     if not visible:
         return ""
     hidden = len(workflows) - len(visible)
-    return f": {', '.join(reference.name for reference in visible)}" + (f" and {hidden} more" if hidden else "")
+    return f": {', '.join(workflow.name for workflow in visible)}" + (f" and {hidden} more" if hidden else "")
+
+
+COHORT_USED_BY_WORKFLOWS_ERROR_CODE = "cohort_used_by_workflows"
 
 
 class CohortPersonsResponseSerializer(serializers.Serializer):
@@ -592,6 +608,14 @@ class CohortUsedInCohortSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Cohort display name; falls back to 'Unnamed' when empty")
 
 
+class CohortUsedInWorkflowSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Workflow ID (UUID)")
+    name = serializers.CharField(allow_blank=True, help_text="Workflow display name")
+    status = serializers.CharField(
+        help_text="Workflow status. Always 'active', because only active workflows rely on the cohort"
+    )
+
+
 class CohortUsedInFlagsBlockSerializer(serializers.Serializer):
     results = CohortUsedInFlagSerializer(
         many=True, help_text=f"Feature flags referencing this cohort, capped at {COHORT_USED_IN_PAGE_SIZE} results"
@@ -619,6 +643,22 @@ class CohortUsedInCohortsBlockSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="True when more cohorts exist beyond the truncation cap")
 
 
+class CohortUsedInWorkflowsBlockSerializer(serializers.Serializer):
+    results = CohortUsedInWorkflowSerializer(
+        many=True,
+        help_text=(
+            f"Active workflows relying on this cohort that the caller can view, capped at {COHORT_USED_IN_PAGE_SIZE} results"
+        ),
+    )
+    total = serializers.IntegerField(
+        help_text="Total number of active workflows relying on this cohort, including ones the caller cannot view"
+    )
+    hidden = serializers.IntegerField(
+        help_text="Number of relying workflows the caller cannot view. They count toward total but are never listed"
+    )
+    has_more = serializers.BooleanField(help_text="True when some relying workflows are not listed in results")
+
+
 class CohortUsedInResponseSerializer(serializers.Serializer):
     feature_flags = CohortUsedInFlagsBlockSerializer(
         help_text="Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata",
@@ -628,6 +668,12 @@ class CohortUsedInResponseSerializer(serializers.Serializer):
     )
     cohorts = CohortUsedInCohortsBlockSerializer(
         help_text="Other cohorts that include this cohort as a criterion, with truncation metadata"
+    )
+    workflows = CohortUsedInWorkflowsBlockSerializer(
+        help_text=(
+            "Active workflows that trigger on this cohort or branch on its membership. While any exist, the "
+            "cohort cannot be deleted or edited in a way that stops it updating in real time."
+        )
     )
 
 
@@ -1669,7 +1715,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 raise ValidationError(
                     f"This change stops the cohort updating in real time, and {len(workflows_relying_on_realtime)} "
                     f"active workflow(s) rely on that{names}. "
-                    "Please remove the cohort from these workflows before making this change."
+                    "Please remove the cohort from these workflows before making this change.",
+                    code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
                 )
 
         deleted_state = cast(bool | None, validated_data.get("deleted"))
@@ -1698,7 +1745,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     )
                     raise ValidationError(
                         f"This cohort is used in {len(workflows_with_cohort)} active workflow(s){names}. "
-                        "Please remove the cohort from these workflows before deleting it."
+                        "Please remove the cohort from these workflows before deleting it.",
+                        code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
                     )
 
                 # Check if cohort is used in test_account_filters
@@ -1821,6 +1869,18 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 def _used_in_block(page: list[dict], total: int) -> dict[str, Any]:
     """Build one ``{results, total, has_more}`` block of the used_in response."""
     return {"results": page, "total": total, "has_more": total > len(page)}
+
+
+def _workflows_block(
+    request: Request, user_access_control: Optional[UserAccessControl], cohort: Cohort
+) -> dict[str, Any]:
+    workflows = _workflows_relying_on_cohort(cohort)
+    visible = _visible_workflows(request, user_access_control, cohort.team_id, workflows)
+    page = [
+        {"id": workflow.id, "name": workflow.name, "status": workflow.status}
+        for workflow in visible[:COHORT_USED_IN_PAGE_SIZE]
+    ]
+    return {**_used_in_block(page, len(workflows)), "hidden": len(workflows) - len(visible)}
 
 
 def _truncate_used_in_queryset(qs: QuerySet) -> tuple[list[dict], int]:
@@ -2400,8 +2460,18 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 "feature_flags": _used_in_block(flags_data[:COHORT_USED_IN_PAGE_SIZE], len(flags_data)),
                 "insights": _used_in_block(insights_data, insights_total),
                 "cohorts": _used_in_block(cohorts_data, cohorts_total),
+                "workflows": _workflows_block(request, uac, cohort),
             }
         )
+
+    @extend_schema(
+        description="Active workflows that block deleting this cohort or editing it so it stops updating in real time.",
+        responses=CohortUsedInWorkflowsBlockSerializer,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
+    def blocking_workflows(self, request: request.Request, **kwargs) -> Response:
+        cohort: Cohort = self.get_object()
+        return Response(_workflows_block(request, self.user_access_control, cohort))
 
     def perform_create(self, serializer):
         serializer.save()
