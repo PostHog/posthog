@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 
 import { TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
 import type {
+    GoalLineConfig,
     ReferenceLineProps,
     Series,
     TimeSeriesBarChartConfig,
@@ -50,6 +51,7 @@ export function ReportObservationChart({
     type,
     interval,
     goalValue,
+    goalLines,
     markers,
 }: {
     metric: ReportMetricApi
@@ -57,6 +59,7 @@ export function ReportObservationChart({
     type: ReportMetricChartType
     interval: IntervalType | null | undefined
     goalValue?: number
+    goalLines?: GoalLineConfig[]
     markers?: ReferenceLineProps[]
 }): JSX.Element {
     const theme = useChartTheme()
@@ -85,19 +88,19 @@ export function ReportObservationChart({
         () => ({
             xAxis,
             margins: markers?.length ? MARKER_MARGINS : undefined,
-            goalLines: goalValue === undefined ? undefined : [{ value: goalValue, label: 'Goal' }],
+            goalLines: goalLines ?? (goalValue === undefined ? undefined : [{ value: goalValue, label: 'Goal' }]),
             // Rates and durations emphasize change, so the value axis floats to the observed range.
             yAxis: { startAtZero: false, tickFormatter: yAxisValueFormatter },
             ...AXIS_CHROME,
             showCrosshair: true,
             tooltip: { pinnable: false, valueFormatter },
         }),
-        [xAxis, yAxisValueFormatter, valueFormatter, goalValue, markers?.length]
+        [xAxis, yAxisValueFormatter, valueFormatter, goalValue, goalLines, markers?.length]
     )
     const barConfig = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
             xAxis,
-            goalLines: goalValue === undefined ? undefined : [{ value: goalValue, label: 'Goal' }],
+            goalLines: goalLines ?? (goalValue === undefined ? undefined : [{ value: goalValue, label: 'Goal' }]),
             yAxis: { tickFormatter: yAxisValueFormatter },
             ...AXIS_CHROME,
             showCrosshair: false,
@@ -107,7 +110,7 @@ export function ReportObservationChart({
             margins: markers?.length ? MARKER_MARGINS : BAR_MARGINS,
             tooltip: { pinnable: false, hitArea: 'band', valueFormatter },
         }),
-        [xAxis, yAxisValueFormatter, valueFormatter, goalValue, markers?.length]
+        [xAxis, yAxisValueFormatter, valueFormatter, goalValue, goalLines, markers?.length]
     )
 
     return (

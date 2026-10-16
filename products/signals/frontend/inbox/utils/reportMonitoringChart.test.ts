@@ -1,6 +1,12 @@
 import { NodeKind, type TrendsQuery } from '~/queries/schema/schema-general'
 
-import { monitoringChartMarkers, monitoringChartPoints, monitoringChartQuery } from './reportMonitoringChart'
+import { reportMetricsFixture } from '../__mocks__/reportMetricMocks'
+import {
+    monitoringChartMarkers,
+    monitoringChartPoints,
+    monitoringChartQuery,
+    monitoringChartTargetLines,
+} from './reportMonitoringChart'
 
 const now = Date.parse('2026-08-29T12:00:00Z')
 const query: TrendsQuery = {
@@ -58,5 +64,109 @@ describe('Monitoring chart context', () => {
         if (markers.length === 2) {
             expect(markers[0].value).toBe('2026-08-27')
         }
+    })
+    const targetMetric = {
+        ...reportMetricsFixture[1],
+        goal_value: 70,
+        goal_direction: 'at_most' as const,
+        query: {
+            kind: NodeKind.InsightVizNode,
+            source: { ...query, series: [{ kind: NodeKind.EventsNode, event: 'checkout_failed', math: 'total' }] },
+        },
+    }
+    const targetOptions = {
+        metric: targetMetric,
+        monitoring: { referencePeriodMinutes: 10080, thresholdScaling: 'linear' as const },
+        interval: 'day' as const,
+        labels: ['2026-08-27', '2026-08-28', '2026-08-29'],
+        timezone: 'UTC',
+    }
+
+    it.each([
+        [10080, 'day', 70, 10, 'Avg goal: ≤10/day'],
+        [1440, 'hour', 24, 1, 'Avg goal: ≤1/hour'],
+        [60, 'minute', 30, 0.5, 'Avg goal: ≤0.5/minute'],
+    ] as const)('normalizes a %s minute additive target to full %s buckets', (period, interval, goal, value, label) => {
+        expect(
+            monitoringChartTargetLines({
+                ...targetOptions,
+                metric: { ...targetMetric, goal_value: goal },
+                monitoring: { ...targetOptions.monitoring, referencePeriodMinutes: period },
+                interval,
+            })
+        ).toEqual([expect.objectContaining({ value, label })])
+    })
+
+    it('draws both inclusive bounds in the chart bucket units', () => {
+        expect(monitoringChartTargetLines({ ...targetOptions, bounds: { lower: 70, upper: 140 } })).toEqual([
+            expect.objectContaining({ value: 10, label: 'Avg goal: ≥10/day' }),
+            expect.objectContaining({ value: 20, label: 'Avg goal: ≤20/day' }),
+        ])
+    })
+
+    it.each([
+        ['avg', 'fixed', true],
+        ['p95', 'fixed', true],
+        ['total', 'fixed', false],
+        ['sum', 'fixed', false],
+        ['dau', 'fixed', false],
+        ['hogql', 'fixed', false],
+        ['avg', 'linear', false],
+        [null, 'linear', true],
+    ] as const)('matches %s aggregation to a %s reference', (math, thresholdScaling, visible) => {
+        const result = monitoringChartTargetLines({
+            ...targetOptions,
+            monitoring: { ...targetOptions.monitoring, thresholdScaling },
+            metric: {
+                ...targetMetric,
+                kind: 'custom',
+                value_format: 'number',
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: { ...query, series: [{ kind: NodeKind.EventsNode, event: 'checkout_failed', math }] },
+                },
+            },
+        })
+        expect(result).toHaveLength(visible ? 1 : 0)
+        if (visible) {
+            expect(result[0].value).toBe(thresholdScaling === 'linear' ? 10 : 70)
+        }
+    })
+
+    it('keeps a fixed percentage target on the rate scale without inferring it from formatting', () => {
+        const metric = { ...reportMetricsFixture[2], goal_value: 0.4, goal_direction: 'at_least' as const }
+        const options = {
+            ...targetOptions,
+            metric,
+            monitoring: { ...targetOptions.monitoring, thresholdScaling: 'fixed' as const },
+        }
+        expect(monitoringChartTargetLines(options)).toEqual([
+            expect.objectContaining({ value: 0.4, label: 'Target: ≥40%' }),
+        ])
+        expect(monitoringChartTargetLines({ ...options, metric: { ...metric, kind: 'custom' } })).toEqual([])
+    })
+
+    it('omits a horizontal count reference when daylight-saving days have unequal durations', () => {
+        const options = { ...targetOptions, labels: ['2026-11-01', '2026-11-02'] }
+        expect(monitoringChartTargetLines({ ...options, timezone: 'America/Los_Angeles' })).toEqual([])
+        expect(monitoringChartTargetLines(options)[0].value).toBe(10)
+    })
+
+    it('does not present a formula count or a missing definition as a bucket target', () => {
+        expect(monitoringChartTargetLines({ ...targetOptions, monitoring: { referencePeriodMinutes: 10080 } })).toEqual(
+            []
+        )
+        expect(
+            monitoringChartTargetLines({
+                ...targetOptions,
+                metric: {
+                    ...targetMetric,
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: { ...query, trendsFilter: { formula: 'A * 2' } },
+                    },
+                },
+            })
+        ).toEqual([])
     })
 })

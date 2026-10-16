@@ -21,6 +21,7 @@ import {
     monitoringChartMarkers,
     monitoringChartPoints,
     monitoringChartQuery,
+    monitoringChartTargetLines,
     type ReportMonitoringChartWindow,
 } from '../../utils/reportMonitoringChart'
 import { ReportObservationChart } from './ReportObservationChart'
@@ -92,6 +93,18 @@ export function ReportCheckMetricChart({
                 interval={chartQuery.interval}
                 markers={
                     monitoring ? monitoringChartMarkers(points.labels, monitoring, observedAt, timezone) : undefined
+                }
+                goalLines={
+                    monitoring
+                        ? monitoringChartTargetLines({
+                              metric,
+                              monitoring,
+                              interval: chartQuery.interval,
+                              labels: points.labels,
+                              timezone,
+                              bounds: goalBounds,
+                          })
+                        : undefined
                 }
                 goalValue={!monitoring && goalGrain === 'per_interval' ? (goal ?? undefined) : undefined}
             />

@@ -109,6 +109,7 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                         config.monitoring
                                             ? {
                                                   referencePeriodMinutes: config.monitoring.reference_period_minutes,
+                                                  thresholdScaling: config.monitoring.threshold_scaling,
                                                   startedAt: report.monitoring_started_at,
                                               }
                                             : undefined
@@ -130,6 +131,10 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                         </p>
                                         <p className="m-0">
                                             The chart shows surrounding activity. Future dates have no measurements.
+                                        </p>
+                                        <p className="m-0">
+                                            Target lines show a reference for a full chart interval. Individual buckets
+                                            do not decide the outcome.
                                         </p>
                                         {config.baseline_value != null && (
                                             <p className="m-0">

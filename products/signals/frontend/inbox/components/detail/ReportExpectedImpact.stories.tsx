@@ -65,7 +65,9 @@ const meta: Meta<typeof ReportExpectedImpact> = {
                                   context.parameters.monitoringDefinition
                                       ? {
                                             ...check,
-                                            title: 'Checkout errors stay low',
+                                            title: context.parameters.rateTarget
+                                                ? 'Checkout conversion recovers'
+                                                : 'Checkout errors stay low',
                                             config: {
                                                 ...check.config,
                                                 metric_kind: 'occurrences',
@@ -87,14 +89,26 @@ const meta: Meta<typeof ReportExpectedImpact> = {
                                                         ],
                                                     },
                                                 },
+                                                ...(context.parameters.rateTarget
+                                                    ? {
+                                                          metric_kind: 'conversion_rate',
+                                                          value_format: 'percentage_scaled',
+                                                          unit: null,
+                                                          comparison: { operator: 'gte', value: 0.4 },
+                                                          baseline_value: 0.34,
+                                                          query: reportMetricsFixture[2].query,
+                                                      }
+                                                    : {}),
                                                 ...(context.parameters.monitoringGateOff
                                                     ? {}
                                                     : {
                                                           monitoring: {
                                                               reference_period_minutes: 10080,
-                                                              threshold_scaling: context.parameters.fixedTarget
-                                                                  ? 'fixed'
-                                                                  : 'linear',
+                                                              threshold_scaling:
+                                                                  context.parameters.fixedTarget ||
+                                                                  context.parameters.rateTarget
+                                                                      ? 'fixed'
+                                                                      : 'linear',
                                                               baseline_period_minutes: 20160,
                                                           },
                                                       }),
@@ -187,4 +201,13 @@ export const LoadFailure: Story = { parameters: { loadFailure: true } }
 
 export const ReplacementUnavailable: Story = {
     parameters: { featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: false } },
+}
+
+export const MonitoringRateTarget: Story = {
+    args: MonitoringDefinition.args,
+    parameters: {
+        monitoringDefinition: true,
+        rateTarget: true,
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
+    },
 }
