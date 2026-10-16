@@ -24,7 +24,7 @@ class OutputSchema:
     strict: bool = True
 
 
-@dataclass
+@dataclass(frozen=False)
 class CompletionRequest:
     """Request for LLM completion"""
 
