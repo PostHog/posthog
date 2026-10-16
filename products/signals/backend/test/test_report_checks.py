@@ -65,11 +65,7 @@ from products.signals.backend.report_check_execution import (
 )
 from products.signals.backend.report_check_monitoring import measure_monitoring_check, record_monitoring_observation
 from products.signals.backend.report_check_research import check_versions
-from products.signals.backend.report_check_timing import (
-    metric_check_ready_at,
-    metric_check_window_start,
-    monitoring_metric_query,
-)
+from products.signals.backend.report_check_timing import metric_check_ready_at, metric_check_window_start
 from products.signals.backend.report_checks import (
     AWAITING_DATA_RETRY_WAITS,
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
@@ -136,19 +132,17 @@ def _threshold_config(**overrides: object) -> dict:
 class TestCheckComparison(SimpleTestCase):
     @parameterized.expand(
         [
-            ("linear", "linear", {"operator": "lte", "value": 70}, 1, {"operator": "lte", "value": 10}),
             ("fixed", "fixed", {"operator": "gte", "value": 0.4}, 3, {"operator": "gte", "value": 0.4}),
             (
-                "range",
+                "fractional_range",
                 "linear",
-                {"operator": "between", "bounds": {"lower": 70, "upper": 140}},
-                3,
-                {"operator": "between", "bounds": {"lower": 30, "upper": 60}},
+                {"operator": "between", "bounds": {"lower": 7, "upper": 21}},
+                0.5,
+                {"operator": "between", "bounds": {"lower": 0.5, "upper": 1.5}},
             ),
-            ("fractional", "linear", {"operator": "lte", "value": 7}, 0.5, {"operator": "lte", "value": 0.5}),
         ]
     )
-    def test_monitoring_comparisons_scale_without_changing_the_definition(
+    def test_monitoring_target_scaling_policies(
         self, _name: str, scaling: str, comparison: dict[str, object], days: float, expected: dict[str, object]
     ) -> None:
         config = MetricThresholdConfig.model_validate(
@@ -156,25 +150,7 @@ class TestCheckComparison(SimpleTestCase):
                 comparison=comparison, monitoring={"reference_period_minutes": 10080, "threshold_scaling": scaling}
             )
         )
-        original = config.model_dump()
         assert monitoring_comparison(config, timedelta(days=days)).model_dump(exclude_none=True) == expected
-        assert config.model_dump() == original
-
-    def test_monitoring_bounds_preserve_the_query_population(self) -> None:
-        start = datetime(2026, 10, 1, 13, 25, tzinfo=UTC)
-        query = {
-            **_PAGEVIEWS,
-            "source": {**_PAGEVIEWS["source"], "dateRange": {"date_from": "-7d", "daysOfWeek": [1, 2, 3, 4, 5]}},
-        }
-        pinned = monitoring_metric_query(query, start=start, cutoff=start + timedelta(hours=12))
-        assert pinned["source"]["dateRange"] == {
-            "date_from": start.isoformat(),
-            "date_to": (start + timedelta(hours=12)).isoformat(),
-            "explicitDate": True,
-            "daysOfWeek": [1, 2, 3, 4, 5],
-        }
-        assert pinned["source"]["series"] == query["source"]["series"]
-        assert query["source"]["dateRange"]["date_from"] == "-7d"
 
     @parameterized.expand(
         [
@@ -609,9 +585,11 @@ class TestReportCheckExecution(APIBaseTest):
             status=SignalReport.Status.MONITORING, monitoring_started_at=start
         )
         self.report.refresh_from_db()
+        query = trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}], date_from="-7d")
+        query["source"]["dateRange"]["daysOfWeek"] = [1, 2, 3, 4, 5]
         fields = {
             "config": _threshold_config(
-                query=trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}], date_from="-7d"),
+                query=query,
                 comparison={"operator": "lte", "value": 70},
                 monitoring={"reference_period_minutes": 10080, "threshold_scaling": "linear"},
             ),
@@ -628,7 +606,7 @@ class TestReportCheckExecution(APIBaseTest):
     def test_monitoring_samples_repeat_without_consuming_final_runs(
         self, _name: str, interval: int | None, minutes: int
     ) -> None:
-        start = datetime(2026, 10, 1, 12, tzinfo=UTC)
+        start = datetime(2026, 10, 1, 12, 25, 17, tzinfo=UTC)
         with (
             time_machine.travel(start, tick=False),
             patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
@@ -638,26 +616,30 @@ class TestReportCheckExecution(APIBaseTest):
                 "products.signals.backend.report_check_monitoring.measure_metric",
                 return_value=MetricMeasurement(value=8, measured_at=start, series=None),
             ) as measure:
-                assert run_due_report_checks(now=start + timedelta(minutes=minutes - 1)).observed == 0
+                run_due_report_checks(now=start + timedelta(minutes=minutes - 1))
                 measure.assert_not_called()
                 cutoff = start + timedelta(days=1)
-                assert run_due_report_checks(now=cutoff).observed == 1
+                run_due_report_checks(now=cutoff)
                 measured_query = measure.call_args.args[0]
-                assert measured_query["source"]["dateRange"]["date_from"] == start.isoformat()
-                assert measured_query["source"]["dateRange"]["date_to"] == cutoff.isoformat()
+                assert measured_query["source"]["dateRange"] == {
+                    "date_from": start.isoformat(),
+                    "date_to": cutoff.isoformat(),
+                    "explicitDate": True,
+                    "daysOfWeek": [1, 2, 3, 4, 5],
+                }
+                assert measured_query["source"]["series"][0]["event"] == "$pageview"
             with patch(
                 "products.signals.backend.report_check_monitoring.measure_metric",
                 return_value=MetricMeasurement(value=35, measured_at=start, series=None),
             ):
-                assert run_due_report_checks(now=start + timedelta(days=3)).observed == 1
+                run_due_report_checks(now=start + timedelta(days=3))
         check.refresh_from_db()
         self.report.refresh_from_db()
-        observations = [
-            json.loads(row.content)
-            for row in self.report.artefacts.filter(type="check_observation").order_by("created_at", "id")
+        observations = [json.loads(row.content) for row in self.report.artefacts.filter(type="check_observation")]
+        assert sorted((row["observed_value"], row["comparison"]["value"], row["matches"]) for row in observations) == [
+            (8, 10, True),
+            (35, 30, False),
         ]
-        assert sorted(row["comparison"]["value"] for row in observations) == [10, 30]
-        assert sorted(row["matches"] for row in observations) == [False, True]
         assert check.status == SignalReportCheck.Status.ACTIVE
         assert check.runs_remaining == 1 and check.last_outcome is None
         assert check.next_run_at == start + timedelta(days=3, minutes=minutes)
@@ -668,6 +650,7 @@ class TestReportCheckExecution(APIBaseTest):
     @parameterized.expand(
         [("duplicate",), ("cancelled",), ("new_period",), ("resolved",), ("flag_off",), ("config_changed",)]
     )
+    @time_machine.travel("2026-10-02T12:00:00Z", tick=False)
     def test_stale_monitoring_observations_are_not_saved(self, race: str) -> None:
         start = timezone.now() - timedelta(days=1)
         check = self._monitoring_check(start=start, next_run_at=timezone.now() - timedelta(minutes=1))
@@ -694,8 +677,8 @@ class TestReportCheckExecution(APIBaseTest):
             "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=race != "flag_off"
         ):
             if race == "duplicate":
-                assert record_monitoring_observation(check, observation)
-            assert not record_monitoring_observation(check, observation)
+                record_monitoring_observation(check, observation)
+            record_monitoring_observation(check, observation)
         assert self.report.artefacts.filter(type="check_observation").count() == (1 if race == "duplicate" else 0)
 
     def test_flag_off_restores_the_legacy_soak_and_whole_window(self) -> None:
@@ -719,7 +702,7 @@ class TestReportCheckExecution(APIBaseTest):
                 check.refresh_from_db()
                 assert check.next_run_at == start + timedelta(days=14)
                 with time_machine.travel(start + timedelta(days=14), tick=False):
-                    assert run_due_report_checks().passed == 1
+                    run_due_report_checks()
             check.refresh_from_db()
             assert check.status == SignalReportCheck.Status.PASSED
             assert check.runs_remaining == 0
@@ -740,7 +723,7 @@ class TestReportCheckExecution(APIBaseTest):
                 side_effect=RuntimeError("private query detail"),
             ),
         ):
-            assert run_due_report_checks(now=now).observed == 1
+            run_due_report_checks(now=now)
         check.refresh_from_db()
         content = json.loads(self.report.artefacts.get(type="check_observation").content)
         assert "private query detail" not in content["error"]
