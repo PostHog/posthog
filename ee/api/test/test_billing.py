@@ -1081,6 +1081,8 @@ class TestActivateBillingAPI(APILicensedTest):
     @parameterized.expand(
         [
             ("billing_refusal", 400, status.HTTP_400_BAD_REQUEST, "payment_authorization_rejected"),
+            ("billing_unauthorized", 401, status.HTTP_400_BAD_REQUEST, "payment_authorization_rejected"),
+            ("billing_not_found", 404, status.HTTP_400_BAD_REQUEST, "payment_authorization_rejected"),
             ("billing_failure", 500, status.HTTP_502_BAD_GATEWAY, "billing_service_error"),
         ]
     )
