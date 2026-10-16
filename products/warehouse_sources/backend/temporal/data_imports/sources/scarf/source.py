@@ -74,7 +74,7 @@ class ScarfSource(ResumableSource[ScarfSourceConfig, ScarfResumeConfig], CursorS
             keywords=["open source", "package downloads", "oss"],
             caption="""Sync package downloads, pixel views and matched companies from Scarf.
 
-Copy your API token from your [Scarf account settings](https://app.scarf.sh/account). The owner is your Scarf user name or organization name. Event exports need a Scarf Basic or Premium plan, and each day synced uses one export run.""",
+Copy your API token from your [Scarf account settings](https://app.scarf.sh/account). The owner is your Scarf user name or organization name. Event exports need a Scarf Basic or Premium plan, and each day synced uses one export run. A full refresh of an event table exports the whole history window again on every sync, so prefer incremental syncs for those tables.""",
             iconPath="/static/services/scarf.png",
             docsUrl="https://posthog.com/docs/cdp/sources/scarf",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -135,7 +135,7 @@ Copy your API token from your [Scarf account settings](https://app.scarf.sh/acco
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # A resumed export reads its last day again, so an append table would hold that day twice.
+        # Today is exported again on the next run, and exports are at-least-once, so only a merge keeps one row per event.
         return build_endpoint_schemas(
             ENDPOINTS,
             INCREMENTAL_FIELDS,

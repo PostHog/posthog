@@ -1,3 +1,4 @@
+import csv
 import tempfile
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -99,7 +100,8 @@ def csv_to_table(source: BinaryIO) -> pa.Table:
         # A day with no events is the header alone, which Arrow refuses to parse.
         return pa.table({})
     source.seek(0)
-    names = header.decode("utf-8").split(",")
+    # utf-8-sig drops a byte order mark, and the csv reader handles quoted names.
+    names = next(csv.reader([header.decode("utf-8-sig")]))
     table = pa_csv.read_csv(
         source,
         convert_options=pa_csv.ConvertOptions(

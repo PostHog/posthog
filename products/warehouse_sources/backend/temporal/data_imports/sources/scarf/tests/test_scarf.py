@@ -173,9 +173,8 @@ def test_lists_follow_the_next_link_and_refuse_one_that_leaves_scarf() -> None:
 
 
 def test_company_rollup_counts_are_numbers() -> None:
-    body = (
-        "company_name,company_domain,funnel_stage,total_events,total_views\nAcme,acme.example.com,experimentation,12,\n"
-    )
+    # A byte order mark and quoted names must not change the column names the types are keyed on.
+    body = '\ufeff"company_name","company_domain","funnel_stage","total_events","total_views"\nAcme,acme.example.com,experimentation,12,\n'
 
     result = _driver().run("company_rollup", [ScriptedResponse(body=body.encode())])
 
