@@ -175,6 +175,21 @@ const STORY_BREAKDOWNS_RESPONSE = {
             ],
             total_count: 38,
         },
+        $screen_name: {
+            values: [
+                { value: 'Checkout', count: 21 },
+                { value: 'Settings', count: 11 },
+                { value: 'Home', count: 6 },
+            ],
+            total_count: 38,
+        },
+        $os_name: {
+            values: [
+                { value: 'iOS', count: 24 },
+                { value: 'Android', count: 14 },
+            ],
+            total_count: 38,
+        },
         release_channel: {
             values: [
                 { value: 'stable', count: 25 },

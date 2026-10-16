@@ -24,6 +24,7 @@ jobs:
         name: Determine need to run skill checks
         outputs:
             skills: ${{ steps.filter.outputs.skills || 'true' }}
+            lint: ${{ steps.filter.outputs.lint || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -55,6 +56,37 @@ jobs:
                         # 'products/*/frontend/**', so a future deliberate frontend
                         # include here isn't silently vetoed.
                         - '!products/posthog_ai/frontend/**'
+                      lint:
+                        - '.agents/skills/**'
+                        - 'products/*/skills/**'
+                        - 'products/posthog_ai/scripts/build_skills/**'
+                        - 'services/mcp/schema/**'
+                        - '.github/workflows/ci-agent-skills.yml'
+
+    lint-skills:
+        name: Lint agent skills
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        needs: changes
+        if: needs.changes.outputs.lint == 'true'
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install uv
+              uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            # Same as `hogli lint:skills`. The lint needs no Django or database, so this job
+            # skips the dev environment that check-skills builds, and a .agents/skills edit
+            # gets the check without the full skills build.
+            - name: Lint skills
+              run: >-
+                  uv run --no-project --python 3.12
+                  --with jinja2==3.1.6 --with pydantic==2.12.5 --with pyyaml==6.0.3
+                  python -m products.posthog_ai.scripts.build_skills --lint
 
     check-skills:
         name: Check agent skills
@@ -194,9 +226,6 @@ jobs:
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
-            - name: Lint skills
-              run: ./bin/hogli lint:skills
-
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -305,7 +334,7 @@ jobs:
         name: Release agent skills
         runs-on: ubuntu-24.04
         timeout-minutes: 10
-        needs: [check-skills, current-master]
+        needs: [lint-skills, check-skills, current-master]
         if: github.repository_owner == 'PostHog' && github.ref == 'refs/heads/master' && needs.current-master.outputs.is-current == 'true'
         permissions:
             contents: write
