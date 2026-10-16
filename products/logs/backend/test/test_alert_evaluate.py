@@ -233,9 +233,10 @@ class TestLogsAlertEvaluation(APIBaseTest):
             (check,) = due_checks(self.team.id, SourceKind.LOGS.value, self._slot(), self.cutoff)
             copied = platform_testing.configuration(check.id)
 
-        evaluation, _ = self._run(copied)
+        evaluation, query = self._run(copied)
 
         assert [(g.kind, g.value) for o in evaluation.outcomes for g in o.groups] == [(AlertEventKind.FIRING, 500.0)]
+        assert [alert.filters for alert in query.call_args.kwargs["alerts"]] == [{"serviceNames": ["api"]}]
 
     def test_a_cohort_query_is_capped_below_the_batch_budget(self) -> None:
         _, query = self._run(self._configuration())

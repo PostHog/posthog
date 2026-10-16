@@ -324,11 +324,6 @@ class PlatformAlertCheckInput:
         ]
 
     @property
-    def filters(self) -> dict[str, Any]:
-        """Satisfies the logs query layer, which names this field `filters`."""
-        return self.source_config
-
-    @property
     def condition(self) -> dict[str, Any]:
         return source_condition(self.source_config)
 

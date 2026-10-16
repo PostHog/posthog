@@ -20,7 +20,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
 from itertools import batched
-from typing import Final, cast
+from typing import Any, Final, cast
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -99,6 +99,7 @@ from products.logs.backend.alert_group_columns import GROUP_COLUMNS
 from products.logs.backend.alert_lookback import rolling_check_lookback_minutes
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import platform_upsert_of
+from products.logs.backend.platform_source_config import filters_of
 
 # Private to the production activity. Reimplementing either would let this path drift from
 # what the logs stack evaluates. Promoting them to a shared home is the deeper fix.
@@ -170,6 +171,19 @@ class LogsAlertCondition:
         )
 
 
+@frozen
+class _QuerySubject:
+    """A check as the logs query layer reads it, with the filters out of `source_config`."""
+
+    id: UUID
+    team_id: int
+    filters: dict[str, Any]
+
+    @classmethod
+    def of(cls, check: PlatformAlertCheckInput) -> "_QuerySubject":
+        return cls(id=check.id, team_id=check.team_id, filters=filters_of(check.source_config))
+
+
 # The copy's settings a check takes from the logs alert as it is now. The schedule stays the
 # platform's own once the copy exists.
 _SETTINGS_FIELDS: Final = (
@@ -222,7 +236,7 @@ class _QueryShape:
         return cls(
             window_minutes=check.condition.get("window_minutes"),
             evaluation_periods=check.evaluation_periods,
-            projection_eligible=is_projection_eligible(check.source_config),
+            projection_eligible=is_projection_eligible(filters_of(check.source_config)),
         )
 
 
@@ -581,7 +595,7 @@ def _evaluate_cohort(
     try:
         result = BatchedAlertCheckQuery(
             team=team,
-            alerts=checks,
+            alerts=[_QuerySubject.of(check) for check in checks],
             date_from=date_to - timedelta(minutes=lookback),
             date_to=date_to,
             projection_eligible=projection_eligible,
@@ -775,7 +789,7 @@ def _evaluate_grouped(
     try:
         result = GroupedAlertCheckQuery(
             team=team,
-            alert=check,
+            alert=_QuerySubject.of(check),
             date_from=date_to - timedelta(minutes=lookback),
             date_to=date_to,
             group_by=check.grouping.keys,
@@ -870,7 +884,9 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
     muted_ids: set[UUID] = set()
     for check in checks:
         broken_reason = (
-            _detect_broken_filter_config(check.source_config) or _broken_condition(check) or _broken_grouping(check)
+            _detect_broken_filter_config(filters_of(check.source_config))
+            or _broken_condition(check)
+            or _broken_grouping(check)
         )
         if broken_reason is not None:
             logger.warning(
