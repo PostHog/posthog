@@ -789,3 +789,54 @@ class TestFakePersonHogClientVersionRpcs:
         with pytest.raises(ValueError, match=error):
             self._ensure_persons(*((k, min_version) for k in keys))
         assert self.client.stored_person(self.TEAM_ID, keys[0]) is None
+
+
+class TestFakePersonHogClientRepairWrites:
+    TEAM_ID = 7
+    LIVE = "00000000-0000-0000-0000-000000000001"
+    OTHER = "00000000-0000-0000-0000-000000000002"
+    TOMB = "00000000-0000-0000-0000-000000000003"
+    MISSING = "00000000-0000-0000-0000-000000000004"
+
+    def setup_method(self):
+        self.client = FakePersonHogClient()
+        self.client.add_person(team_id=self.TEAM_ID, person_id=1, uuid=self.LIVE, version=2, distinct_ids=["live-did"])
+        self.client.add_person(team_id=self.TEAM_ID, person_id=2, uuid=self.OTHER, distinct_ids=["other-did"])
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=3,
+            uuid=self.TOMB,
+            version=4,
+            is_deleted=True,
+            distinct_ids=["stray-did"],
+        )
+
+    def test_raise_person_floors_raises_only_live_persons(self):
+        response = self.client.raise_person_version_floors(
+            person_pb2.RaisePersonVersionFloorsRequest(
+                team_id=self.TEAM_ID,
+                floors=[
+                    person_pb2.PersonVersionFloor(person_uuid=u, min_version=5)
+                    for u in (self.LIVE, self.TOMB, self.MISSING)
+                ],
+            )
+        )
+        assert [(r.outcome, r.version) for r in response.results] == [
+            (person_pb2.RAISE_OUTCOME_RAISED, 5),
+            (person_pb2.RAISE_OUTCOME_NOT_LIVE, 4),
+            (person_pb2.RAISE_OUTCOME_MISSING, 0),
+        ]
+
+    def test_rejects_a_repeated_uuid_before_any_write(self):
+        with pytest.raises(ValueError, match="Duplicate key"):
+            self.client.raise_person_version_floors(
+                person_pb2.RaisePersonVersionFloorsRequest(
+                    team_id=self.TEAM_ID,
+                    floors=[
+                        person_pb2.PersonVersionFloor(person_uuid=self.LIVE, min_version=9),
+                        person_pb2.PersonVersionFloor(person_uuid=self.LIVE.upper(), min_version=9),
+                    ],
+                )
+            )
+        live = self.client.stored_person(self.TEAM_ID, self.LIVE)
+        assert live is not None and live.version == 2

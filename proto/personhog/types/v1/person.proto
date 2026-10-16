@@ -623,3 +623,81 @@ message FoldPersonDocumentResponse {
   // effects for this person.
   Person person = 1;
 }
+
+// A persons-database mapping row, live or tombstoned, with the state of the person it points at.
+message DistinctIdRow {
+  string distinct_id = 1;
+  int64 person_id = 2;
+  // Absent for an orphan row whose person no longer exists.
+  optional string person_uuid = 3;
+  int64 version = 4;
+  bool is_deleted = 5;
+  // Absent for an orphan row whose person no longer exists.
+  optional bool person_is_deleted = 6;
+}
+
+message GetDistinctIdRowsRequest {
+  int64 team_id = 1;
+  // At most 1000. Distinct ids with no row are left out of the response.
+  repeated string distinct_ids = 2;
+  ReadOptions read_options = 3;
+}
+
+message GetDistinctIdRowsResponse {
+  repeated DistinctIdRow rows = 1;
+}
+
+// One persons-database person row, live or tombstoned, without properties.
+message PersonListEntry {
+  int64 id = 1;
+  string uuid = 2;
+  int64 version = 3;
+  bool is_deleted = 4;
+  // Whether any live mapping row points at this person.
+  bool has_live_distinct_ids = 5;
+  int64 created_at_ms = 6;
+}
+
+message ListPersonsForTeamRequest {
+  int64 team_id = 1;
+  // Keyset cursor: return persons with id > after_person_id, in id order.
+  int64 after_person_id = 2;
+  // Persons per page. 0 means 1000; at most 10000.
+  int64 limit = 3;
+  ReadOptions read_options = 4;
+  // When set, return only persons with id < before_person_id, so a caller can scan id ranges in parallel.
+  optional int64 before_person_id = 5;
+}
+
+message ListPersonsForTeamResponse {
+  repeated PersonListEntry persons = 1;
+  // Absent when this page is the last one.
+  optional int64 next_after_person_id = 2;
+}
+
+// Raise live persons' versions for the person consistency repair. Tombstoned and
+// missing persons are left unchanged; EnsurePersonVersionFloors handles tombstones.
+message RaisePersonVersionFloorsRequest {
+  int64 team_id = 1;
+  // At most 250, no repeated uuid.
+  repeated PersonVersionFloor floors = 2;
+}
+
+enum RaiseOutcome {
+  RAISE_OUTCOME_UNSPECIFIED = 0;
+  RAISE_OUTCOME_RAISED = 1;
+  RAISE_OUTCOME_AT_OR_ABOVE = 2;
+  RAISE_OUTCOME_NOT_LIVE = 3;
+  RAISE_OUTCOME_MISSING = 4;
+}
+
+message RaisePersonVersionFloorResult {
+  string person_uuid = 1;
+  RaiseOutcome outcome = 2;
+  // The version the row holds after the call; 0 when missing.
+  int64 version = 3;
+}
+
+message RaisePersonVersionFloorsResponse {
+  repeated RaisePersonVersionFloorResult results = 1;
+}

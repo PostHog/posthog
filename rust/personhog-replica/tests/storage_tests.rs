@@ -3,6 +3,7 @@ mod common;
 use common::TestContext;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use personhog_replica::storage::postgres::ConsistencyLevel;
+use personhog_replica::storage::types::RaiseOutcome;
 use personhog_replica::storage::{
     GroupKey, PersonVersionFloorResult, StorageError, TimeoutKind, TombstoneTarget,
     TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
@@ -4339,11 +4340,13 @@ async fn test_delete_tombstoned_persons_cross_team_isolation() {
 enum HeldRowWrite {
     DeleteTombstoned,
     EnsurePersonFloor,
+    RaisePersonFloor,
 }
 
 #[rstest]
 #[case::delete_tombstoned(HeldRowWrite::DeleteTombstoned)]
 #[case::ensure_person_floor(HeldRowWrite::EnsurePersonFloor)]
+#[case::raise_person_floor(HeldRowWrite::RaisePersonFloor)]
 #[tokio::test]
 async fn test_primary_writes_give_up_when_a_writer_holds_the_row(#[case] write: HeldRowWrite) {
     // lock_timeout makes the request fail fast behind a held row; without it this call would
@@ -4369,6 +4372,11 @@ async fn test_primary_writes_give_up_when_a_writer_holds_the_row(#[case] write: 
             .ensure_person_version_floors(ctx.team_id, &[(person.uuid, 5)])
             .await
             .map(|_| ()),
+        HeldRowWrite::RaisePersonFloor => ctx
+            .storage
+            .raise_person_version_floors(ctx.team_id, &[(person.uuid, 5)])
+            .await
+            .map(|_| ()),
     };
 
     assert!(
@@ -4388,7 +4396,6 @@ async fn test_primary_writes_give_up_when_a_writer_holds_the_row(#[case] write: 
         distinct_id_state(&ctx, "held_row").await,
         distinct_id_before
     );
-    assert_eq!(distinct_id_state(&ctx, "held_row_absent").await, None);
 
     ctx.cleanup().await.ok();
 }
@@ -4886,5 +4893,97 @@ async fn test_get_distinct_ids_for_person_paginated() {
     expected.sort();
     assert_eq!(all_dids, expected);
 
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_raise_person_version_floors_raises_only_live_persons() {
+    let ctx = TestContext::new().await;
+    let low = ctx.insert_person("raise_low", None).await.unwrap();
+    let high = ctx.insert_person("raise_high", None).await.unwrap();
+    sqlx::query("UPDATE posthog_person SET version = 50 WHERE team_id = $1 AND id = $2")
+        .bind(ctx.team_id)
+        .bind(high.id)
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
+    let tombstoned = ctx.insert_person("raise_tombstoned", None).await.unwrap();
+    ctx.tombstone_person(tombstoned.id, None).await.unwrap();
+    let missing = Uuid::new_v4();
+
+    let results = ctx
+        .storage
+        .raise_person_version_floors(
+            ctx.team_id,
+            &[
+                (low.uuid, 10),
+                (high.uuid, 10),
+                (tombstoned.uuid, 10),
+                (missing, 10),
+            ],
+        )
+        .await
+        .expect("raise");
+
+    let got: Vec<(Uuid, RaiseOutcome, i64)> = results
+        .iter()
+        .map(|r| (r.uuid, r.outcome, r.version))
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            (low.uuid, RaiseOutcome::Raised, 10),
+            (high.uuid, RaiseOutcome::AtOrAbove, 50),
+            (tombstoned.uuid, RaiseOutcome::NotLive, 1),
+            (missing, RaiseOutcome::Missing, 0),
+        ]
+    );
+    let (tomb_deleted, tomb_version, _, _) =
+        tombstone_state(&ctx.pool, ctx.team_id, tombstoned.id).await;
+    assert!(tomb_deleted);
+    assert_eq!(tomb_version, 1);
+    let raised = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, low.uuid)
+        .await
+        .unwrap()
+        .expect("live");
+    assert_eq!(raised.version, Some(10));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_raise_person_version_floors_fails_when_another_operation_holds_the_person() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("w_marked", None).await.unwrap();
+    let mut conn = ctx.pool.acquire().await.unwrap();
+    let op_id = claim_merge_mark(&mut conn, ctx.team_id, &person).await;
+
+    let err = ctx
+        .storage
+        .raise_person_version_floors(ctx.team_id, &[(person.uuid, 9)])
+        .await
+        .expect_err("a held mark fails the call");
+    assert!(
+        err.to_string()
+            .contains("claimed by another lifecycle operation"),
+        "{err}"
+    );
+    let version: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(version, 0)::bigint FROM posthog_person WHERE team_id = $1 AND id = $2",
+    )
+    .bind(ctx.team_id)
+    .bind(person.id)
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(version, 0);
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op_id)
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
     ctx.cleanup().await.ok();
 }

@@ -36,8 +36,8 @@ use personhog_proto::personhog::types::v1::{
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
-    EnsurePersonVersionFloorsRequest, EnsurePersonVersionFloorsResponse,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    EnsurePersonVersionFloorsRequest, EnsurePersonVersionFloorsResponse, GetDistinctIdRowsRequest,
+    GetDistinctIdRowsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
     GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
@@ -50,13 +50,15 @@ use personhog_proto::personhog::types::v1::{
     GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
-    ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, Person,
-    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
-    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
-    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
-    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, ListPersonsForTeamRequest,
+    ListPersonsForTeamResponse, Person, PersonsByDistinctIdsInTeamResponse,
+    PersonsByDistinctIdsResponse, PersonsResponse, RaisePersonVersionFloorsRequest,
+    RaisePersonVersionFloorsResponse, SetPersonDistinctIdVersionFloorRequest,
+    SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
+    SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest,
+    UpdateGroupResponse, UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
 };
 use personhog_router::backend::{
     ChannelBackend, DnsBackendConfig, LeaderBackend, LeaderBackendConfig, StashTable,
@@ -545,6 +547,27 @@ impl PersonHogReplica for TestReplicaService {
         _request: Request<EnsurePersonVersionFloorsRequest>,
     ) -> Result<Response<EnsurePersonVersionFloorsResponse>, Status> {
         Ok(Response::new(EnsurePersonVersionFloorsResponse::default()))
+    }
+
+    async fn get_distinct_id_rows(
+        &self,
+        _request: Request<GetDistinctIdRowsRequest>,
+    ) -> Result<Response<GetDistinctIdRowsResponse>, Status> {
+        Ok(Response::new(GetDistinctIdRowsResponse::default()))
+    }
+
+    async fn list_persons_for_team(
+        &self,
+        _request: Request<ListPersonsForTeamRequest>,
+    ) -> Result<Response<ListPersonsForTeamResponse>, Status> {
+        Ok(Response::new(ListPersonsForTeamResponse::default()))
+    }
+
+    async fn raise_person_version_floors(
+        &self,
+        _request: Request<RaisePersonVersionFloorsRequest>,
+    ) -> Result<Response<RaisePersonVersionFloorsResponse>, Status> {
+        Ok(Response::new(RaisePersonVersionFloorsResponse::default()))
     }
 }
 

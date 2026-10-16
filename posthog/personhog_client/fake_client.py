@@ -22,7 +22,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from unittest.mock import patch
 
@@ -966,6 +966,107 @@ class FakePersonHogClient:
             if person.is_deleted:
                 person.version = max(person.version, floor.min_version)
             response.results.add(person_uuid=floor.person_uuid, outcome=outcome, version=person.version)
+        return response
+
+    # ── Consistency scan reads ───────────────────────────────────────
+
+    def get_distinct_id_rows(
+        self, request: person_pb2.GetDistinctIdRowsRequest, timeout: float | None = None
+    ) -> person_pb2.GetDistinctIdRowsResponse:
+        """Mapping rows, live or tombstoned, for mappings the fake tracks per person."""
+        self.calls.append(_Call("get_distinct_id_rows", request))
+        if len(request.distinct_ids) > 1000:
+            raise ValueError("Maximum 1000 distinct ids per request")
+        wanted = set(request.distinct_ids)
+        response = person_pb2.GetDistinctIdRowsResponse()
+        rows = []
+        for (team_id, person_id), mappings in self._distinct_ids.items():
+            if team_id != request.team_id:
+                continue
+            person = self._persons_by_id.get((team_id, person_id))
+            for mapping in mappings:
+                if mapping.distinct_id not in wanted:
+                    continue
+                row = person_pb2.DistinctIdRow(
+                    distinct_id=mapping.distinct_id,
+                    person_id=person_id,
+                    version=mapping.version or 0,
+                    is_deleted=(team_id, mapping.distinct_id) in self._tombstoned_distinct_ids,
+                )
+                if person is not None:
+                    row.person_uuid = person.uuid
+                    row.person_is_deleted = person.is_deleted
+                rows.append(row)
+        response.rows.extend(sorted(rows, key=lambda r: r.distinct_id))
+        return response
+
+    def list_persons_for_team(
+        self, request: person_pb2.ListPersonsForTeamRequest, timeout: float | None = None
+    ) -> person_pb2.ListPersonsForTeamResponse:
+        self.calls.append(_Call("list_persons_for_team", request))
+        limit = request.limit or 1000
+        if not 1 <= limit <= 10_000:
+            raise ValueError("limit must be between 1 and 10000")
+        persons = sorted(
+            (
+                p
+                for (team_id, person_id), p in self._persons_by_id.items()
+                if team_id == request.team_id
+                and person_id > request.after_person_id
+                and (not request.HasField("before_person_id") or person_id < request.before_person_id)
+            ),
+            key=lambda p: p.id,
+        )[:limit]
+        response = person_pb2.ListPersonsForTeamResponse()
+        for person in persons:
+            response.persons.add(
+                id=person.id,
+                uuid=person.uuid,
+                version=person.version,
+                is_deleted=person.is_deleted,
+                has_live_distinct_ids=any(
+                    (request.team_id, d.distinct_id) not in self._tombstoned_distinct_ids
+                    for d in self._distinct_ids.get((request.team_id, person.id), [])
+                ),
+                created_at_ms=person.created_at,
+            )
+        if len(persons) == limit:
+            response.next_after_person_id = persons[-1].id
+        return response
+
+    # ── Consistency repair writes ────────────────────────────────────
+    # Mirror the replica's outcomes; the fake has no lifecycle marks or row locks.
+
+    def _check_repair_batch(self, keys: list[str], versions: list[int], *, uuid_keys: bool) -> None:
+        """Mirror the server's INVALID_ARGUMENT checks, which reject the whole request before any write."""
+        self._check_version_rpc_batch(keys)
+        if any(v < 0 for v in versions):
+            raise ValueError("versions must not be negative")
+        if uuid_keys:
+            parsed = [UUID(k) for k in keys]
+            if len(set(parsed)) != len(parsed):
+                raise ValueError("Duplicate key in request")
+
+    def raise_person_version_floors(
+        self, request: person_pb2.RaisePersonVersionFloorsRequest, timeout: float | None = None
+    ) -> person_pb2.RaisePersonVersionFloorsResponse:
+        self.calls.append(_Call("raise_person_version_floors", request))
+        self._check_repair_batch(
+            [f.person_uuid for f in request.floors], [f.min_version for f in request.floors], uuid_keys=True
+        )
+        response = person_pb2.RaisePersonVersionFloorsResponse()
+        for floor in request.floors:
+            person = self._persons_by_uuid.get((request.team_id, floor.person_uuid))
+            if person is None:
+                outcome, version = person_pb2.RAISE_OUTCOME_MISSING, 0
+            elif person.is_deleted:
+                outcome, version = person_pb2.RAISE_OUTCOME_NOT_LIVE, person.version
+            elif person.version >= floor.min_version:
+                outcome, version = person_pb2.RAISE_OUTCOME_AT_OR_ABOVE, person.version
+            else:
+                person.version = floor.min_version
+                outcome, version = person_pb2.RAISE_OUTCOME_RAISED, person.version
+            response.results.add(person_uuid=floor.person_uuid, outcome=outcome, version=version)
         return response
 
     # ── Assertion helpers ────────────────────────────────────────────
