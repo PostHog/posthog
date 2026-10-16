@@ -270,12 +270,21 @@ const AssistantBareHogQLQuery = z
     })
     .catchall(z.unknown())
 
+const AssistantMetricsNodeKind = z.enum(['MetricsQuery', 'MetricsHistogramQuery'])
+
+const AssistantBareMetricsQuery = z
+    .object({
+        kind: AssistantMetricsNodeKind,
+    })
+    .catchall(z.unknown())
+
 const InsightQuery = z.union([
     AssistantDataTableNode,
     AssistantInsightVizNode,
     AssistantDataVisualizationNode,
     AssistantBareInsightQuery,
     AssistantBareHogQLQuery,
+    AssistantBareMetricsQuery,
     AssistantEventsQuery,
 ])
 

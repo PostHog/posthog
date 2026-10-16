@@ -529,6 +529,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "DataTableNode",
                 "EventsQuery",
             ),
+            (
+                "raw_metrics_query",
+                {
+                    "kind": "MetricsQuery",
+                    "clauses": [{"name": "a", "metricName": "process.cpu.utilization", "aggregation": "avg"}],
+                },
+                "MetricsQuery",
+                None,
+            ),
         ]
     )
     def test_mcp_create_and_update_normalize_query(

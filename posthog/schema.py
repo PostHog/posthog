@@ -47,6 +47,7 @@ from posthog.schema_enums import (
     AssistantGenericPropertyFilterType as AssistantGenericPropertyFilterType,
     AssistantLifecycleStatus as AssistantLifecycleStatus,
     AssistantMessageType as AssistantMessageType,
+    AssistantMetricsNodeKind as AssistantMetricsNodeKind,
     AssistantNavigateUrl as AssistantNavigateUrl,
     AssistantNumericValuePropertyFilterOperator as AssistantNumericValuePropertyFilterOperator,
     AssistantRetentionDisplayType as AssistantRetentionDisplayType,
@@ -3854,6 +3855,10 @@ class AssistantArrayPropertyFilter(BaseModel):
 
 class AssistantBareInsightQuery(BaseModel):
     kind: InsightNodeKind
+
+
+class AssistantBareMetricsQuery(BaseModel):
+    kind: AssistantMetricsNodeKind
 
 
 class AssistantBreakdownFilter(BaseModel):
@@ -19005,6 +19010,7 @@ class InsightQuery(
         | AssistantDataVisualizationNode
         | AssistantBareInsightQuery
         | AssistantBareHogQLQuery
+        | AssistantBareMetricsQuery
         | AssistantEventsQuery
     ]
 ):
@@ -19014,6 +19020,7 @@ class InsightQuery(
         | AssistantDataVisualizationNode
         | AssistantBareInsightQuery
         | AssistantBareHogQLQuery
+        | AssistantBareMetricsQuery
         | AssistantEventsQuery
     )
 

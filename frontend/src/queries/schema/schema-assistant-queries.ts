@@ -2047,6 +2047,14 @@ export interface AssistantBareHogQLQuery {
     [key: string]: unknown
 }
 
+// A metrics insight saves its query bare, not inside an `InsightVizNode`. The backend validates the body.
+export type AssistantMetricsNodeKind = NodeKind.MetricsQuery | NodeKind.MetricsHistogramQuery
+
+export interface AssistantBareMetricsQuery {
+    kind: AssistantMetricsNodeKind
+    [key: string]: unknown
+}
+
 export interface AssistantEventsQuery {
     kind: NodeKind.EventsQuery
     /** Event columns as HogQL expressions. */
@@ -2069,4 +2077,5 @@ export type InsightQuery =
     | AssistantDataVisualizationNode
     | AssistantBareInsightQuery
     | AssistantBareHogQLQuery
+    | AssistantBareMetricsQuery
     | AssistantEventsQuery
