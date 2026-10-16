@@ -9,10 +9,13 @@ description = "Records the v4 AI research replay dataset: sampled, unscrubbed, s
 workspace = true
 
 [dependencies]
+# The event ingestion restrictions capture and the replay lanes apply.
+capture = { path = "../../capture" }
 common-alloc = { path = "../../common/alloc" }
 common-database = { path = "../../common/database" }
 common-kafka = { path = "../../common/kafka" }
 common-metrics = { path = "../../common/metrics" }
+common-redis = { path = "../../common/redis" }
 lifecycle = { path = "../../common/lifecycle" }
 posthog-replay-anonymizer = { path = "../../replay-anonymizer", default-features = false }
 replay-core-v4 = { path = "../replay-core-v4" }

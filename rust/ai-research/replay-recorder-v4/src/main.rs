@@ -3,6 +3,8 @@ use std::time::Duration;
 
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
+use common_kafka::config::KafkaConfig;
+use common_kafka::kafka_producer::create_kafka_producer;
 use common_metrics::setup_metrics_routes;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
@@ -15,7 +17,8 @@ use replay_core_v4::keys::batch::KeyStore;
 use replay_core_v4::keys::kms::{AwsKms, CachedKms, KmsLimits};
 use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
 use replay_recorder_v4::config::Config;
-use replay_recorder_v4::consumer::{run, RecorderConsumer, Settings, Writer};
+use replay_recorder_v4::consumer::{run, RecorderConsumer, Settings, Sources, Writer};
+use replay_recorder_v4::limits::{RedisBlocklist, Restrictions};
 use replay_recorder_v4::store::S3Store;
 use replay_recorder_v4::teams::TeamCache;
 
@@ -43,6 +46,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_graceful_shutdown(Duration::from_secs(15))
             .with_liveness_deadline(Duration::from_secs(60)),
     );
+    let restrictions_handle = manager.register(
+        "event-restrictions",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+    );
+    // The producer reports itself live from librdkafka's statistics callback.
+    let producer_handle = config.write_enabled.then(|| {
+        manager.register(
+            "image-fetch-producer",
+            ComponentOptions::new()
+                .with_graceful_shutdown(Duration::from_secs(5))
+                .with_liveness_deadline(Duration::from_secs(60)),
+        )
+    });
     let metrics_handle = manager.register(
         "metrics-server",
         ComponentOptions::new().is_observability(true),
@@ -90,6 +106,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .refresh_every(pool, Duration::from_secs(config.team_refresh_secs)),
     );
 
+    let restrictions = Restrictions::default();
+    tokio::spawn(restrictions.clone().refresh_forever(
+        config.event_restrictions_redis_url.clone(),
+        Duration::from_secs(config.event_restrictions_refresh_secs),
+        restrictions_handle,
+    ));
+    // Before the first load no restriction applies, so nothing is read until it is in.
+    if !restrictions.wait_loaded(Duration::from_secs(60)).await {
+        return Err("the event ingestion restrictions did not load".into());
+    }
+    let blocklist =
+        Arc::new(RedisBlocklist::connect(config.session_recording_redis_url.clone()).await?);
+
     let consumer = RecorderConsumer::new(
         &config.kafka,
         &config.kafka_consumer_group,
@@ -101,8 +130,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         flush_interval: Duration::from_millis(config.flush_interval_ms),
         flush_max_bytes: config.flush_max_bytes,
         session_idle: Duration::from_secs(config.session_idle_secs),
+        redirecting_topic: (config.ingestion_overflow_mode == "redirect")
+            .then(|| config.kafka_topic.clone()),
     };
-    let writer = if config.write_enabled {
+    let writer = if let Some(producer_handle) = producer_handle {
         let aws = aws_config::defaults(aws_config::BehaviorVersion::latest())
             .load()
             .await;
@@ -135,11 +166,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .max_capacity(500_000)
                 .time_to_live(Duration::from_secs(26 * 3600))
                 .build(),
-            producer: rdkafka::ClientConfig::new()
-                .set("bootstrap.servers", &config.kafka.kafka_hosts)
-                .set("compression.codec", "lz4")
-                .set("linger.ms", "20")
-                .create()?,
+            producer: create_kafka_producer(
+                &KafkaConfig {
+                    kafka_compression_codec: "lz4".to_owned(),
+                    kafka_message_timeout_ms: config.image_fetch_delivery_timeout_ms,
+                    ..config.kafka.clone()
+                },
+                producer_handle,
+            )
+            .await?,
             image_fetch_topic: config.image_fetch_topic.clone(),
             sent_urls: moka::sync::Cache::builder()
                 .max_capacity(500_000)
@@ -150,7 +185,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("writes are off: the recorder stores nothing");
         None
     };
-    tokio::spawn(run(consumer, settings, teams, writer, consumer_handle));
+    let sources = Sources {
+        teams,
+        restrictions,
+        blocklist,
+    };
+    tokio::spawn(run(consumer, settings, sources, writer, consumer_handle));
 
     monitor.wait().await?;
     Ok(())
