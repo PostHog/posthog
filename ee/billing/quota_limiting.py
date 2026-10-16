@@ -8,7 +8,7 @@ from time import time
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
-from django.db import close_old_connections, transaction
+from django.db import DatabaseError, InterfaceError, close_old_connections, transaction
 from django.db.models import TextField
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import MD5, Cast
@@ -1519,6 +1519,8 @@ def update_all_orgs_billing_quotas(
                     orgs_limited_count += org_is_limited
                     orgs_suspended_count += org_is_suspended
             except Exception as error:
+                if isinstance(error, (DatabaseError, InterfaceError)) and not settings.TEST:
+                    close_old_connections()
                 usage_batch.discard(org)
                 discard_decision(org_id, teams_by_org.get(org_id, []))
                 capture_exception(error, {"organization_id": org_id})

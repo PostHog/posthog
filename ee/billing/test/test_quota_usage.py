@@ -1,11 +1,12 @@
 import copy
 from typing import Any
+from uuid import UUID
 
 import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.db import DatabaseError, OperationalError, connection
+from django.db import DatabaseError, InterfaceError, OperationalError, connection
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -222,20 +223,39 @@ class TestBatchedQuotaRun(BaseTest):
         assert self.orgs[-1].usage["events"]["todays_usage"] == 200
         assert self.redis.zcard("@posthog/quota-limits/events") == 4
 
-    def test_failed_decision_preserves_previous_limits_and_discards_partial_updates(self) -> None:
+    @parameterized.expand([("query_error", OperationalError), ("closed_connection", InterfaceError)])
+    def test_failed_decision_preserves_previous_limits_and_discards_partial_updates(
+        self, _name: str, error_type: type[OperationalError | InterfaceError]
+    ) -> None:
         failed_org = self.orgs[0]
         usage = copy.deepcopy(self.usage)
         usage["signals_credits"] = {"usage": 4500, "limit": 4500, "todays_usage": 0}
-        Organization.objects.filter(id=failed_org.id).update(usage=usage)
+        Organization.objects.filter(id__in=[org.id for org in self.orgs]).update(usage=usage)
         for team in self.teams[str(failed_org.id)]:
             self.redis.zadd("@posthog/quota-limits/events", {team.api_token: 1_782_864_000})
             self.redis.zadd("@posthog/quota-limiting-suspended/signals_credits", {team.api_token: 1_782_864_000})
             self.redis.zadd("@posthog/quota-limits/recordings", {team.api_token: 1_780_000_000})
+        connection_broken = False
+
+        def refund_credits(organization_id: UUID, *_args: object) -> int:
+            nonlocal connection_broken
+            if organization_id == failed_org.id:
+                connection_broken = True
+            if connection_broken:
+                raise error_type("synthetic disconnected connection")
+            return 0
+
+        def close_connection() -> None:
+            nonlocal connection_broken
+            connection_broken = False
+
         with (
+            override_settings(TEST=False),
+            patch("ee.billing.quota_limiting.close_old_connections", side_effect=close_connection),
             patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=0),
             patch(
                 "ee.billing.quota_limiting.get_signals_credited_refund_credits_for_org",
-                side_effect=DatabaseError("synthetic query failure"),
+                side_effect=refund_credits,
             ),
             patch("ee.billing.quota_limiting.capture_exception"),
             patch("posthog.tasks.remote_config.update_team_remote_config") as update_remote_config,
