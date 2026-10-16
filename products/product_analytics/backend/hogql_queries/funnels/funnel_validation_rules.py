@@ -113,9 +113,21 @@ class ValidateFunnelExclusions:
                     code=self.code,
                 )
 
+            if exclusion.funnelFromStep < 0:
+                raise ValidationError(
+                    "Exclusion event range is invalid. Start of range cannot be negative.",
+                    code=self.code,
+                )
+
             if exclusion.funnelFromStep >= len(series) - 1:
                 raise ValidationError(
                     "Exclusion event range is invalid. Start of range is greater than number of steps.",
+                    code=self.code,
+                )
+
+            if exclusion.funnelToStep < 1:
+                raise ValidationError(
+                    "Exclusion event range is invalid. End of range must be at least 1.",
                     code=self.code,
                 )
 
