@@ -19,7 +19,7 @@ import { OnboardingMcpStep } from './OnboardingMcpStep'
 export const SIMPLE_ONBOARDING_PRODUCT_KEY = ProductKey.PRODUCT_ANALYTICS
 
 /** The posthog-js install step with Wizard up front, booked under the given product. */
-export function buildWizardInstallStep(productKey: ProductKey): OnboardingStepDescriptor {
+function buildWizardInstallStep(productKey: ProductKey): OnboardingStepDescriptor {
     return {
         id: `${OnboardingStepKey.INSTALL}:${productKey}`,
         productKey,
