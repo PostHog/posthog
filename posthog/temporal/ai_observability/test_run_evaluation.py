@@ -35,6 +35,7 @@ from posthog.temporal.common.errors import NonReportableError
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ClaudeDeploymentOnAzureOpenAIError,
     ContentFilteredError,
     ContextWindowExceededError,
     ModelNotFoundError,
@@ -3129,6 +3130,13 @@ class TestRunEvaluationWorkflow:
                 None,
                 id="model_not_supported",
             ),
+            pytest.param(
+                ClaudeDeploymentOnAzureOpenAIError("gpt-5.4"),
+                "model_not_supported",
+                "model_not_supported",
+                None,
+                id="claude_deployment_on_azure_openai",
+            ),
         ],
     )
     @pytest.mark.django_db(transaction=True)
@@ -3187,6 +3195,8 @@ class TestRunEvaluationWorkflow:
         assert result["key_id"] == str(provider_key.id)
         assert result["provider"] == "openai"
         assert result["model"] == "gpt-5.4"
+        if isinstance(raised_exception, ClaudeDeploymentOnAzureOpenAIError):
+            assert result["reasoning"] == str(raised_exception)
         if provider_key_state is None:
             assert "provider_key_state" not in result
         else:

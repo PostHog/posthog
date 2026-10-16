@@ -42588,7 +42588,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly system_one_model_display: string | null;
-      /** Azure OpenAI endpoint URL */
+      /** Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https://my-resource.services.ai.azure.com/. Omit it for a key from the Anthropic API. */
       azure_endpoint?: string;
       /**
          * Azure OpenAI API version
@@ -82037,7 +82037,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly system_one_model_display?: string | null;
-      /** Azure OpenAI endpoint URL */
+      /** Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https://my-resource.services.ai.azure.com/. Omit it for a key from the Anthropic API. */
       azure_endpoint?: string;
       /**
          * Azure OpenAI API version

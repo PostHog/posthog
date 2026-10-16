@@ -2145,7 +2145,12 @@ export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
         .max(llmAnalyticsProviderKeysCreateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysCreateBodyApiVersionMax)
@@ -2193,7 +2198,12 @@ export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
         .max(llmAnalyticsProviderKeysUpdateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysUpdateBodyApiVersionMax)
@@ -2242,7 +2252,12 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
         .max(llmAnalyticsProviderKeysPartialUpdateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax)
@@ -2290,7 +2305,12 @@ export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.ob
         .max(llmAnalyticsProviderKeysValidateCreateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax)

@@ -87,12 +87,12 @@ function formatDate(dateString: string | null): string {
     })
 }
 
-function getKeyPlaceholder(provider: LLMProvider): string {
+function getKeyPlaceholder(provider: LLMProvider, usesFoundry = false): string {
     switch (provider) {
         case 'openai':
             return 'sk-...'
         case 'anthropic':
-            return 'sk-ant-...'
+            return usesFoundry ? 'Enter your Microsoft Foundry API key' : 'sk-ant-...'
         case 'gemini':
             return 'Enter your Gemini API key'
         case 'together_ai':
@@ -124,22 +124,62 @@ function endpointErrorFieldFromResult(result: KeyValidationResult | null | undef
     return result.error_field === 'azure_endpoint' || result.error_field === 'base_url' ? 'endpoint' : 'key'
 }
 
+function FoundryEndpointField({
+    value,
+    onChange,
+    errorMessage,
+    optional,
+}: {
+    value: string
+    onChange: (value: string) => void
+    errorMessage: string | null
+    optional: boolean
+}): JSX.Element {
+    return (
+        <div>
+            <label className="text-sm font-medium">
+                {optional ? 'Microsoft Foundry endpoint (optional)' : 'Microsoft Foundry endpoint'}
+            </label>
+            <LemonInput
+                value={value}
+                onChange={onChange}
+                placeholder="https://my-resource.services.ai.azure.com/"
+                className="mt-1"
+                fullWidth
+                status={errorMessage ? 'danger' : undefined}
+            />
+            {errorMessage ? (
+                <p className="text-xs text-danger mt-1">{errorMessage}</p>
+            ) : (
+                <p className="text-xs text-muted mt-1">
+                    {optional
+                        ? 'Fill this in only if you run Claude on Microsoft Foundry. Leave it empty for a key from the Anthropic API.'
+                        : 'The endpoint URL of your Microsoft Foundry resource'}
+                </p>
+            )}
+        </div>
+    )
+}
+
 function KeyValidationStatus({
     result,
     isValidating,
     provider,
     suppressError = false,
+    usesFoundry = false,
 }: {
     result: KeyValidationResult | null
     isValidating: boolean
     provider: LLMProvider
     suppressError?: boolean
+    usesFoundry?: boolean
 }): JSX.Element | null {
     if (isValidating) {
         return <p className="text-xs text-muted mt-1">Validating key...</p>
     }
 
-    const providerLabel = provider === 'openai_compatible' ? 'your provider' : LLM_PROVIDER_LABELS[provider]
+    const providerLabel =
+        provider === 'openai_compatible' ? 'your provider' : usesFoundry ? 'Microsoft' : LLM_PROVIDER_LABELS[provider]
     const bullets = (
         <ul className="text-xs text-muted mt-1 list-disc pl-4 space-y-0.5">
             <li>Your key will be encrypted and stored securely</li>
@@ -187,7 +227,15 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
     const [pendingSubmit, setPendingSubmit] = useState(false)
 
     const isAzure = provider === 'azure_openai'
+    const isAnthropic = provider === 'anthropic'
     const isOpenAICompatible = provider === 'openai_compatible'
+    const hasEndpointField = isAzure || isAnthropic || isOpenAICompatible
+    // Anthropic keys take an optional Microsoft Foundry endpoint, so only send one that was entered.
+    const endpointPayload = isAzure
+        ? { azure_endpoint: azureEndpoint, api_version: apiVersion }
+        : isAnthropic && azureEndpoint
+          ? { azure_endpoint: azureEndpoint }
+          : {}
     const keyValidated = preValidationResult?.state === 'ok'
     const isSystemOne = provider === 'system_one'
     const isValid =
@@ -197,7 +245,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
         (!isOpenAICompatible || baseUrl.length > 0)
     const validationFailed = !!preValidationResult && preValidationResult.state !== 'ok'
     const endpointErrorField =
-        (isAzure || isOpenAICompatible) && validationFailed ? endpointErrorFieldFromResult(preValidationResult) : null
+        hasEndpointField && validationFailed ? endpointErrorFieldFromResult(preValidationResult) : null
 
     // Reset form when modal closes
     useEffect(() => {
@@ -222,10 +270,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                     name,
                     api_key: apiKey,
                     set_as_active: provider !== 'system_one' && !evaluationConfig?.active_provider_key,
-                }
-                if (isAzure) {
-                    payload.azure_endpoint = azureEndpoint
-                    payload.api_version = apiVersion
+                    ...endpointPayload,
                 }
                 if (isOpenAICompatible) {
                     payload.base_url = baseUrl
@@ -242,6 +287,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
         apiKey,
         provider,
         isAzure,
+        isAnthropic,
         azureEndpoint,
         apiVersion,
         isOpenAICompatible,
@@ -273,10 +319,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                 name,
                 api_key: apiKey,
                 set_as_active: !evaluationConfig?.active_provider_key,
-            }
-            if (isAzure) {
-                payload.azure_endpoint = azureEndpoint
-                payload.api_version = apiVersion
+                ...endpointPayload,
             }
             if (isOpenAICompatible) {
                 payload.base_url = baseUrl
@@ -287,7 +330,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
             preValidateKey({
                 apiKey,
                 provider,
-                ...(isAzure ? { azure_endpoint: azureEndpoint, api_version: apiVersion } : {}),
+                ...endpointPayload,
                 ...(isOpenAICompatible ? { base_url: baseUrl } : {}),
             })
         }
@@ -301,7 +344,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
             preValidateKey({
                 apiKey,
                 provider,
-                ...(isAzure ? { azure_endpoint: azureEndpoint, api_version: apiVersion } : {}),
+                ...endpointPayload,
                 ...(isOpenAICompatible ? { base_url: baseUrl } : {}),
             })
         }
@@ -318,6 +361,13 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
     // to drop it. Otherwise a key validated against the old endpoint keeps showing as validated.
     const handleBaseUrlChange = (value: string): void => {
         setBaseUrl(value)
+        if (preValidationResult) {
+            clearPreValidation()
+        }
+    }
+
+    const handleFoundryEndpointChange = (value: string): void => {
+        setAzureEndpoint(value)
         if (preValidationResult) {
             clearPreValidation()
         }
@@ -407,6 +457,18 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                         </div>
                     </>
                 )}
+                {isAnthropic && (
+                    <FoundryEndpointField
+                        optional
+                        value={azureEndpoint}
+                        onChange={handleFoundryEndpointChange}
+                        errorMessage={
+                            endpointErrorField === 'endpoint'
+                                ? preValidationResult?.error_message || 'Invalid Microsoft Foundry endpoint'
+                                : null
+                        }
+                    />
+                )}
                 {isSystemOne && <SystemOneConnectionFields />}
                 {isOpenAICompatible && (
                     <div>
@@ -448,13 +510,13 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                         value={apiKey}
                         onChange={handleApiKeyChange}
                         onBlur={handleApiKeyBlur}
-                        placeholder={getKeyPlaceholder(provider)}
+                        placeholder={getKeyPlaceholder(provider, isAnthropic && azureEndpoint.length > 0)}
                         type="password"
                         autoComplete="off"
                         className="mt-1"
                         fullWidth
                         status={
-                            validationFailed && ((!isAzure && !isOpenAICompatible) || endpointErrorField === 'key')
+                            validationFailed && (!hasEndpointField || endpointErrorField === 'key')
                                 ? 'danger'
                                 : undefined
                         }
@@ -464,6 +526,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                         isValidating={preValidationResultLoading}
                         provider={provider}
                         suppressError={endpointErrorField === 'endpoint'}
+                        usesFoundry={isAnthropic && azureEndpoint.length > 0}
                     />
                     {isSystemOne && (
                         <p className="text-xs text-muted">
@@ -493,6 +556,8 @@ function EditKeyModal({
         normalizeSystemOneBaseUrlForComparison(systemOneBaseUrl) !==
         normalizeSystemOneBaseUrlForComparison(keyToEdit.base_url_display ?? DEFAULT_SYSTEM_ONE_BASE_URL)
     const isOpenAICompatibleEdit = keyToEdit.provider === 'openai_compatible'
+    // An Anthropic key keeps the API it was created for, so only Foundry keys show the endpoint.
+    const isFoundryEdit = keyToEdit.provider === 'anthropic' && !!keyToEdit.azure_endpoint_display
 
     const [name, setName] = useState(keyToEdit.name)
     const [apiKey, setApiKey] = useState('')
@@ -533,6 +598,9 @@ function EditKeyModal({
         if (baseUrlChanged) {
             payload.base_url = baseUrl
         }
+        if (foundryEndpointChanged) {
+            payload.azure_endpoint = azureEndpoint
+        }
         updateProviderKey({ id: keyToEdit.id, payload })
     }
 
@@ -545,6 +613,7 @@ function EditKeyModal({
                 apiKey,
                 provider: keyToEdit.provider,
                 ...(isAzureEdit ? { azure_endpoint: azureEndpoint, api_version: apiVersion } : {}),
+                ...(isFoundryEdit ? { azure_endpoint: azureEndpoint } : {}),
                 ...(isOpenAICompatibleEdit ? { base_url: baseUrl } : {}),
             })
         }
@@ -566,22 +635,44 @@ function EditKeyModal({
         }
     }
 
+    const handleFoundryEndpointChange = (value: string): void => {
+        setAzureEndpoint(value)
+        if (preValidationResult) {
+            clearPreValidation()
+        }
+    }
+
     const keyValidated = isSystemOne || apiKey.length === 0 || preValidationResult?.state === 'ok'
     const baseUrlMissing = isOpenAICompatibleEdit && baseUrl.length === 0
+    const foundryEndpointMissing = isFoundryEdit && azureEndpoint.length === 0
     // The backend rejects a base URL change that arrives without a key, so the key can't stay
     // masked here: re-entering it is what proves the caller already has it.
     const baseUrlChanged = isOpenAICompatibleEdit && !baseUrlMissing && baseUrl !== (keyToEdit.base_url_display ?? '')
+    const foundryEndpointChanged =
+        isFoundryEdit && !foundryEndpointMissing && azureEndpoint !== (keyToEdit.azure_endpoint_display ?? '')
     const apiKeyRequiredReason =
-        baseUrlChanged && apiKey.length === 0 ? 'Enter the API key again to change the base URL' : null
-    const missingFieldReason = name.length === 0 ? 'Enter a name' : baseUrlMissing ? 'Enter a base URL' : null
+        apiKey.length > 0
+            ? null
+            : baseUrlChanged
+              ? 'Enter the API key again to change the base URL'
+              : foundryEndpointChanged
+                ? 'Enter the API key again to change the Microsoft Foundry endpoint'
+                : null
+    const missingFieldReason =
+        name.length === 0
+            ? 'Enter a name'
+            : baseUrlMissing
+              ? 'Enter a base URL'
+              : foundryEndpointMissing
+                ? 'Enter a Microsoft Foundry endpoint'
+                : null
     const disabledReason = restrictionReason ?? missingFieldReason ?? apiKeyRequiredReason
     const isValid =
         keyValidated && !disabledReason && (!isSystemOne || (systemOneBaseUrl.length > 0 && systemOneModel.length > 0))
     const validationFailed = !!preValidationResult && preValidationResult.state !== 'ok'
+    const hasEndpointField = isAzureEdit || isFoundryEdit || isOpenAICompatibleEdit
     const endpointErrorField =
-        (isAzureEdit || isOpenAICompatibleEdit) && validationFailed
-            ? endpointErrorFieldFromResult(preValidationResult)
-            : null
+        hasEndpointField && validationFailed ? endpointErrorFieldFromResult(preValidationResult) : null
 
     return (
         <LemonModal
@@ -643,6 +734,18 @@ function EditKeyModal({
                         </div>
                     </>
                 )}
+                {isFoundryEdit && (
+                    <FoundryEndpointField
+                        optional={false}
+                        value={azureEndpoint}
+                        onChange={handleFoundryEndpointChange}
+                        errorMessage={
+                            endpointErrorField === 'endpoint'
+                                ? preValidationResult?.error_message || 'Invalid Microsoft Foundry endpoint'
+                                : null
+                        }
+                    />
+                )}
                 {isSystemOne && <SystemOneConnectionFields />}
                 {isOpenAICompatibleEdit && (
                     <div>
@@ -682,8 +785,7 @@ function EditKeyModal({
                         className="mt-1"
                         fullWidth
                         status={
-                            validationFailed &&
-                            ((!isAzureEdit && !isOpenAICompatibleEdit) || endpointErrorField === 'key')
+                            validationFailed && (!hasEndpointField || endpointErrorField === 'key')
                                 ? 'danger'
                                 : undefined
                         }
@@ -694,14 +796,13 @@ function EditKeyModal({
                             isValidating={preValidationResultLoading}
                             provider={keyToEdit.provider}
                             suppressError={endpointErrorField === 'endpoint'}
+                            usesFoundry={isFoundryEdit}
                         />
                     ) : (
                         <p className="text-xs text-muted mt-1">
                             {isSystemOne && endpointChanged
                                 ? 'The saved key will not be sent to the new endpoint. Enter its bearer token, or leave empty for no authentication.'
-                                : baseUrlChanged
-                                  ? 'Enter the API key again to change the base URL'
-                                  : 'Leave empty to keep the current key'}
+                                : (apiKeyRequiredReason ?? 'Leave empty to keep the current key')}
                         </p>
                     )}
                 </div>
