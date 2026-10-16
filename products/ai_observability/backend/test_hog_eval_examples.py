@@ -301,6 +301,21 @@ class TestHogEvalExamplesBehavior:
             ),
             ("empty_openai", "Empty or failed output", [{"message": {"role": "assistant", "content": ""}}], False),
             ("empty_otel_parts", "Empty or failed output", [{"role": "assistant", "parts": []}], False),
+            ("json_flat_text_block_prose", "Valid JSON output", [{"type": "text", "text": "not JSON"}], False),
+            (
+                "non_empty_responses_refusal_block",
+                "Empty or failed output",
+                [{"role": "assistant", "content": [{"type": "refusal", "refusal": "I can't help with that."}]}],
+                True,
+            ),
+            ("json_flat_empty_text_block", "Valid JSON output", [{"type": "text", "text": ""}], False),
+            ("empty_flat_empty_text_block", "Empty or failed output", [{"type": "text", "text": ""}], False),
+            (
+                "json_flat_blocks_with_thinking",
+                "Valid JSON output",
+                [{"type": "thinking", "thinking": "Checking."}, {"type": "text", "text": '{"ok": true}'}],
+                True,
+            ),
             (
                 "json_string_encoded_prose",
                 "Valid JSON output",

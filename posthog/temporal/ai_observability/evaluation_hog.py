@@ -120,6 +120,20 @@ def _extract_hog_output_text(output: Any) -> str:
 # structured output is the reply itself. Captured output is user data, so a `type` or `role` can be
 # any JSON value, and only plain strings count as discriminators.
 _TEXT_BLOCK_TYPES = frozenset({"text", "output_text"})
+# Content block types an SDK can record as flat output without a message wrapper. Only the text
+# types carry reply text; the rest are reasoning, tool use, or media.
+_CONTENT_BLOCK_TYPES = _TEXT_BLOCK_TYPES | frozenset(
+    {
+        "thinking",
+        "redacted_thinking",
+        "tool_use",
+        "server_tool_use",
+        "tool_result",
+        "web_search_tool_result",
+        "image",
+        "refusal",
+    }
+)
 # OTel follow-up messages that carry reasoning or tool results.
 _NON_REPLY_ROLES = frozenset({"thinking", "tool"})
 _MESSAGE_KEYS = ("content", "refusal", "text", "tool_calls")
@@ -160,6 +174,9 @@ def _block_text(block: Any) -> str | None:
     block_type = block.get("type", "text")
     if not isinstance(block_type, str):
         return json.dumps(block, default=str)
+    if block_type == "refusal":
+        # Counted as reply text, as a refusal on the message itself is.
+        return _scalar_text(block.get("refusal"))
     # Gemini marks its reasoning as a text part with `thought` set.
     if block_type not in _TEXT_BLOCK_TYPES or block.get("thought"):
         return None
@@ -226,6 +243,10 @@ def _extract_hog_reply_text(output: Any) -> str:
         if isinstance(message, dict):
             choice = message
         if _str_value(choice.get("role")) in _NON_REPLY_ROLES or _is_non_reply_item(choice):
+            continue
+        if _str_value(choice.get("role")) is None and _str_value(choice.get("type")) in _CONTENT_BLOCK_TYPES:
+            # A flat content block, recorded without a message around it.
+            replies.append(_block_text(choice) or "")
             continue
         if not _is_message(choice):
             replies.append(json.dumps(choice, default=str))
