@@ -170,4 +170,5 @@ class TestValidateCredentials:
             assert message is None
         else:
             assert message is not None and expected_message_fragment in message
-        assert {request.path for request in network.requests_log} == {"/v1/affiliates"}
+        # Setup waits on the probe, so a failed request gets no retry.
+        assert [request.path for request in network.requests_log] == ["/v1/affiliates"]

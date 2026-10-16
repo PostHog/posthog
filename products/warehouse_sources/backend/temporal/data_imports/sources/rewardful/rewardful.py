@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from requests.auth import HTTPBasicAuth
+from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
 
@@ -24,6 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rewardful.
 )
 
 REQUEST_TIMEOUT = (10, 60)
+# Setup waits on the probe, so it gets one short attempt.
+PROBE_TIMEOUT_SECONDS = 30
 
 CAMPAIGNS_PAGED_ERROR = "Rewardful returned more than one page of campaigns"
 
@@ -144,10 +147,10 @@ def rewardful_source(
 
 def validate_credentials(api_secret: str) -> tuple[bool, str | None]:
     is_valid, status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_secret,)),
+        lambda: make_tracked_session(redact_values=(api_secret,), retry=Retry(total=0)),
         f"{REWARDFUL_BASE_URL}/affiliates?limit=1",
         auth=HTTPBasicAuth(api_secret, ""),
-        timeout=REQUEST_TIMEOUT[1],
+        timeout=PROBE_TIMEOUT_SECONDS,
     )
     if is_valid:
         return True, None
