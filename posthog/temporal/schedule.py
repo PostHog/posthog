@@ -854,6 +854,51 @@ async def create_finalize_usage_reports_schedule(client: Client):
         )
 
 
+async def create_reconcile_organization_active_state_schedule(client: Client):
+    """Nightly realignment of billing's deactivated flags with Organization.is_active, 04:45 UTC.
+
+    The Organization post_save signal is the real-time path; this sweep catches missed
+    flips (dispatch failures, writes that skip signals). Same slot as the Celery schedule
+    it replaces.
+    """
+    from posthog.temporal.billing_active_sync.sync_organization_active_state import (
+        ReconcileOrganizationActiveStateInputs,
+    )
+
+    reconcile_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "reconcile-organization-active-state-to-billing",
+            asdict(ReconcileOrganizationActiveStateInputs()),
+            id="reconcile-organization-active-state-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(minutes=5),
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 04:45 UTC",
+                    hour=[ScheduleRange(start=4, end=4)],
+                    minute=[ScheduleRange(start=45, end=45)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "reconcile-organization-active-state-schedule"):
+        await a_update_schedule(client, "reconcile-organization-active-state-schedule", reconcile_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "reconcile-organization-active-state-schedule",
+            reconcile_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def create_count_all_playlists_schedule(client: Client):
     """Create or update the schedule for the playlist counting workflow.
 
@@ -1020,6 +1065,7 @@ if settings.CLOUD_DEPLOYMENT:
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
     schedules.append(create_finalize_usage_reports_schedule)
+    schedules.append(create_reconcile_organization_active_state_schedule)
     if should_register_checkpoint_compaction_schedule():
         schedules.append(create_checkpoint_compaction_schedule)
     # The sweep re-fetches each region's own orgs from Harmonic, and only US and EU carry the key.

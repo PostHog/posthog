@@ -32,7 +32,6 @@ from posthog.tasks.remote_config import (
     sync_all_remote_configs,
 )
 from posthog.tasks.surveys import sync_all_surveys_cache
-from posthog.tasks.sync_billing import reconcile_organization_active_state_to_billing
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -337,15 +336,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         update_team_event_volumes.s(),
         name="team event volume update",
         expires_seconds=12 * 3600,
-    )
-
-    # Billing mirrors Organization.is_active (revenue-forecast exclusion) - daily at 4:45 AM UTC.
-    # The Organization post_save signal is the real-time path; this sweep catches missed flips
-    # and writes that skip signals.
-    sender.add_periodic_task(
-        crontab(hour="4", minute="45"),
-        reconcile_organization_active_state_to_billing.s(),
-        name="reconcile organization active state to billing",
     )
 
     # SES tenant reputation reconciliation - daily at 6:30 AM UTC. EventBridge events are the

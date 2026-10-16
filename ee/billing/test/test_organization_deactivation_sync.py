@@ -7,9 +7,9 @@ from unittest.mock import MagicMock, patch
 import jwt
 
 from posthog.models.organization import Organization
-from posthog.tasks.sync_billing import (
-    reconcile_organization_active_state_to_billing,
-    sync_organization_active_state_to_billing,
+from posthog.temporal.billing_active_sync.sync_organization_active_state import (
+    reconcile_organization_active_state,
+    sync_organization_active_state,
 )
 
 from ee.billing.billing_manager import (
@@ -87,28 +87,28 @@ class TestDeactivatedOrganizationsClient(BaseTest):
 
 
 class TestSyncActiveStateReceiver(BaseTest):
-    @patch("posthog.tasks.sync_billing.sync_organization_active_state_to_billing.delay")
-    def test_enqueues_on_is_active_flip(self, delay_mock):
+    @patch("posthog.models.organization._start_billing_active_sync_workflow")
+    def test_dispatches_on_is_active_flip(self, dispatch_mock):
         with self.captureOnCommitCallbacks(execute=True):
             self.organization.is_active = False
             self.organization.save(update_fields=["is_active"])
 
-        delay_mock.assert_called_once_with(str(self.organization.pk))
+        dispatch_mock.assert_called_once_with(str(self.organization.pk))
 
-    @patch("posthog.tasks.sync_billing.sync_organization_active_state_to_billing.delay")
-    def test_does_not_enqueue_on_unrelated_save(self, delay_mock):
+    @patch("posthog.models.organization._start_billing_active_sync_workflow")
+    def test_does_not_dispatch_on_unrelated_save(self, dispatch_mock):
         with self.captureOnCommitCallbacks(execute=True):
             self.organization.name = "renamed"
             self.organization.save(update_fields=["name"])
 
-        delay_mock.assert_not_called()
+        dispatch_mock.assert_not_called()
 
-    @patch("posthog.tasks.sync_billing.sync_organization_active_state_to_billing.delay")
-    def test_does_not_enqueue_on_create(self, delay_mock):
+    @patch("posthog.models.organization._start_billing_active_sync_workflow")
+    def test_does_not_dispatch_on_create(self, dispatch_mock):
         with self.captureOnCommitCallbacks(execute=True):
             Organization.objects.create(name="fresh org")
 
-        delay_mock.assert_not_called()
+        dispatch_mock.assert_not_called()
 
 
 class TestSyncTasks(BaseTest):
@@ -128,7 +128,7 @@ class TestSyncTasks(BaseTest):
         self.organization.is_active = False
         self.organization.save(update_fields=["is_active"])
 
-        self._run_with_cloud(sync_organization_active_state_to_billing, str(self.organization.pk))
+        self._run_with_cloud(sync_organization_active_state, str(self.organization.pk))
 
         set_mock.assert_called_once_with([str(self.organization.pk)], deactivated=True)
 
@@ -137,14 +137,14 @@ class TestSyncTasks(BaseTest):
         self.organization.is_active = None
         self.organization.save(update_fields=["is_active"])
 
-        self._run_with_cloud(sync_organization_active_state_to_billing, str(self.organization.pk))
+        self._run_with_cloud(sync_organization_active_state, str(self.organization.pk))
 
         set_mock.assert_called_once_with([str(self.organization.pk)], deactivated=False)
 
     @patch("ee.billing.billing_manager.BillingManager.set_organizations_deactivated")
     def test_sync_task_does_nothing_outside_cloud(self, set_mock):
         with patch("posthog.cloud_utils.is_cloud", return_value=False):
-            sync_organization_active_state_to_billing(str(self.organization.pk))
+            sync_organization_active_state(str(self.organization.pk))
 
         set_mock.assert_not_called()
 
@@ -157,7 +157,7 @@ class TestSyncTasks(BaseTest):
         # this instance does not know (not ours to flip back).
         get_mock.return_value = [str(stale_org.pk), "01900000-0000-0000-0000-000000000000"]
 
-        self._run_with_cloud(reconcile_organization_active_state_to_billing)
+        self._run_with_cloud(reconcile_organization_active_state)
 
         set_mock.assert_any_call([str(inactive_org.pk)], deactivated=True)
         set_mock.assert_any_call([str(stale_org.pk)], deactivated=False)
@@ -169,7 +169,7 @@ class TestSyncTasks(BaseTest):
         null_org = Organization.objects.create(name="null org", is_active=None)
         get_mock.return_value = [str(null_org.pk)]
 
-        self._run_with_cloud(reconcile_organization_active_state_to_billing)
+        self._run_with_cloud(reconcile_organization_active_state)
 
         set_mock.assert_called_once_with([str(null_org.pk)], deactivated=False)
 
@@ -179,6 +179,6 @@ class TestSyncTasks(BaseTest):
         inactive_org = Organization.objects.create(name="blocked org", is_active=False)
         get_mock.return_value = [str(inactive_org.pk)]
 
-        self._run_with_cloud(reconcile_organization_active_state_to_billing)
+        self._run_with_cloud(reconcile_organization_active_state)
 
         set_mock.assert_not_called()
