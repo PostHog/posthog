@@ -150,6 +150,7 @@ def _push_report(report: SignalReport, user_ids: Collection[int], *, kind: str, 
         "report_id": str(report.id),
         "project_id": report.team_id,
         "notificationKind": kind,
+        "url": f"posthog://inbox/{report.id}",
     }
     pushed: list[int] = []
     # The project access check also covers a claimant who has since lost access to the project.

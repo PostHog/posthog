@@ -77,6 +77,7 @@ class TestInboxPushNotifications(BaseTest):
                     "report_id": str(report.id),
                     "project_id": self.team.id,
                     "notificationKind": "report_visible",
+                    "url": f"posthog://inbox/{report.id}",
                 },
             )
         ]
@@ -152,3 +153,5 @@ class TestInboxPushNotifications(BaseTest):
         pushed = sorted((args[0], args[1]) for args, _ in self.send_push.call_args_list)
         expected = sorted([(self.user.id, "PR ready to review"), (self.reviewer.id, "PR ready to review")])
         assert pushed == (expected if expect_push else [])
+        for push in self.send_push.call_args_list:
+            assert push.args[3]["url"] == f"posthog://inbox/{report.id}"
