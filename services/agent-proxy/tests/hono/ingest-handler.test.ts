@@ -1327,8 +1327,8 @@ describe('ingest-handler', () => {
                     params: { update: { sessionUpdate: 'user_message_chunk' } },
                 },
             },
-            expectedKinds: ['heartbeat'],
-            expectedActive: true,
+            expectedKinds: [],
+            expectedActive: false,
         },
         {
             name: 'agent output',
@@ -1351,8 +1351,29 @@ describe('ingest-handler', () => {
                     params: { update: { sessionUpdate: 'plan' } },
                 },
             },
-            expectedKinds: ['heartbeat'],
-            expectedActive: true,
+            expectedKinds: [],
+            expectedActive: false,
+        },
+        {
+            name: 'resumed session commands',
+            event: {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'available_commands_update' } },
+                },
+            },
+            expectedKinds: [],
+            expectedActive: false,
+        },
+        {
+            name: 'idle resume turn complete',
+            event: {
+                type: 'notification',
+                notification: { method: '_posthog/turn_complete', params: { stopReason: 'idle_resume' } },
+            },
+            expectedKinds: ['awaiting_input'],
+            expectedActive: false,
         },
         {
             name: 'command dispatch',
@@ -1575,7 +1596,10 @@ describe('ingest-handler', () => {
 
         const turnComplete = { type: 'notification', notification: { method: '_posthog/turn_complete' } }
         const piTurnError = { type: 'pi_event', event: { type: 'turn_completed', stopReason: 'error' } }
-        const sessionUpdate = { type: 'notification', notification: { method: 'session/update', params: {} } }
+        const sessionUpdate = {
+            type: 'notification',
+            notification: { method: 'session/update', params: { update: { sessionUpdate: 'agent_message_chunk' } } },
+        }
         const networkFailure = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })
 
         it.each([
@@ -1599,6 +1623,7 @@ describe('ingest-handler', () => {
                     .mockResolvedValue(new Response('{"dispatched": true}', { status: 200 }))
                 global.fetch = fetchMock as typeof fetch
 
+                await redisStream.claimFirstAgentActivity()
                 const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
                 await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
                 await vi.advanceTimersByTimeAsync(2000)
@@ -1612,7 +1637,13 @@ describe('ingest-handler', () => {
         )
 
         it.each([
-            { type: 'notification', notification: { method: 'session/update' } },
+            {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: { update: { sessionUpdate: 'agent_message_chunk' } },
+                },
+            },
             ...['assistant_message_chunk', 'assistant_thought_chunk', 'tool_call_started', 'tool_call_updated'].map(
                 (type) => ({ type: 'pi_event', event: { type } })
             ),

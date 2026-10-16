@@ -290,6 +290,41 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(heartbeat_workflow.call_args_list, [call(agent_active=True, force=True)] * 2)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_resumed_sandbox_startup_does_not_heartbeat_workflow(self) -> None:
+        token = self._create_token()
+        events = [
+            {"type": "notification", "notification": {"method": "session/update", "params": {"update": update}}}
+            for update in (
+                {"sessionUpdate": "plan", "entries": []},
+                {"sessionUpdate": "available_commands_update", "availableCommands": []},
+                {"sessionUpdate": "usage_update"},
+            )
+        ] + [
+            {"type": "notification", "notification": {"method": "_posthog/run_started", "params": {}}},
+            {
+                "type": "notification",
+                "notification": {"method": "_posthog/turn_complete", "params": {"stopReason": "idle_resume"}},
+            },
+            {"type": "notification", "notification": {"method": "_posthog/console", "params": {}}},
+        ]
+
+        with (
+            patch.object(TaskRun, "heartbeat_workflow") as heartbeat_workflow,
+            patch.object(TaskRun, "signal_agent_turn_completed"),
+        ):
+            status, body = self._call_ingest(
+                token, [{"seq": index, "event": event} for index, event in enumerate(events, start=1)]
+            )
+
+        async def agent_active() -> bool:
+            return await TaskRunRedisStream(get_task_run_stream_key(str(self.task_run.id))).get_agent_active()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], len(events))
+        heartbeat_workflow.assert_not_called()
+        self.assertFalse(asyncio.run(agent_active()))
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_streaming_ingest_releases_failed_activity_claim(self) -> None:
         token = self._create_token()
 
@@ -694,7 +729,13 @@ class TestTaskRunEventIngest(TestCase):
                 json.dumps(
                     {
                         "seq": 1,
-                        "event": {"type": "notification", "notification": {"method": "session/update"}},
+                        "event": {
+                            "type": "notification",
+                            "notification": {
+                                "method": "session/update",
+                                "params": {"update": {"sessionUpdate": "agent_message_chunk"}},
+                            },
+                        },
                     }
                 )
                 + "\n"
