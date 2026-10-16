@@ -122,14 +122,14 @@ describe('SharingModal (dashboard)', () => {
         expect(screen.getByText('Access control')).toBeInTheDocument()
         expect(await screen.findByText('Shared dashboard appearance')).toBeInTheDocument()
 
-        expect(screen.getByRole('radio', { name: 'PostHog branding' })).toBeChecked()
-        expect(screen.getByRole('radio', { name: 'Your organization logo' })).toBeDisabled()
+        expect(screen.getByTestId('sharing-branding-posthog')).toBeChecked()
+        expect(screen.getByTestId('sharing-show-organization-logo')).toBeDisabled()
         if (licensed) {
-            await waitFor(() => expect(screen.getByRole('radio', { name: 'No branding' })).toBeEnabled())
-            expect(screen.queryByRole('button', { name: 'Upgrade to Boost' })).toBeNull()
+            await waitFor(() => expect(screen.getByTestId('sharing-branding-none')).toBeEnabled())
+            expect(screen.queryByTestId('sharing-branding-upgrade')).toBeNull()
         } else {
-            expect(screen.getByRole('radio', { name: 'No branding' })).toBeDisabled()
-            await user.click(screen.getByRole('button', { name: 'Upgrade to Boost' }))
+            expect(screen.getByTestId('sharing-branding-none')).toBeDisabled()
+            await user.click(screen.getByTestId('sharing-branding-upgrade'))
             expect(upgradeModalLogic.values.upgradeModalFeatureKey).toBe(AvailableFeature.WHITE_LABELLING)
         }
         expect(screen.getByText('Public sharing')).toBeInTheDocument()
