@@ -4,7 +4,10 @@ import re
 from typing import TYPE_CHECKING, Any, Literal
 
 from rest_framework import exceptions
+from rest_framework.request import Request
 
+from posthog.permissions import get_authenticator_scopes
+from posthog.scopes import scopes_not_covered
 from posthog.session_recordings.data_retention import VALID_RETENTION_PERIODS, validate_retention_period
 
 from products.feature_flags.backend.session_recording_links import flag_exists_in_project
@@ -13,6 +16,12 @@ from . import settings_validation
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+
+def can_read_feature_flags(request: Request | None) -> bool:
+    """True for session auth, which carries no scopes. Access control alone limits which flags it can view."""
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    return scopes is None or "*" in scopes or not scopes_not_covered(scopes, ["feature_flag:read"])
 
 
 def validate_session_recording_linked_flag(

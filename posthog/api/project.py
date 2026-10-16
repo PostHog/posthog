@@ -1380,7 +1380,12 @@ class ProjectBackwardCompatSerializer(
         # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
         # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
         # bouncing freshly onboarded users back into onboarding.
-        with locked_replay_gate_write(team, validated_data, self.user_access_control):
+        with locked_replay_gate_write(
+            team,
+            validated_data,
+            self.user_access_control,
+            can_read_flags=session_recording_settings.can_read_feature_flags(self.context.get("request")),
+        ):
             updated_team_fields = []
             updated_project_fields = []
             for attr, value in validated_data.items():

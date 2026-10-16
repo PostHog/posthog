@@ -1203,10 +1203,17 @@ def team_api_test_factory():
             self._assert_linked_flag_config(None)
 
         @parameterized.expand(
-            [["viewable", "current-key"], ["access_denied", "stale-key"], ["unchanged_column", "stale-key"]]
+            [
+                ["viewable", "current-key", None],
+                ["access_denied", "stale-key", None],
+                ["unchanged_column", "stale-key", None],
+                ["token_with_flag_read", "current-key", ["project:write", "feature_flag:read"]],
+                ["token_with_all_scopes", "current-key", ["*"]],
+                ["token_without_flag_read", "stale-key", ["project:write"]],
+            ]
         )
         def test_moves_a_trigger_group_flag_sent_with_an_id_to_the_flags_current_key(
-            self, case: str, expected_key: str
+            self, case: str, expected_key: str, token_scopes: list[str] | None
         ) -> None:
             flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="current-key")
             if case == "access_denied":
@@ -1227,8 +1234,14 @@ def team_api_test_factory():
                     "session_recording_trigger_groups"
                 ]
 
+            headers = (
+                {"authorization": f"Bearer {self.create_personal_api_key_with_scopes(token_scopes)}"}
+                if token_scopes
+                else {}
+            )
+
             response = self.client.patch(
-                "/api/environments/@current/", {"session_recording_trigger_groups": trigger_groups}
+                "/api/environments/@current/", {"session_recording_trigger_groups": trigger_groups}, headers=headers
             )
             assert response.status_code == status.HTTP_200_OK, response.json()
 

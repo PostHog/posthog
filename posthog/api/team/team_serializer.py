@@ -627,7 +627,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
         # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
         # bouncing freshly onboarded users back into onboarding.
-        with locked_replay_gate_write(instance, validated_data, self.user_access_control):
+        with locked_replay_gate_write(
+            instance,
+            validated_data,
+            self.user_access_control,
+            can_read_flags=session_recording_settings.can_read_feature_flags(self.context.get("request")),
+        ):
             other_team_fields = [
                 attr for attr in validated_data if attr not in conversations_settings.LOCKED_CONVERSATIONS_COLUMNS
             ]
