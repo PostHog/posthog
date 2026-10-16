@@ -45,8 +45,6 @@ def main() -> None:
         depot("retry", run_id, "--failed", "--workflow", workflow_id, "-o", "json")
     if not workflow_ids:
         sys.stdout.write(f"::notice::PR {pr_number} has no failed or cancelled Depot jobs to retry.\n")
-    with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-        output.write(f"retried={len(workflow_ids)}\n")
 
 
 if __name__ == "__main__":

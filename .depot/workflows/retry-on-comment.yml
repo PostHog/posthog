@@ -27,29 +27,8 @@ jobs:
                   sparse-checkout-cone-mode: false
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
             - name: Retry this PR's failed Depot jobs
-              id: retry
               env:
                   DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
                   REPO: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.issue.number }}
               run: python3 .github/scripts/retry_depot_pr_run.py
-            # Depot's ambient token must not write, so the reaction posts with a posthog-tests token.
-            - name: Mint reaction token
-              id: reaction-token
-              if: ${{ !cancelled() }}
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-                  permission-pull-requests: write
-            - name: React to the comment
-              if: ${{ !cancelled() && steps.reaction-token.outputs.token != '' }}
-              continue-on-error: true
-              env:
-                  GH_TOKEN: ${{ steps.reaction-token.outputs.token }}
-                  REPO: ${{ github.repository }}
-                  COMMENT_ID: ${{ github.event.comment.id }}
-                  # rocket: jobs retried. confused: nothing to retry, or the retry failed.
-                  CONTENT: ${{ steps.retry.outcome == 'success' && steps.retry.outputs.retried != '0' && 'rocket' || 'confused' }}
-              run: gh api "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content="$CONTENT" --silent
