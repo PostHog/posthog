@@ -129,51 +129,62 @@ describe('chats hooks', () => {
             await waitFor(() => expect(result.current.list.data?.map((item) => item.sourceId)).toEqual(expected))
         })
 
-        test.each([false, true])('Undo puts the row back while archive is pending: %s', async (archivePending) => {
-            let finishArchive: (() => void) | undefined
-            let finishRestore: (() => void) | undefined
-            mocked.setTaskArchived.mockImplementation((_taskId: string, archived: boolean): Promise<void> => {
-                if (archived && !archivePending) {
-                    return Promise.resolve()
-                }
-                return new Promise<void>((resolve) => {
-                    if (archived) {
-                        finishArchive = resolve
-                    } else {
-                        finishRestore = resolve
+        test.each([
+            [false, true],
+            [true, true],
+            [true, false],
+        ])(
+            'Undo restores the row with archive pending %s and restore succeeds %s',
+            async (archivePending, succeeds) => {
+                let finishArchive: (() => void) | undefined
+                let finishRestore: (() => void) | undefined
+                mocked.setTaskArchived.mockImplementation((_taskId: string, archived: boolean): Promise<void> => {
+                    if (archived && !archivePending) {
+                        return Promise.resolve()
                     }
+                    return new Promise<void>((resolve, reject) => {
+                        if (archived) {
+                            finishArchive = resolve
+                        } else {
+                            finishRestore = () => (succeeds ? resolve() : reject(new Error('offline')))
+                        }
+                    })
                 })
-            })
-            const { result } = renderChats()
-            await waitFor(() => expect(result.current.list.data).toHaveLength(2))
-            const [first] = result.current.list.data ?? []
-            if (!first) {
-                throw new Error('Missing chat row')
-            }
+                const { result } = renderChats()
+                await waitFor(() => expect(result.current.list.data).toHaveLength(2))
+                const [first] = result.current.list.data ?? []
+                if (!first) {
+                    throw new Error('Missing chat row')
+                }
 
-            let archiveOutcome: Promise<void> | undefined
-            act(() => {
-                archiveOutcome = result.current.archive.archive(first)
-            })
-            await waitFor(() => expect(result.current.list.data?.map((item) => item.sourceId)).toEqual(['task-2']))
+                let archiveOutcome: Promise<void> | undefined
+                act(() => {
+                    archiveOutcome = result.current.archive.archive(first)
+                })
+                await waitFor(() => expect(result.current.list.data?.map((item) => item.sourceId)).toEqual(['task-2']))
 
-            act(() => {
-                void result.current.archive.restore(first)
-            })
-            await waitFor(() =>
-                expect(result.current.list.data?.map((item) => item.sourceId)).toEqual(['task-1', 'task-2'])
-            )
-            if (archivePending) {
-                expect(mocked.setTaskArchived).toHaveBeenCalledTimes(1)
+                let restoreOutcome: Promise<void> | undefined
+                act(() => {
+                    restoreOutcome = result.current.archive.restore(first).catch(() => undefined)
+                })
+                await waitFor(() =>
+                    expect(result.current.list.data?.map((item) => item.sourceId)).toEqual(['task-1', 'task-2'])
+                )
+                if (archivePending) {
+                    expect(mocked.setTaskArchived).toHaveBeenCalledTimes(1)
+                }
+                await act(async () => {
+                    finishArchive?.()
+                    await archiveOutcome
+                })
+                await waitFor(() => expect(mocked.setTaskArchived).toHaveBeenLastCalledWith('task-1', false))
+                await act(async () => {
+                    finishRestore?.()
+                    await restoreOutcome
+                })
+                const expected = succeeds ? ['task-1', 'task-2'] : ['task-2']
+                await waitFor(() => expect(result.current.list.data?.map((item) => item.sourceId)).toEqual(expected))
             }
-            await act(async () => {
-                finishArchive?.()
-                await archiveOutcome
-            })
-            await waitFor(() => expect(mocked.setTaskArchived).toHaveBeenLastCalledWith('task-1', false))
-            await act(async () => {
-                finishRestore?.()
-            })
-        })
+        )
     })
 })

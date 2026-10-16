@@ -191,7 +191,14 @@ function useLiveArchiveChat(): ChatArchiveActions {
             }
             putBack(item.sourceId)
             await archivesInFlight.current.get(item.sourceId)?.catch(() => undefined)
-            await setTaskArchived(item.sourceId, false)
+            try {
+                await setTaskArchived(item.sourceId, false)
+            } catch (error) {
+                queryClient.setQueriesData<TaskSummaryApi[]>({ queryKey: sessionListKeys.all(scope) }, (sessions) =>
+                    sessions?.filter((entry) => entry.id !== item.sourceId)
+                )
+                throw error
+            }
             hidden.current.delete(item.sourceId)
             // The server orders the list, so a refetch puts the row back where it belongs.
             void queryClient.invalidateQueries({ queryKey: sessionListKeys.all(scope) })
