@@ -1,4 +1,12 @@
-import { MESSAGING_WIZARD_STEPS, firstOpenStepIndex, requiredConnections, wizardSteps } from './onboardingWizardSteps'
+import {
+    FrequencyCap,
+    FrequencyCapPreset,
+    MESSAGING_WIZARD_STEPS,
+    firstOpenStepIndex,
+    frequencyCapToSave,
+    requiredConnections,
+    wizardSteps,
+} from './onboardingWizardSteps'
 
 describe('onboardingWizardSteps', () => {
     test.each<[string, (string | undefined)[], string[]]>([
@@ -15,7 +23,12 @@ describe('onboardingWizardSteps', () => {
         ['a new project starts at the channel', {}, 0],
         ['a connected channel starts at the domain', { channel: true }, 1],
         ['an unverified domain stays open even when later steps are done', { channel: true, 'opt-outs': true }, 1],
-        ['everything done lands on the last step', { channel: true, domain: true, 'opt-outs': true, journey: true }, 3],
+        [
+            'everything done lands on the last step',
+            { channel: true, domain: true, 'opt-outs': true, 'sending-rules': true, journey: true },
+            4,
+        ],
+        ['an unset frequency cap stops before the journey', { channel: true, domain: true, 'opt-outs': true }, 3],
     ])('%s', (_, done, expected) => {
         expect(firstOpenStepIndex(MESSAGING_WIZARD_STEPS, done)).toBe(expected)
     })
@@ -25,22 +38,39 @@ describe('onboardingWizardSteps', () => {
             'messaging asks about push before the journey',
             'messaging',
             true,
-            ['channel', 'domain', 'opt-outs', 'push', 'journey'],
+            ['channel', 'domain', 'opt-outs', 'sending-rules', 'push', 'journey'],
         ],
         [
             'messaging without push keeps the email steps',
             'messaging',
             false,
-            ['channel', 'domain', 'opt-outs', 'journey'],
+            ['channel', 'domain', 'opt-outs', 'sending-rules', 'journey'],
         ],
         ['automation never asks about push', 'automation', true, ['template', 'connect', 'create']],
         [
             'broadcasts send email only, so they never ask about push',
             'broadcast',
             true,
-            ['channel', 'domain', 'opt-outs', 'broadcast'],
+            ['channel', 'domain', 'opt-outs', 'sending-rules', 'broadcast'],
         ],
     ])('%s', (_, path, pushEnabled, expected) => {
         expect(wizardSteps(path, pushEnabled)).toEqual(expected)
+    })
+
+    const unset: FrequencyCap = { maxMessages: null, windowDays: null }
+    test.each<[string, FrequencyCap, FrequencyCapPreset | null, FrequencyCap | null]>([
+        ['a new setup gets the recommended cap', unset, null, { maxMessages: 1, windowDays: 2 }],
+        ['picking no cap on a new setup saves nothing', unset, 'off', null],
+        ['a custom cap is kept', { maxMessages: 10, windowDays: 14 }, null, null],
+        ['a recommended cap is not saved again', { maxMessages: 1, windowDays: 2 }, 'recommended', null],
+        ['picking no cap clears a saved cap', { maxMessages: 3, windowDays: 7 }, 'off', unset],
+        [
+            'picking a preset replaces a custom cap',
+            { maxMessages: 10, windowDays: 14 },
+            'weekly',
+            { maxMessages: 3, windowDays: 7 },
+        ],
+    ])('%s', (_, saved, choice, expected) => {
+        expect(frequencyCapToSave(saved, choice)).toEqual(expected)
     })
 })

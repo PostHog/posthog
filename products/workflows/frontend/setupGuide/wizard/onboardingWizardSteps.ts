@@ -6,9 +6,9 @@ import type { HogFlowAction } from '../../Workflows/hogflows/types'
 import type { WorkflowsOnboardingPath } from '../workflowsSetupGuideLogic'
 
 // pinned: URL values and analytics property values for the wizard events - renaming breaks links and dashboards
-export const MESSAGING_WIZARD_STEPS = ['channel', 'domain', 'opt-outs', 'journey'] as const
+export const MESSAGING_WIZARD_STEPS = ['channel', 'domain', 'opt-outs', 'sending-rules', 'journey'] as const
 export const AUTOMATION_WIZARD_STEPS = ['template', 'connect', 'create'] as const
-export const BROADCAST_WIZARD_STEPS = ['channel', 'domain', 'opt-outs', 'broadcast'] as const
+export const BROADCAST_WIZARD_STEPS = ['channel', 'domain', 'opt-outs', 'sending-rules', 'broadcast'] as const
 export const PUSH_WIZARD_STEP = 'push' as const
 export type WizardStepKey =
     | (typeof MESSAGING_WIZARD_STEPS)[number]
@@ -76,6 +76,13 @@ export const WIZARD_STEP_COPY: Record<WizardStepKey, WizardStepCopy> = {
             'Opt-out categories let people unsubscribe from one kind of message, such as product updates, and keep the rest. Every email has an unsubscribe link either way.',
         optional: true,
     },
+    'sending-rules': {
+        label: 'Sending rules',
+        title: 'Choose how often people hear from you',
+        description:
+            'These rules apply to every workflow and broadcast in this project. The defaults keep people from getting too many marketing emails. You can change them later in Messaging settings.',
+        optional: false,
+    },
     push: {
         label: 'Push',
         title: 'Send push notifications too?',
@@ -115,6 +122,48 @@ export const WIZARD_STEP_COPY: Record<WizardStepKey, WizardStepCopy> = {
         description: 'It opens in the editor, where you save it as a draft. Nothing runs until you launch it.',
         optional: false,
     },
+}
+
+export interface FrequencyCap {
+    maxMessages: number | null
+    windowDays: number | null
+}
+
+// pinned: analytics property values for the sending rules step - renaming breaks dashboards
+export type FrequencyCapPreset = 'recommended' | 'weekly' | 'off' | 'custom'
+
+export const FREQUENCY_CAP_PRESETS: Record<Exclude<FrequencyCapPreset, 'custom'>, FrequencyCap> = {
+    recommended: { maxMessages: 1, windowDays: 2 },
+    weekly: { maxMessages: 3, windowDays: 7 },
+    off: { maxMessages: null, windowDays: null },
+}
+
+/** The preset a saved cap matches. An unset cap counts as "off", because the worker treats it as no cap. */
+export function frequencyCapPreset(cap: FrequencyCap): FrequencyCapPreset {
+    const match = (Object.keys(FREQUENCY_CAP_PRESETS) as (keyof typeof FREQUENCY_CAP_PRESETS)[]).find(
+        (key) =>
+            FREQUENCY_CAP_PRESETS[key].maxMessages === cap.maxMessages &&
+            FREQUENCY_CAP_PRESETS[key].windowDays === cap.windowDays
+    )
+    return match ?? 'custom'
+}
+
+/** The preset the step shows: the person's pick, else the saved cap, else the recommended cap for a new setup. */
+export function shownFrequencyCapPreset(saved: FrequencyCap, choice: FrequencyCapPreset | null): FrequencyCapPreset {
+    if (choice) {
+        return choice
+    }
+    const savedPreset = frequencyCapPreset(saved)
+    return savedPreset === 'off' ? 'recommended' : savedPreset
+}
+
+/** The cap to save when the person leaves the step, or null when the saved cap already matches. */
+export function frequencyCapToSave(saved: FrequencyCap, choice: FrequencyCapPreset | null): FrequencyCap | null {
+    const shown = shownFrequencyCapPreset(saved, choice)
+    if (shown === 'custom' || shown === frequencyCapPreset(saved)) {
+        return null
+    }
+    return FREQUENCY_CAP_PRESETS[shown]
 }
 
 // pinned: integration kinds - these are the `kind` values the integrations API returns
