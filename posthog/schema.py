@@ -521,7 +521,7 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
     displayType: DisplayType | None = Field(default=None, description="Chart type. `auto` uses `display`.")
     label: str | None = Field(
         default=None,
-        description=("Custom label for this series, shown in the legend and tooltips instead of the column name."),
+        description="Series label in legends and tooltips; replaces the column name.",
     )
     trendLine: bool | None = Field(
         default=None,
@@ -542,19 +542,14 @@ class AssistantDataVisualizationAxisFormatting(BaseModel):
     style: Style | None = Field(
         default=None,
         description=(
-            "Number formatting style.\n- `none` — no formatting.\n- `number` —"
-            " thousands separators (e.g. `1,234`).\n- `short` — abbreviated large"
-            " numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100"
-            " and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a /"
-            " b`). Never pair it with a `%` suffix, which renders `47.3%%`."
+            "`none`: unformatted; `number`: thousands separators; `short`:"
+            " abbreviations (1.2k, 3.4M). `percent`: multiplies by 100 and adds `%`."
+            " Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it."
         ),
     )
     suffix: str | None = Field(
         default=None,
-        description=(
-            "Text appended to each value (e.g. ` ms`). Leave unset when `style` is"
-            " `percent`, which already appends the `%` sign."
-        ),
+        description="Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.",
     )
 
 
@@ -3845,6 +3840,15 @@ class AssistantArrayPropertyFilter(BaseModel):
             ' convert it to a string "true" or "false".'
         ),
     )
+
+
+class AssistantBIVisualizationNode(BaseModel):
+    config: dict[str, Any] = Field(
+        ...,
+        description=("Complete worksheet configuration, including shelves and filters. Validated by the insight API."),
+    )
+    kind: Literal["BIVisualizationNode"] = "BIVisualizationNode"
+    source: AssistantBareHogQLQuery
 
 
 class AssistantBareInsightQuery(BaseModel):
@@ -18961,6 +18965,7 @@ class InsightActorsQueryBase(BaseModel):
 class InsightQuery(
     RootModel[
         AssistantDataTableNode
+        | AssistantBIVisualizationNode
         | AssistantInsightVizNode
         | AssistantDataVisualizationNode
         | AssistantBareInsightQuery
@@ -18970,6 +18975,7 @@ class InsightQuery(
 ):
     root: (
         AssistantDataTableNode
+        | AssistantBIVisualizationNode
         | AssistantInsightVizNode
         | AssistantDataVisualizationNode
         | AssistantBareInsightQuery
