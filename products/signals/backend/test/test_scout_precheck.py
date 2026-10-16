@@ -96,6 +96,12 @@ class TestEvaluateScoutPrecheck(ClickhouseTestMixin, BaseTest):
         properties = capture.call_args.kwargs["properties"]
         assert capture.call_args.kwargs["event"] == "scout_precheck_evaluated"
         assert (properties["outcome"], properties["row_count"]) == (outcome, row_count)
+        stored = SignalScoutConfig.all_teams.get(team=self.team, skill_name=SKILL)
+        assert (stored.last_precheck_at, stored.last_precheck_outcome, stored.last_precheck_row_count) == (
+            NOW,
+            outcome,
+            row_count,
+        )
 
     @parameterized.expand(
         [
