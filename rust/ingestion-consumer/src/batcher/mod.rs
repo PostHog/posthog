@@ -32,8 +32,9 @@ use common_kafka_consumer::GroupCompletion;
 use tokio::sync::mpsc;
 
 use self::driver::StateMachineDriver;
-use self::state_machine::BatcherStateMachine;
+use self::state_machine::{BatcherSnapshot, BatcherStateMachine};
 use self::worker_pool::WorkerPoolSource;
+use crate::debug_recorder::DebugRecorder;
 use crate::grpc_transport::GrpcTransport;
 use crate::order_sentinel::KeyOrderSentinel;
 use crate::types::Accumulator;
@@ -60,8 +61,10 @@ impl Batcher {
         state_machine: BatcherStateMachine,
         pool_source: WorkerPoolSource,
         transport: Arc<GrpcTransport>,
+        recorder: Option<Arc<DebugRecorder>>,
     ) -> (Self, BatcherOutputs) {
-        let (driver, outputs) = StateMachineDriver::new(state_machine, pool_source, transport);
+        let (driver, outputs) =
+            StateMachineDriver::new(state_machine, pool_source, transport, recorder);
         (Self { driver }, outputs)
     }
 
@@ -84,7 +87,10 @@ impl Batcher {
     /// A read-only view of the batcher's load, for the drain reaper, the
     /// debug API and tests.
     pub fn observer(&self) -> BatcherObserver {
-        BatcherObserver(self.driver.load())
+        BatcherObserver {
+            load: self.driver.load(),
+            snapshots: self.driver.snapshot_sender(),
+        }
     }
 
     /// The consumer stopped polling. The state machine takes no new groups
@@ -96,22 +102,39 @@ impl Batcher {
 
 /// A read-only view of the batcher's load.
 #[derive(Clone)]
-pub struct BatcherObserver(Arc<driver::Load>);
+pub struct BatcherObserver {
+    /// Totals the batcher task publishes after every action.
+    load: Arc<driver::Load>,
+    snapshots: driver::SnapshotSender,
+}
 
 impl BatcherObserver {
     /// Whether the worker has sent, unresolved work. The reaper completes a
     /// draining worker's drain only when it has none.
     pub fn has_in_flight(&self, worker: &WorkerId) -> bool {
-        self.0.busy_workers.lock().unwrap().contains(worker)
+        self.load.busy_workers.lock().unwrap().contains(worker)
     }
 
-    /// Messages held for a later send: queued, packed and unplaced.
+    /// Messages queued for a later send.
     pub fn pending_messages(&self) -> usize {
-        self.0.pending_messages.load(Ordering::Relaxed)
+        self.load.pending_messages.load(Ordering::Relaxed)
     }
 
     pub fn total_in_flight(&self) -> usize {
-        self.0.in_flight_messages.load(Ordering::Relaxed)
+        self.load.in_flight_messages.load(Ordering::Relaxed)
+    }
+
+    /// The task's own view of its load, or only the published totals when
+    /// it does not answer.
+    pub async fn snapshot(&self) -> BatcherSnapshot {
+        match self.snapshots.snapshot().await {
+            Some(snapshot) => snapshot,
+            None => BatcherSnapshot {
+                pending_messages: self.pending_messages(),
+                in_flight_messages: self.total_in_flight(),
+                ..BatcherSnapshot::default()
+            },
+        }
     }
 }
 

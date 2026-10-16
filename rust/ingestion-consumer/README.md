@@ -84,9 +84,11 @@ Set `DEBUG_API_ENABLED=true` **and** `DEBUG_API_SECRET` to mount a real-time deb
 Every request must present the secret as `X-Debug-Api-Secret`; enabling without a secret fails closed (nothing is mounted).
 The secret is dedicated to this control-plane→consumer hop — deliberately not `INTERNAL_API_SECRET` (see `.agents/security.md`).
 The ingestion control plane UI consumes these endpoints to render the consumer's live state.
-`debug_recorder.rs` keeps a bounded in-memory buffer of structured lifecycle events (batch dispatch, commit and failure, worker health and membership), recorded at the same points that emit metrics, and it never influences routing.
+`debug_recorder.rs` keeps a bounded in-memory buffer of structured lifecycle events, recorded at the same points that emit metrics, and it never influences routing: poll dispatch, commit and failure; every request the batcher sends (`RequestSent`) and how it settled (`RequestResolved`, with the unfinished count of a partial ack, or `RequestFailed` with its cause); worker health and membership.
+A poll and a request both carry their offset range per topic-partition, which is how the control plane UI matches a request to the polls it carries, because a request can merge messages from consecutive polls.
+Routing keys never enter the payload, because they hold distinct ids.
 
-- `/debug/load` — cheap JSON snapshot (worker health + the batcher's in-flight and pending counts), safe to poll fast.
+- `/debug/load` — cheap JSON snapshot (worker health with each worker's in-flight requests and messages, plus the batcher's key-table counts), safe to poll fast. The batcher task answers the snapshot itself between two actions, so the hot path pays nothing when nobody asks; a task that does not answer within a second yields only the totals it last published.
 - `/debug/state` — the same plus the retained event backlog.
 - `/debug/events` — SSE stream: backlog replay, then live events (concurrent subscribers capped at 8; 429 beyond).
 

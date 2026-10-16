@@ -2,12 +2,13 @@
 //! ingestion control plane UI).
 //!
 //! When `DEBUG_API_ENABLED` is set, an `Arc<DebugRecorder>` is injected into
-//! the consumer and the worker registry. Each records a structured
-//! [`DebugEvent`] at the same points it already emits metrics: batch
-//! dispatch, commit and failure, worker health transitions and membership.
-//! The recorder keeps a bounded rolling window of recent events (for a client
-//! connecting mid-stream to see history) and broadcasts every new event to
-//! live subscribers (the SSE feed at `/debug/events`).
+//! the consumer, the batcher task and the worker registry. Each records a
+//! structured [`DebugEvent`] at the same points it already emits metrics:
+//! poll dispatch, commit and failure, every request the batcher sends and
+//! how it settled, worker health transitions and membership. The recorder
+//! keeps a bounded rolling window of recent events (for a client connecting
+//! mid-stream to see history) and broadcasts every new event to live
+//! subscribers (the SSE feed at `/debug/events`).
 //!
 //! It is a pure observer: it never influences routing. When the feature is off,
 //! the recorder is `None` everywhere and nothing is constructed or recorded.
@@ -20,6 +21,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tokio::sync::broadcast;
 
+use crate::types::SerializedKafkaMessage;
+
 /// A topic-partition and the batch's max offset there, with observed lag.
 #[derive(Clone, Serialize)]
 pub struct PartitionOffset {
@@ -27,6 +30,39 @@ pub struct PartitionOffset {
     pub partition: i32,
     pub offset: i64,
     pub lag_ms: i64,
+}
+
+/// The offsets a poll or a request carries on one topic-partition. The UI
+/// matches a request to the polls whose ranges it overlaps, because a
+/// request can merge messages from consecutive polls.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct OffsetRange {
+    pub topic: String,
+    pub partition: i32,
+    pub first_offset: i64,
+    pub last_offset: i64,
+}
+
+pub fn offset_ranges(messages: &[SerializedKafkaMessage]) -> Vec<OffsetRange> {
+    let mut ranges: Vec<OffsetRange> = Vec::new();
+    for message in messages {
+        match ranges
+            .iter_mut()
+            .find(|range| range.partition == message.partition && *range.topic == *message.topic)
+        {
+            Some(range) => {
+                range.first_offset = range.first_offset.min(message.offset);
+                range.last_offset = range.last_offset.max(message.offset);
+            }
+            None => ranges.push(OffsetRange {
+                topic: message.topic.to_string(),
+                partition: message.partition,
+                first_offset: message.offset,
+                last_offset: message.offset,
+            }),
+        }
+    }
+    ranges
 }
 
 /// The distinct event kinds recorded across the consumer's lifecycle. Serialized
@@ -40,11 +76,39 @@ pub enum DebugEventKind {
         group_id: String,
         workers: Vec<String>,
     },
-    /// A Kafka batch was collected and handed to a processing task.
+    /// A Kafka poll was collected and submitted to the batcher.
     BatchDispatched {
         batch_id: String,
         messages: usize,
         partitions: Vec<PartitionOffset>,
+        spans: Vec<OffsetRange>,
+    },
+    /// The batcher sent a request to a worker. `routing_keys` is a count:
+    /// the keys themselves hold distinct ids and stay out of the payload.
+    RequestSent {
+        request_id: u64,
+        worker: String,
+        messages: usize,
+        routing_keys: usize,
+        bytes: usize,
+        replay: bool,
+        budgeted: bool,
+        spans: Vec<OffsetRange>,
+    },
+    /// A worker acked a request. `unfinished` above zero is a partial ack:
+    /// those messages go out again at once.
+    RequestResolved {
+        request_id: u64,
+        worker: String,
+        accepted: u32,
+        unfinished: usize,
+    },
+    /// A request failed (`cause`: busy/fault); its messages are requeued.
+    RequestFailed {
+        request_id: u64,
+        worker: String,
+        cause: &'static str,
+        messages: usize,
     },
     /// A batch's offsets were committed to Kafka.
     BatchCommitted {
@@ -98,13 +162,20 @@ pub struct WorkerHealthSnapshot {
     pub passive_samples: usize,
 }
 
-/// The batcher's current load accounting.
+/// The batcher's current load, as its task reports it.
 #[derive(Serialize)]
 pub struct BatcherLoad {
-    /// Messages sent and not yet resolved.
     pub total_in_flight: usize,
-    /// Messages held for a later send: queued, packed and unplaced.
     pub pending_messages: usize,
+    pub in_flight_requests: usize,
+    /// Keys with messages queued or in flight.
+    pub keys: usize,
+    /// Key-plus-value bytes of the queued messages.
+    pub queued_bytes: usize,
+    /// Keys whose retry delay has not passed.
+    pub waiting_keys: usize,
+    /// Keys with a request in flight.
+    pub claimed_keys: usize,
 }
 
 /// The consumer's routing configuration and, under aperture, its current
@@ -124,8 +195,7 @@ pub struct RoutingDebug {
     pub slice: Option<Vec<String>>,
 }
 
-/// Merged worker row: registry health plus whether the batcher has a request
-/// in flight on the worker.
+/// Merged worker row: registry health plus the batcher's in-flight load.
 #[derive(Serialize)]
 pub struct WorkerStatus {
     pub url: String,
@@ -134,7 +204,8 @@ pub struct WorkerStatus {
     pub consecutive_probe_failures: u32,
     pub passive_error_rate: f64,
     pub passive_samples: usize,
-    pub busy: bool,
+    pub in_flight_requests: usize,
+    pub in_flight_messages: usize,
 }
 
 /// The full snapshot returned by `/debug/state` (workers + load + event backlog).

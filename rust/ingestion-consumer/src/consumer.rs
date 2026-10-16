@@ -19,7 +19,9 @@ use crate::commit_monitor::spawn_commit_monitor;
 use crate::commit_pacer::ImmediateCommitPacer;
 use crate::commit_sentinel::{CommitSentinel, CommitViolation};
 use crate::config::Config;
-use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
+use crate::debug_recorder::{
+    record_if, DebugEventKind, DebugRecorder, OffsetRange, PartitionOffset,
+};
 use crate::discovery::DiscoveryMode;
 use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
@@ -638,6 +640,7 @@ impl IngestionConsumer {
             batch_id: poll_id.clone(),
             messages: message_count,
             partitions: debug_partition_offsets(&partitions),
+            spans: debug_partition_spans(&partitions),
         });
         emit_poll_stats(
             &stats,
@@ -1125,6 +1128,21 @@ fn debug_partition_offsets(
             partition: topic_partition.partition,
             offset: partition.span.last,
             lag_ms: partition.max_lag_ms.unwrap_or(0),
+        })
+        .collect()
+}
+
+/// Per-partition offset ranges, so the debug UI can match requests to polls.
+fn debug_partition_spans(
+    partitions: &HashMap<TopicPartition, PartitionDeliveries>,
+) -> Vec<OffsetRange> {
+    partitions
+        .iter()
+        .map(|(topic_partition, partition)| OffsetRange {
+            topic: topic_partition.topic.clone(),
+            partition: topic_partition.partition,
+            first_offset: partition.span.first,
+            last_offset: partition.span.last,
         })
         .collect()
 }
