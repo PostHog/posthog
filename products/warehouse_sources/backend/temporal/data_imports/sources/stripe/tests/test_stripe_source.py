@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     RecordedRequest,
     ScriptedResponse,
     scripted_network,
+    source_inputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
@@ -1569,12 +1570,24 @@ _FIRST_PAGE = [{"id": f"line_{i}"} for i in range(10)]
 _ALL_LINES = [*_FIRST_PAGE, {"id": "line_10"}]
 
 
+def _error(status: int, error_type: str, code: str) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json={"error": {"type": error_type, "code": code, "message": "Rejected"}})
+
+
+_INCOMPLETE_INVOICE = {
+    "id": "in_1",
+    "object": "invoice",
+    "status": "paid",
+    "lines": _stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines", True),
+}
+
+
 class TestWebhookRefetch:
     def _transform(self, endpoint: str, obj: dict[str, Any]) -> list[dict[str, Any]]:
         refetcher = WebhookObjectRefetcher(
             stripe_module.WEBHOOK_REFETCH[endpoint],
             MagicMock(),
-            client_factory=stripe_module._client_factory("sk_test", None, STRIPE_API_VERSION_ACACIA),
+            client_factory_provider=lambda: stripe_module._client_factory("sk_test", None, STRIPE_API_VERSION_ACACIA),
         )
         events = table_from_py_list([_event_row("evt_1", f"{obj['object']}.updated", 1700000100, obj)])
         return stripe_module._refetching_webhook_table_transformer(refetcher)(events).to_pylist()
@@ -1584,21 +1597,11 @@ class TestWebhookRefetch:
             (
                 "invoice lines past the first page",
                 INVOICE_RESOURCE_NAME,
-                {
-                    "id": "in_1",
-                    "object": "invoice",
-                    "lines": _stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines", True),
-                },
-                {
-                    "/v1/invoices/in_1": {
-                        "id": "in_1",
-                        "object": "invoice",
-                        "lines": _stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines", True),
-                    },
-                    "/v1/invoices/in_1/lines": _stripe_list(_ALL_LINES, "/v1/invoices/in_1/lines"),
-                },
+                _INCOMPLETE_INVOICE,
+                {"/v1/invoices/in_1/lines": ({"limit": "100"}, _stripe_list(_ALL_LINES, "/v1/invoices/in_1/lines"))},
                 lambda row: (
-                    [line["id"] for line in orjson.loads(row["lines"])["data"]]
+                    row["status"] == "paid"
+                    and [line["id"] for line in orjson.loads(row["lines"])["data"]]
                     == [expected["id"] for expected in _ALL_LINES]
                 ),
             ),
@@ -1611,12 +1614,10 @@ class TestWebhookRefetch:
                     "lines": _stripe_list(_FIRST_PAGE, "/v1/credit_notes/cn_1/lines", True),
                 },
                 {
-                    "/v1/credit_notes/cn_1": {
-                        "id": "cn_1",
-                        "object": "credit_note",
-                        "lines": _stripe_list(_FIRST_PAGE, "/v1/credit_notes/cn_1/lines", True),
-                    },
-                    "/v1/credit_notes/cn_1/lines": _stripe_list(_ALL_LINES, "/v1/credit_notes/cn_1/lines"),
+                    "/v1/credit_notes/cn_1/lines": (
+                        {"limit": "100"},
+                        _stripe_list(_ALL_LINES, "/v1/credit_notes/cn_1/lines"),
+                    )
                 },
                 lambda row: len(orjson.loads(row["lines"])["data"]) == len(_ALL_LINES),
             ),
@@ -1625,12 +1626,15 @@ class TestWebhookRefetch:
                 PRICE_RESOURCE_NAME,
                 {"id": "price_1", "object": "price", "billing_scheme": "tiered"},
                 {
-                    "/v1/prices/price_1": {
-                        "id": "price_1",
-                        "object": "price",
-                        "billing_scheme": "tiered",
-                        "tiers": [{"up_to": 10, "unit_amount": 5}, {"up_to": None, "unit_amount": 3}],
-                    }
+                    "/v1/prices/price_1": (
+                        {"expand[0]": "tiers"},
+                        {
+                            "id": "price_1",
+                            "object": "price",
+                            "billing_scheme": "tiered",
+                            "tiers": [{"up_to": 10, "unit_amount": 5}, {"up_to": None, "unit_amount": 3}],
+                        },
+                    )
                 },
                 lambda row: len(orjson.loads(row["tiers"])) == 2,
             ),
@@ -1639,56 +1643,98 @@ class TestWebhookRefetch:
                 SUBSCRIPTION_RESOURCE_NAME,
                 {"id": "sub_1", "object": "subscription", "discounts": ["di_1"]},
                 {
-                    "/v1/subscriptions/sub_1": {
-                        "id": "sub_1",
-                        "object": "subscription",
-                        "discounts": [{"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}}],
-                    }
+                    "/v1/subscriptions/sub_1": (
+                        {"expand[0]": "discounts", "expand[1]": "items.data.discounts"},
+                        {
+                            "id": "sub_1",
+                            "object": "subscription",
+                            "discounts": [{"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}}],
+                        },
+                    )
                 },
                 lambda row: orjson.loads(row["discounts"])[0]["coupon"]["id"] == "co_1",
             ),
         ]
     )
-    def test_incomplete_object_is_read_again(
+    def test_incomplete_object_is_completed(
         self,
         _name: str,
         endpoint: str,
         event_object: dict[str, Any],
-        answers: dict[str, Any],
+        answers: dict[str, tuple[dict[str, str], dict[str, Any]]],
         row_is_complete: Callable[[dict[str, Any]], bool],
     ) -> None:
         def script(request: RecordedRequest) -> ScriptedResponse:
-            return ScriptedResponse(json=answers[request.path])
+            return ScriptedResponse(json=answers[request.path][1])
 
-        with scripted_network(script):
+        with scripted_network(script) as network:
             rows = self._transform(endpoint, event_object)
 
+        sent = {
+            request.path: {name: request.param(name) for name in answers[request.path][0]}
+            for request in network.requests_log
+        }
+        assert sent == {path: params for path, (params, _) in answers.items()}
         assert len(rows) == 1
         assert row_is_complete(rows[0])
 
     @parameterized.expand(
         [
-            ("complete object", {"lines": _stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines")}, 0),
             (
-                "object deleted since the event",
-                {"lines": _stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines", True)},
-                1,
+                "complete object",
+                {"lines": _stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines")},
+                _error(404, "invalid_request_error", "resource_missing"),
+                0,
             ),
+            ("object deleted since the event", {}, _error(404, "invalid_request_error", "resource_missing"), 1),
+            ("object Stripe rejects", {}, _error(400, "invalid_request_error", "parameter_unknown"), 1),
         ]
     )
-    def test_event_payload_is_kept(self, _name: str, fields: dict[str, Any], expected_requests: int) -> None:
-        missing = ScriptedResponse(
-            status=404,
-            json={"error": {"type": "invalid_request_error", "code": "resource_missing", "message": "No such invoice"}},
-        )
-
-        with scripted_network([missing]) as network:
-            rows = self._transform(INVOICE_RESOURCE_NAME, {"id": "in_1", "object": "invoice", **fields})
+    def test_event_payload_is_kept(
+        self, _name: str, fields: dict[str, Any], answer: ScriptedResponse, expected_requests: int
+    ) -> None:
+        with scripted_network([answer]) as network:
+            rows = self._transform(INVOICE_RESOURCE_NAME, {**_INCOMPLETE_INVOICE, **fields})
 
         assert len(network.requests_log) == expected_requests
         assert [line["id"] for line in orjson.loads(rows[0]["lines"])["data"]] == [
             expected["id"] for expected in _FIRST_PAGE
         ]
+
+    @parameterized.expand(
+        [
+            ("revoked key", _error(401, "invalid_request_error", "api_key_expired"), stripe_lib.AuthenticationError),
+            (
+                "missing permission",
+                _error(403, "invalid_request_error", "secret_key_required"),
+                stripe_lib.PermissionError,
+            ),
+        ]
+    )
+    def test_account_wide_error_fails_the_batch(
+        self, _name: str, answer: ScriptedResponse, error: type[Exception]
+    ) -> None:
+        with scripted_network([answer]), pytest.raises(error):
+            self._transform(INVOICE_RESOURCE_NAME, _INCOMPLETE_INVOICE)
+
+    def test_webhook_sync_completes_invoice_lines(self) -> None:
+        source = StripeSource()
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")
+        )
+        webhooks = MagicMock(spec=WebhookSourceManager)
+        webhooks.webhook_enabled = mock.AsyncMock(return_value=True)
+        events = table_from_py_list([_event_row("evt_1", "invoice.paid", 1700000100, _INCOMPLETE_INVOICE)])
+
+        with scripted_network(lambda request: ScriptedResponse(json=_stripe_list(_ALL_LINES, request.path))):
+            inputs = source_inputs(INVOICE_RESOURCE_NAME)
+            with mock.patch.object(source, "get_webhook_source_manager", return_value=webhooks):
+                response = source.source_for_pipeline(config, source.get_resumable_source_manager(inputs), inputs)
+            response.items()
+            transformer = webhooks.get_items.call_args.kwargs["table_transformer"]
+            rows = transformer(events).to_pylist()
+
+        assert len(orjson.loads(rows[0]["lines"])["data"]) == len(_ALL_LINES)
 
 
 class TestEndpointCatalogWiring:

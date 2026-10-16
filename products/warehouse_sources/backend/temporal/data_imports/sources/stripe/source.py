@@ -714,6 +714,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # conversion that declares a parent without threading these silently keeps polling
             # the parent API while the fan-out telemetry reports otherwise.
             use_warehouse_parent=inputs.fanout_warehouse_reuse,
+            api_key_provider=lambda: self._get_api_key(config, inputs.team_id),
         )
 
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:

@@ -11,7 +11,7 @@ import stripe as stripe_lib
 import pyarrow as pa
 import requests
 from asgiref.sync import async_to_sync
-from stripe import ListObject, RequestsClient, StripeClient, StripeObject
+from stripe import ListObject, RequestsClient, StripeClient
 from stripe._base_address import BaseAddresses
 from stripe._webhook_endpoint_service import WebhookEndpointService
 from structlog.types import FilteringBoundLogger
@@ -1254,40 +1254,37 @@ def _discounts_unexpanded(obj: dict[str, Any]) -> bool:
     return any(isinstance(discount, str) for discount in discounts)
 
 
-def _retrieve_invoice(client: StripeClient, invoice_id: str) -> StripeObject:
-    invoice = client.invoices.retrieve(invoice_id)
-    if invoice.lines.has_more:
-        lines = client.invoices.line_items.list(invoice_id, params={"limit": DEFAULT_LIMIT})
-        invoice.lines.data = list(lines.auto_paging_iter())
-        invoice.lines.has_more = False
-    return invoice
+def _with_all_lines(obj: dict[str, Any], lines: ListObject[Any]) -> dict[str, Any]:
+    return {**obj, "lines": {**obj["lines"], "data": list(lines.auto_paging_iter()), "has_more": False, "url": None}}
 
 
-def _retrieve_credit_note(client: StripeClient, credit_note_id: str) -> StripeObject:
-    credit_note = client.credit_notes.retrieve(credit_note_id)
-    if credit_note.lines.has_more:
-        lines = client.credit_notes.line_items.list(credit_note_id, params={"limit": DEFAULT_LIMIT})
-        credit_note.lines.data = list(lines.auto_paging_iter())
-        credit_note.lines.has_more = False
-    return credit_note
-
-
-# Each entry re-reads its object with the same expansion the list sync uses in `_build_resources`.
+# Each entry adds back what the event payload leaves out. Invoices and credit notes keep the event's
+# fields and only fetch their lines, which is one request per object instead of two.
 WEBHOOK_REFETCH: dict[str, WebhookRefetch] = {
-    INVOICE_RESOURCE_NAME: WebhookRefetch(is_incomplete=_lines_truncated, retrieve=_retrieve_invoice),
-    CREDIT_NOTE_RESOURCE_NAME: WebhookRefetch(is_incomplete=_lines_truncated, retrieve=_retrieve_credit_note),
+    INVOICE_RESOURCE_NAME: WebhookRefetch(
+        is_incomplete=_lines_truncated,
+        complete=lambda client, invoice: _with_all_lines(
+            invoice, client.invoices.line_items.list(invoice["id"], params={"limit": DEFAULT_LIMIT})
+        ),
+    ),
+    CREDIT_NOTE_RESOURCE_NAME: WebhookRefetch(
+        is_incomplete=_lines_truncated,
+        complete=lambda client, credit_note: _with_all_lines(
+            credit_note, client.credit_notes.line_items.list(credit_note["id"], params={"limit": DEFAULT_LIMIT})
+        ),
+    ),
     PRICE_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_tiers_missing,
-        retrieve=lambda client, price_id: client.prices.retrieve(price_id, params={"expand": ["tiers"]}),
+        complete=lambda client, price: client.prices.retrieve(price["id"], params={"expand": ["tiers"]}),
     ),
     PLAN_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_tiers_missing,
-        retrieve=lambda client, plan_id: client.plans.retrieve(plan_id, params={"expand": ["tiers"]}),
+        complete=lambda client, plan: client.plans.retrieve(plan["id"], params={"expand": ["tiers"]}),
     ),
     SUBSCRIPTION_RESOURCE_NAME: WebhookRefetch(
         is_incomplete=_discounts_unexpanded,
-        retrieve=lambda client, subscription_id: client.subscriptions.retrieve(
-            subscription_id, params={"expand": ["discounts", "items.data.discounts"]}
+        complete=lambda client, subscription: client.subscriptions.retrieve(
+            subscription["id"], params={"expand": ["discounts", "items.data.discounts"]}
         ),
     ),
 }
@@ -1384,6 +1381,7 @@ def stripe_source(
     team_id: Optional[int] = None,
     source_id: Optional[str] = None,
     use_warehouse_parent: bool = False,
+    api_key_provider: Optional[Callable[[], str]] = None,
 ):
     # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
     # pipeline infer their columns from the rows Stripe returns.
@@ -1413,7 +1411,11 @@ def stripe_source(
             elif refetch is not None:
                 table_transformer = _refetching_webhook_table_transformer(
                     WebhookObjectRefetcher(
-                        refetch, logger, client_factory=_client_factory(api_key, account_id, api_version)
+                        refetch,
+                        logger,
+                        client_factory_provider=lambda: _client_factory(
+                            api_key_provider() if api_key_provider is not None else api_key, account_id, api_version
+                        ),
                     )
                 )
             else:
