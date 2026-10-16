@@ -130,6 +130,15 @@ class TestPushDispatcher(TestCase):
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_awaiting_cooldown_distinguishes_permission_requests(self, mock_delay, _flag) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_awaiting_input(self.task_run, request_id="request-1")
+            notify_task_run_awaiting_input(self.task_run, request_id="request-2")
+            notify_task_run_awaiting_input(self.task_run, request_id="request-1")
+        self.assertEqual(mock_delay.call_count, 2)
+
+    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_handoff_cooldown_distinguishes_announcements(self, mock_delay, _flag):
         announcement_id = uuid4()
         with self.captureOnCommitCallbacks(execute=True):

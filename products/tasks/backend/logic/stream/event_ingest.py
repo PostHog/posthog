@@ -597,10 +597,10 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
         if not dispatched:
             await redis_stream.release_first_agent_activity()
 
-    if parse_permission_request(event) is not None:
+    if permission_request := parse_permission_request(event):
         # A pending permission request or question holds the turn open, so no turn-complete push
         # reaches the user until they answer it.
-        await sync_to_async(_notify_awaiting_input, thread_sensitive=True)(run_id)
+        await sync_to_async(_notify_awaiting_input, thread_sensitive=True)(run_id, permission_request["request_id"])
 
     if is_turn_complete(event):
         await redis_stream.set_agent_active(False)
@@ -683,7 +683,7 @@ def _dispatch_turn_completed_sync(run_id: str, *, succeeded: bool = False, turn_
     dispatch_turn_completed(task_run, turn_completed=turn_completed)
 
 
-def _notify_awaiting_input(run_id: str) -> None:
+def _notify_awaiting_input(run_id: str, request_id: str) -> None:
     if not settings.TEST:
         close_old_connections()
 
@@ -697,7 +697,7 @@ def _notify_awaiting_input(run_id: str) -> None:
         logger.warning("task_run_event_ingest_awaiting_input_lookup_failed", run_id=run_id, exc_info=True)
         return
 
-    dispatch_awaiting_input(task_run)
+    dispatch_awaiting_input(task_run, request_id=request_id)
 
 
 async def _dispatch_turn_failed(run_id: str) -> None:

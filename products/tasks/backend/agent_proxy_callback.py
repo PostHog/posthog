@@ -205,7 +205,9 @@ class AgentProxyCallbackDispatcher:
         task_run = self._load_run("task__created_by")
         if task_run is None:
             return CallbackOutcome()
-        return CallbackOutcome(dispatched=dispatch_awaiting_input(task_run))
+        return CallbackOutcome(
+            dispatched=dispatch_awaiting_input(task_run, request_id=self.callback.data.get("request_id", ""))
+        )
 
     def _turn_failed(self) -> CallbackOutcome:
         if self._load_run() is None:

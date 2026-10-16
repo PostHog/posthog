@@ -73,6 +73,11 @@ Both paths preserve the event timestamp and derive the analytics event ID from t
 If an older payload has no timestamp, Django stores its first received time for retries and replays.
 Successful captures are recorded for the event ingest token's lifetime so completed work is skipped on replay.
 
+Interactive permission requests and questions can send a mobile push notification to the run's creator.
+Event ingest, the agent-proxy callback and the sandbox relay share a notification gate keyed by run and permission request ID.
+The gate retains each request for 24 hours so reconnecting does not repeat notifications for historical requests.
+Distinct requests have separate push cooldowns, so a new prompt can notify even if the user just answered another one.
+
 ## Run summaries
 
 `PATCH /api/projects/{team_id}/tasks/{task_id}/runs/{run_id}/set_summary/` replaces the run's progress summary.

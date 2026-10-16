@@ -1081,7 +1081,7 @@ def _broker_permission_request(task_run: TaskRunModel, permission_request: dict)
         if not settings.TEST:
             close_old_connections()
         if not try_auto_respond_permission_request(task_run, permission_request):
-            dispatch_awaiting_input(task_run)
+            dispatch_awaiting_input(task_run, request_id=permission_request["request_id"])
     except Exception:
         logger.warning(
             "relay_sandbox_events_permission_broker_failed",

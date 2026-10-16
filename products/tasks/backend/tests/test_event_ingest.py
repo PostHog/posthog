@@ -660,12 +660,15 @@ class TestTaskRunEventIngest(TestCase):
             self.captureOnCommitCallbacks(execute=True),
         ):
             status, body = self._call_ingest(token, [{"seq": 1, "event": permission_request}])
+            self.assertEqual((status, body["accepted"]), (200, 1))
+            permission_request["notification"]["params"]["requestId"] = "request-2"
+            status, body = self._call_ingest(token, [{"seq": 2, "event": permission_request}])
 
         self.assertEqual((status, body["accepted"]), (200, 1))
         if not expect_push:
             send_push.assert_not_called()
             return
-        send_push.assert_called_once()
+        self.assertEqual(send_push.call_count, 2)
         user_id, title, push_body, data, _suppressed = send_push.call_args.args
         self.assertEqual((user_id, title, push_body), (creator.id, "PostHog", '"Test Task" needs your input'))
         self.assertEqual(
