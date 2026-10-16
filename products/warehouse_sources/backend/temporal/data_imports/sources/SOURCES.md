@@ -195,6 +195,7 @@ the row lists both.
 | cdc_open_data                    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | census                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chameleon                        | HTTP                        | requests                                                        | ✅                          |
+| channel_io                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chargebee                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chargedesk                       | HTTP                        | requests                                                        | ✅                          |
 | chargify                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |

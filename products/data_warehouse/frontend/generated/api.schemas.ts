@@ -3738,6 +3738,7 @@ export interface CredentialApi {
  * * `LaravelCloud` - LaravelCloud
  * * `Northbeam` - Northbeam
  * * `NaverAds` - NaverAds
+ * * `ChannelIO` - ChannelIO
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5128,6 +5129,7 @@ export const ExternalDataSourceTypeEnumApi = {
     LaravelCloud: 'LaravelCloud',
     Northbeam: 'Northbeam',
     NaverAds: 'NaverAds',
+    ChannelIO: 'ChannelIO',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

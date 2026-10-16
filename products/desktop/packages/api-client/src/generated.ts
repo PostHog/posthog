@@ -12278,6 +12278,7 @@ export namespace Schemas {
      * * `LaravelCloud` - LaravelCloud
      * * `Northbeam` - Northbeam
      * * `NaverAds` - NaverAds
+     * * `ChannelIO` - ChannelIO
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13664,7 +13665,8 @@ export namespace Schemas {
         | "Wise"
         | "LaravelCloud"
         | "Northbeam"
-        | "NaverAds";
+        | "NaverAds"
+        | "ChannelIO";
     /**
      * * `web` - web
      * * `api` - api
@@ -15060,6 +15062,7 @@ export namespace Schemas {
          * * `LaravelCloud` - LaravelCloud
          * * `Northbeam` - Northbeam
          * * `NaverAds` - NaverAds
+         * * `ChannelIO` - ChannelIO
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
