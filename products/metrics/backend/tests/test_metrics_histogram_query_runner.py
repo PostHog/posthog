@@ -167,9 +167,9 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
             },
             interval="minute",
         )
-        # One-minute buckets over 30 days exceed the bucket limit, so the runner uses five-minute buckets.
+        # One-minute buckets over 30 days exceed the bucket limit, so the runner uses six-hour buckets.
         first, second = (dt.datetime.fromisoformat(t) for t in response.times[:2])
-        self.assertEqual(second - first, dt.timedelta(minutes=5))
+        self.assertEqual(second - first, dt.timedelta(hours=6))
 
     def test_invalid_range_surfaces_as_client_error_not_500(self):
         with self.assertRaises(ExposedHogQLError):

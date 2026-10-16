@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { SettingsSnapshot } from 'lib/components/SettingsSnapshot'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -74,7 +73,6 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
     const { sessionPerson, snapshotAt } = useValues(playerMetaLogic(logicProps))
     const { overviewTab } = useValues(playerSidebarLogic)
     const { setOverviewTab } = useActions(playerSidebarLogic)
-    const consolidatedControls = useFeatureFlag('REPLAY_CONSOLIDATED_CONTROLS')
 
     return (
         <div className="flex flex-col overflow-auto bg-primary px-2 py-1 h-full gap-1">
@@ -84,7 +82,7 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
                 </div>
                 <ResolutionView />
             </div>
-            {consolidatedControls && <TTLWarning variant="inline" />}
+            <TTLWarning />
             <LemonSegmentedButton
                 value={overviewTab}
                 onChange={(tab) => setOverviewTab(tab)}

@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -27,33 +30,98 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.l
     HTTP_NOT_ALLOWED_ERROR,
     REPEATED_CURSOR_ERROR,
     RESPONSE_LIMIT_ERROR,
+    TABLE_NOT_IN_VERSION_ERROR,
     LangfuseResumeConfig,
     langfuse_source,
     validate_credentials as validate_langfuse_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.settings import (
     DEFAULT_VERSION,
-    ENDPOINTS,
     INCREMENTAL_FIELDS,
     LANGFUSE_API_VERSION_V1,
+    LANGFUSE_API_VERSION_V2,
+    LANGFUSE_LEGACY_SUNSET,
     SUPPORTED_VERSIONS,
+    endpoints_for_version,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^LANGFUSE_",
+            "^NEXT_PUBLIC_LANGFUSE_PUBLIC_KEY$",
+            "^NEXT_PUBLIC_LANGFUSE_BASE_URL$",
+            "^CC_LANGFUSE_PUBLIC_KEY$",
+            "^CC_LANGFUSE_SECRET_KEY$",
+            "^CC_LANGFUSE_BASE_URL$",
+            "^HERMES_LANGFUSE_PUBLIC_KEY$",
+            "^HERMES_LANGFUSE_SECRET_KEY$",
+            "^HERMES_LANGFUSE_BASE_URL$",
+            "^TRACE_TO_LANGFUSE$",
+        ),
+        npm=(
+            "langfuse",
+            "@langfuse/tracing",
+            "@langfuse/otel",
+            "@langfuse/client",
+            "@langfuse/langchain",
+            "langfuse-langchain",
+            "langfuse-node",
+            "@langfuse/core",
+            "@langfuse/browser",
+            "@langfuse/openai",
+            "@langfuse/vercel-ai-sdk",
+            "@langfuse/cli",
+            "@langfuse/n8n-nodes-langfuse",
+            "@langfuse/opencode-observability-plugin",
+            "@langfuse/pi-observability-plugin",
+            "@langfuse/codex-observability-plugin",
+            "langfuse-core",
+            "langfuse-vercel",
+            "openclaw-x-langfuse-plugin",
+            "@mastra/langfuse",
+            "@voltagent/langfuse-exporter",
+        ),
+        pypi=("langfuse", "langfuse-langchain", "langfuse-haystack", "llama-index-callbacks-langfuse"),
+        cargo=("langfuse", "opentelemetry-langfuse", "langfuse-ergonomic", "langfuse-client-base", "swiftide-langfuse"),
+        composer=(
+            "axyr/laravel-langfuse",
+            "janzaba/langfuse",
+            "dropsolid/langfuse-php-sdk",
+            "lingoda/langfuse-bundle",
+            "dij-digital/langfuse-php",
+            "dij-digital/langfuse-laravel",
+        ),
+        go=(
+            "github.com/henomis/langfuse-go",
+            "github.com/git-hulk/langfuse-go",
+            "github.com/wepala/langfuse-go",
+            "github.com/oiime/langfuse-go",
+        ),
+        hex=("langfuse",),
+        maven=(
+            "com.langfuse:langfuse-java",
+            "io.quarkiverse.langfuse:quarkus-langfuse",
+            "com.quantpulsar:opentelemetry-exporter-langfuse",
+        ),
+        rubygems=("langfuse-rb", "langfuse-ruby", "langfuse"),
+        alternative_to=(ProductKey.LLM_ANALYTICS,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://langfuse.com/docs/api-and-data-platform/features/public-api"
 
     supported_versions = SUPPORTED_VERSIONS
     default_version = DEFAULT_VERSION
-    # Langfuse is retiring its v1 public read endpoints at the (undated) v4 cutover. The source
-    # already reads Langfuse's current route for every resource that has one, so both labels share
-    # one wire and v1-pinned rows keep working — v1 is deprecated advisory-only (no vendor sunset
-    # date). `traces`/`sessions` have no lossless v2 replacement (v2 returns observation rows, not
-    # trace/session objects), so their cutover is a documented manual migration, not an auto repin.
-    deprecated_versions = (VersionDeprecation(version=LANGFUSE_API_VERSION_V1),)
+    # The replacement for `/traces` and `/sessions` returns observation rows, not trace or session
+    # objects, so v3 drops both tables and sources that sync them need a manual move.
+    deprecated_versions = (
+        VersionDeprecation(version=LANGFUSE_API_VERSION_V1, sunset_at=LANGFUSE_LEGACY_SUNSET),
+        VersionDeprecation(version=LANGFUSE_API_VERSION_V2, sunset_at=LANGFUSE_LEGACY_SUNSET),
+    )
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -125,6 +193,7 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
             # PAGE_LIMIT_ERROR is intentionally absent: it is retryable, so a huge sync resumes
             # from its checkpoint on the next attempt instead of failing permanently.
             REPEATED_CURSOR_ERROR: "The Langfuse host repeated a pagination cursor, so the sync was stopped to avoid looping. Check that the host points at a real Langfuse instance.",
+            TABLE_NOT_IN_VERSION_ERROR: "Langfuse retired the API for this table. Trace and session data is in the observations table: group its rows by traceId or sessionId.",
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -157,7 +226,7 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
-            for endpoint in ENDPOINTS
+            for endpoint in endpoints_for_version(self.resolve_api_version(api_version))
         ]
         if names is not None:
             names_set = set(names)
@@ -182,6 +251,12 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
         resumable_source_manager: ResumableSourceManager[LangfuseResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        api_version = self.resolve_api_version(inputs.api_version)
+        if inputs.schema_name not in endpoints_for_version(api_version):
+            raise ValueError(
+                f"{TABLE_NOT_IN_VERSION_ERROR}: '{inputs.schema_name}' is not available on API version {api_version}"
+            )
+
         return langfuse_source(
             host=config.host,
             public_key=config.public_key,

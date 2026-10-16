@@ -5,6 +5,7 @@ SDK call → exposure event captured → ingested → matches the configured exp
 
 **Which exposure event?** When `exposure_criteria` names no custom event, the experiment counts exposures on its default event.
 Read it from `resolved_exposure_event` in `experiment-get`: `$feature_flag_called`, or `$experiment_exposure` for an experiment that started on or after 2026-09-01 (UTC) in a project that is in the rollout of that event.
+When it is `$feature_flag_called`, also read `$experiment_exposure` (`event IN ('$feature_flag_called', '$experiment_exposure')`), and count persons, not rows.
 An `exposure_criteria.exposure_config` that names `$experiment_exposure` counts that event, whatever `resolved_exposure_event` says.
 A config that names `$feature_flag_called` counts the default event, as an absent config does.
 `$experiment_exposure` is a copy of `$feature_flag_called`, written at ingestion with the same properties, and only for a string response other than `true`, `false` and the empty value.
@@ -21,7 +22,8 @@ The reverse case, `$feature_flag_called` with variant responses and no `$experim
 
 An event that fails one of them is not counted at all.
 There is no "no variant" bucket.
-A launched experiment without a counted exposure shows a total of 0 and a flat chart. "No exposures yet" is the text for a draft, for a start date after today, and for an exposure query that failed.
+A launched experiment without a counted exposure shows a total of 0 and a flat chart, and its open Exposures panel says "No exposures yet".
+The panel says the same for a draft, for a start date after today, and for an exposure query that failed.
 
 The queries this file refers to are in `diagnostic-snapshot.md`, with their rules.
 
@@ -85,8 +87,9 @@ Check directly, in this order, and ask only what the tools cannot answer:
 - In a project with precomputed exposures, an experiment older than 12 hours can lag today's new exposures by up to 15 minutes.
   The total is 0 because of that only when every exposure is younger than 15 minutes.
 
-<!-- Source for maintainers (may rot): MIN_PRECOMPUTATION_DURATION_SECONDS, DEFAULT_EXPOSURE_TTL_SECONDS and
-ExperimentResultsCacheMixin in products/experiments/backend/hogql_queries/experiment_query_runner.py; validate_variant_result in
+<!-- Source for maintainers (may rot): MIN_PRECOMPUTATION_DURATION_SECONDS and DEFAULT_EXPOSURE_TTL_SECONDS in
+products/experiments/backend/hogql_queries/precompute_policy.py; ExperimentResultsCacheMixin in
+products/experiments/backend/hogql_queries/experiment_query_runner.py; validate_variant_result in
 products/experiments/backend/hogql_queries/utils.py (the per-variant floor); NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES and
 EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS in products/experiments/frontend/constants.ts (the forced page read); MIN_EXPERIMENT_AGE and
 MIN_TOTAL_EXPOSURES in products/experiments/backend/temporal/scheduled_recalculation_logic.py. Verify before citing. -->
@@ -351,22 +354,21 @@ A user who adds `$feature/<flag-key>` to metric events changes nothing in the re
 
 Where the property does matter:
 
-- **Legacy experiments** (E13 in `mid-run-changes.md`) attribute metric events by `$feature/<flag-key>`, so events without it are not counted there.
+- **Legacy experiments** (E13 in `mid-run-changes.md`) attributed metric events by `$feature/<flag-key>`. They no longer show results, so migrate them instead.
 - **A custom exposure event** needs it (B4).
 - **The user's own insight or SQL** that filters or breaks down by `$feature/<flag-key>`.
   It undercounts events from a server SDK, which adds the property only when the capture call is given the evaluated flags or asked to evaluate them `[MEDIUM]`.
   It also overcounts in the other direction: the property is on events of everyone whose SDK holds the flag's value, including people who were never exposed, so it is not a filter for participants.
 
 **Verify directly.** `is_legacy` in `experiment-get`.
-It is true when any primary, secondary or shared metric is legacy, and only a metric whose `kind` is `ExperimentTrendsQuery` or `ExperimentFunnelsQuery` attributes metric events by the property.
-When it is false, or the metric in question has another `kind`, look elsewhere for a missing conversion: B2 (ids), B8 (order), D1 in `numbers-vs-sql.md` (scope).
+It is true when any primary, secondary or shared metric is legacy.
+When it is false, look elsewhere for a missing conversion: B2 (ids), B8 (order), D1 in `numbers-vs-sql.md` (scope).
 
 Part of the public docs still asks for the property on metric events.
 The exposures page states the current rule.
 
 <!-- Source for maintainers (may rot): build_variant_property in
-products/experiments/backend/hogql_queries/experiment_exposure_query_builder.py reads the property on the exposure side only;
-the legacy runners experiment_trends_query_runner.py and experiment_funnels_query_runner.py break down metric events by it.
+products/experiments/backend/hogql_queries/experiment_exposure_query_builder.py reads the property on the exposure side only.
 Docs: https://posthog.com/docs/experiments/exposures#metric-events-dont-need-a-variant-property -->
 
 ## B12 — An exposure criteria filter that cannot match [MEDIUM]

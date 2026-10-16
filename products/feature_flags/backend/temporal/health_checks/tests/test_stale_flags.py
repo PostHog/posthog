@@ -354,6 +354,32 @@ class TestStaleFlagsDetect(BaseTest):
                 None,
                 False,
             ),
+            # Never called, so the evidence is the configuration. The SQL still accepts the 100%
+            # variant under the blanket condition, and only the checker keeps this flag out.
+            (
+                "never_called_with_targeted_variant_override_first",
+                {
+                    **stale_by_config(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 100},
+                                {"key": "test", "rollout_percentage": 0},
+                            ]
+                        },
+                        "groups": [
+                            {
+                                "properties": [{"key": "email", "value": "x"}],
+                                "rollout_percentage": 100,
+                                "variant": "test",
+                            },
+                            {"properties": [], "rollout_percentage": 100},
+                        ],
+                    },
+                },
+                None,
+                False,
+            ),
             # The same two conditions the other way round. The matcher stops at the blanket one, so
             # the override below it is unreachable and the flag really does serve one variant.
             (
@@ -591,6 +617,35 @@ class TestStaleFlagsDetect(BaseTest):
                     "evidence_class": EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA,
                     "rollout_state": ROLLOUT_FULLY_ROLLED_OUT,
                     "winning_variant": "control",
+                },
+            ),
+            # A usage-stale row is not filtered on the checker's full-rollout verdict, so a flag the
+            # checker calls partial still reports here, with the missing calls as its evidence.
+            (
+                "cold_multivariate_with_disagreeing_paths_is_partial",
+                {
+                    "last_called_at": timezone.now() - timedelta(days=45),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 100},
+                                {"key": "test", "rollout_percentage": 0},
+                            ]
+                        },
+                        "groups": [
+                            {
+                                "properties": [{"key": "email", "value": "x"}],
+                                "rollout_percentage": 100,
+                                "variant": "test",
+                            },
+                            {"properties": [], "rollout_percentage": 100},
+                        ],
+                    },
+                },
+                {
+                    "evidence_class": EVIDENCE_NOT_CALLED_RECENTLY,
+                    "rollout_state": ROLLOUT_PARTIAL,
+                    "winning_variant": None,
                 },
             ),
             # The matcher ignores the override and serves the distribution, so the payload must

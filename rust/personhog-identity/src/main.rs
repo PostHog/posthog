@@ -26,6 +26,7 @@ use personhog_coordination::store::PersonhogStore;
 use personhog_identity::config::Config;
 use personhog_identity::leader::LifecycleLeader;
 use personhog_identity::lifecycle::delete::DeleteDriver;
+use personhog_identity::lifecycle::detach::DetachedDrives;
 use personhog_identity::lifecycle::engine::Engine;
 use personhog_identity::lifecycle::merge::{MergeDriver, MergeOpExecutor};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
@@ -111,10 +112,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    config
-        .tables()
-        .validate()
-        .expect("Invalid identity table set");
+    let tables = config.tables();
+    tables.validate().expect("Invalid identity table set");
 
     tracing::info!("Starting personhog-identity service");
     tracing::info!("gRPC address: {}", config.grpc_address);
@@ -126,7 +125,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         router_channels = config.router_channels,
         "Leader fan-out concurrency"
     );
-    tracing::info!("Tables: {:?}", config.tables());
+    tracing::info!("Tables: {:?}", tables);
+    let outbox_writes = config.outbox_writes();
+    if config.lifecycle_outbox_enabled {
+        tracing::info!(
+            outbox = %tables.person_publish_outbox,
+            "Lifecycle outbox enabled; a personhog-publisher on the same table set must drain it"
+        );
+        if tables.is_validation() {
+            tracing::warn!(
+                outbox = %tables.person_publish_outbox,
+                "Lifecycle outbox is on for the validation table set; the publisher draining it must point at capture topics, never the production names"
+            );
+        }
+    }
 
     // The delete saga groups its fence calls by the leaders' partition
     // count, which lives in etcd; a service that cannot read it would
@@ -273,7 +285,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.router_http2_windows(),
         )
         .expect("Invalid router URL")
-        .with_client_name("personhog-identity"),
+        .with_client_name("personhog-identity")
+        .with_attempts(config.leader_request_attempts),
     );
     // Both sagas' leader surface, reached through the router like the
     // property writes.
@@ -288,12 +301,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             property_writer.clone(),
             config.tables(),
             config.lifecycle_leader_call_concurrency,
+            outbox_writes,
         );
         let sweeper_delete_driver = DeleteDriver::new(
             lifecycle_leader.clone(),
             config.tables(),
             config.lifecycle_leader_call_concurrency,
             num_partitions,
+            outbox_writes,
         );
         let sweeper_engine = engine.clone();
         let sweep_interval = config.lifecycle_sweep_interval();
@@ -332,10 +347,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    let detached_drives = DetachedDrives::new(config.lifecycle_detached_drive_limit);
     // Separate proto service co-served on the same server so lifecycle
     // callers are insulated from any future split.
     let merge_entrance = MergeEntrance::new(
         storage.clone(),
+        property_writer.clone(),
         property_writer.clone(),
         MergeOpExecutor::new(
             engine.clone(),
@@ -343,7 +360,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 property_writer.clone(),
                 config.tables(),
                 config.lifecycle_leader_call_concurrency,
+                outbox_writes,
             ),
+            detached_drives.clone(),
         ),
     );
     let lifecycle_service = PersonHogLifecycleService::new(
@@ -352,6 +371,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.tables(),
         config.lifecycle_leader_call_concurrency,
         num_partitions,
+        outbox_writes,
     );
     let service = PersonHogIdentityService::new(
         storage,
@@ -422,6 +442,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));
         }
+        tracing::info!(
+            in_flight = detached_drives.in_flight(),
+            "waiting for detached merge drives before exit"
+        );
+        detached_drives.shutdown().await;
     });
 
     monitor.wait().await?;

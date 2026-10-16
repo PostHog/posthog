@@ -14,7 +14,7 @@ import AlphaRelease from '../_snippets/alpha-release.mdx'
 
 <AlphaRelease />
 
-[Marketstack](https://marketstack.com) (an APILayer product) is a REST API for real-time, intraday, and historical stock market data covering 70+ exchanges and 125,000+ tickers. Linking Marketstack as a source pulls end-of-day, intraday, splits, and dividends data along with market reference tables (tickers, exchanges, currencies, timezones) into your PostHog Data warehouse, where you can join it with your product data.
+[Marketstack](https://marketstack.com) (an APILayer product) is a REST API for real-time, intraday, and historical stock market data covering 70+ exchanges and 125,000+ tickers. Linking Marketstack as a source pulls end-of-day, intraday, splits, and dividends data, company profiles, analyst ratings, and SEC filings along with market reference tables (tickers, exchanges, currencies, timezones) into your PostHog Data warehouse, where you can join it with your product data.
 
 ## Prerequisites
 
@@ -30,7 +30,10 @@ Before connecting Marketstack, you need:
 When configuring the source, provide:
 
 - **Access key**: your Marketstack API access key from the [dashboard](https://marketstack.com/dashboard).
-- **Symbols** (optional): a comma-separated list of ticker symbols, e.g. `AAPL,MSFT,TSLA`. Symbols are **required** for the EOD, intraday, splits, and dividends tables — those endpoints return data per symbol. The reference tables (tickers, exchanges, currencies, timezones) don't need symbols.
+- **Symbols** (optional): a comma-separated list of ticker symbols, e.g. `AAPL,MSFT,TSLA`. Symbols are **required** for the EOD, intraday, splits, dividends, ticker info, and company ratings tables — those endpoints return data per symbol. The reference tables (tickers, exchanges, currencies, timezones) don't need symbols.
+- **CIK codes** (optional): a comma-separated list of SEC Central Index Key codes, e.g. `0000320193`. CIK codes are **required** for the submissions table.
+
+The `tickerinfo`, `companyratings`, and `submissions` tables are only available on Marketstack API v2. The `companyratings` endpoint allows one request per minute, so each symbol adds about a minute to its sync.
 
 Marketstack enforces a rate limit of 5 requests per second and a monthly request quota tied to your plan, so keep the number of symbols and the historical range in mind when backfilling.
 
@@ -38,7 +41,7 @@ Marketstack enforces a rate limit of 5 requests per second and a monthly request
 
 <SyncModes />
 
-The time-series tables (`eod`, `intraday`, `splits`, `dividends`) support incremental sync — after the first backfill, each run only requests data on or after the latest synced `date`, using Marketstack's `date_from` filter. The reference tables (`tickers`, `exchanges`, `currencies`, `timezones`) are full-refresh snapshots.
+The time-series tables (`eod`, `intraday`, `splits`, `dividends`) support incremental sync — after the first backfill, each run only requests data on or after the latest synced `date`, using Marketstack's `date_from` filter. The reference and lookup tables (`tickers`, `exchanges`, `currencies`, `timezones`, `tickerinfo`, `companyratings`, `submissions`) are full-refresh snapshots.
 
 ## Configuration
 
@@ -50,7 +53,8 @@ The time-series tables (`eod`, `intraday`, `splits`, `dividends`) support increm
 
 ## Troubleshooting
 
-- **`missing_symbols` / no rows for EOD, intraday, splits, or dividends**: these tables require at least one symbol. Add symbols to the source configuration and resync.
+- **`missing_symbols` / no rows for EOD, intraday, splits, dividends, ticker info, or company ratings**: these tables require at least one symbol. Add symbols to the source configuration and resync.
+- **`missing_cik_codes`**: the submissions table requires at least one CIK code. Add CIK codes to the source configuration and resync.
 - **`function_access_restricted`**: your Marketstack plan doesn't include this endpoint (intraday requires a paid plan). Upgrade your plan or deselect the restricted table.
 - **`usage_limit_reached`**: you've hit your monthly request quota. Upgrade your plan or wait for the quota to reset, then resync.
 - **`invalid_access_key`**: the access key is wrong or deactivated. Generate a new key in your Marketstack dashboard and reconnect.

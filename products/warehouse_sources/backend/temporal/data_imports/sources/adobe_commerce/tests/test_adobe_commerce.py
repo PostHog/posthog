@@ -172,9 +172,16 @@ class TestStoreCodeAndBaseUrl:
     def test_normalize_store_code(self, _name: str, raw: str | None, expected: str) -> None:
         assert normalize_store_code(raw) == expected
 
-    @parameterized.expand([("path_segment", "de/../all"), ("leading_digit", "1store"), ("dotted", "de.store")])
+    @parameterized.expand(
+        [
+            ("path_segment", "de/../all"),
+            ("leading_digit", "1store"),
+            ("dotted", "de.store"),
+            ("numeric_store_id", "1"),
+        ]
+    )
     def test_normalize_store_code_rejects_path_injection(self, _name: str, raw: str) -> None:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="store view code"):
             normalize_store_code(raw)
 
     @parameterized.expand(

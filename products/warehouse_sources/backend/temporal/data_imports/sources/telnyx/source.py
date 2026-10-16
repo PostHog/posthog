@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,28 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TelnyxSource(ResumableSource[TelnyxSourceConfig, TelnyxResumeConfig]):
+    codebase_detection = detect(
+        env=("^TELNYX_",),
+        npm=("telnyx", "@telnyx/webrtc", "@telnyx/react-client"),
+        pypi=("telnyx",),
+        cocoapods=("TelnyxRTC", "TelnyxVideoSdk", "TelnyxVoiceAIWidget"),
+        composer=("telnyx/telnyx-php",),
+        go=("github.com/team-telnyx/telnyx-go", "github.com/team-telnyx/telnyx-cli"),
+        maven=(
+            "com.telnyx.sdk:telnyx",
+            "com.telnyx.sdk:telnyx-client-okhttp",
+            "com.telnyx.sdk:telnyx-core",
+            "com.telnyx.sdk:telnyx-java",
+            "com.telnyx.sdk:telnyx-java-client-okhttp",
+            "com.telnyx.sdk:telnyx-java-core",
+            "com.telnyx.sdk:telnyx-lib",
+            "com.telnyx.sdk:telnyx-websocket",
+        ),
+        pub=("telnyx_webrtc", "flutter_telnyx_voice_ai_widget", "telnyx_common"),
+        rubygems=("telnyx",),
+        swiftpm=("github.com/team-telnyx/telnyx-webrtc-ios", "github.com/team-telnyx/ios-telnyx-voice-ai-widget"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"

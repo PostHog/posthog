@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
@@ -6,28 +7,45 @@ from unittest.mock import patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_suggestions.backend.facade.contracts import (
+    DeprecatePayload,
+    MaterializePayload,
+    SourceRef,
+    SuggestionDraft,
+)
 from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
     WarehouseSuggestionSubjectKind,
 )
-from products.warehouse_suggestions.backend.models import WarehouseSuggestion
+from products.warehouse_suggestions.backend.logic.payloads import payload_to_json
+from products.warehouse_suggestions.backend.models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 
 from .test_suggestions import ingest_one, make_draft
 
 REVIEW_FIELDS = ("reviewed_by_id", "reviewed_at", "dismissal_reason", "dismissal_note", "dismissed_at_score")
 FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_suggestions_enabled"
+
+
+def ingest_surfaced(team_id: int, draft: SuggestionDraft) -> WarehouseSuggestion:
+    suggestion = ingest_one(team_id, draft)
+    WarehouseSuggestion.objects.for_team(team_id).filter(id=suggestion.id).update(surfaced_at=timezone.now())
+    suggestion.refresh_from_db()
+    return suggestion
 
 
 class TestWarehouseSuggestionAPI(APIBaseTest):
@@ -65,10 +83,35 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         subject_kind: WarehouseSuggestionSubjectKind = WarehouseSuggestionSubjectKind.SAVED_QUERY,
         score: float = 1.0,
     ) -> WarehouseSuggestion:
-        return ingest_one(
+        return ingest_surfaced(
             self.team.id,
             make_draft(
                 fingerprint=f"certify:{subject_id}", subject_kind=subject_kind, subject_id=subject_id, score=score
+            ),
+        )
+
+    def _suggest_materialize(
+        self,
+        *,
+        score: float = 1.0,
+        live_sources: tuple[SourceRef, ...] = (),
+        unknown_sources: tuple[SourceRef, ...] = (),
+    ) -> WarehouseSuggestion:
+        return ingest_surfaced(
+            self.team.id,
+            replace(
+                make_draft(fingerprint="materialize:orders", subject_id=self.view.id, score=score),
+                kind=WarehouseSuggestionKind.MATERIALIZE,
+                payload=MaterializePayload(
+                    subject_name="orders",
+                    refresh_interval_seconds=86400,
+                    saves_seconds_per_month=900.0,
+                    saves_bytes_per_month=0.0,
+                    freshness_today_seconds=None,
+                    freshness_after_seconds=86400,
+                    live_sources=live_sources,
+                    unknown_sources=unknown_sources,
+                ),
             ),
         )
 
@@ -88,6 +131,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
     def test_list_dismiss_and_resume(self) -> None:
         low = self._suggest(self.view.id, score=2.0)
         high = self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE, score=9.0)
+        ingest_one(self.team.id, make_draft(fingerprint="certify:waiting", subject_id=self.view.id, score=99.0))
 
         listed = self.client.get(f"{self.url}/")
         assert listed.status_code == status.HTTP_200_OK, listed.json()
@@ -120,6 +164,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         [
             ("dismiss_a_dismissed_one", WarehouseSuggestionStatus.DISMISSED, "dismiss"),
             ("resume_an_expired_one", WarehouseSuggestionStatus.EXPIRED, "resume"),
+            ("accept_a_dismissed_one", WarehouseSuggestionStatus.DISMISSED, "accept"),
         ]
     )
     def test_a_move_people_may_not_make_conflicts(
@@ -139,6 +184,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             ("by_kind", "kind=deprecate", status.HTTP_200_OK, ["table"]),
             ("by_status", "status=dismissed", status.HTTP_200_OK, ["table"]),
             ("by_kind_and_status", "kind=certify&status=dismissed", status.HTTP_200_OK, []),
+            ("by_subject", "subject_id={view_id}", status.HTTP_200_OK, ["view"]),
             ("unknown_status", "status=bogus", status.HTTP_400_BAD_REQUEST, None),
         ]
     )
@@ -148,21 +194,128 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             "table": self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE).id,
         }
         WarehouseSuggestion.objects.for_team(self.team.id).filter(id=ids["table"]).update(
-            kind=WarehouseSuggestionKind.DEPRECATE, status=WarehouseSuggestionStatus.DISMISSED
+            kind=WarehouseSuggestionKind.DEPRECATE,
+            status=WarehouseSuggestionStatus.DISMISSED,
+            payload=payload_to_json(
+                DeprecatePayload(subject_name="stripe_charges", refresh_seconds_per_month=0, refresh_bytes_per_month=0)
+            ),
         )
 
-        response = self.client.get(f"{self.url}/?{query}")
+        response = self.client.get(f"{self.url}/?{query.format(view_id=self.view.id)}")
 
         assert response.status_code == expected_status, response.json()
         if expected is not None:
             assert response.json()["count"] == len(expected)
             assert [row["id"] for row in response.json()["results"]] == [str(ids[name]) for name in expected]
 
+    def _bearer(self, scopes: list[str]) -> str:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(token), scopes=scopes)
+        self.client.logout()
+        return f"Bearer {token}"
+
+    @parameterized.expand(
+        [
+            ("view_scope", ["warehouse_view:write"], {"view": True}, {"view": 200, "table": 404}),
+            ("table_scope", ["warehouse_table:write"], {"table": True}, {"view": 404, "table": 200}),
+            ("umbrella_scope", ["warehouse_objects:write"], {"view": True, "table": True}, {"view": 200, "table": 200}),
+            (
+                "view_read_and_table_write",
+                ["warehouse_view:read", "warehouse_table:write"],
+                {"view": False, "table": True},
+                {"view": 403, "table": 200},
+            ),
+            ("no_warehouse_scope", ["insight:write"], None, {"view": 403, "table": 403}),
+        ]
+    )
+    def test_a_token_reaches_only_the_subject_kinds_its_scopes_name(
+        self, _name: str, scopes: list[str], expected_can_act: dict[str, bool] | None, expected_dismiss: dict[str, int]
+    ) -> None:
+        ids = {
+            "view": self._suggest(self.view.id).id,
+            "table": self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE).id,
+        }
+        bearer = self._bearer(scopes)
+
+        listed = self.client.get(f"{self.url}/", HTTP_AUTHORIZATION=bearer)
+        dismissed = {
+            name: self.client.post(
+                f"{self.url}/{suggestion_id}/dismiss/",
+                {"reason": WarehouseSuggestionDismissalReason.NOT_NOW},
+                HTTP_AUTHORIZATION=bearer,
+            ).status_code
+            for name, suggestion_id in ids.items()
+        }
+
+        if expected_can_act is None:
+            assert listed.status_code == status.HTTP_403_FORBIDDEN, listed.json()
+        else:
+            names_by_id = {str(suggestion_id): name for name, suggestion_id in ids.items()}
+            listed_can_act = {names_by_id[row["id"]]: row["can_act"] for row in listed.json()["results"]}
+            assert listed_can_act == expected_can_act
+        assert dismissed == expected_dismiss
+
+    def test_a_token_without_a_write_scope_is_told_which_one_to_add(self) -> None:
+        suggestion = self._suggest(self.view.id)
+
+        response = self.client.post(
+            f"{self.url}/{suggestion.id}/dismiss/",
+            {"reason": WarehouseSuggestionDismissalReason.NOT_NOW},
+            HTTP_AUTHORIZATION=self._bearer(["warehouse_view:read"]),
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "warehouse_view:write" in response.json()["detail"]
+
     def test_the_flag_off_forbids_the_endpoint(self) -> None:
         with patch(FLAG, return_value=False):
             response = self.client.get(f"{self.url}/")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_lists_materialize_before_certify_whatever_their_scores(self) -> None:
+        certify = self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE, score=900.0)
+        materialize = self._suggest_materialize(score=1.0)
+
+        listed = self.client.get(f"{self.url}/").json()["results"]
+
+        assert [row["id"] for row in listed] == [str(materialize.id), str(certify.id)]
+
+    def test_a_materialize_suggestion_hides_the_names_of_source_tables_the_reader_cannot_see(self) -> None:
+        denied_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="secret_payments",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://bucket/secret_payments",
+        )
+        self._suggest_materialize(
+            live_sources=(SourceRef(name="events", warehouse_table_id=None),),
+            unknown_sources=(
+                SourceRef(name="stripe_charges", warehouse_table_id=self.table.id),
+                SourceRef(name="secret_payments", warehouse_table_id=denied_table.id),
+            ),
+        )
+        self._restrict("warehouse_table", denied_table.id, "none")
+
+        payload = self.client.get(f"{self.url}/").json()["results"][0]["payload"]
+
+        assert (payload["live_sources"], payload["unknown_sources"]) == (
+            {"names": ["events"], "hidden_count": 0},
+            {"names": ["stripe_charges"], "hidden_count": 1},
+        )
+
+    def test_status_reports_the_last_daily_run(self) -> None:
+        before_any_run = self.client.get(f"{self.url}/status/").json()
+        WarehouseSuggestionTeamConfig.objects.create(team=self.team, eligible=True, days_with_data=12)
+
+        after_a_run = self.client.get(f"{self.url}/status/").json()
+
+        assert (before_any_run["eligible"], before_any_run["days_with_data"], before_any_run["window_days"]) == (
+            False,
+            0,
+            30,
+        )
+        assert (after_a_run["enabled"], after_a_run["eligible"], after_a_run["days_with_data"]) == (True, True, 12)
 
     def test_a_member_sees_nothing_about_subjects_they_cannot_read(self) -> None:
         visible = self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE)
@@ -208,17 +361,26 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         assert [row["id"] for row in listed.json()["results"]] == [str(suggestion.id)]
         assert dismissed.status_code == expected_dismiss_status, dismissed.json()
 
-    def test_a_viewer_of_the_subject_cannot_dismiss_its_suggestion(self) -> None:
+    @parameterized.expand(
+        [
+            ("dismiss_as_view_viewer", "dismiss", "warehouse_view", False),
+            ("accept_as_view_viewer", "accept", "warehouse_view", False),
+            ("certify_as_catalog_viewer", "accept", "data_catalog", True),
+        ]
+    )
+    def test_a_viewer_cannot_decide_the_suggestion(
+        self, _name: str, action: str, restricted_resource: str, expected_can_act: bool
+    ) -> None:
         suggestion = self._suggest(self.view.id)
-        self._restrict("warehouse_view", self.view.id, "viewer")
+        self._restrict(restricted_resource, self.view.id if restricted_resource == "warehouse_view" else None, "viewer")
 
         listed = self.client.get(f"{self.url}/")
-        dismissed = self.client.post(
-            f"{self.url}/{suggestion.id}/dismiss/", {"reason": WarehouseSuggestionDismissalReason.NOT_USEFUL}
+        decided = self.client.post(
+            f"{self.url}/{suggestion.id}/{action}/", {"reason": WarehouseSuggestionDismissalReason.NOT_USEFUL}
         )
 
-        assert listed.json()["results"][0]["can_act"] is False
-        assert dismissed.status_code == status.HTTP_403_FORBIDDEN, dismissed.json()
+        assert listed.json()["results"][0]["can_act"] is expected_can_act
+        assert decided.status_code == status.HTTP_403_FORBIDDEN, decided.json()
         suggestion.refresh_from_db()
         assert suggestion.status == WarehouseSuggestionStatus.PROPOSED
 

@@ -6,7 +6,16 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch, IconWarning } from '@posthog/icons'
+import {
+    IconArchive,
+    IconCheck,
+    IconLock,
+    IconPin,
+    IconPinFilled,
+    IconPlus,
+    IconSearch,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -50,6 +59,7 @@ import { pluralize } from 'lib/utils/strings'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { EventDefinition, PropertyDefinition } from '~/types'
 
+import { HiddenEventExplanation } from './HiddenEventExplanation'
 import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
 import { TaxonomicEventMatchSuggestions } from './TaxonomicEventMatchSuggestions'
 
@@ -795,9 +805,7 @@ function InfiniteListEmptyState(): JSX.Element {
                         <strong>{hiddenEventSearched}</strong> isn't available here
                     </span>
                     <span className="max-w-80 text-center text-secondary">
-                        PostHog still collects this event, but you can't build a saved query on it. Its data is moving,
-                        so a saved query would stop returning results. To see how a flag is used, open the flag and
-                        check its Usage tab.
+                        <HiddenEventExplanation />
                     </span>
                 </div>
             ) : (
@@ -863,21 +871,34 @@ function InfiniteListEmptyState(): JSX.Element {
 }
 
 function InfiniteListErrorState(): JSX.Element {
+    const { group, remoteFetchForbidden } = useValues(infiniteListLogic)
     const { retryRemoteItems } = useActions(infiniteListLogic)
 
     return (
         <div className="no-infinite-results flex flex-col gap-y-1 items-center">
-            <IconWarning className="text-5xl text-tertiary" />
-            <span className="text-center">Couldn't load results</span>
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                data-attr="taxonomic-retry-remote-items"
-                onClick={retryRemoteItems}
-            >
-                Try again
-            </LemonButton>
-            <span className="text-center text-secondary italic">If it keeps happening, contact support.</span>
+            {remoteFetchForbidden ? (
+                <>
+                    <IconLock className="text-5xl text-tertiary" />
+                    <span className="text-center">
+                        You don't have access to {group?.searchPlaceholder || 'these results'} in this project.
+                    </span>
+                    <span className="text-center text-secondary">Ask a project admin for access.</span>
+                </>
+            ) : (
+                <>
+                    <IconWarning className="text-5xl text-tertiary" />
+                    <span className="text-center">Couldn't load results</span>
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        data-attr="taxonomic-retry-remote-items"
+                        onClick={retryRemoteItems}
+                    >
+                        Try again
+                    </LemonButton>
+                    <span className="text-center text-secondary italic">If it keeps happening, contact support.</span>
+                </>
+            )}
         </div>
     )
 }

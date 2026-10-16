@@ -53,7 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     render_named_conditions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType, PartitionSettings
 
 # Why a connection is allowed to skip the egress proxy, or None to stay proxied. A reason
 # rather than a bool so `_get_client` — where every call site converges — can check the
@@ -1169,12 +1169,16 @@ def _get_incremental_row_count(
     quoted_field = _quote_identifier(incremental_field)
     last_value_expr = _last_value_expr(incremental_field_type)
     query = f"SELECT count() FROM {_qualified_table(database, table_name)} WHERE {quoted_field} > {last_value_expr}"
+    parameters = {"last_value": _last_value_param(last_value, incremental_field_type)}
     try:
-        result = client.query(
-            query,
-            parameters={"last_value": _last_value_param(last_value, incremental_field_type)},
-            settings={"max_execution_time": 30},
-        )
+        try:
+            result = client.query(query, parameters=parameters, settings={"max_execution_time": 30})
+        except ProgrammingError:
+            # A readonly user profile refuses every setting (see `_apply_session_settings`), and the
+            # driver raises before it sends the query. The total-table count the caller falls back to
+            # is also the size the billing limit check gives this sync, so one large table can then
+            # stop every sync of the team. The server's own limits bound the count instead.
+            result = client.query(query, parameters=parameters)
     except ClickHouseError as e:
         logger.debug(f"_get_incremental_row_count: fell back, count query failed: {e}")
         return None
@@ -1191,8 +1195,14 @@ def _get_incremental_row_count(
 # serve us right now, not that anything we sent was wrong — they clear on their
 # own. A real ClickHouse query error carries a `Code: NNN` instead. We match
 # only these transient statuses so genuine failures still surface.
+# 500 is included: clickhouse-connect only wraps a response this way (rather than
+# "Received ClickHouse exception, code: N") when it carries no
+# `X-ClickHouse-Exception-Code` header, which a genuine ClickHouse-raised error
+# always sets — so a bare 500 means a proxy/load balancer in front of ClickHouse
+# failed, the same shape as 502/503/504.
 _TRANSIENT_HTTP_RESPONSE_SUBSTRINGS: tuple[str, ...] = (
     "received HTTP status 429",
+    "received HTTP status 500",
     "received HTTP status 502",
     "received HTTP status 503",
     "received HTTP status 504",
@@ -1528,6 +1538,21 @@ def _is_query_limit_exceeded(message: str) -> bool:
     return any(substring in message for substring in _QUERY_LIMIT_EXCEEDED_SUBSTRINGS)
 
 
+# SETTING_CONSTRAINT_VIOLATION (code 452) — a settings profile caps `max_execution_time` below the
+# value `_query_settings` requests (ClickHouse Cloud plans commonly set this). The cap isn't visible
+# at connect time: `_apply_session_settings` only catches settings the server reports as
+# unconditionally readonly, not ones that are writable but range-constrained. So instead of the
+# server just enforcing its own lower value, it rejects the first data query outright. The error
+# names its own ceiling, so we retry once with that value — still the safety net the setting exists
+# for, just shorter than we asked for.
+_MAX_EXECUTION_TIME_CONSTRAINT_RE = re.compile(r"Setting max_execution_time shouldn't be greater than (\d+)")
+
+
+def _max_execution_time_ceiling(message: str) -> int | None:
+    match = _MAX_EXECUTION_TIME_CONSTRAINT_RE.search(message)
+    return int(match.group(1)) if match else None
+
+
 _TIMESTAMP_UNIT_DIGITS: dict[str, int] = {"s": 0, "ms": 3, "us": 6, "ns": 9}
 
 
@@ -1629,6 +1654,7 @@ def clickhouse_source(
     stored_primary_keys: Optional[list[str]] = None,
     bypass_env_proxy: BypassEnvProxy = None,
     server_hostname: str | None = None,
+    sync_type: ExternalDataSchemaSyncType | None = None,
 ) -> SourceResponse:
     """Build a SourceResponse that pulls a single ClickHouse table.
 
@@ -1722,7 +1748,8 @@ def clickhouse_source(
                 stored_primary_keys, primary_keys, [column.name for column in table.columns]
             )
             has_duplicate_primary_keys = False
-            if should_use_incremental_field and should_probe_for_duplicates(
+            # Only an incremental sync merges, so it is the only sync that reads the probe result.
+            if sync_type == ExternalDataSchemaSyncType.INCREMENTAL and should_probe_for_duplicates(
                 merge_keys, primary_keys, constraints_enforced=False
             ):
                 probed = _has_duplicate_primary_keys(client, database, table_name, merge_keys, logger)
@@ -1773,6 +1800,9 @@ def clickhouse_source(
                     """
                     page_rows: int | None = None
                     lower: list[str] | None = None
+                    # Set once a capped retry has fired, so a host that keeps rejecting (a
+                    # misconfigured or adversarial endpoint) can't spin this loop forever.
+                    retried_max_execution_time = False
                     while True:
                         read_any = False
                         try:
@@ -1814,7 +1844,20 @@ def clickhouse_source(
                                     read_any = read_any or batch.num_rows > 0
                                     yield batch
                         except ClickHouseError as e:
-                            if read_any or page_key is None or not _is_query_limit_exceeded(str(e)):
+                            message = str(e)
+                            if (
+                                not read_any
+                                and not retried_max_execution_time
+                                and (ceiling := _max_execution_time_ceiling(message)) is not None
+                            ):
+                                retried_max_execution_time = True
+                                stream_client.set_client_setting("max_execution_time", ceiling)
+                                logger.warning(
+                                    f"ClickHouse capped max_execution_time at {ceiling}s for this source; "
+                                    "retrying with that limit"
+                                )
+                                continue
+                            if read_any or page_key is None or not _is_query_limit_exceeded(message):
                                 raise
                             if page_rows is not None and page_rows // 2 < PAGED_READ_MIN_ROWS:
                                 raise

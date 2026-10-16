@@ -230,6 +230,17 @@ pub struct Config {
     /// `redis_connection_timeout_ms`; ignored unless `global_rate_limit_redis_url` is set.
     pub global_rate_limit_redis_connection_timeout_ms: Option<u64>,
 
+    /// Redis clusters the per-(token, distinct_id) limiter shards its keys across: `1` uses
+    /// `global_rate_limit_redis_url` only, `2` adds the shard 1 URLs. The AI byte limiter always uses the first.
+    #[envconfig(default = "1")]
+    pub global_rate_limit_redis_shards: usize,
+
+    /// Writer URL of the second limiter cluster. Capture connects to it only when `global_rate_limit_redis_shards` is 2.
+    pub global_rate_limit_redis_shard_1_url: Option<String>,
+
+    /// Replica URL of the second limiter cluster, used like `global_rate_limit_redis_reader_url`.
+    pub global_rate_limit_redis_shard_1_reader_url: Option<String>,
+
     /// Redis key holding the dynamic custom per-key rate-limit thresholds
     /// (JSON object of `{key: threshold}`), written by Django. When set, the
     /// per-(token, distinct_id) limiter refreshes its custom thresholds from
@@ -393,12 +404,6 @@ pub struct Config {
 
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
-
-    /// Comma-separated list of active v1 sinks (e.g. "msk" or "msk,ws").
-    /// Parsed by `v1::sinks::load_sinks()` after `Config::init_from_env()`.
-    /// Empty string means the v1 sink layer is disabled.
-    #[envconfig(default = "")]
-    pub capture_v1_sinks: String,
 
     /// Maximum compressed (wire) body size the v1 endpoint will accept (bytes).
     #[envconfig(default = "10485760")]
@@ -571,9 +576,9 @@ pub struct OutputsConfig {
     pub dlq_topic: String,
     #[envconfig(from = "CAPTURE_OUTPUT_DLQ_PRODUCER", default = "INGESTION")]
     pub dlq_producer: ProducerName,
-    /// The v0 (`DataType::AiEvents`) and v1 (`Destination::AiEvents`) pipelines
+    /// The v0 (`DataType::AiEvents`) and v1 (`Destination::AiMain`) pipelines
     /// divert AI events here instead of the main topic on every deployment,
-    /// capture-ai included. Setup also injects it into every v1 sink config.
+    /// capture-ai included.
     #[envconfig(
         from = "CAPTURE_OUTPUT_AI_MAIN_TOPIC",
         default = "events_plugin_ingestion_ai"

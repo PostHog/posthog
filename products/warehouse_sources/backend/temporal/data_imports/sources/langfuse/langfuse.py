@@ -58,6 +58,7 @@ HTTP_NOT_ALLOWED_ERROR = "Langfuse host must use HTTPS"
 RESPONSE_LIMIT_ERROR = "Langfuse response exceeded a transfer limit"
 PAGE_LIMIT_ERROR = "Langfuse pagination page limit reached"
 REPEATED_CURSOR_ERROR = "Langfuse API returned the same pagination cursor twice"
+TABLE_NOT_IN_VERSION_ERROR = "Langfuse table is not available on this API version"
 
 
 class LangfuseRetryableError(Exception):
@@ -185,9 +186,12 @@ def _from_filter_value(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> str | None:
-    """The formatted lower-bound filter value for this run, or None for a full / first sync."""
+    """The formatted lower-bound filter value for this run.
+
+    A full or first sync gets the endpoint's required bound, which is None for most endpoints.
+    """
     if not (should_use_incremental_field and db_incremental_field_last_value and config.incremental_filter_param):
-        return None
+        return config.required_from_value
 
     field = incremental_field or config.default_incremental_field
     if field != config.default_incremental_field:

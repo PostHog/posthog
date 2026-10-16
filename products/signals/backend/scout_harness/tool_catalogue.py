@@ -9,8 +9,12 @@ before any of it can be configured.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import TYPE_CHECKING
+
+import posthoganalytics
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.mcp_tool_definitions import McpToolDefinition, get_mcp_tool_definitions
 from posthog.temporal.oauth import (
     SCOUT_GRANTABLE_WRITE_SCOPES,
@@ -19,6 +23,52 @@ from posthog.temporal.oauth import (
     resolve_scopes,
     scout_scope_posture,
 )
+
+from products.signals.backend.enums import ToolPreset
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
+
+
+def scout_tool_access_enabled(team: Team) -> bool:
+    try:
+        return (
+            posthoganalytics.feature_enabled(
+                "scouts-tool-access",
+                str(team.uuid),
+                groups={"project": str(team.uuid)},
+                group_properties={"project": {"id": team.parent_team_id or team.id, "uuid": str(team.uuid)}},
+                send_feature_flag_events=False,
+            )
+            is True
+        )
+    except Exception as error:
+        capture_exception(error)
+        return False
+
+
+SCOUT_RUN_CONTEXT_TOOLS = frozenset(
+    {
+        "scout-emit-report",
+        "scout-edit-report",
+        "scout-emit-signal",
+        "scout-scratchpad-search",
+        "scout-scratchpad-remember",
+        "scout-scratchpad-forget",
+        "scout-notes-list",
+        "scout-metadata-get",
+        "scout-project-profile-get",
+        "scout-record-output",
+        "scout-check-record-result",
+    }
+)
+
+
+@frozen
+class ScoutToolPresetEntry:
+    name: ToolPreset
+    label: str
+    tools: tuple[str, ...]
 
 
 @frozen
@@ -44,6 +94,7 @@ class ScoutToolCatalogue:
     tools: tuple[ScoutToolEntry, ...]
     presets: tuple[ScoutScopePresetEntry, ...]
     grantable_write_scopes: tuple[str, ...]
+    tool_presets: tuple[ScoutToolPresetEntry, ...]
 
 
 def _preset_scopes(preset: ScoutScopePreset, *, extra_write_scopes: list[str] | None = None) -> frozenset[str]:
@@ -85,6 +136,13 @@ def get_scout_tool_catalogue() -> ScoutToolCatalogue:
             )
         )
 
+    read_tools = tuple(
+        sorted(
+            entry.definition.name
+            for entry in tools
+            if entry.holdable and entry.definition.read_only and entry.definition.name not in SCOUT_RUN_CONTEXT_TOOLS
+        )
+    )
     return ScoutToolCatalogue(
         tools=tuple(sorted(tools, key=lambda entry: entry.definition.name)),
         presets=tuple(
@@ -92,4 +150,12 @@ def get_scout_tool_catalogue() -> ScoutToolCatalogue:
             for preset in SCOUT_SCOPE_PRESETS
         ),
         grantable_write_scopes=tuple(sorted(SCOUT_GRANTABLE_WRITE_SCOPES)),
+        tool_presets=(
+            ScoutToolPresetEntry(name=ToolPreset.READ_ONLY, label=ToolPreset.READ_ONLY.label, tools=read_tools),
+            ScoutToolPresetEntry(
+                name=ToolPreset.SUPPORT_NOTES,
+                label=ToolPreset.SUPPORT_NOTES.label,
+                tools=tuple(sorted((*read_tools, "conversations-tickets-notes-create"))),
+            ),
+        ),
     )

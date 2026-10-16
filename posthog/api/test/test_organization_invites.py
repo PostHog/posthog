@@ -16,6 +16,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import User
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -23,6 +24,8 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.products import Products
+from posthog.schema_enums import ProductItemCategory
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
@@ -417,25 +420,53 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
-    def test_invite_fails_if_inviter_does_not_have_access_to_team(self):
-        email = "xx@posthog.com"
+    @parameterized.expand(
+        [
+            (subject, most_specific, bulk)
+            for subject in ["default", "default_role", "member"]
+            for most_specific in [False, True]
+            for bulk in [False, True]
+        ]
+    )
+    def test_invite_fails_if_inviter_does_not_have_access_to_team(
+        self, subject: str, most_specific: bool, bulk: bool
+    ) -> None:
+        email = "invitee@example.com"
         count = OrganizationInvite.objects.count()
         private_team = Team.objects.create(organization=self.organization, name="Private Team")
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        role = None
+        if subject == "default_role":
+            role = Role.objects.create(name="Restricted role", organization=self.organization)
+            self.organization.default_role = role
+            RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+        self.organization.save()
 
-        # Set up new access control system - restrict project to no default access
         AccessControl.objects.create(
             team=private_team,
             access_level="none",
             resource="project",
             resource_id=str(private_team.id),
+            role=role,
+            organization_member=self.organization_membership if subject == "member" else None,
         )
+        denied_response = self.client.get(f"/api/projects/{private_team.id}/")
+        self.assertEqual(denied_response.status_code, status.HTTP_404_NOT_FOUND)
+        payload = {
+            "target_email": email,
+            "level": OrganizationMembership.Level.MEMBER,
+            "private_project_access": [{"id": private_team.id, "level": "admin"}],
+        }
         response = self.client.post(
-            "/api/organizations/@current/invites/",
-            {
-                "target_email": email,
-                "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team.id, "level": "admin"}],
-            },
+            "/api/organizations/@current/invites/bulk/" if bulk else "/api/organizations/@current/invites/",
+            [{"target_email": "other-invitee@example.com"}, payload] if bulk else payload,
+            format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
@@ -494,24 +525,36 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
-    def test_invite_fails_if_inviter_level_is_lower_than_requested_level_on_member_restricted_project(self):
-        """
-        Regression test: when a project's default access_level is "member" (not "none"),
-        a standard member must still be prevented from requesting admin access.
-        """
-        email = "escalation@posthog.com"
+    @parameterized.expand(
+        [(subject, most_specific) for subject in ["default", "role", "member"] for most_specific in [False, True]]
+    )
+    def test_invite_fails_if_inviter_level_is_lower_than_requested_level_on_member_restricted_project(
+        self, subject: str, most_specific: bool
+    ) -> None:
+        email = "invitee@example.com"
         count = OrganizationInvite.objects.count()
         restricted_team = Team.objects.create(organization=self.organization, name="Member-Restricted Team")
         organization_membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
         organization_membership.level = OrganizationMembership.Level.MEMBER
         organization_membership.save()
 
-        # Restrict the project with default access level "member" (not "none")
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        role = None
+        if subject == "role":
+            role = Role.objects.create(name="Member role", organization=self.organization)
+            RoleMembership.objects.create(role=role, user=self.user, organization_member=organization_membership)
         AccessControl.objects.create(
             team=restricted_team,
             access_level="member",
             resource="project",
             resource_id=str(restricted_team.id),
+            role=role,
+            organization_member=organization_membership if subject == "member" else None,
         )
         response = self.client.post(
             "/api/organizations/@current/invites/",
@@ -1602,12 +1645,14 @@ class TestOnboardingDelegationInviteAPI(APIBaseTest):
         response = self.client.post(self._delegate_url(), {"target_email": "engineer@example.com"})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @patch("posthog.tasks.email.send_invite.apply_async")
     @patch("posthoganalytics.capture")
-    def test_delegate_creates_admin_level_invite_with_flag(self, _mock_capture):
-        response = self.client.post(
-            self._delegate_url(),
-            {"target_email": "engineer@example.com", "message": "please help"},
-        )
+    def test_delegate_creates_admin_level_invite_with_flag(self, _mock_capture, _mock_send_invite):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                self._delegate_url(),
+                {"target_email": "engineer@example.com", "message": "please help"},
+            )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         invite = OrganizationInvite.objects.get(target_email="engineer@example.com")
         self.assertTrue(invite.is_setup_delegation)
@@ -1618,6 +1663,14 @@ class TestOnboardingDelegationInviteAPI(APIBaseTest):
         self.assertEqual(self.user.onboarding_delegated_to_invite_id, invite.id)
         self.assertIsNotNone(self.user.onboarding_skipped_at)
         self.assertEqual(self.user.onboarding_skipped_reason, "delegated")
+        # The delegator skipped onboarding, so every released product is starred to fill the sidebar.
+        released_paths = {
+            product.path for product in Products.products() if product.category != ProductItemCategory.UNRELEASED
+        }
+        starred_paths = set(
+            FileSystemShortcut.objects.filter(user=self.user, team=self.team).values_list("path", flat=True)
+        )
+        self.assertLessEqual(released_paths, starred_paths)
 
     def test_delegate_rejects_email_outside_enforced_verified_domain(self):
         # Delegation grants admin, so it must respect the same verified-domain rule as a normal invite.

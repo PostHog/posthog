@@ -1,16 +1,11 @@
-import json
-from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
-
-from requests import Response
+from unittest.mock import MagicMock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clever.clever import (
     CleverPaginator,
     CleverResumeConfig,
-    clever_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clever.settings import (
@@ -18,12 +13,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clever.set
     CLEVER_API_VERSION_V3_1,
     clever_base_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-
-CLEVER_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.clever.clever.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.clever.source import CleverSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clever import CleverSourceConfig
 
 
 def _next_link(starting_after: str) -> dict[str, Any]:
@@ -56,72 +53,33 @@ class TestCleverPaginator:
         assert paginator.get_resume_state() is None
 
 
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
-
 class TestCleverSourceResumeBehavior:
-    """End-to-end resume/incremental behaviour of ``clever_source`` via ``rest_api_resource``."""
+    """End-to-end resume/incremental behaviour of ``CleverSource`` via ``source_for_pipeline``."""
 
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Any = None,
-        api_version: str = CLEVER_API_VERSION_V3_1,
-        sent_urls: list[str] | None = None,
-    ) -> tuple[MagicMock, list[dict[str, Any]]]:
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(CleverSource(), CleverSourceConfig(bearer_token="test-token"))
 
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            if sent_urls is not None:
-                sent_urls.append(request.url)
-            return next(response_iter)
-
-        with patch(CLIENT_SESSION_PATCH) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = clever_source(
-                bearer_token="test-token",
-                api_version=api_version,
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-            )
-            list(cast(Iterable[Any], resource))
-            return mock_session, sent_params
+    @staticmethod
+    def _page(rows: list[dict[str, Any]], next_cursor: str | None = None) -> ScriptedResponse:
+        return ScriptedResponse(
+            json={
+                "data": [{"data": row} for row in rows],
+                "links": [_next_link(next_cursor)] if next_cursor else [],
+            }
+        )
 
     @pytest.mark.parametrize("endpoint", ["Districts", "Schools", "Users", "Sections", "Courses", "Terms"])
     def test_fresh_full_refresh_run_saves_cursor_after_each_non_terminal_page(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            endpoint,
+            [self._page([{"id": "r1"}], "r1"), self._page([{"id": "r2"}], "r2"), self._page([{"id": "r3"}])],
+        )
 
-        responses = [
-            _make_http_response({"data": [{"data": {"id": "r1"}}], "links": [_next_link("r1")]}),
-            _make_http_response({"data": [{"data": {"id": "r2"}}], "links": [_next_link("r2")]}),
-            _make_http_response({"data": [{"data": {"id": "r3"}}], "links": []}),
-        ]
-        _, sent_params = self._drive(endpoint, manager, responses)
-
-        starting_afters = [p.get("starting_after") for p in sent_params]
-        assert starting_afters == [None, "r1", "r2"]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
+        assert result.raised is None
+        assert result.rows == [{"id": "r1"}, {"id": "r2"}, {"id": "r3"}]
+        assert result.params("starting_after") == [None, "r1", "r2"]
+        assert result.saved_states == [
             CleverResumeConfig(starting_after="r1"),
             CleverResumeConfig(starting_after="r2"),
         ]
@@ -134,54 +92,39 @@ class TestCleverSourceResumeBehavior:
         ],
     )
     def test_requests_target_the_pinned_api_version(self, api_version: str, expected_url: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "Users", [self._page([{"id": "u1"}], "u1"), self._page([{"id": "u2"}])], api_version=api_version
+        )
 
-        responses = [
-            _make_http_response({"data": [{"data": {"id": "u1"}}], "links": [_next_link("u1")]}),
-            _make_http_response({"data": [{"data": {"id": "u2"}}], "links": []}),
-        ]
-        sent_urls: list[str] = []
-        self._drive("Users", manager, responses, api_version=api_version, sent_urls=sent_urls)
-
-        assert sent_urls == [expected_url, expected_url]
+        assert result.raised is None
+        assert [request.origin + request.path for request in result.requests] == [expected_url, expected_url]
 
     def test_resume_seeds_paginator_with_saved_cursor(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = CleverResumeConfig(starting_after="cursor-resumed")
+        result = self._driver().run(
+            "Districts", [self._page([{"id": "r4"}])], resume_state=CleverResumeConfig(starting_after="cursor-resumed")
+        )
 
-        responses = [_make_http_response({"data": [{"data": {"id": "r4"}}], "links": []})]
-        _, sent_params = self._drive("Districts", manager, responses)
-
-        assert sent_params[0]["starting_after"] == "cursor-resumed"
-        manager.load_state.assert_called_once()
+        assert result.raised is None
+        assert result.params("starting_after") == ["cursor-resumed"]
 
     def test_incremental_seeds_from_db_last_value_when_no_saved_state(self) -> None:
         """Events has no mid-run resume state (fresh run), but a prior sync's watermark
         should seed `starting_after` so the delta feed continues from where it left off."""
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"data": [{"data": {"id": "evt-9"}}], "links": []})]
-        _, sent_params = self._drive(
+        result = self._driver().run(
             "Events",
-            manager,
-            responses,
+            [self._page([{"id": "evt-9"}])],
             should_use_incremental_field=True,
             db_incremental_field_last_value="evt-5",
         )
 
-        assert sent_params[0]["starting_after"] == "evt-5"
+        assert result.raised is None
+        assert result.params("starting_after") == ["evt-5"]
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run("Districts", [self._page([{"id": "a"}])])
 
-        responses = [_make_http_response({"data": [{"data": {"id": "a"}}], "links": []})]
-        self._drive("Districts", manager, responses)
-
-        manager.load_state.assert_not_called()
+        assert result.raised is None
+        assert result.params("starting_after") == [None]
 
 
 class TestValidateCredentials:
@@ -193,30 +136,29 @@ class TestValidateCredentials:
             (500, False),
         ],
     )
-    @patch(CLEVER_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(
-        self, mock_session: MagicMock, status_code: int, expected_valid: bool
-    ) -> None:
-        mock_session.return_value.get.return_value = MagicMock(status_code=status_code)
-        is_valid, message = validate_credentials("test-token", CLEVER_API_VERSION_V3_1)
+    def test_validate_credentials_status_mapping(self, status_code: int, expected_valid: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            is_valid, message = validate_credentials("test-token", CLEVER_API_VERSION_V3_1)
+
+        assert network.requests_log[0].path == "/v3.1/districts"
         assert is_valid is expected_valid
         if expected_valid:
             assert message is None
         else:
             assert message is not None
 
-    @patch(CLEVER_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session: MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        is_valid, message = validate_credentials("test-token", CLEVER_API_VERSION_V3_1)
+    def test_validate_credentials_swallows_exceptions(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))):
+            is_valid, message = validate_credentials("test-token", CLEVER_API_VERSION_V3_1)
+
         assert is_valid is False
         assert message is not None
 
-    @patch(CLEVER_SESSION_PATCH)
-    def test_validate_credentials_redacts_token(self, mock_session: MagicMock) -> None:
-        mock_session.return_value.get.return_value = MagicMock(status_code=200)
-        validate_credentials("super-secret-token", CLEVER_API_VERSION_V3_1)
-        mock_session.assert_called_once_with(redact_values=("super-secret-token",))
+    def test_validate_credentials_redacts_token(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            validate_credentials("super-secret-token", CLEVER_API_VERSION_V3_1)
+
+        assert network.session_options == [{"redact_values": ("super-secret-token",)}]
 
     @pytest.mark.parametrize(
         ("api_version", "expected_url"),
@@ -225,13 +167,11 @@ class TestValidateCredentials:
             (CLEVER_API_VERSION_V3_1, "https://api.clever.com/v3.1/districts"),
         ],
     )
-    @patch(CLEVER_SESSION_PATCH)
-    def test_validate_credentials_probes_the_requested_api_version(
-        self, mock_session: MagicMock, api_version: str, expected_url: str
-    ) -> None:
-        mock_session.return_value.get.return_value = MagicMock(status_code=200)
-        validate_credentials("test-token", api_version)
-        assert mock_session.return_value.get.call_args.args[0] == expected_url
+    def test_validate_credentials_probes_the_requested_api_version(self, api_version: str, expected_url: str) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            validate_credentials("test-token", api_version)
+
+        assert network.requests_log[0].origin + network.requests_log[0].path == expected_url
 
 
 def test_clever_base_url_rejects_unknown_version() -> None:

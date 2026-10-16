@@ -3,6 +3,10 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.bitbucket import BitbucketAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.source import BitbucketSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bitbucket import (
     BitbucketAuthMethodConfig,
     BitbucketSourceConfig,
@@ -80,13 +84,13 @@ def test_validate_credentials_maps_missing_config_to_friendly_error(config, expe
 
 
 def test_validate_credentials_delegates_to_transport():
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.source.validate_bitbucket_credentials",
-        return_value=(True, None),
-    ) as validate:
+    with scripted_network([ScriptedResponse(json={"values": []})]) as network:
         assert BitbucketSource().validate_credentials(_config(), team_id=1) == (True, None)
 
-    validate.assert_called_once_with(BitbucketAuth(email="a@b.c", api_token="tok"), "my-workspace")
+    assert len(network.requests_log) == 1
+    assert network.requests_log[0].path == "/2.0/repositories/my-workspace"
+    assert network.requests_log[0].param("pagelen") == "1"
+    assert network.requests_log[0].headers["authorization"] == "Basic YUBiLmM6dG9r"
 
 
 @pytest.mark.parametrize(

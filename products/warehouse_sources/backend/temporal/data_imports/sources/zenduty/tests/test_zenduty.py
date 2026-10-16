@@ -1,19 +1,25 @@
 from typing import Any
 
 import pytest
-from unittest import mock
 from unittest.mock import MagicMock
 
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty import zenduty
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zenduty import (
+    ZendutySourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty.source import ZendutySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenduty.zenduty import (
     ZendutyResumeConfig,
     ZendutyRetryableError,
     _extract_items_and_next,
     _fetch_page,
-    get_rows,
     probe_credentials,
 )
 
@@ -99,118 +105,114 @@ class TestFetchPage:
         assert session.get.call_args.kwargs["allow_redirects"] is False
 
 
-class _FakeResumableManager:
-    def __init__(self, state: ZendutyResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[ZendutyResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> ZendutyResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: ZendutyResumeConfig) -> None:
-        self.saved.append(data)
-
-
-def _collect(manager: _FakeResumableManager, monkeypatch: Any, pages: dict[str, Any], endpoint: str) -> list[dict]:
-    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> Any:
-        return pages[url]
-
-    monkeypatch.setattr(zenduty, "_fetch_page", fake_fetch)
-    monkeypatch.setattr(zenduty, "make_tracked_session", lambda: MagicMock())
-
-    rows: list[dict] = []
-    for page in get_rows(api_key="tok", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=manager):  # type: ignore[arg-type]
-        rows.extend(page)
-    return rows
+def _driver() -> SourceDriver:
+    return SourceDriver(ZendutySource(), ZendutySourceConfig(api_key="tok"))
 
 
 class TestGetRowsTopLevel:
-    def test_follows_next_across_pages(self, monkeypatch: Any) -> None:
-        first = "https://www.zenduty.com/api/incidents/?page_size=100"
+    def test_follows_next_across_pages(self) -> None:
         second = "https://www.zenduty.com/api/incidents/?page=2"
-        pages = {
-            first: {"results": [{"unique_id": "1"}], "next": second},
-            second: {"results": [{"unique_id": "2"}], "next": None},
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "incidents")
-        assert rows == [{"unique_id": "1"}, {"unique_id": "2"}]
+        result = _driver().run(
+            "incidents",
+            [
+                ScriptedResponse(json={"results": [{"unique_id": "1"}], "next": second}),
+                ScriptedResponse(json={"results": [{"unique_id": "2"}], "next": None}),
+            ],
+        )
+        assert result.raised is None
+        assert result.rows == [{"unique_id": "1"}, {"unique_id": "2"}]
+        assert result.paths == ["/api/incidents/", "/api/incidents/"]
+        assert result.params("page_size") == ["100", None]
+        assert result.params("page") == [None, "2"]
+        assert result.saved_states == [ZendutyResumeConfig(next_url=second)]
 
-    def test_poisoned_next_url_is_never_persisted(self, monkeypatch: Any) -> None:
-        first = "https://www.zenduty.com/api/incidents/?page_size=100"
-        pages = {first: {"results": [{"unique_id": "1"}], "next": "https://evil.example.com/steal"}}
-        manager = _FakeResumableManager()
-        with pytest.raises(ValueError):
-            _collect(manager, monkeypatch, pages, "incidents")
-        assert manager.saved == []
+    def test_poisoned_next_url_is_never_persisted(self) -> None:
+        result = _driver().run(
+            "incidents",
+            [ScriptedResponse(json={"results": [{"unique_id": "1"}], "next": "https://evil.example.com/steal"})],
+        )
+        assert isinstance(result.raised, ValueError)
+        assert result.rows == [{"unique_id": "1"}]
+        assert result.paths == ["/api/incidents/"]
+        assert result.saved_states == []
 
 
 class TestGetRowsFanOut:
-    def _team_pages(self) -> dict[str, Any]:
-        teams_url = "https://www.zenduty.com/api/account/teams/?page_size=100"
-        return {teams_url: {"results": [{"unique_id": "team-a"}, {"unique_id": "team-b"}], "next": None}}
+    def _team_pages(self) -> list[ScriptedResponse]:
+        return [ScriptedResponse(json={"results": [{"unique_id": "team-a"}, {"unique_id": "team-b"}], "next": None})]
 
-    def test_walks_each_team_and_injects_parent_id(self, monkeypatch: Any) -> None:
-        pages = self._team_pages()
-        pages["https://www.zenduty.com/api/account/teams/team-a/services/?page_size=100"] = {
-            "results": [{"unique_id": "svc-1"}],
-            "next": None,
-        }
-        pages["https://www.zenduty.com/api/account/teams/team-b/services/?page_size=100"] = {
-            "results": [{"unique_id": "svc-2"}],
-            "next": None,
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "services")
+    def test_walks_each_team_and_injects_parent_id(self) -> None:
+        result = _driver().run(
+            "services",
+            [
+                *self._team_pages(),
+                ScriptedResponse(json={"results": [{"unique_id": "svc-1"}], "next": None}),
+                ScriptedResponse(json={"results": [{"unique_id": "svc-2"}], "next": None}),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths == [
+            "/api/account/teams/",
+            "/api/account/teams/team-a/services/",
+            "/api/account/teams/team-b/services/",
+        ]
+        assert result.params("page_size") == ["100", "100", "100"]
         # Each child row carries the parent team's id so the composite key stays unique table-wide.
-        assert rows == [
+        assert result.rows == [
             {"unique_id": "svc-1", "_zenduty_team_id": "team-a"},
             {"unique_id": "svc-2", "_zenduty_team_id": "team-b"},
         ]
 
-    def test_checkpoints_next_team_when_a_team_completes(self, monkeypatch: Any) -> None:
-        pages = self._team_pages()
-        pages["https://www.zenduty.com/api/account/teams/team-a/services/?page_size=100"] = {
-            "results": [{"unique_id": "svc-1"}],
-            "next": None,
-        }
-        pages["https://www.zenduty.com/api/account/teams/team-b/services/?page_size=100"] = {
-            "results": [{"unique_id": "svc-2"}],
-            "next": None,
-        }
-        manager = _FakeResumableManager()
-        _collect(manager, monkeypatch, pages, "services")
+    def test_checkpoints_next_team_when_a_team_completes(self) -> None:
+        result = _driver().run(
+            "services",
+            [
+                *self._team_pages(),
+                ScriptedResponse(json={"results": [{"unique_id": "svc-1"}], "next": None}),
+                ScriptedResponse(json={"results": [{"unique_id": "svc-2"}], "next": None}),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths == [
+            "/api/account/teams/",
+            "/api/account/teams/team-a/services/",
+            "/api/account/teams/team-b/services/",
+        ]
         # After team-a completes, state points at team-b's start so a resume skips team-a entirely.
-        assert [(s.next_url, s.team_id) for s in manager.saved] == [(None, "team-b")]
+        assert result.saved_states == [ZendutyResumeConfig(next_url=None, team_id="team-b")]
 
-    def test_resume_skips_completed_teams(self, monkeypatch: Any) -> None:
-        pages = self._team_pages()
-        # Only team-b's collection is provided; if the loop tried team-a it would KeyError.
-        pages["https://www.zenduty.com/api/account/teams/team-b/services/?page_size=100"] = {
-            "results": [{"unique_id": "svc-2"}],
-            "next": None,
-        }
-        manager = _FakeResumableManager(ZendutyResumeConfig(next_url=None, team_id="team-b"))
-        rows = _collect(manager, monkeypatch, pages, "services")
-        assert rows == [{"unique_id": "svc-2", "_zenduty_team_id": "team-b"}]
+    def test_resume_skips_completed_teams(self) -> None:
+        # A resumed run still lists teams, then fetches only team-b's collection.
+        result = _driver().run(
+            "services",
+            [*self._team_pages(), ScriptedResponse(json={"results": [{"unique_id": "svc-2"}], "next": None})],
+            resume_state=ZendutyResumeConfig(next_url=None, team_id="team-b"),
+        )
+        assert result.raised is None
+        assert result.paths == ["/api/account/teams/", "/api/account/teams/team-b/services/"]
+        assert result.rows == [{"unique_id": "svc-2", "_zenduty_team_id": "team-b"}]
 
-    def test_no_teams_yields_nothing(self, monkeypatch: Any) -> None:
-        teams_url = "https://www.zenduty.com/api/account/teams/?page_size=100"
-        rows = _collect(_FakeResumableManager(), monkeypatch, {teams_url: {"results": [], "next": None}}, "services")
-        assert rows == []
+    def test_no_teams_yields_nothing(self) -> None:
+        result = _driver().run("services", [ScriptedResponse(json={"results": [], "next": None})])
+        assert result.raised is None
+        assert result.paths == ["/api/account/teams/"]
+        assert result.rows == []
 
 
 class TestProbeCredentials:
     @parameterized.expand([("ok", 200), ("forbidden_bad_token", 403), ("server_error", 500)])
     def test_returns_status_code(self, _name: str, status_code: int) -> None:
-        session = MagicMock()
-        session.get.return_value = MagicMock(status_code=status_code)
-        with mock.patch.object(zenduty, "make_tracked_session", return_value=session):
+        with scripted_network(lambda _request: ScriptedResponse(status=status_code)) as network:
             assert probe_credentials("tok") == status_code
+        assert network.requests_log
+        assert all(request.path == "/api/account/teams/" for request in network.requests_log)
+        assert all(request.param("page_size") == "1" for request in network.requests_log)
+        assert all(request.headers["authorization"] == "Token tok" for request in network.requests_log)
 
     def test_connection_failure_returns_none(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = Exception("boom")
-        with mock.patch.object(zenduty, "make_tracked_session", return_value=session):
+        def fail(_request: Any) -> ScriptedResponse:
+            raise requests.ConnectionError("boom")
+
+        with scripted_network(fail) as network:
             assert probe_credentials("tok") is None
+        assert network.requests_log

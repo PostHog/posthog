@@ -1,17 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGridMasonry, IconList, IconSearch } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconSearch } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 
 import { FilterPill } from '../../components/FilterPill'
 import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
 import { SCANNER_TYPE_OPTIONS, ScannerType } from '../types'
-import { type WatchFeedView, watchFeedLogic } from '../watchFeedLogic'
-import { FILLER_REASON_KINDS, JevWatchFeedRow, WatchFeedCard, WatchFeedGridCard } from './WatchFeedCard'
+import { watchFeedLogic } from '../watchFeedLogic'
+import { FILLER_REASON_KINDS, WatchFeedRow } from './WatchFeedCard'
 import { WatchFeedEmptyState } from './WatchFeedEmptyState'
 
 const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
@@ -31,23 +32,8 @@ const FEED_DATE_OPTION_KEYS = new Set([
 ])
 const FEED_DATE_OPTIONS = dateMapping.filter((option) => FEED_DATE_OPTION_KEYS.has(option.key))
 
-const GRID_CLASS_NAME = 'grid gap-3 grid-cols-1 @xl:grid-cols-2 @3xl:grid-cols-3'
-
-function FeedSkeleton({ view }: { view: WatchFeedView }): JSX.Element {
-    return view === 'grid' ? (
-        <div className={GRID_CLASS_NAME} aria-busy>
-            {[0, 1, 2].map((i) => (
-                <div key={i} className="flex flex-col border rounded-lg overflow-hidden">
-                    <LemonSkeleton className="aspect-video w-full rounded-none" />
-                    <div className="flex flex-col gap-1.5 p-3">
-                        <LemonSkeleton className="h-4 w-2/3" />
-                        <LemonSkeleton className="h-3 w-full" />
-                        <LemonSkeleton className="h-3 w-1/2" />
-                    </div>
-                </div>
-            ))}
-        </div>
-    ) : (
+function FeedSkeleton(): JSX.Element {
+    return (
         <div className="flex flex-col gap-3" aria-busy>
             {[0, 1, 2].map((i) => (
                 <LemonSkeleton key={i} className="h-32 rounded" />
@@ -67,22 +53,20 @@ export function WatchFeedTab(): JSX.Element {
         scannerIdsFilter,
         tagsFilter,
         tagOptions,
+        createdByFilter,
         search,
         hasFeedFilters,
         emptyReason,
-        view,
-        displayView,
-        feedRanker,
     } = useValues(watchFeedLogic)
     const {
         setDateRange,
         setScannerTypeFilter,
         setScannerIdsFilter,
         setTagsFilter,
+        setCreatedByFilter,
         setSearch,
         clearFeedFilters,
         loadFeed,
-        setView,
     } = useActions(watchFeedLogic)
     const { scanners: allScanners } = useValues(visionScannersListLogic)
     const scannerOptions = allScanners.map((scanner) => ({
@@ -92,38 +76,33 @@ export function WatchFeedTab(): JSX.Element {
 
     const items = feedItems ?? []
     // Only the scanner picker narrows *which* scanners are in scope; the others narrow within them.
-    const narrowedToScanners = scannerIdsFilter.length
+    const narrowedToScanners =
+        scannerIdsFilter.length > 0 && scannerIdsFilter.length < allScanners.length ? scannerIdsFilter.length : 0
     const scannerCount = new Set(items.map((item) => item.observation.scanner_id)).size
     // Every card carrying a no-evidence reason means the window produced no findings. A feed that mixes a
     // finding with padding needs no explaining, so this stays off unless the whole feed is padding.
     const onlyFiller = items.length > 0 && items.every((item) => FILLER_REASON_KINDS.has(item.reason.kind))
-    // The jev arm gets its own row, so the experiment compares rankings and layouts as one arm.
-    const ListCard = feedRanker === 'jev' ? JevWatchFeedRow : WatchFeedCard
 
     return (
         <div className="@container flex flex-col gap-4">
             <div className="flex flex-wrap items-end justify-between gap-2">
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 flex-1 min-w-[16rem]">
                     <h2 className="text-xl font-semibold m-0">
-                        {items.length === 0
-                            ? 'What to watch'
-                            : feedRanker === 'jev'
-                              ? `Top ${pluralize(items.length, 'session')}`
-                              : pluralize(items.length, 'clip')}
+                        {items.length === 0 ? 'What to watch' : `Top ${pluralize(items.length, 'session')}`}
                     </h2>
                     <p className="text-muted text-sm m-0">
                         {narrowedToScanners > 0
                             ? `Following ${pluralize(narrowedToScanners, 'scanner')} of ${allScanners.length}. `
                             : ''}
                         {items.length > 0
-                            ? `Picked from ${pluralize(scannerCount, 'scanner')} in this window. Each clip is the moment an observation cites.`
+                            ? `Picked from ${pluralize(scannerCount, 'scanner')} in this window. Each session opens at the moment its scan cites.`
                             : 'The observations most worth a look, picked across your scanners.'}
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <LemonInput
                         type="search"
-                        placeholder="Search clips..."
+                        placeholder="Search sessions..."
                         value={search}
                         onChange={setSearch}
                         prefix={<IconSearch />}
@@ -135,10 +114,17 @@ export function WatchFeedTab(): JSX.Element {
                         dataAttr="vision-watch-feed-scanners-filter"
                         searchable
                         searchPlaceholder="Search scanners..."
+                        selectAllLabel="All scanners"
                         options={scannerOptions}
                         value={scannerIdsFilter}
                         onChange={setScannerIdsFilter}
                     />
+                    <span data-attr="vision-watch-feed-created-by-filter">
+                        <MemberSelectMultiplePopover
+                            value={createdByFilter.map(Number)}
+                            onChange={(ids) => setCreatedByFilter(ids.map(String))}
+                        />
+                    </span>
                     <FilterPill<string>
                         label="Tags"
                         dataAttr="vision-watch-feed-tags-filter"
@@ -166,32 +152,11 @@ export function WatchFeedTab(): JSX.Element {
                             Clear filters
                         </LemonButton>
                     )}
-                    {feedRanker !== 'jev' && (
-                        <LemonSegmentedButton<WatchFeedView>
-                            size="xsmall"
-                            value={view}
-                            onChange={setView}
-                            options={[
-                                {
-                                    value: 'grid',
-                                    icon: <IconGridMasonry />,
-                                    tooltip: 'Thumbnails',
-                                    'data-attr': 'vision-watch-feed-view-grid',
-                                },
-                                {
-                                    value: 'list',
-                                    icon: <IconList />,
-                                    tooltip: 'List',
-                                    'data-attr': 'vision-watch-feed-view-list',
-                                },
-                            ]}
-                        />
-                    )}
                 </div>
             </div>
 
             {feedItemsLoading && feedItems === null ? (
-                <FeedSkeleton view={displayView} />
+                <FeedSkeleton />
             ) : (
                 <div className="flex flex-col gap-3">
                     {/* kea-loaders keeps the last value on failure, so a later filter or date change can fail
@@ -212,22 +177,14 @@ export function WatchFeedTab(): JSX.Element {
                         rather than leaving the reader to infer it from three identical reason lines. */}
                     {onlyFiller && (
                         <p className="text-sm text-secondary m-0">
-                            Nothing stood out in this window. These are the newest clips. Try a longer date range to see
-                            more.
+                            Nothing stood out in this window. These are the newest sessions. Try a longer date range to
+                            see more.
                         </p>
                     )}
                     {items.length > 0 ? (
-                        displayView === 'grid' ? (
-                            <div className={GRID_CLASS_NAME}>
-                                {items.map((item, index) => (
-                                    <WatchFeedGridCard key={item.observation.id} item={item} position={index} />
-                                ))}
-                            </div>
-                        ) : (
-                            items.map((item, index) => (
-                                <ListCard key={item.observation.id} item={item} position={index} />
-                            ))
-                        )
+                        items.map((item, index) => (
+                            <WatchFeedRow key={item.observation.id} item={item} position={index} />
+                        ))
                     ) : feedFailed ? null : emptyReason ? (
                         <WatchFeedEmptyState reason={emptyReason} />
                     ) : (

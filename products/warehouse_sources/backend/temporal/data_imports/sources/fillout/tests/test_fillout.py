@@ -1,14 +1,18 @@
 from datetime import UTC, datetime
-from typing import Any, cast
 
 import pytest
 from unittest.mock import Mock, patch
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout import (
     FilloutSubmissionsPaginator,
@@ -18,22 +22,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fi
     get_resource,
     validate_credentials,
 )
-
-
-class _FakeDltResource:
-    def __init__(self, name: str, rows: list[dict]) -> None:
-        self.name = name
-        self._rows = rows
-
-    def add_map(self, mapper):
-        self._rows = [mapper(dict(row)) for row in self._rows]
-        return self
-
-    def __iter__(self):
-        return iter(self._rows)
+from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.source import FilloutSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fillout import (
+    FilloutSourceConfig,
+)
 
 
 class TestFilloutTransport:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(FilloutSource(), FilloutSourceConfig(api_key="key"))
+
     @parameterized.expand(
         [
             # A full page that has not yet reached the total — keep paging.
@@ -77,11 +76,14 @@ class TestFilloutTransport:
         ):
             _validated_api_base_url("https://api.fillout.com")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.make_tracked_session")
-    def test_validate_credentials_handles_request_exception(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.exceptions.RequestException("boom")
-        result = validate_credentials(api_key="key")
-        assert result == (False, "/forms request failed: boom")
+    def test_validate_credentials_handles_request_exception(self) -> None:
+        with scripted_network(always(ConnectionResetError("boom"))) as network:
+            result = validate_credentials(api_key="key")
+
+        assert result[0] is False
+        assert result[1] is not None and result[1].startswith("/forms request failed:")
+        assert "boom" in result[1]
+        assert {request.path for request in network.requests_log} == {"/v1/api/forms"}
 
     @parameterized.expand(
         [
@@ -90,25 +92,22 @@ class TestFilloutTransport:
             ("no_form_readable", [400, 400]),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.make_tracked_session")
-    def test_validate_credentials_skips_a_form_fillout_cannot_serve(self, _name, probe_statuses, mock_session) -> None:
-        forms_response = Mock(status_code=200, text="ok")
-        forms_response.json.return_value = [{"formId": "form_1"}, {"formId": "form_2"}]
-        probe_responses = []
-        for status in probe_statuses:
-            probe_response = Mock(status_code=status, text="form unavailable")
-            probe_response.json.return_value = {"message": "form unavailable"}
-            probe_responses.append(probe_response)
-        mock_session.return_value.get.side_effect = [forms_response, *probe_responses]
-
-        result = validate_credentials(api_key="key")
+    def test_validate_credentials_skips_a_form_fillout_cannot_serve(self, _name, probe_statuses) -> None:
+        with scripted_network(
+            [
+                ScriptedResponse(json=[{"formId": "form_1"}, {"formId": "form_2"}]),
+                *(ScriptedResponse(status=status, json={"message": "form unavailable"}) for status in probe_statuses),
+            ]
+        ) as network:
+            result = validate_credentials(api_key="key")
 
         assert result == (True, None)
-        assert mock_session.return_value.get.call_count == 3
-        assert [call.args[0] for call in mock_session.return_value.get.call_args_list[1:]] == [
-            "https://api.fillout.com/v1/api/forms/form_1/submissions",
-            "https://api.fillout.com/v1/api/forms/form_2/submissions",
+        assert [request.path for request in network.requests_log] == [
+            "/v1/api/forms",
+            "/v1/api/forms/form_1/submissions",
+            "/v1/api/forms/form_2/submissions",
         ]
+        assert [request.param("limit") for request in network.requests_log[1:]] == ["1", "1"]
 
     @parameterized.expand(
         [
@@ -116,16 +115,12 @@ class TestFilloutTransport:
             (403, "Fillout API key is missing permission to list forms"),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.make_tracked_session")
-    def test_validate_credentials_forms_auth_failures(self, status, expected_message, mock_session) -> None:
-        forms_response = Mock(status_code=status, text="nope")
-        forms_response.json.return_value = {"message": "nope"}
-        mock_session.return_value.get.side_effect = [forms_response]
-
-        result = validate_credentials(api_key="key")
+    def test_validate_credentials_forms_auth_failures(self, status, expected_message) -> None:
+        with scripted_network([ScriptedResponse(status=status, json={"message": "nope"})]) as network:
+            result = validate_credentials(api_key="key")
 
         assert result == (False, expected_message)
-        assert mock_session.return_value.get.call_count == 1
+        assert [request.path for request in network.requests_log] == ["/v1/api/forms"]
 
     @parameterized.expand(
         [
@@ -141,20 +136,19 @@ class TestFilloutTransport:
             ),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.make_tracked_session")
     def test_validate_credentials_reports_per_form_permission_error(
-        self, schema_name, expected_probe_url, expected_message, mock_session
+        self, schema_name, expected_probe_url, expected_message
     ) -> None:
-        forms_response = Mock(status_code=200, text="ok")
-        forms_response.json.return_value = [{"formId": "form_1"}]
-        probe_response = Mock(status_code=403, text="forbidden")
-        probe_response.json.return_value = {"message": "forbidden"}
-        mock_session.return_value.get.side_effect = [forms_response, probe_response]
-
-        result = validate_credentials(api_key="key", schema_name=schema_name)
+        with scripted_network(
+            [
+                ScriptedResponse(json=[{"formId": "form_1"}]),
+                ScriptedResponse(status=403, json={"message": "forbidden"}),
+            ]
+        ) as network:
+            result = validate_credentials(api_key="key", schema_name=schema_name)
 
         assert result == (False, expected_message)
-        assert mock_session.return_value.get.call_args_list[1].args[0] == expected_probe_url
+        assert network.requests_log[1].url.split("?")[0] == expected_probe_url
 
     @parameterized.expand([("submissions",), ("form_metadata",)])
     def test_get_resource_rejects_fanout_endpoints(self, endpoint) -> None:
@@ -182,7 +176,7 @@ class TestFilloutTransport:
         [
             (
                 "submissions",
-                {"submissionId": "sub_1", "_forms_formId": "form_1"},
+                {"submissionId": "sub_1"},
                 {"submissionId": "sub_1", "form_id": "form_1"},
                 # submissionId is only unique within a form, so the parent form id is part of the key.
                 ["form_id", "submissionId"],
@@ -191,7 +185,7 @@ class TestFilloutTransport:
             ),
             (
                 "form_metadata",
-                {"id": "form_1", "name": "Survey", "questions": [], "_forms_formId": "form_1"},
+                {"id": "form_1", "name": "Survey", "questions": []},
                 {"id": "form_1", "name": "Survey", "questions": [], "form_id": "form_1"},
                 # One row per form, keyed on the parent id that `submissions` also carries.
                 ["form_id"],
@@ -201,9 +195,6 @@ class TestFilloutTransport:
             ),
         ]
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
-    )
     def test_fillout_source_fanout_row_format(
         self,
         endpoint,
@@ -212,27 +203,25 @@ class TestFilloutTransport:
         expected_primary_keys,
         expected_partition_mode,
         expected_partition_keys,
-        mock_rest_api_resources,
     ) -> None:
-        mock_rest_api_resources.return_value = [
-            _FakeDltResource("forms", [{"formId": "form_1"}]),
-            _FakeDltResource(endpoint, [child_row]),
-        ]
-
-        response = fillout_source(
-            api_key="key",
-            api_base_url="https://api.fillout.com/v1/api",
-            endpoint=endpoint,
+        child_payload = {"responses": [child_row], "totalResponses": 1} if endpoint == "submissions" else child_row
+        result = self._driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json=[{"formId": "form_1"}]),
+                ScriptedResponse(json=child_payload),
+            ],
             team_id=1,
             job_id="job-1",
         )
 
-        rows = list(cast(Any, response.items()))
-        assert rows == [expected_row]
-        assert response.primary_keys == expected_primary_keys
-        assert response.partition_mode == expected_partition_mode
-        assert response.partition_keys == expected_partition_keys
-        assert response.sort_mode == "asc"
+        assert result.raised is None
+        assert result.rows == [expected_row]
+        assert result.response is not None
+        assert result.response.primary_keys == expected_primary_keys
+        assert result.response.partition_mode == expected_partition_mode
+        assert result.response.partition_keys == expected_partition_keys
+        assert result.response.sort_mode == "asc"
 
     @parameterized.expand(
         [

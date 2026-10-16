@@ -5,13 +5,13 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError, isTransientServerError } from 'lib/api-error'
 import { createStreamConnection } from 'lib/api-stream'
 import { applyPathCleaning } from 'lib/components/PathCleanFilters/pathCleaningUtils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
-import { retryWithBackoff } from 'lib/utils/async'
 import { CATEGORY_LABELS } from 'lib/utils/botDetection'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { isAbortedRequest } from 'lib/utils/requests'
@@ -71,12 +71,10 @@ const COUNTRY_BREAKDOWN_LIMIT = 6
 const CITY_BREAKDOWN_LIMIT = 6
 const LIVE_QUERY_SCENE = 'web-analytics-live'
 const LIVE_QUERY_CONCURRENCY = 4
-const LIVE_QUERY_MAX_ATTEMPTS = 3
-const LIVE_QUERY_RETRY_DELAY_MS = 250
 const RELOAD_DEBOUNCE_MS = 300
 const HOGQL_RELOAD_INTERVAL_MS = 30000
+const MAX_RECOVERY_RELOAD_DELAY_MS = 300000
 const PAUSE_GRACE_MS = 2000
-const TRANSIENT_QUERY_STATUSES = new Set([502, 503, 504])
 
 type BotQueryStatus = 'idle' | 'loading' | 'loaded' | 'error'
 
@@ -88,22 +86,6 @@ const liveQueryTags = (name: string): QueryLogTags => ({
     scene: LIVE_QUERY_SCENE,
     name,
 })
-
-const isTransientQueryError = (error: unknown): boolean => {
-    const status = (error as { status?: number } | null)?.status
-    return status !== undefined && TRANSIENT_QUERY_STATUSES.has(status)
-}
-
-const performLiveQuery = <N extends HogQLQuery | TrendsQuery>(
-    query: N,
-    signal: AbortSignal
-): Promise<NonNullable<N['response']>> =>
-    retryWithBackoff(() => performQuery(query, { signal }), {
-        maxAttempts: LIVE_QUERY_MAX_ATTEMPTS,
-        initialDelayMs: LIVE_QUERY_RETRY_DELAY_MS,
-        signal,
-        shouldRetry: isTransientQueryError,
-    })
 
 const collapseTopWithOther = <T extends { count: number; percentage: number }>(
     items: T[],
@@ -725,10 +707,20 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             actions.loadInitialData(true)
         },
         loadInitialData: async ({ isBackground }) => {
+            // A new load must not be aborted by a reload scheduled by the previous one.
+            cache.disposables.dispose('hogqlReload')
             cache.loadAbortController?.abort()
             const abortController = new AbortController()
             cache.loadAbortController = abortController
             const { signal } = abortController
+            let retryAfterTimestamp = 0
+            let hasTransientQueryError = false
+            const onQueryError = (error: unknown): void => {
+                hasTransientQueryError ||= isTransientServerError(error)
+                if (error instanceof ApiError) {
+                    retryAfterTimestamp = Math.max(retryAfterTimestamp, error.retryAfterTimestamp ?? 0)
+                }
+            }
 
             const isColdLoad = !cache.hasLoadedData || !isBackground
             if (isColdLoad) {
@@ -760,6 +752,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     filtersEnabled: true,
                     doPathCleaning: values.pathCleaningFilters.length > 0,
                     abortController,
+                    onQueryError,
                 })
 
                 if (signal.aborted) {
@@ -809,6 +802,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                         filterTestAccounts: values.shouldFilterTestAccounts,
                         filtersEnabled: true,
                         abortController,
+                        onQueryError,
                     })
                     if (signal.aborted) {
                         return
@@ -843,6 +837,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 if (!signal.aborted) {
                     actions.setIsLoading(false)
                     actions.setIsRefreshing(false)
+                    cache.recoveryReloadDelay = hasTransientQueryError
+                        ? Math.min(
+                              (cache.recoveryReloadDelay || HOGQL_RELOAD_INTERVAL_MS / 2) * 2,
+                              MAX_RECOVERY_RELOAD_DELAY_MS
+                          )
+                        : 0
                 }
                 cache.hasInitialized = true
                 // A filter change that arrived mid-load was queued rather than dropped:
@@ -852,9 +852,17 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     resetStreamStateAndReload(cache as FlushCache, actions)
                 }
                 // Counted from load completion, so a load slower than the interval is never aborted by the next one.
-                if (!signal.aborted && values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
+                if (
+                    !signal.aborted &&
+                    (values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL] || hasTransientQueryError)
+                ) {
                     cache.disposables.add(() => {
-                        const timeoutId = setTimeout(() => actions.loadInitialData(true), HOGQL_RELOAD_INTERVAL_MS)
+                        const delay = Math.max(
+                            HOGQL_RELOAD_INTERVAL_MS,
+                            cache.recoveryReloadDelay,
+                            retryAfterTimestamp - Date.now()
+                        )
+                        const timeoutId = setTimeout(() => actions.loadInitialData(true), delay)
                         return () => clearTimeout(timeoutId)
                     }, 'hogqlReload')
                 }
@@ -871,8 +879,6 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             cache.eventsConnection?.abort()
 
             if (values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
-                // A new load is starting, so a reload scheduled by the previous one must not abort it.
-                cache.disposables.dispose('hogqlReload')
                 return
             }
 
@@ -1181,6 +1187,7 @@ const loadQueryData = async ({
     filtersEnabled,
     doPathCleaning,
     abortController,
+    onQueryError,
 }: {
     dateFrom: Date
     dateTo: Date
@@ -1191,6 +1198,7 @@ const loadQueryData = async ({
     filtersEnabled: boolean
     doPathCleaning: boolean
     abortController: AbortController
+    onQueryError: (error: unknown) => void
 }): Promise<LiveQueryData> => {
     const { signal } = abortController
     const { whereClause, queryParams, botEligibleEventsTuple } = buildLiveQueryContext({
@@ -1417,7 +1425,7 @@ const loadQueryData = async ({
     const settled = await Promise.allSettled(
         jobs.map((job) =>
             liveQueryConcurrency.run({
-                fn: () => performLiveQuery(job.query, signal),
+                fn: () => performQuery(job.query, { signal }),
                 abortController,
                 debugTag: job.key,
             })
@@ -1447,6 +1455,7 @@ const loadQueryData = async ({
                 data[key] = result.value as HogQLQueryResponse
             }
         } else if (!isAbortedRequest(result.reason)) {
+            onQueryError(result.reason)
             data.failedQueries.push(LIVE_QUERY_LABELS[key])
             console.error(`Live query "${query.tags?.name ?? key}" failed:`, result.reason)
         }
@@ -1463,7 +1472,11 @@ const loadBotQueryData = async ({
     filterTestAccounts,
     filtersEnabled,
     abortController,
-}: LiveQueryContextParams & { abortController: AbortController }): Promise<HogQLQueryResponse | null> => {
+    onQueryError,
+}: LiveQueryContextParams & {
+    abortController: AbortController
+    onQueryError: (error: unknown) => void
+}): Promise<HogQLQueryResponse | null> => {
     const { signal } = abortController
     const { whereClause, queryParams, botEligibleEventsTuple } = buildLiveQueryContext({
         dateFrom,
@@ -1508,12 +1521,13 @@ const loadBotQueryData = async ({
 
     try {
         return await liveQueryConcurrency.run({
-            fn: () => performLiveQuery(botQuery, signal),
+            fn: () => performQuery(botQuery, { signal }),
             abortController,
             debugTag: 'bot',
         })
     } catch (error) {
         if (!isAbortedRequest(error)) {
+            onQueryError(error)
             console.error('Live query "live_bots" failed:', error)
         }
         return null

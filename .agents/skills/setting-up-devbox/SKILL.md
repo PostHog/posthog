@@ -54,6 +54,7 @@ hogli devbox:start
 ```
 
 This creates the box on first use and resumes it after a stop.
+It returns once the box's startup scripts finish, so the box is ready to connect to. `devbox:restart`, `devbox:update` and `devbox:clone` wait the same way. If a script fails or the wait gives up, the box still runs and hogli prints a warning that points to `hogli devbox:logs`.
 It brings up the PostHog stack only when the workspace has `--start-app` set, which is covered in [Run the PostHog app](#run-the-posthog-app).
 `--disk` (`100` or `200` GiB) applies only when the box is created.
 `--region` (`us-east-1` or `eu-central-1`) starts that region's default box and creates it if it doesn't exist, so leave it off when resuming an existing box.
@@ -94,7 +95,7 @@ Use this section only when the user wants the app, for example to QA a change or
 
 ### Start the stack
 
-- **New or stopped box:** `hogli devbox:start --start-app`. The flag stays set on the workspace, so every later start brings the stack up in the background until `hogli devbox:start --no-start-app` turns it off. Either flag takes effect only when the box is created or starts from stopped; on a running box hogli skips it and prints a note.
+- **New box:** `hogli devbox:start --start-app`. The setting stays on the workspace, so every later start brings the stack up in the background. The flag applies only when hogli creates the box; on an existing box hogli refuses it, because the Coder CLI keeps a parameter's last-build value. Change it on an existing box in the Coder dashboard under the workspace's parameters.
 - **Running box:** `hogli devbox:exec -- bash -lc 'cd ~/posthog && ./bin/hogli up -d -y'`.
 
 ### Wait for it
@@ -146,13 +147,13 @@ Pass `--port 8011` when a local stack already uses 8010.
 
 ## Other tasks
 
-- **Tokens on the box:** store them as Coder user secrets, which reach every box the user owns. `hogli devbox:secret:set GH_TOKEN` reads the value from a hidden prompt or from `--file`. Never put a token on a command line or in the conversation. A secret reaches only boxes started after it is set, so run `hogli devbox:restart` on a running box. The template documents `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `OP_SERVICE_ACCOUNT_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `POSTHOG_GIT_SIGNING_KEY`, which `hogli devbox:setup --configure-git-signing` sets. `devbox:secret:list` shows names, env vars, and descriptions, never values.
+- **Tokens on the box:** store them as Coder user secrets, which reach every box the user owns. `hogli devbox:secret:set GH_TOKEN` reads the value from a hidden prompt or from `--file`. Never put a token on a command line or in the conversation. A secret reaches only boxes started after it is set, so run `hogli devbox:restart` on a running box. The template documents `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `POSTHOG_GIT_SIGNING_KEY`, which `hogli devbox:setup --configure-git-signing` sets. `devbox:secret:list` shows names, env vars, and descriptions, never values.
 - **A second box with the same state:** `hogli devbox:clone --as <label>` copies a running box's full disk, including any secrets on it, into `devbox-<coder-user>-<label>` in the source box's region. Stop the stack on the source first for a consistent copy. It asks for confirmation, so pass `-y` only after the user agrees. Only the owner can clone a box.
-- **Template updates:** `hogli devbox:update` applies the latest template when the box is outdated.
+- **Template updates:** `hogli devbox:update` applies the latest template when the box is outdated. `devbox:start` also updates an outdated box when it starts it. Boxes that `devbox:start` and `devbox:clone` create have Coder's automatic updates on, so they also move to the latest template when they start from the web UI or autostart, and on `hogli devbox:restart`. Coder never updates a box while it keeps running, but a restart of an outdated box is a full template update and can trigger the one-time dependency re-install that `devbox:update` warns about.
 - **Disk full:** `hogli devbox:cleanup:disk -n <label>` cleans a labeled box. With no workspace it cleans this machine instead, and the default box has no label, so clean the default box with `hogli devbox:exec -- bash -lc 'cd ~/posthog && ./bin/hogli devbox:cleanup:disk'`. `--docker` also prunes stopped containers, and `--cargo` also removes Rust build output, which forces a full rebuild.
 - **Pairing:** `hogli devbox:share --user <coder-user> --role use` grants access, and `devbox:users` lists usernames. `devbox:unshare` removes access only after `hogli devbox:restart`.
 - **Build and agent logs:** `hogli devbox:logs -f`.
-- **Personal setup:** the box works as shipped. Changes made on the box survive stops and updates. `hogli devbox:setup --configure-dotfiles` saves a dotfiles repo that the box applies on start, running its executable `install.sh`. A new repo URL reaches a box when it next starts from stopped or runs `devbox:update`, not on `devbox:restart`. Neither is required, so don't push one over the other.
+- **Personal setup:** the box works as shipped. Changes made on the box survive stops and updates. `hogli devbox:setup --configure-dotfiles` saves a dotfiles repo that the box applies on start, running its executable `install.sh`. A saved repo URL applies to boxes hogli creates. To change it on an existing box, edit the workspace's parameters in the Coder dashboard.
 
 ## Gotchas
 

@@ -1,12 +1,17 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import pytest
 from unittest import mock
 
-import requests
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.langfuse import (
+    LangfuseSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse import langfuse as langfuse_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.langfuse import (
     HOST_NOT_ALLOWED_ERROR,
@@ -16,56 +21,38 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.l
     _from_filter_value,
     _parse_retry_after,
     _retry_wait,
-    get_rows,
-    langfuse_source,
     normalize_host,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.settings import LANGFUSE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.source import LangfuseSource
 
 
-def _response(
-    *,
-    status_code: int = 200,
-    json_data: Any = None,
-    text: str = "",
-    headers: Any = None,
-    body_chunks: Optional[list[bytes]] = None,
-) -> mock.MagicMock:
+def _response(*, status_code: int = 200, headers: Any = None) -> mock.MagicMock:
     response = mock.MagicMock()
     response.status_code = status_code
-    response.ok = 200 <= status_code < 400
-    response.is_redirect = status_code in (302, 303, 307)
-    response.is_permanent_redirect = status_code in (301, 308)
-    response.text = text
-    response.json.return_value = json_data
     response.headers = headers or {}
-    # get_rows streams the body (stream=True) and JSON-decodes the bytes, so the body must flow
-    # through iter_content rather than response.json(). body_chunks lets a test drip the body in
-    # pieces (e.g. to exceed the size cap).
-    if body_chunks is None:
-        payload = json.dumps(json_data).encode() if json_data is not None else text.encode()
-        body_chunks = [payload] if payload else []
-    response.iter_content.return_value = body_chunks
     return response
 
 
-def _page(items: list[dict[str, Any]], *, page: int, total_pages: int) -> mock.MagicMock:
-    return _response(json_data={"data": items, "meta": {"page": page, "limit": 50, "totalPages": total_pages}})
+def _page(items: list[dict[str, Any]], *, page: int, total_pages: int) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": items, "meta": {"page": page, "limit": 50, "totalPages": total_pages}})
 
 
 def _trace(trace_id: str, timestamp: str) -> dict[str, Any]:
     return {"id": trace_id, "timestamp": timestamp}
 
 
-def _not_found() -> mock.MagicMock:
-    response = _response(status_code=404, text="Not found")
-    response.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=response)
-    return response
+def _not_found() -> ScriptedResponse:
+    return ScriptedResponse(status=404, body=b"Not found")
 
 
-def _cursor_page(items: list[dict[str, Any]], *, cursor: Optional[str]) -> mock.MagicMock:
-    return _response(json_data={"data": items, "meta": {"cursor": cursor}})
+def _cursor_page(items: list[dict[str, Any]], *, cursor: Optional[str]) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": items, "meta": {"cursor": cursor}})
+
+
+def _driver(host: str = "https://cloud.langfuse.com") -> SourceDriver:
+    return SourceDriver(LangfuseSource(), LangfuseSourceConfig(host=host, public_key="pk-lf-x", secret_key="sk-lf-x"))
 
 
 class TestNormalizeHost:
@@ -131,13 +118,13 @@ class TestValidateCredentials:
         ],
     )
     def test_status_code_mapping(self, status_code, expected_valid, expected_msg_substr):
-        with self._patch_session(_response(status_code=status_code)):
+        with scripted_network([ScriptedResponse(status=status_code)]):
             valid, msg = validate_credentials("https://cloud.langfuse.com", "pk-lf-x", "sk-lf-x")
-            assert valid is expected_valid
-            if expected_msg_substr is None:
-                assert msg is None
-            else:
-                assert expected_msg_substr in (msg or "")
+        assert valid is expected_valid
+        if expected_msg_substr is None:
+            assert msg is None
+        else:
+            assert expected_msg_substr in (msg or "")
 
     @pytest.mark.parametrize(
         "public_key, secret_key, expected_msg",
@@ -162,27 +149,28 @@ class TestValidateCredentials:
             assert patched.call_args.kwargs["retry"].total == 0
 
     def test_rejects_redirect_response(self):
-        with self._patch_session(_response(status_code=302)):
+        with scripted_network([ScriptedResponse(status=302, headers={"Location": "https://example.com"})]) as network:
             valid, msg = validate_credentials("https://cloud.langfuse.com", "pk-lf-x", "sk-lf-x")
-            assert valid is False
-            assert "unexpected redirect" in (msg or "")
+        assert valid is False
+        assert "unexpected redirect" in (msg or "")
+        assert [request.path for request in network.requests_log] == ["/api/public/projects"]
 
     def test_rejects_plaintext_http(self):
-        with self._patch_session(_response(status_code=200)) as patched:
+        with scripted_network([]) as network:
             valid, msg = validate_credentials("http://langfuse.example.com", "pk-lf-x", "sk-lf-x")
-            assert valid is False
-            assert msg == HTTP_NOT_ALLOWED_ERROR
-            patched.return_value.get.assert_not_called()
+        assert valid is False
+        assert msg == HTTP_NOT_ALLOWED_ERROR
+        assert network.requests_log == []
 
     def test_blocks_unsafe_host(self):
         with (
             mock.patch.object(langfuse_module, "_is_host_safe", return_value=(False, "internal address")),
-            self._patch_session(_response(status_code=200)) as patched,
+            scripted_network([]) as network,
         ):
             valid, msg = validate_credentials("https://10.0.0.1", "pk-lf-x", "sk-lf-x", team_id=99)
-            assert valid is False
-            assert msg == "internal address"
-            patched.return_value.get.assert_not_called()
+        assert valid is False
+        assert msg == "internal address"
+        assert network.requests_log == []
 
 
 class TestLangfuseSourceResponse:
@@ -200,15 +188,12 @@ class TestLangfuseSourceResponse:
         ],
     )
     def test_response_shape(self, endpoint, primary_keys, partition_key, sort_mode):
-        response = langfuse_source(
-            host="https://cloud.langfuse.com",
-            public_key="pk-lf-x",
-            secret_key="sk-lf-x",
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(),
-            team_id=1,
+        result = _driver().run(
+            endpoint, [ScriptedResponse(json={"data": [], "meta": {"totalPages": 1}})], api_version="v1"
         )
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
@@ -221,38 +206,16 @@ class TestLangfuseSourceResponse:
 
 
 class TestGetRows:
-    def _run(self, manager, responses, endpoint="traces", **kwargs):
-        session = mock.MagicMock()
-        session.get.side_effect = responses
-        with mock.patch.object(langfuse_module, "make_tracked_session", return_value=session):
-            rows: list[dict[str, Any]] = []
-            for batch in get_rows(
-                host="https://cloud.langfuse.com",
-                public_key="pk-lf-x",
-                secret_key="sk-lf-x",
-                endpoint=endpoint,
-                logger=mock.MagicMock(),
-                resumable_source_manager=manager,
-                team_id=1,
-                **kwargs,
-            ):
-                rows.extend(batch)
-        return rows, session
-
-    def _manager(self, resume_state: Optional[LangfuseResumeConfig] = None) -> mock.MagicMock:
-        manager = mock.MagicMock()
-        manager.can_resume.return_value = resume_state is not None
-        manager.load_state.return_value = resume_state
-        return manager
-
     def test_whole_number_costs_are_emitted_as_floats(self):
         # The oldest traces are fetched first and often carry a flat 0 cost. Left as ints they
         # create an integer column, and the first fractional cost then fails the whole sync.
-        manager = self._manager()
-        rows, _ = self._run(
-            manager,
+        result = _driver().run(
+            "traces",
             [_page([{"id": "t1", "totalCost": 0, "latency": 2}], page=1, total_pages=1)],
+            api_version="v1",
         )
+        rows = result.rows
+        assert result.raised is None
         assert isinstance(rows[0]["totalCost"], float)
         assert isinstance(rows[0]["latency"], float)
         assert rows[0]["totalCost"] == 0.0
@@ -260,61 +223,77 @@ class TestGetRows:
 
     def test_fields_outside_float_fields_keep_their_type(self):
         # scores.value is numeric only for NUMERIC scores, so it must not be widened.
-        manager = self._manager()
-        rows, _ = self._run(
-            manager,
+        result = _driver().run(
+            "scores",
             [_cursor_page([{"id": "s1", "value": 1}, {"id": "s2", "value": "misc"}], cursor=None)],
-            endpoint="scores",
         )
+        rows = result.rows
+        assert result.raised is None
         assert rows[0]["value"] == 1
         assert not isinstance(rows[0]["value"], float)
         assert rows[1]["value"] == "misc"
 
     def test_resume_from_saved_cursor(self):
-        manager = self._manager(LangfuseResumeConfig(cursor="saved-cursor"))
-        rows, session = self._run(
-            manager,
+        result = _driver().run(
+            "observations",
             [_cursor_page([{"id": "o9"}], cursor=None)],
-            endpoint="observations",
+            resume_state=LangfuseResumeConfig(cursor="saved-cursor"),
         )
-        assert session.get.call_args.kwargs["params"]["cursor"] == "saved-cursor"
-        assert [r["id"] for r in rows] == ["o9"]
+        assert result.params("cursor") == ["saved-cursor"]
+        assert [r["id"] for r in result.rows] == ["o9"]
+        assert result.raised is None
+
+    @pytest.mark.parametrize(
+        "endpoint, last_value, incremental_field, expected_from",
+        [
+            ("experiments", None, None, "1970-01-01T00:00:00Z"),
+            ("experiment_items", None, None, "1970-01-01T00:00:00Z"),
+            (
+                "experiment_items",
+                datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
+                "startTime",
+                "2026-03-04T09:00:00Z",
+            ),
+        ],
+    )
+    def test_experiment_endpoints_send_a_lower_bound_on_every_page(
+        self, endpoint, last_value, incremental_field, expected_from
+    ):
+        # Both endpoints reject a request without fromStartTime, so a full sync must send one too.
+        result = _driver().run(
+            endpoint,
+            [
+                _cursor_page([{"id": "e1", "experimentId": "x1"}], cursor="next"),
+                _cursor_page([{"id": "e2", "experimentId": "x1"}], cursor=None),
+            ],
+            db_incremental_field_last_value=last_value,
+            incremental_field=incremental_field,
+        )
+        assert result.raised is None
+        assert [r["id"] for r in result.rows] == ["e1", "e2"]
+        assert result.params("fromStartTime") == [expected_from, expected_from]
+        assert result.params("cursor") == [None, "next"]
 
     def test_rejects_plaintext_http_before_request(self):
-        manager = self._manager()
-        session = mock.MagicMock()
-        with (
-            mock.patch.object(langfuse_module, "make_tracked_session", return_value=session),
-            pytest.raises(langfuse_module.LangfuseHostNotAllowedError) as exc,
-        ):
-            list(
-                get_rows(
-                    host="http://langfuse.example.com",
-                    public_key="pk-lf-x",
-                    secret_key="sk-lf-x",
-                    endpoint="traces",
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                    team_id=1,
-                )
-            )
-        assert HTTP_NOT_ALLOWED_ERROR in str(exc.value)
-        session.get.assert_not_called()
+        result = _driver("http://langfuse.example.com").run("traces", [], api_version="v1")
+        assert isinstance(result.raised, langfuse_module.LangfuseHostNotAllowedError)
+        assert HTTP_NOT_ALLOWED_ERROR in str(result.raised)
+        assert result.requests == []
 
     def test_unsafe_host_error_is_marked_non_retryable(self):
-        manager = self._manager()
-        with (
-            mock.patch.object(langfuse_module, "_is_host_safe", return_value=(False, "internal address")),
-            pytest.raises(langfuse_module.LangfuseHostNotAllowedError) as exc,
-        ):
-            self._run(manager, [_page([{"id": "t1"}], page=1, total_pages=1)])
-        assert HOST_NOT_ALLOWED_ERROR in str(exc.value)
+        with mock.patch.object(langfuse_module, "_is_host_safe", return_value=(False, "internal address")):
+            result = _driver().run("traces", [], api_version="v1")
+        assert isinstance(result.raised, langfuse_module.LangfuseHostNotAllowedError)
+        assert HOST_NOT_ALLOWED_ERROR in str(result.raised)
+        assert result.requests == []
 
     def test_redirect_response_is_refused(self):
-        manager = self._manager()
-        with pytest.raises(langfuse_module.LangfuseHostNotAllowedError) as exc:
-            self._run(manager, [_response(status_code=302)])
-        assert HOST_NOT_ALLOWED_ERROR in str(exc.value)
+        result = _driver().run(
+            "traces", [ScriptedResponse(status=302, headers={"Location": "https://example.com"})], api_version="v1"
+        )
+        assert isinstance(result.raised, langfuse_module.LangfuseHostNotAllowedError)
+        assert HOST_NOT_ALLOWED_ERROR in str(result.raised)
+        assert len(result.requests) == 1
 
     @pytest.mark.parametrize(
         "attr, value, chunks",
@@ -327,122 +306,111 @@ class TestGetRows:
         # A hostile/self-hosted host could stream an unbounded or slow-drip body and pin a shared
         # worker. The read must abort past either cap before parsing JSON, with a non-retryable
         # error (retrying can't shrink or speed up the body). A single queued response also proves
-        # no retry happens: a retry would consume a second one and raise StopIteration instead.
-        manager = self._manager()
-        with (
-            mock.patch.object(langfuse_module, attr, value),
-            pytest.raises(langfuse_module.LangfuseResponseTooLargeError) as exc,
-        ):
-            self._run(manager, [_response(body_chunks=chunks)])
-        assert langfuse_module.RESPONSE_LIMIT_ERROR in str(exc.value)
+        # no retry happens: another request would end the scripted run with UnexpectedRequest.
+        with mock.patch.object(langfuse_module, attr, value):
+            result = _driver().run("traces", [ScriptedResponse(body=b"".join(chunks))], api_version="v1")
+        assert isinstance(result.raised, langfuse_module.LangfuseResponseTooLargeError)
+        assert langfuse_module.RESPONSE_LIMIT_ERROR in str(result.raised)
+        assert len(result.requests) == 1
 
     def test_repeated_cursor_raises_without_checkpointing_it(self):
         # A hostile host that echoes back the cursor it was given would otherwise re-fetch the same
         # page until the activity timeout. The run must abort (non-retryable) and never checkpoint
         # the poisoned cursor — a saved checkpoint would make every retry loop on it too.
-        manager = self._manager()
-        with pytest.raises(langfuse_module.LangfusePaginationError) as exc:
-            self._run(
-                manager,
-                [
-                    _cursor_page([{"id": "o1"}], cursor="loop"),
-                    _cursor_page([{"id": "o2"}], cursor="loop"),
-                ],
-                endpoint="observations",
-            )
-        assert langfuse_module.REPEATED_CURSOR_ERROR in str(exc.value)
+        result = _driver().run(
+            "observations",
+            [
+                _cursor_page([{"id": "o1"}], cursor="loop"),
+                _cursor_page([{"id": "o2"}], cursor="loop"),
+            ],
+        )
+        assert isinstance(result.raised, langfuse_module.LangfusePaginationError)
+        assert langfuse_module.REPEATED_CURSOR_ERROR in str(result.raised)
         # Only the first page's (legitimate) continuation was saved.
-        assert manager.save_state.call_count == 1
+        assert result.saved_states == [LangfuseResumeConfig(cursor="loop")]
 
     def test_resource_limit_422_is_retried_then_recovers(self):
         # Langfuse maps a transient ClickHouse resource/timeout to 422 (validation errors are 400).
         # A 422 must flow through the backoff and recover, not surface as a fatal HTTPError that
-        # fails the sync. Patch the wait so the retry doesn't sleep.
-        manager = self._manager()
-        with mock.patch.object(langfuse_module, "_retry_wait", return_value=0):
-            rows, session = self._run(
-                manager,
-                [
-                    _response(status_code=422, json_data={"error": "Request timed out"}),
-                    _page([{"id": "t1"}], page=1, total_pages=1),
-                ],
-            )
-        assert [r["id"] for r in rows] == ["t1"]
-        assert session.get.call_count == 2
+        # fails the sync.
+        result = _driver().run(
+            "traces",
+            [
+                ScriptedResponse(status=422, json={"error": "Request timed out"}),
+                _page([{"id": "t1"}], page=1, total_pages=1),
+            ],
+            api_version="v1",
+        )
+        assert [r["id"] for r in result.rows] == ["t1"]
+        assert len(result.requests) == 2
+        assert result.raised is None
 
     def test_keyset_checkpoint_carries_the_advanced_filter(self):
         # Resume reuses the saved from_value verbatim, so a checkpoint that kept the ORIGINAL bound
         # next to page 1 would restart the whole walk on the next activity attempt.
-        manager = self._manager()
-        self._run(
-            manager,
+        result = _driver().run(
+            "traces",
             [
                 _page([_trace("t1", "2026-03-04T10:05:00Z")], page=1, total_pages=900),
                 _page([_trace("t1", "2026-03-04T10:05:00Z")], page=1, total_pages=1),
             ],
-            should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, 10, 0, 0, tzinfo=UTC),
             incremental_field="timestamp",
+            api_version="v1",
         )
-        saved = manager.save_state.call_args.args[0]
+        assert result.raised is None
+        saved = result.saved_states[-1]
         assert saved.page == 1
         assert saved.from_value == "2026-03-04T10:05:00Z"
 
     def test_keyset_falls_back_to_offset_when_the_bound_cannot_move(self):
         # Every row on the page sits on the current bound. Resetting to page 1 would re-issue the
         # same query forever, so the walk must keep incrementing the offset to get past them.
-        manager = self._manager()
-        _rows, session = self._run(
-            manager,
+        result = _driver().run(
+            "traces",
             [
                 _page([_trace("t1", "2026-03-04T11:00:00Z")], page=1, total_pages=3),
                 _page([_trace("t2", "2026-03-04T11:00:00Z")], page=2, total_pages=3),
                 _page([_trace("t3", "2026-03-04T11:00:00Z")], page=3, total_pages=3),
             ],
-            should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, 12, 0, 0, tzinfo=UTC),
             incremental_field="timestamp",
+            api_version="v1",
         )
-        assert [call.kwargs["params"]["page"] for call in session.get.call_args_list] == [1, 2, 3]
+        assert result.params("page") == ["1", "2", "3"]
+        assert result.raised is None
 
     def test_page_limit_raises_after_checkpointing_next_page(self):
         # A hostile host reporting ever-more totalPages would otherwise keep the loop alive until
         # the activity timeout. The run must abort at the cap — retryably, with the next page
         # already checkpointed, so a legitimately huge sync continues on the next attempt.
-        manager = self._manager()
-        with (
-            mock.patch.object(langfuse_module, "MAX_PAGES_PER_RUN", 2),
-            pytest.raises(langfuse_module.LangfusePaginationError) as exc,
-        ):
-            self._run(
-                manager,
+        with mock.patch.object(langfuse_module, "MAX_PAGES_PER_RUN", 2):
+            result = _driver().run(
+                "traces",
                 [
                     _page([{"id": "t1"}], page=1, total_pages=10),
                     _page([{"id": "t2"}], page=2, total_pages=10),
                 ],
+                api_version="v1",
             )
-        assert langfuse_module.PAGE_LIMIT_ERROR in str(exc.value)
-        assert manager.save_state.call_args.args[0].page == 3
+        assert isinstance(result.raised, langfuse_module.LangfusePaginationError)
+        assert langfuse_module.PAGE_LIMIT_ERROR in str(result.raised)
+        assert result.saved_states[-1].page == 3
 
     def test_parent_id_listing_over_byte_budget_raises_non_retryable(self):
         # Parent ids are all buffered before the first child row is yielded, so a hostile host
         # streaming unique large ids must be cut off at the budget rather than grow worker memory.
-        manager = self._manager()
-        with (
-            mock.patch.object(langfuse_module, "MAX_PARENT_ID_BYTES", 100),
-            pytest.raises(langfuse_module.LangfuseResponseTooLargeError) as exc,
-        ):
-            self._run(
-                manager,
+        with mock.patch.object(langfuse_module, "MAX_PARENT_ID_BYTES", 100):
+            result = _driver().run(
+                "annotation_queue_items",
                 [_page([{"id": "q-aaaaaa"}, {"id": "q-bbbbbb"}], page=1, total_pages=1)],
-                endpoint="annotation_queue_items",
             )
-        assert langfuse_module.RESPONSE_LIMIT_ERROR in str(exc.value)
+        assert isinstance(result.raised, langfuse_module.LangfuseResponseTooLargeError)
+        assert langfuse_module.RESPONSE_LIMIT_ERROR in str(result.raised)
 
     def test_fan_out_walks_every_parent_and_checkpoints_the_next_one(self):
-        manager = self._manager()
-        rows, session = self._run(
-            manager,
+        result = _driver().run(
+            "annotation_queue_items",
             [
                 _page([{"id": "q-c"}, {"id": "q/a"}], page=1, total_pages=2),
                 _page([{"id": "q-b"}], page=2, total_pages=2),
@@ -451,18 +419,17 @@ class TestGetRows:
                 _not_found(),
                 _page([{"id": "i3", "queueId": "q/a"}], page=1, total_pages=1),
             ],
-            endpoint="annotation_queue_items",
         )
 
-        assert [r["id"] for r in rows] == ["i1", "i2", "i3"]
-        urls = [c.args[0] for c in session.get.call_args_list]
-        assert urls[2:] == [
-            "https://cloud.langfuse.com/api/public/annotation-queues/q-b/items",
-            "https://cloud.langfuse.com/api/public/annotation-queues/q-b/items",
-            "https://cloud.langfuse.com/api/public/annotation-queues/q-c/items",
-            "https://cloud.langfuse.com/api/public/annotation-queues/q%2Fa/items",
+        assert result.raised is None
+        assert [r["id"] for r in result.rows] == ["i1", "i2", "i3"]
+        assert result.paths[2:] == [
+            "/api/public/annotation-queues/q-b/items",
+            "/api/public/annotation-queues/q-b/items",
+            "/api/public/annotation-queues/q-c/items",
+            "/api/public/annotation-queues/q%2Fa/items",
         ]
-        saved = [(c.args[0].parent_id, c.args[0].page) for c in manager.save_state.call_args_list]
+        saved = [(state.parent_id, state.page) for state in result.saved_states]
         assert saved == [("q-b", 2), ("q-c", 1), ("q/a", 1)]
 
     @pytest.mark.parametrize(
@@ -474,21 +441,20 @@ class TestGetRows:
         ],
     )
     def test_fan_out_resumes_from_saved_parent(self, saved_parent, expected_url_parent, expected_page):
-        manager = self._manager(LangfuseResumeConfig(page=3, parent_id=saved_parent))
-        rows, session = self._run(
-            manager,
+        result = _driver().run(
+            "annotation_queue_items",
             [
                 _page([{"id": "q-a"}, {"id": "q-b"}, {"id": "q-c"}], page=1, total_pages=1),
                 _page([{"id": "i9", "queueId": expected_url_parent}], page=expected_page, total_pages=expected_page),
                 _page([], page=1, total_pages=0),
             ],
-            endpoint="annotation_queue_items",
+            resume_state=LangfuseResumeConfig(page=3, parent_id=saved_parent),
         )
 
-        assert [r["id"] for r in rows] == ["i9"]
-        resumed = session.get.call_args_list[1]
-        assert resumed.args[0].endswith(f"/annotation-queues/{expected_url_parent}/items")
-        assert resumed.kwargs["params"]["page"] == expected_page
+        assert result.raised is None
+        assert [r["id"] for r in result.rows] == ["i9"]
+        assert result.requests[1].path.endswith(f"/annotation-queues/{expected_url_parent}/items")
+        assert result.requests[1].param("page") == str(expected_page)
 
 
 class TestRetryBehavior:

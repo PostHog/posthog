@@ -1,111 +1,40 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from unittest import mock
 
-import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamwork import (
+    TeamworkSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.settings import TEAMWORK_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.source import TeamworkSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.teamwork import (
-    TeamworkResumeConfig,
     _format_updated_after,
     normalize_host,
-    teamwork_source,
     validate_credentials,
 )
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the teamwork module.
-TEAMWORK_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.teamwork.teamwork.make_tracked_session"
-)
+
+def _page(data_key: str, items: list[dict[str, Any]], *, has_more: bool, status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json={data_key: items, "meta": {"page": {"hasMore": has_more}}})
 
 
-def _page(data_key: str, items: list[dict[str, Any]], *, has_more: bool, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps({data_key: items, "meta": {"page": {"hasMore": has_more}}}).encode()
-    return resp
+def _redirect(status: int = 301) -> ScriptedResponse:
+    return ScriptedResponse(status=status, headers={"Location": "https://attacker.example.com/"})
 
 
-def _redirect(status: int = 301) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp.headers["Location"] = "https://attacker.example.com/"
-    resp._content = b""
-    return resp
-
-
-def _make_manager(resume_state: TeamworkResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-class _Capture:
-    def __init__(self) -> None:
-        self.query_params: list[dict[str, Any]] = []
-        self.auth_headers: list[str | None] = []
-        self.urls: list[str] = []
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> _Capture:
-    """Wire a mock client session, running requests through a REAL ``prepare_request`` so framework
-    auth is genuinely applied and the final query string is captured per page.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot the prepared URL's
-    query at send time rather than inspecting the shared dict after the run.
-    """
-    session.headers = {}
-    capture = _Capture()
-    real_session = requests.Session()
-
-    def _prepare(request: Any) -> Any:
-        prepared = real_session.prepare_request(request)
-        capture.urls.append(prepared.url or "")
-        query = parse_qs(urlsplit(prepared.url or "").query)
-        capture.query_params.append({k: v[0] for k, v in query.items()})
-        capture.auth_headers.append(prepared.headers.get("Authorization"))
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return capture
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _run(
-    session: mock.MagicMock,
-    responses: list[Response],
-    *,
-    endpoint: str = "tasks",
-    manager: mock.MagicMock | None = None,
-    **kwargs: Any,
-) -> tuple[list[dict[str, Any]], _Capture, mock.MagicMock]:
-    capture = _wire(session, responses)
-    manager = manager or _make_manager()
-    rows = _rows(
-        teamwork_source(
-            host="mycompany.teamwork.com",
-            api_key="key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=manager,
-            **kwargs,
-        )
-    )
-    return rows, capture, manager
+def _run(responses: Any, *, endpoint: str = "tasks", **kwargs: Any) -> DriveResult:
+    driver = SourceDriver(TeamworkSource(), TeamworkSourceConfig(site="mycompany.teamwork.com", api_key="key"))
+    return driver.run(endpoint, responses, **kwargs)
 
 
 class TestNormalizeHost:
@@ -138,76 +67,63 @@ class TestFormatUpdatedAfter:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_pagination_until_has_more_false(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
+    def test_follows_pagination_until_has_more_false(self) -> None:
         responses = [
             _page("tasks", [{"id": 1}], has_more=True),
             _page("tasks", [{"id": 2}], has_more=True),
             _page("tasks", [{"id": 3}], has_more=False),
         ]
-        rows, capture, _ = _run(session, responses)
-        assert rows == [{"id": 1}, {"id": 2}, {"id": 3}]
-        assert [q["page"] for q in capture.query_params] == ["1", "2", "3"]
+        result = _run(responses)
+        assert result.rows == [{"id": 1}, {"id": 2}, {"id": 3}]
+        assert result.params("page") == ["1", "2", "3"]
         # hasMore=false on the last (non-empty) page stops without an extra empty-page request.
-        assert session.send.call_count == 3
+        assert len(result.requests) == 3
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_page(self, MockSession: mock.MagicMock) -> None:
+    def test_stops_on_empty_page(self) -> None:
         # hasMore lies and says there's more, but an empty page must terminate the loop.
-        session = MockSession.return_value
-        rows, capture, _ = _run(session, [_page("tasks", [], has_more=True)])
-        assert rows == []
-        assert session.send.call_count == 1
+        result = _run([_page("tasks", [], has_more=True)])
+        assert result.rows == []
+        assert len(result.requests) == 1
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_builds_updated_after_from_last_value(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _, capture, _ = _run(
-            session,
+    def test_incremental_builds_updated_after_from_last_value(self) -> None:
+        result = _run(
             [_page("tasks", [{"id": 1}], has_more=False)],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
         )
-        assert capture.query_params[0]["updatedAfter"] == "2026-03-04T02:58:14Z"
-        assert capture.query_params[0]["orderBy"] == "updatedat"
+        assert result.requests[0].param("updatedAfter") == "2026-03-04T02:58:14Z"
+        assert result.requests[0].param("orderBy") == "updatedat"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_endpoint_never_sends_updated_after(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _, capture, _ = _run(
-            session,
+    def test_full_refresh_endpoint_never_sends_updated_after(self) -> None:
+        result = _run(
             [_page("projects", [{"id": 1}], has_more=False)],
             endpoint="projects",
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
-        assert "updatedAfter" not in capture.query_params[0]
+        assert result.requests[0].param("updatedAfter") is None
 
 
 class TestRedirectRejection:
     @parameterized.expand([("moved", 301), ("found", 302), ("temporary", 307), ("permanent", 308)])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_redirect_is_rejected(self, _name: str, status: int, MockSession: mock.MagicMock) -> None:
+    def test_redirect_is_rejected(self, _name: str, status: int) -> None:
         # A 3xx means the host tried to bounce us elsewhere — refuse rather than forward credentials.
-        session = MockSession.return_value
-        with pytest.raises(ValueError, match="redirect"):
-            _run(session, [_redirect(status)])
+        result = _run([_redirect(status)])
+        assert isinstance(result.raised, ValueError)
+        assert "redirect" in str(result.raised)
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    @mock.patch(TEAMWORK_SESSION_PATCH)
-    def test_status_mapping(self, _name: str, status_code: int, expected: bool, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("mycompany.teamwork.com", "key") is expected
+    def test_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))):
+            assert validate_credentials("mycompany.teamwork.com", "key") is expected
 
-    @mock.patch(TEAMWORK_SESSION_PATCH)
-    def test_uses_no_redirect_session(self, mock_session: mock.MagicMock) -> None:
+    def test_uses_no_redirect_session(self) -> None:
         # The Basic auth header must never follow a redirect off the validated host.
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("mycompany.teamwork.com", "key")
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
+        with scripted_network(always(ScriptedResponse(status=200))) as network:
+            validate_credentials("mycompany.teamwork.com", "key")
+        assert network.session_options[0]["allow_redirects"] is False
 
 
 class TestEndpointCatalog:

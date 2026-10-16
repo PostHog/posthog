@@ -1,78 +1,42 @@
-import json
 from typing import Any
 
 import pytest
-from unittest import mock
 
-from requests import Response
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.secureframe import (
+    SecureframeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.secureframe import (
     SecureframeResumeConfig,
     _extract_rows,
     get_endpoint_permissions,
-    secureframe_source,
     validate_credentials,
 )
-
-# The rest_source client builds/uses its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# The source builds its own tracked session (for the transport session + probes) in the secureframe module.
-SECUREFRAME_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.secureframe.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.source import SecureframeSource
 
 
-def _response(payload: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(payload).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(SecureframeSource(), SecureframeSourceConfig(api_key="key", api_secret="secret", region="us"))
 
 
-def _make_manager(resume_state: SecureframeResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _response(payload: Any, status_code: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json=payload)
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's query params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when
-    each request is prepared instead of inspecting the (final) shared dict after the run.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
+def _envelopes(*rows: dict[str, Any]) -> ScriptedResponse:
+    return _response({"data": [{"id": row["id"], "type": "x", "attributes": row} for row in rows]})
 
 
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _run(session_factory_mock, responses, endpoint="controls", manager=None):
-    session = session_factory_mock.return_value
-    params = _wire(session, responses)
-    manager = manager or _make_manager()
-    source = secureframe_source(
-        api_key="key",
-        api_secret="secret",
-        region="us",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-    )
-    return _rows(source), params, session, manager
+def _scope(scope_id: str, asset_id: str, asset_type: str) -> dict[str, Any]:
+    return {"id": scope_id, "asset_id": asset_id, "asset_type": asset_type, "framework_id": "fw-1"}
 
 
 class TestExtractRows:
@@ -110,46 +74,109 @@ class TestExtractRows:
 
 
 class TestPagination:
-    @mock.patch(SECUREFRAME_SESSION_PATCH)
-    def test_top_level_array_envelopes_are_flattened(self, MockSession):
+    def test_top_level_array_envelopes_are_flattened(self):
         # The declared shape: a top-level array of per-item JSON:API envelopes.
-        rows, _params, _session, _ = _run(
-            MockSession,
+        result = _driver().run(
+            "controls",
             [
                 _response([{"data": {"id": "a", "type": "control", "attributes": {"name": "x"}}}]),
                 _response([]),
             ],
         )
-        assert rows == [{"id": "a", "name": "x"}]
+        assert result.rows == [{"id": "a", "name": "x"}]
 
-    @mock.patch(SECUREFRAME_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession):
-        _rows_out, params, _session, _ = _run(
-            MockSession,
+    def test_resumes_from_saved_page(self):
+        result = _driver().run(
+            "controls",
             [_response({"data": []})],
-            manager=_make_manager(SecureframeResumeConfig(page=5)),
+            resume_state=SecureframeResumeConfig(page=5),
         )
-        assert params[0]["page"] == 5
+        assert result.params("page")[0] == "5"
 
-    @mock.patch(SECUREFRAME_SESSION_PATCH)
-    def test_auth_failure_raises_instead_of_ending_sync(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({"message": "Authorization failed"}, status_code=401)])
+    def test_auth_failure_raises_instead_of_ending_sync(self):
+        result = _driver().run("controls", [_response({"message": "Authorization failed"}, status_code=401)])
 
-        manager = _make_manager()
-        source = secureframe_source(
-            api_key="key",
-            api_secret="secret",
-            region="us",
-            endpoint="controls",
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=manager,
+        assert isinstance(result.raised, HTTPError)
+        assert result.saved_states == []
+
+
+class TestFrameworkAssetScopesFanout:
+    def test_walks_every_parent_kind_and_skips_deleted_assets(self):
+        result = _driver().run(
+            "framework_asset_scopes",
+            route(
+                {
+                    "/devices": [_envelopes({"id": "d1"}, {"id": "d2"}), _response({"data": []})],
+                    "/devices/d1/framework_asset_scopes": [
+                        _envelopes(_scope("s1", "d1", "Device"), _scope("s2", "d1", "Device"))
+                    ],
+                    # The asset was deleted after the device list was read.
+                    "/devices/d2/framework_asset_scopes": [_response({"error": "not found"}, status_code=404)],
+                    "/cloud_resources": [_envelopes({"id": "c1"}), _response({"data": []})],
+                    "/cloud_resources/c1/framework_asset_scopes": [_envelopes(_scope("s3", "c1", "CloudResource"))],
+                    "/repositories": [_response({"data": []})],
+                }
+            ),
         )
-        with pytest.raises(HTTPError):
-            _rows(source)
 
-        manager.save_state.assert_not_called()
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["s1", "s2", "s3"]
+        assert result.rows[0] == _scope("s1", "d1", "Device")
+        child_requests = [r for r in result.requests if r.path.endswith("/framework_asset_scopes")]
+        assert [r.param("page") for r in child_requests] == [None, None, None]
+        assert result.paths[-1] == "/repositories"
+
+    @pytest.mark.parametrize(
+        "resume_state, expected_paths",
+        [
+            (
+                SecureframeResumeConfig(
+                    parent="cloud_resources",
+                    fanout_state={
+                        "completed": ["/cloud_resources/c1/framework_asset_scopes"],
+                        "current": None,
+                        "child_state": None,
+                    },
+                ),
+                ["/cloud_resources", "/cloud_resources/c2/framework_asset_scopes", "/cloud_resources", "/repositories"],
+            ),
+            (
+                SecureframeResumeConfig(parent="repositories"),
+                ["/repositories"],
+            ),
+        ],
+    )
+    def test_resumes_at_the_saved_parent_kind(self, resume_state, expected_paths):
+        result = _driver().run(
+            "framework_asset_scopes",
+            route(
+                {
+                    "/cloud_resources": [_envelopes({"id": "c1"}, {"id": "c2"}), _response({"data": []})],
+                    "/cloud_resources/c2/framework_asset_scopes": [_envelopes(_scope("s4", "c2", "CloudResource"))],
+                    "/repositories": [_response({"data": []})],
+                }
+            ),
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+
+    def test_stages_the_next_parent_kind_once_the_previous_one_is_done(self):
+        result = _driver().run(
+            "framework_asset_scopes",
+            route(
+                {
+                    "/devices": [_envelopes({"id": "d1"}), _response({"data": []})],
+                    "/devices/d1/framework_asset_scopes": [_envelopes(_scope("s1", "d1", "Device"))],
+                    "/cloud_resources": [_response({"data": []})],
+                    "/repositories": [_response({"data": []})],
+                }
+            ),
+        )
+
+        assert SecureframeResumeConfig(parent="cloud_resources") in result.saved_states
+        assert SecureframeResumeConfig(parent="repositories") in result.saved_states
 
 
 class TestValidateCredentials:
@@ -163,34 +190,33 @@ class TestValidateCredentials:
             (500, (False, False)),
         ],
     )
-    @mock.patch(SECUREFRAME_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code, expected):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
-
-        assert validate_credentials("key", "secret", "us") == expected
+    def test_status_mapping(self, status_code, expected):
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
+            assert validate_credentials("key", "secret", "us") == expected
 
 
 class TestGetEndpointPermissions:
     @pytest.mark.parametrize("denied_status", [401, 403])
-    @mock.patch(SECUREFRAME_SESSION_PATCH)
-    def test_denied_endpoints_carry_a_reason(self, mock_session, denied_status):
-        ok = mock.MagicMock(status_code=200)
-        denied = mock.MagicMock(status_code=denied_status)
-        mock_session.return_value.get.side_effect = [ok, denied]
-
-        permissions = get_endpoint_permissions("key", "secret", "us", ["controls", "tests"])
+    def test_denied_endpoints_carry_a_reason(self, denied_status):
+        with scripted_network([ScriptedResponse(status=200, json={}), ScriptedResponse(status=denied_status, json={})]):
+            permissions = get_endpoint_permissions("key", "secret", "us", ["controls", "tests"])
 
         assert permissions["controls"] is None
         assert permissions["tests"] is not None
         assert "tests" in permissions["tests"]
 
-    @mock.patch(SECUREFRAME_SESSION_PATCH)
-    def test_transient_failures_are_not_denials(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("connection reset")
+    @pytest.mark.parametrize("denied_parent_index", [0, 1, 2])
+    def test_fanout_table_is_denied_when_any_parent_list_is_denied(self, denied_parent_index):
+        statuses = [200, 200, 200]
+        statuses[denied_parent_index] = 403
+        with scripted_network([ScriptedResponse(status=status, json={}) for status in statuses]):
+            permissions = get_endpoint_permissions("key", "secret", "us", ["framework_asset_scopes"])
 
-        assert get_endpoint_permissions("key", "secret", "us", ["controls"]) == {"controls": None}
+        assert permissions["framework_asset_scopes"] is not None
+
+    def test_transient_failures_are_not_denials(self):
+        with scripted_network(always(ConnectionError("connection reset"))):
+            assert get_endpoint_permissions("key", "secret", "us", ["controls"]) == {"controls": None}
 
 
 class TestSessionHardening:
@@ -201,38 +227,21 @@ class TestSessionHardening:
             lambda: get_endpoint_permissions("key", "secret", "us", ["controls"]),
         ],
     )
-    @mock.patch(SECUREFRAME_SESSION_PATCH)
-    def test_session_excludes_responses_from_sample_capture_and_redacts_credentials(self, mock_session, call):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-
-        call()
+    def test_session_excludes_responses_from_sample_capture_and_redacts_credentials(self, call):
+        with scripted_network(always(ScriptedResponse(status=200, json={}))) as network:
+            call()
 
         # Secureframe responses carry customer PII the generic scrubber can't remove, so the
         # session must opt out of HTTP sample capture and mask both credential halves.
-        _, kwargs = mock_session.call_args
+        kwargs = network.session_options[-1]
         assert kwargs["capture"] is False
         assert set(kwargs["redact_values"]) == {"key", "secret"}
 
-    @mock.patch(SECUREFRAME_SESSION_PATCH)
-    def test_sync_transport_session_is_hardened(self, mock_session):
+    def test_sync_transport_session_is_hardened(self):
         # The transport session handed to the rest_source client is built the same way.
-        session = mock_session.return_value
-        session.headers = {}
-        session.prepare_request.side_effect = lambda request: mock.MagicMock()
-        session.send.side_effect = [_response({"data": []})]
+        result = _driver().run("controls", [_response({"data": []})])
 
-        source = secureframe_source(
-            api_key="key",
-            api_secret="secret",
-            region="us",
-            endpoint="controls",
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        _rows(source)
-
-        _, kwargs = mock_session.call_args
+        kwargs = result.session_options[-1]
         assert kwargs["capture"] is False
         assert set(kwargs["redact_values"]) == {"key", "secret"}
         assert kwargs["headers"]["Authorization"] == "key secret"

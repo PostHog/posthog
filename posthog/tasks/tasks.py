@@ -9,6 +9,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import OperationalError, ProgrammingError, connection
+from django.db.models import Model
 from django.utils import timezone
 
 import requests
@@ -30,6 +31,7 @@ from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
+from posthog.person_db_router import PersonDBRouter
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
@@ -423,6 +425,11 @@ def _process_query_task_failure(
     if isinstance(exc, APIException):
         # User-safe message (e.g. ClickHouseAtCapacity's "try again later" copy)
         query_status.error_message = str(exc.detail)
+        codes = exc.get_codes()
+        if isinstance(codes, str):
+            query_status.error_code = codes
+    elif isinstance(exc, ConcurrencyLimitExceeded):
+        query_status.error_code = ClickHouseAtCapacity.default_code
     query_status.end_time = datetime.datetime.now(datetime.UTC)
     manager.store_query_status(query_status)
 
@@ -1117,6 +1124,15 @@ def send_org_usage_reports() -> None:
     send_all_org_usage_reports.delay()
 
 
+def ensure_not_persons_db_model(model: type[Model]) -> None:
+    # Hobby keeps persons-database tables in the main database, where a raw delete would skip personhog
+    # and leave the ClickHouse rows live.
+    if PersonDBRouter().is_persons_model(model._meta.app_label, model._meta.model_name):
+        raise ValueError(
+            f"{model._meta.label} lives in the persons database. Use the person, group or team delete flows instead."
+        )
+
+
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 def background_delete_model_task(
     model_name: str, team_id: int, batch_size: int = 10000, records_to_delete: int | None = None
@@ -1143,6 +1159,7 @@ def background_delete_model_task(
         # Parse model name
         app_label, model_label = model_name.split(".")
         model = apps.get_model(app_label, model_label)
+        ensure_not_persons_db_model(model)
 
         # Determine team field name
         team_field = "team_id" if hasattr(model, "team_id") else "team"
@@ -1781,30 +1798,37 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
         )
 
 
-@shared_task(ignore_result=True)
+# Registered under the previous name, so messages queued by the previous deploy still run.
+@shared_task(ignore_result=True, name="posthog.tasks.tasks.sync_user_product_lists_for_new_team")
 @skip_team_scope_audit
-def sync_user_product_lists_for_new_team(team_id: int) -> None:
+def star_default_products_for_new_team(team_id: int) -> None:
     """
-    Sync UserProductList for all users who have access to a new team.
+    Star the default products for all users who have access to a new team.
     Called during project creation to avoid request timeouts for large organizations.
     """
-    from posthog.models.file_system.user_product_list import add_default_products_for_user
+    from posthog.models.file_system.starred_products import star_default_products
     from posthog.models.team import Team
 
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
-        logger.info("sync_user_product_lists_for_new_team: Team not found, skipping", team_id=team_id)
+        logger.info("star_default_products_for_new_team: Team not found, skipping", team_id=team_id)
+        return
+
+    # Environments of a project share its sidebar stars. Seeding a new environment would restore
+    # defaults that users of the project already removed.
+    if Team.objects.filter(project_id=team.project_id).exclude(id=team.id).exists():
+        logger.info("star_default_products_for_new_team: Team is a new environment, skipping", team_id=team_id)
         return
 
     users = list(team.all_users_with_access())
     logger.info(
-        "sync_user_product_lists_for_new_team: Starting sync",
+        "star_default_products_for_new_team: Starting",
         team_id=team_id,
         user_count=len(users),
     )
 
     for user in users:
-        add_default_products_for_user(user, team)
+        star_default_products(user, team)
 
-    logger.info("sync_user_product_lists_for_new_team: Completed", team_id=team_id)
+    logger.info("star_default_products_for_new_team: Completed", team_id=team_id)
