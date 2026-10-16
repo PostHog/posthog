@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
@@ -11,7 +12,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
-import { AccessControlResourceType } from '~/types'
+import { AccessControlResourceType, SidePanelTab } from '~/types'
 
 import { notebookLogic } from './notebookLogic'
 
@@ -57,6 +58,7 @@ function OpenNotebookShareModal({ shortId }: NotebookShareModalProps): JSX.Eleme
                 <AccessControlPopoutCTA
                     resourceType={AccessControlResourceType.Notebook}
                     callback={() => {
+                        router.actions.push(urls.notebook(shortId), {}, { panel: SidePanelTab.AccessControl })
                         closeShareModal()
                     }}
                 />

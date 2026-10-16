@@ -16,6 +16,7 @@ import { Notebook } from '../Notebook/Notebook'
 import { NotebookListMini } from '../Notebook/NotebookListMini'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookExpandButton, NotebookPresence, NotebookSyncInfo } from '../Notebook/NotebookMeta'
+import { NotebookShareModal } from '../Notebook/NotebookShareModal'
 import { NotebookMenu } from '../NotebookMenu'
 import { NotebookTarget } from '../types'
 import { NotebookPanelDropzone } from './NotebookPanelDropzone'
@@ -71,6 +72,7 @@ export function NotebookPanel(): JSX.Element | null {
                             </div>
                         </SidePanelPaneHeader>
                         <Notebook key={selectedNotebook} shortId={selectedNotebook} editable={editable} />
+                        <NotebookShareModal shortId={selectedNotebook} />
                     </SidePanelContentContainer>
                 </>
             ) : null}
