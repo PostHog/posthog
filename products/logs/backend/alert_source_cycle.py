@@ -29,6 +29,7 @@ import structlog
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.models import Team
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 from posthog.utils import absolute_uri
@@ -126,6 +127,8 @@ MIN_QUERY_SECONDS = 2
 # With the cohort budget this keeps every query of a batch inside `BATCH_SLOT_LEASE_SECONDS`, so a
 # query never runs after its slot frees for another batch.
 CHECKPOINT_QUERY_SECONDS = 10
+# The errors ClickHouse raises when a query exceeds, or is estimated to exceed, its time limit.
+_OUT_OF_TIME_ERRORS: Final = (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)
 
 INFLIGHT_KEY = "alerts:platform:logs:batches:inflight"
 # A workflow takes the slot before its evaluation activity starts, and the activity holds it again
@@ -565,8 +568,10 @@ def _evaluate_cohort(
     *,
     now: datetime,
     query_seconds: int,
+    cut_short: bool,
     muted_ids: frozenset[UUID],
-) -> list[Decision]:
+) -> list[Decision] | None:
+    """The cohort's decisions, or None when it ran out of time that earlier queries spent."""
     window_minutes, evaluation_periods, cadence_minutes, projection_eligible, date_to = key
     lookback = rolling_check_lookback_minutes(window_minutes, cadence_minutes, evaluation_periods)
 
@@ -581,6 +586,8 @@ def _evaluate_cohort(
             ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS,
         ).execute_rolling_checks(date_to, window_minutes, cadence_minutes, evaluation_periods)
     except Exception as error:
+        if cut_short and isinstance(error, _OUT_OF_TIME_ERRORS):
+            return None
         # One cohort's query must not end the batch, which is how the production cohort runner
         # contains the same failure.
         logger.exception(
@@ -748,8 +755,9 @@ def _evaluate_grouped(
     checkpoint: datetime | None,
     now: datetime,
     query_seconds: int,
+    cut_short: bool,
     muted: bool,
-) -> Decision:
+) -> Decision | None:
     """One grouped alert: its own query, then the platform's per-group decision.
 
     An open group the query did not return had no matching log, so it is checked against a zero
@@ -779,6 +787,8 @@ def _evaluate_grouped(
             date_to, condition.window_minutes, check.check_interval_minutes, check.evaluation_periods
         )
     except Exception as error:
+        if cut_short and isinstance(error, _OUT_OF_TIME_ERRORS):
+            return None
         logger.exception("Grouped logs alert query failed", check_id=str(check.id), error=str(error))
         return _delivery(check, _failed(check, error, now=now, muted=muted), window_end=date_to, now=now, failed=True)
 
@@ -1042,6 +1052,11 @@ def _evaluate_admitted(
 
     deadline = started_at + BATCH_QUERY_BUDGET_SECONDS
     unqueried = 0
+    # A query that runs out of time the queries before it spent records nothing, so its checks keep
+    # their due time. Discovery then hands their slot back alone, and the first query of that batch
+    # has the full time, so a query too slow even with it counts toward BROKEN rather than retrying
+    # forever. The first query of a batch has nothing before it to blame, so its timeout counts.
+    queried = False
     # Capped the way the production cohort query requires: one batched query carries one countIf
     # column per alert, so an uncapped cohort is an unbounded query.
     chunks = [
@@ -1056,26 +1071,39 @@ def _evaluate_admitted(
             # advancing their schedule would drop a real check. They keep their due time.
             unqueried += len(chunk)
             continue
-        decided.extend(
-            _evaluate_cohort(
-                team, chunk, cohort_key, now=cutoff, query_seconds=query_seconds, muted_ids=triage.muted_ids
-            )
+        cohort_decided = _evaluate_cohort(
+            team,
+            chunk,
+            cohort_key,
+            now=cutoff,
+            query_seconds=query_seconds,
+            cut_short=queried and query_seconds < MAX_QUERY_SECONDS,
+            muted_ids=triage.muted_ids,
         )
+        queried = True
+        if cohort_decided is None:
+            unqueried += len(chunk)
+            continue
+        decided.extend(cohort_decided)
     for check in grouped:
         query_seconds = min(MAX_QUERY_SECONDS, int(deadline - time.monotonic()))
         if query_seconds < MIN_QUERY_SECONDS:
             unqueried += 1
             continue
-        decided.append(
-            _evaluate_grouped(
-                team,
-                check,
-                checkpoint=checkpoint,
-                now=cutoff,
-                query_seconds=query_seconds,
-                muted=check.id in triage.muted_ids,
-            )
+        grouped_decided = _evaluate_grouped(
+            team,
+            check,
+            checkpoint=checkpoint,
+            now=cutoff,
+            query_seconds=query_seconds,
+            cut_short=queried and query_seconds < MAX_QUERY_SECONDS,
+            muted=check.id in triage.muted_ids,
         )
+        queried = True
+        if grouped_decided is None:
+            unqueried += 1
+            continue
+        decided.append(grouped_decided)
 
     if unqueried:
         logger.warning(
