@@ -14,7 +14,7 @@ from uuid import UUID
 
 from posthog.dataclasses import frozen
 
-from products.alerts_platform.backend.facade.contracts import DestinationType
+from products.alerts_platform.backend.facade.contracts import DeliveryPath, DestinationType
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 # The internal event an insight alert's destinations fire on. Do not take it from
@@ -68,6 +68,28 @@ class DestinationBucket(StrEnum):
     TEMPLATED_HEADERS = "N2"
     STATIC_HEADERS = "N1"
     STOCK = "N0"
+
+
+class HogFunctionPathReason(StrEnum):
+    """Why an alert the platform owns sends through its HogFunctions rather than natively."""
+
+    CUSTOMIZED = "customized"
+    # A function takes the source's alert events without being bound to one alert. Native
+    # delivery reads destinations per alert, so it would never send to it.
+    UNBOUND = "unbound"
+    # A stock webhook whose team receives the platform body natively. Its receiver parses the
+    # body the HogFunction sends.
+    NEW_WEBHOOK_BODY = "new_webhook_body"
+    WEBHOOK_BODY_UNKNOWN = "webhook_body_unknown"
+
+
+@frozen
+class DeliveryPathChoice:
+    reason: HogFunctionPathReason | None = None
+
+    @property
+    def path(self) -> DeliveryPath:
+        return DeliveryPath.NATIVE if self.reason is None else DeliveryPath.HOG_FUNCTION
 
 
 @frozen

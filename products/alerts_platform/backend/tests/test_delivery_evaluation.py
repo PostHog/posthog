@@ -457,13 +457,29 @@ class TestDeliverEvaluation(APIBaseTest):
         assert post.call_args.kwargs["headers"] == {"X-PostHog-Webhook-Version": header}
         assert post.call_args.args[1]["version"] == body_version
 
+    @parameterized.expand([("registered_a_body", True, True), ("registered_none", False, False)])
+    def test_native_delivery_keeps_the_webhook_body_only_for_a_source_that_registered_one(
+        self, _name: str, registered: bool, keeps: bool
+    ) -> None:
+        bodies: dict[SourceKind, Any] = {SourceKind.INSIGHT: lambda **_kwargs: {}} if registered else {}
+        with (
+            patch.dict(f"{_LEGACY_MODULE}._bodies", bodies, clear=True),
+            patch(
+                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
+                return_value=True,
+            ),
+        ):
+            assert legacy_webhook.native_sends_legacy_body(SourceKind.INSIGHT, self.team) is keeps
+
     def test_logs_registers_its_legacy_webhook_body_at_startup(self) -> None:
         # Every other case here patches the registry, so none of them notices a missing registration,
         # which would send grandfathered teams the Alertmanager body without any error.
         assert legacy_webhook.body_for(SourceKind.LOGS) is not None
+        assert delivery_paths.emitter_for(SourceKind.LOGS) is not None
 
     def test_the_destination_owner_registers_its_lookup_at_startup(self) -> None:
         # Every other case here patches the lookup, so none of them notices a missing registration.
+        assert delivery_paths._chooser is not None
         assert (
             list_alert_destination_groups(team_id=self.team.id, alert_id="unknown", allowed_event_ids=[FIRING_EVENT])
             == []
