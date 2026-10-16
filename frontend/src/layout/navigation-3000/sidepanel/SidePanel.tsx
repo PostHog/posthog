@@ -160,7 +160,7 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
 
     // Trigger scene width recalculation when SidePanel size changes
     useEffect(() => {
-        if (mainContentRef?.current) {
+        if (sidePanelOpen && mainContentRef?.current) {
             setMainContentRect(mainContentRef.current.getBoundingClientRect())
         }
     }, [desiredSize, sidePanelOpen, setMainContentRect, mainContentRef])
