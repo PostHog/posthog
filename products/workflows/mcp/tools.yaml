@@ -12,6 +12,10 @@ ui_apps:
     workflow-list:
         type: list
         detail_tool: workflows-get
+    workflow-sending-rules:
+        type: custom
+        app_name: PostHog Sending Rules
+        description: Sending rules for the project, with a button to apply the recommended frequency cap and a switch for engagement events.
     workflow-data-suggestions:
         type: custom
         app_name: PostHog Workflow Suggestions
@@ -450,6 +454,7 @@ tools:
         description: >
             The project-wide rules every workflow and broadcast follows when it sends: the marketing frequency cap,
             email tracking consent, and whether email engagement events are captured. Null cap fields mean no cap.
+        ui_app: workflow-sending-rules
         feature_flag: workflows-mcp-onboarding
     workflows-sending-rules-update:
         operation: workflow_sending_rules_partial_update
@@ -464,6 +469,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
+        ui_app: workflow-sending-rules
         feature_flag: workflows-mcp-onboarding
     workflows-stats:
         operation: hog_flows_metrics_retrieve

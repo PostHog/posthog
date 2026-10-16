@@ -623,18 +623,19 @@ const WorkflowsSendingRulesGetSchema = () => z.object({})
 const workflowsSendingRulesGet = (): ToolBase<
     ReturnType<typeof WorkflowsSendingRulesGetSchema>,
     Schemas.WorkflowSendingRules
-> => ({
-    name: 'workflows-sending-rules-get',
-    schema: WorkflowsSendingRulesGetSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof WorkflowsSendingRulesGetSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WorkflowSendingRules>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_sending_rules/current/`,
-        })
-        return result
-    },
-})
+> =>
+    withUiApp('workflow-sending-rules', {
+        name: 'workflows-sending-rules-get',
+        schema: WorkflowsSendingRulesGetSchema(),
+        handler: async (context: Context, _params: z.infer<ReturnType<typeof WorkflowsSendingRulesGetSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.WorkflowSendingRules>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_sending_rules/current/`,
+            })
+            return result
+        },
+    })
 
 const WorkflowsSendingRulesUpdateSchema = () => {
     const WorkflowSendingRulesPartialUpdateBody = orvalSchemas.WorkflowSendingRulesPartialUpdateBody()
@@ -644,32 +645,33 @@ const WorkflowsSendingRulesUpdateSchema = () => {
 const workflowsSendingRulesUpdate = (): ToolBase<
     ReturnType<typeof WorkflowsSendingRulesUpdateSchema>,
     Schemas.WorkflowSendingRules
-> => ({
-    name: 'workflows-sending-rules-update',
-    schema: WorkflowsSendingRulesUpdateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsSendingRulesUpdateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.marketing_frequency_cap_max_messages !== undefined) {
-            body['marketing_frequency_cap_max_messages'] = params.marketing_frequency_cap_max_messages
-        }
-        if (params.marketing_frequency_cap_window_days !== undefined) {
-            body['marketing_frequency_cap_window_days'] = params.marketing_frequency_cap_window_days
-        }
-        if (params.email_tracking_consent_mode !== undefined) {
-            body['email_tracking_consent_mode'] = params.email_tracking_consent_mode
-        }
-        if (params.capture_workflows_engagement_events !== undefined) {
-            body['capture_workflows_engagement_events'] = params.capture_workflows_engagement_events
-        }
-        const result = await context.api.request<Schemas.WorkflowSendingRules>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_sending_rules/current/`,
-            body,
-        })
-        return result
-    },
-})
+> =>
+    withUiApp('workflow-sending-rules', {
+        name: 'workflows-sending-rules-update',
+        schema: WorkflowsSendingRulesUpdateSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsSendingRulesUpdateSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.marketing_frequency_cap_max_messages !== undefined) {
+                body['marketing_frequency_cap_max_messages'] = params.marketing_frequency_cap_max_messages
+            }
+            if (params.marketing_frequency_cap_window_days !== undefined) {
+                body['marketing_frequency_cap_window_days'] = params.marketing_frequency_cap_window_days
+            }
+            if (params.email_tracking_consent_mode !== undefined) {
+                body['email_tracking_consent_mode'] = params.email_tracking_consent_mode
+            }
+            if (params.capture_workflows_engagement_events !== undefined) {
+                body['capture_workflows_engagement_events'] = params.capture_workflows_engagement_events
+            }
+            const result = await context.api.request<Schemas.WorkflowSendingRules>({
+                method: 'PATCH',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_sending_rules/current/`,
+                body,
+            })
+            return result
+        },
+    })
 
 const WorkflowsStatsSchema = () => {
     const HogFlowsMetricsRetrieveParams = orvalSchemas.HogFlowsMetricsRetrieveParams()
