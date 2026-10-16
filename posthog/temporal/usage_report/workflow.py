@@ -15,8 +15,11 @@ remains in production until billing migrates to consume the S3 layout.
 """
 
 import json
+import uuid
 import asyncio
 from datetime import UTC, datetime, time, timedelta
+
+from django.conf import settings
 
 from temporalio import common, workflow
 from temporalio.exceptions import ApplicationError
@@ -52,6 +55,7 @@ SANDBOX_COMPUTE_QUERY_PATCH_ID = "usage-report-sandbox-compute-query-2026-08"
 SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
 USAGE_COUNTER_SERVICE_PATCH_ID = "usage-report-counter-service-2026-09"
 PARALLEL_COUNTER_QUERIES_PATCH_ID = "usage-report-parallel-counter-queries-2026-10"
+AGGREGATION_QUEUE_PATCH_ID = "usage-report-aggregation-queue-2026-10"
 
 
 def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
@@ -86,6 +90,14 @@ def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> 
     )
 
 
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
 @workflow.defn(name="run-usage-reports")
 class RunUsageReportsWorkflow(PostHogWorkflow):
     @staticmethod
@@ -101,6 +113,12 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             # non_retryable so the schedule's retry policy doesn't re-run a
             # validation error.
             raise ApplicationError(f"day_offset must be >= 0, got {inputs.day_offset}", non_retryable=True)
+        invalid_organization_ids = [value for value in inputs.organization_ids or [] if not _is_uuid(value)]
+        if invalid_organization_ids:
+            # Aggregation reads organization_ids only after every gather query has run.
+            raise ApplicationError(
+                f"organization_ids must be UUIDs, got {invalid_organization_ids}", non_retryable=True
+            )
         started_at = workflow.now()
         status = "FAILED"
         try:
@@ -159,6 +177,12 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             agg = await workflow.execute_activity(
                 aggregate_and_chunk_org_reports,
                 AggregateInputs(ctx=ctx, query_results=query_results, counter_result=counter_result),
+                # Wait for capacity in Temporal, before the activity's start-to-close timer begins.
+                task_queue=(
+                    settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE
+                    if workflow.patched(AGGREGATION_QUEUE_PATCH_ID)
+                    else None
+                ),
                 start_to_close_timeout=timedelta(minutes=60),
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=2,

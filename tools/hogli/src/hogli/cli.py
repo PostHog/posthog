@@ -341,6 +341,11 @@ def concepts() -> None:
 # binary; checked at the top of `_apply_env_config` on subsequent invocations.
 _SECRETS_WRAPPED_ENV = "HOGLI_SECRETS_WRAPPED"
 
+# Whether hogli's own stdout was a terminal before the wrap re-exec. Wrap tools can pipe the
+# child's stdout (`op run` does, to mask secrets), so the child cannot see that the user is
+# at a terminal. Set to "1" or "0" next to the sentinel.
+_STDOUT_TTY_ENV = "HOGLI_STDOUT_TTY"
+
 # Substituted to the absolute path of the secrets file when building the wrap
 # argv. Kept as a constant so the README, AGENTS.md, and runtime stay in sync.
 _WRAP_FILE_PLACEHOLDER = "{file}"
@@ -497,6 +502,7 @@ def _maybe_reexec_via_wrap(secrets: dict[str, Any], env_files: list[Path]) -> No
 
     resolved_wrap = [arg.replace(_WRAP_FILE_PLACEHOLDER, str(secrets_file)) for arg in wrap]
     os.environ[_SECRETS_WRAPPED_ENV] = "1"
+    os.environ[_STDOUT_TTY_ENV] = "1" if sys.stdout.isatty() else "0"
     os.execvp(resolved_wrap[0], [*resolved_wrap, sys.executable, "-m", "hogli", *sys.argv[1:]])
 
 
@@ -686,6 +692,26 @@ def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
         }
         props.update(ctx.meta.get(telemetry.COMMAND_PROPERTIES_META_KEY) or {})
         telemetry.track("command_completed", props)
+    except Exception:
+        pass
+
+
+def send_completion_before_exec(timeout: float = 0.5) -> None:
+    """Send this invocation's ``command_completed`` before ``os.exec*`` replaces the process.
+
+    hogli sends ``command_completed`` after the command returns, and a command
+    that exec-replaces itself never returns. The wait is bounded by *timeout*.
+    The invocation is marked inactive afterwards, so an exec that fails and
+    falls through to a normal exit does not send a second event. Never raises.
+    """
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return
+    root = ctx.find_root()
+    _fire_telemetry(root, 0)
+    root.meta["hogli.telemetry_active"] = False
+    try:
+        telemetry.flush(timeout)
     except Exception:
         pass
 

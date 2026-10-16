@@ -31,7 +31,6 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from products.data_modeling.backend.facade.api import (
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
-    delete_node_from_dag,
     is_materialization_fresh,
     latest_saved_query_materialization_job,
     link_endpoint_nodes,
@@ -347,23 +346,6 @@ class EndpointMaterializationService:
         if version.saved_query:
             saved_query_id = str(version.saved_query.id)
             saved_query_name = version.saved_query.name
-            try:
-                delete_node_from_dag(version.saved_query)
-            except Exception as e:
-                logger.exception(
-                    "Failed to remove endpoint node from DAG",
-                    endpoint_name=endpoint.name,
-                    saved_query_id=saved_query_id,
-                )
-                capture_exception(
-                    e,
-                    {
-                        "product": Product.ENDPOINTS,
-                        "team_id": self.team.pk,
-                        "endpoint_name": endpoint.name,
-                        "saved_query_id": saved_query_id,
-                    },
-                )
             try:
                 version.disable_materialization()
             except Exception:

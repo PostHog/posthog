@@ -1,1 +1,1 @@
-0178_signalscoutconfig_autovacuum_scale_factor
+0184_signalscratchpad_search_trgm_indexes

@@ -141,7 +141,7 @@ from products.signals.backend.temporal.agentic.schedule import (
     create_scout_suggestions_coordinator_schedule,
     create_signals_scout_coordinator_schedule,
 )
-from products.today.backend.facade.temporal import create_today_briefing_schedule
+from products.today.backend.facade.temporal import delete_today_briefing_schedule
 from products.warehouse_suggestions.backend.facade.temporal import create_warehouse_suggestions_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.page_history.schedule import create_heatmap_page_history_schedule
@@ -908,8 +908,9 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
         spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=2))],
-            jitter=timedelta(minutes=10),
+            # Runs at :20 to keep it away from the API query surge at the top of the hour.
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=20))],
+            jitter=timedelta(minutes=5),
         ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
@@ -978,7 +979,7 @@ schedules = [
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
     create_autoresearch_daily_schedule,
-    create_today_briefing_schedule,
+    delete_today_briefing_schedule,
     create_signals_scout_coordinator_schedule,
     create_inbox_ranking_scoring_schedule,
     create_scout_suggestions_coordinator_schedule,
