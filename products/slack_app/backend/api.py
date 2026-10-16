@@ -138,7 +138,6 @@ from products.slack_app.backend.temporal import (
     SlackAppMentionWorkflowInputs,
     derive_mention_workflow_id,
 )
-from products.slack_app.backend.temporal.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from products.slack_app.backend.temporal.posthog_code_slack_mention_command import (
     PostHogCodeSlackMentionCommandWorkflow,
 )
@@ -147,6 +146,7 @@ from products.slack_app.backend.temporal.slack_app_mention import (
     SlackAppMentionWorkflow,
     derive_slack_app_mention_workflow_id,
 )
+from products.slack_app.backend.temporal.slack_app_mention_processing import SlackAppMentionProcessingWorkflow
 from products.slack_app.backend.temporal.types import SlackAppForkThreadInputs
 
 logger = structlog.get_logger(__name__)
@@ -1290,7 +1290,7 @@ def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integratio
     try:
         client = sync_connect()
         handle = client.get_workflow_handle(workflow_id)
-        asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.repo_selected, selected_repo))
+        asyncio.run(handle.signal(SlackAppMentionProcessingWorkflow.repo_selected, selected_repo))
     except Exception as e:
         logger.warning(
             "slack_app_pending_picker_signal_failed",
@@ -4357,7 +4357,7 @@ def _start_mention_workflow(
     # Use derive_mention_workflow_id as the single source of truth: the workflow persists the same
     # value as slack_mention_workflow_id, so dispatch and the debug-tool Temporal link stay consistent
     _start_posthog_code_workflow(
-        PostHogCodeSlackMentionWorkflow,
+        SlackAppMentionProcessingWorkflow,
         workflow_inputs,
         id_prefix="posthog-code-mention",
         slack_team_id=slack_team_id,
@@ -4873,7 +4873,7 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
     try:
         client = sync_connect()
         handle = client.get_workflow_handle(workflow_id)
-        asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.repo_selected, selected_repo))
+        asyncio.run(handle.signal(SlackAppMentionProcessingWorkflow.repo_selected, selected_repo))
         if context and pending_picker_user_id:
             _clear_pending_repo_picker(
                 integration_id=context["integration_id"],
@@ -4931,7 +4931,7 @@ def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
     try:
         client = sync_connect()
         handle = client.get_workflow_handle(workflow_id)
-        asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.no_repo_needed))
+        asyncio.run(handle.signal(SlackAppMentionProcessingWorkflow.no_repo_needed))
         if pending_picker_user_id:
             _clear_pending_repo_picker(
                 integration_id=context["integration_id"],

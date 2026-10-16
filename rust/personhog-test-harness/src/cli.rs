@@ -46,6 +46,10 @@ pub enum Command {
     /// seeds, and every database operation is confined to the configured
     /// validation table.
     Traffic(Box<TrafficArgs>),
+    /// Bring up the isolated stack the gate uses, print where it listens
+    /// and which topics it publishes to as one JSON line, and hold it until
+    /// SIGTERM or Ctrl-C. A fixture for tests in other languages.
+    Stack(StackArgs),
 }
 
 #[derive(Args, Clone)]
@@ -379,6 +383,40 @@ pub struct GateArgs {
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     pub merge_identified_sources: bool,
 
+    /// Publish through the outbox: the spawned identity writes an outbox
+    /// row for every create, attach, merge and delete, `--publishers`
+    /// copies of `personhog-publisher` drain it to two per-run topics, and
+    /// once the outbox is empty the gate asserts that the latest row per
+    /// distinct id on Kafka equals the Postgres mapping, that the merge
+    /// events name exactly the merged sources, and that every mapping is
+    /// tombstoned after the delete leg. Implies --create-via-identity.
+    #[arg(long, default_value_t = false)]
+    pub publish: bool,
+
+    /// Publisher replicas with --publish. Two contend on the claim's
+    /// `SKIP LOCKED`.
+    #[arg(long, default_value_t = 2)]
+    pub publishers: u32,
+
+    /// Distinct id rows one publish pass produces at most
+    /// (LIFECYCLE_PUBLISH_MAX_ROWS_PER_PASS). Small, so a wide merge drains
+    /// across several passes and the pointer cursor is exercised.
+    #[arg(long, default_value_t = 100)]
+    pub publish_rows_per_pass: i64,
+
+    /// Crash-restart (SIGKILL + respawn) one publisher this long into the
+    /// traffic phase. Its in-flight claim rolls back, and whatever it had
+    /// already produced is republished. Requires --publish.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub publisher_crash_after: Option<Duration>,
+
+    /// Crash-restart (SIGKILL + respawn) the identity service this long
+    /// into the traffic phase. In-flight merges lose their response and
+    /// settle from the op record; the sweeper re-drives abandoned sagas.
+    /// Requires the identity path.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub identity_crash_after: Option<Duration>,
+
     /// Leave the spawned stack running after the gate finishes (for
     /// poking at it manually). Ignored with --external-router-url.
     #[arg(long, default_value_t = false)]
@@ -387,6 +425,53 @@ pub struct GateArgs {
     /// Leave seeded persons in Postgres after the gate finishes.
     #[arg(long, default_value_t = false)]
     pub keep_data: bool,
+
+    /// Directory containing the service binaries. Defaults to the
+    /// workspace target directory for this build profile.
+    #[arg(long)]
+    pub bin_dir: Option<PathBuf>,
+}
+
+#[derive(Args, Clone)]
+pub struct StackArgs {
+    #[arg(long, default_value_t = 1)]
+    pub leaders: u32,
+
+    #[arg(long, default_value_t = 1)]
+    pub routers: u32,
+
+    #[arg(long, default_value_t = 4)]
+    pub partitions: u32,
+
+    #[arg(long, default_value = DEFAULT_PERSONS_DB_URL)]
+    pub persons_db_url: String,
+
+    /// The table set every spawned service uses; see GateArgs.
+    #[arg(long, default_value = "personhog_person_tmp")]
+    pub pg_target_table: String,
+
+    #[arg(long, default_value = "localhost:9092")]
+    pub kafka_hosts: String,
+
+    #[arg(long, default_value = "http://localhost:2379")]
+    pub etcd_endpoints: String,
+
+    /// Also run publisher replicas draining the identity outbox to two
+    /// per-run topics, named in the ready line.
+    #[arg(long, default_value_t = false)]
+    pub publish: bool,
+
+    #[arg(long, default_value_t = 2)]
+    pub publishers: u32,
+
+    #[arg(long, default_value_t = 100)]
+    pub publish_rows_per_pass: i64,
+
+    /// Also write the ready line's JSON to this file once the stack is up.
+    /// A parent process polls for the file instead of parsing stdout,
+    /// which the logs share.
+    #[arg(long)]
+    pub ready_file: Option<PathBuf>,
 
     /// Directory containing the service binaries. Defaults to the
     /// workspace target directory for this build profile.

@@ -444,26 +444,30 @@ class TestDepotTraces:
                 }
             ],
         }
-        monkeypatch.setattr(
-            reporter.depot_scheduled_runs,
-            "scheduled_workflows",
-            lambda *args, **kwargs: [
+        listed_triggers: list[str] = []
+
+        def list_workflows(*args: object, **kwargs: object) -> list[dict[str, str]]:
+            listed_triggers.append(str(kwargs["trigger"]))
+            # Newest first, as the CLI lists them; the old one must end this trigger's walk only.
+            return [
                 {"workflow_id": "wf", "created_at": _iso(0)},
-                {"workflow_id": "old", "created_at": _iso(-100)},
-            ],
-        )
+                {"workflow_id": "old", "created_at": _iso(-100000)},
+            ]
+
+        monkeypatch.setattr(reporter.depot_backend_runs, "master_workflows", list_workflows)
 
         def depot_response(*args: str) -> str:
             if args[2] == "old":
                 return json.dumps({**shown, "workflow": {**shown["workflow"], "finished_at": _iso(-1)}})
             return json.dumps(shown)
 
-        monkeypatch.setattr(reporter.depot_scheduled_runs, "depot", depot_response)
+        monkeypatch.setattr(reporter.depot_backend_runs, "depot", depot_response)
 
         collection = reporter.collect_depot_runs("PostHog/posthog", RUN_START)
 
         assert collection.complete
-        assert len(collection.runs) == 1
+        assert sorted(listed_triggers) == ["push", "schedule"]
+        assert len(collection.runs) == 2
         run = collection.runs[0]
         assert (run.id, run.attempt, run.provider, run.conclusion) == ("depot:run", 2, "depot", conclusion)
         assert run.path == ".depot/workflows/ci-backend.yml"

@@ -28,6 +28,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_in
 from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
@@ -56,7 +57,7 @@ from ee.api.billing import (
     _stream_chunks,
 )
 from ee.api.test.base import APILicensedTest
-from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_manager import BillingManager, BillingServiceResponseError
 from ee.billing.billing_types import USAGE_TYPE_OPTIONS, BillingPeriod, CustomerInfo, CustomerProduct, UsageType
 from ee.billing.exports import _release_export_stream_slot, _take_export_stream_slot
 from ee.billing.grants import (
@@ -67,6 +68,17 @@ from ee.billing.grants import (
 from ee.billing.quota_limiting import QuotaResource
 from ee.billing.test.test_billing_manager import create_default_products_response
 from ee.models.license import License
+
+VERCEL_BILLING_REFUSAL = {
+    "error": "Billing for this organization is managed by Vercel",
+    "code": "billing_managed_by_provider",
+}
+VERCEL_BILLING_REFUSAL_RESPONSE = {
+    "type": "invalid_request",
+    "code": "billing_managed_by_provider",
+    "detail": "Billing for this organization is managed by Vercel",
+    "attr": None,
+}
 
 
 def create_usage_summary(**kwargs) -> dict[str, Any]:
@@ -1024,6 +1036,28 @@ class TestPortalBillingAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertIn("https://billing.stripe.com/p/session/test_1234", cast(Any, response).url)
 
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_portal_sends_a_vercel_billed_organization_to_its_vercel_invoices(self, mock_request):
+        mock_request.return_value.status_code = 400
+        mock_request.return_value.json.return_value = VERCEL_BILLING_REFUSAL
+
+        without_invoices_page = self.client.get("/api/billing/portal")
+        OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="icfg_example",
+            config={"account": {"url": "https://vercel.com/example-team/~/integrations/posthog/icfg_example"}},
+        )
+        with_invoices_page = self.client.get("/api/billing/portal")
+
+        assert without_invoices_page.status_code == status.HTTP_400_BAD_REQUEST
+        assert without_invoices_page.json() == VERCEL_BILLING_REFUSAL_RESPONSE
+        assert with_invoices_page.status_code == status.HTTP_302_FOUND
+        assert (
+            cast(Any, with_invoices_page).url
+            == "https://vercel.com/example-team/~/integrations/posthog/icfg_example/invoices"
+        )
+
 
 class TestActivateBillingAPI(APILicensedTest):
     def setUp(self):
@@ -1044,10 +1078,62 @@ class TestActivateBillingAPI(APILicensedTest):
         self.assertEqual(response.json(), {"success": True, "products": ["product_analytics"]})
         mock_activate_subscription.assert_called_once_with(self.organization, {"products": "all_products:"})
 
+    @parameterized.expand(
+        [
+            ("billing_refusal", 400, status.HTTP_400_BAD_REQUEST, "payment_authorization_rejected"),
+            ("billing_unauthorized", 401, status.HTTP_400_BAD_REQUEST, "payment_authorization_rejected"),
+            ("billing_not_found", 404, status.HTTP_400_BAD_REQUEST, "payment_authorization_rejected"),
+            ("billing_failure", 500, status.HTTP_502_BAD_GATEWAY, "billing_service_error"),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.post")
+    def test_authorize_hides_the_billing_error_body(
+        self, _name: str, upstream_status: int, expected_status: int, expected_code: str, mock_post
+    ):
+        mock_post.return_value = MagicMock(
+            status_code=upstream_status,
+            json=lambda: {"detail": "duplicate key value violates unique constraint"},
+            text="duplicate key value violates unique constraint",
+        )
+
+        response = self.client.post(
+            "/api/billing/activate/authorize",
+            {"organization_id": str(self.organization.id)},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.json()["code"], expected_code)
+        self.assertNotIn("duplicate key", response.content.decode())
+
     def test_activate_get_returns_405(self):
         url = "/api/billing/activate"
         response = self.client.get(url, {"products": "product_1:plan_1"})
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    @parameterized.expand(
+        [
+            ("activate", "/api/billing/activate", "activate_subscription"),
+            ("authorize", "/api/billing/activate/authorize", "authorize"),
+        ]
+    )
+    def test_only_a_vercel_refusal_from_billing_reaches_the_caller(
+        self, _name: str, url: str, manager_method: str
+    ) -> None:
+        refusals = [
+            BillingServiceResponseError(400, VERCEL_BILLING_REFUSAL),
+            BillingServiceResponseError(400, {"error": "Your card was declined.", "code": "card_declined"}),
+        ]
+
+        payment_request = {"organization_id": str(self.organization.id)}
+
+        with patch.object(BillingManager, manager_method, side_effect=refusals):
+            vercel_refusal = self.client.post(url, payment_request, content_type="application/json")
+            other_refusal = self.client.post(url, payment_request, content_type="application/json")
+
+        assert vercel_refusal.status_code == status.HTTP_400_BAD_REQUEST
+        assert vercel_refusal.json() == VERCEL_BILLING_REFUSAL_RESPONSE
+        assert "Your card was declined." not in other_refusal.content.decode()
 
     @parameterized.expand(
         [

@@ -851,7 +851,7 @@ describe('biSceneLogic', () => {
             logic.actions.restoreWorksheet(worksheet())
             const data = dataNodeLogic({
                 key: logic.values.dataNodeKey,
-                query: logic.values.worksheet.source,
+                query: getBIVisualizationSource(logic.values.worksheet),
                 autoLoad: false,
             })
             data.mount()
@@ -873,7 +873,7 @@ describe('biSceneLogic', () => {
                 expect(run).toHaveBeenCalledTimes(state === 'ready' ? 0 : 1)
                 editor.actions.setChartType(ChartDisplayType.ActionsTable)
                 await jest.advanceTimersByTimeAsync(500)
-                expect(run).toHaveBeenCalledTimes(state === 'ready' ? 1 : 2)
+                expect(run).toHaveBeenCalledTimes(state === 'ready' ? 0 : 1)
             } finally {
                 jest.useRealTimers()
                 data.unmount()
@@ -881,6 +881,23 @@ describe('biSceneLogic', () => {
             }
         }
     )
+
+    it('applies display-only chart changes with auto-update off while leaving query edits pending', () => {
+        logic.actions.restoreWorksheet(worksheet())
+        editor.actions.setAutoUpdate(false)
+        const run = jest.spyOn(logic.actions, 'runQuery')
+        try {
+            editor.actions.setChartType(ChartDisplayType.ActionsTable)
+            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsTable)
+            editor.actions.setLimit(10000)
+            editor.actions.setChartType(ChartDisplayType.ActionsLineGraph)
+            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsTable)
+            expect(logic.values.lastRunQuery?.config.limit).toBe(1000)
+            expect(run).not.toHaveBeenCalled()
+        } finally {
+            run.mockRestore()
+        }
+    })
 
     test.each(['disable', 'clear', 'invalid', 'unchanged'] as const)(
         'handles pending auto-update when %s',

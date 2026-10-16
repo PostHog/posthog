@@ -179,8 +179,9 @@ The repo root is resolved from the package's own location, never from the workin
 
 ### `policy.yml`
 
-Required, at `.stamphog/policy.yml`.
-The machine policy, loaded and validated by a strict loader: a malformed or incomplete file hard-fails at load rather than reviewing under a half-loaded policy.
+The machine policy is the engine's shipped [`defaults/policy.yml`](defaults/policy.yml) with the repository's optional `.stamphog/policy.yml` merged onto it (`merge_policy` in `policy.py`).
+Mappings merge key by key, a list the repository declares replaces the default's list, and an `extend_<name>` key appends to the inherited `<name>` list.
+A strict loader validates the merged document: a malformed or incomplete result hard-fails at load rather than reviewing under a half-loaded policy.
 
 Top-level sections:
 
@@ -201,9 +202,8 @@ It records why the rule became what it is, which false positives drove an exclus
 Treat it as historical justification like a commit message, not as a claim about the present.
 
 The `deny` section must keep a `stamphog_policy` category matching the policy files and the engine itself.
-The loader hard-fails when the category or one of its required path patterns is missing.
-It checks the pattern sources only, so a policy that keeps the patterns but hollows them out, for example with a blanket `exempt_path_prefixes`, still loads.
-That is one more reason every edit to a policy file is a human-reviewed change.
+The loader hard-fails when the category or one of its required path patterns is missing, and when a repository's file drops a pattern the shipped default declares for it.
+It checks the pattern sources only, so every edit to a policy file stays a human-reviewed change.
 
 The loader rejects unknown top-level keys.
 The two exceptions are `digest` and `dismiss`, which a hosting server may declare and parse itself; the engine allows them and never reads them.
@@ -225,12 +225,13 @@ Title scrutiny remains unchanged.
 When these exceptions lift a denial, classification requires `T1-agent` rather than the allow-list or test-only `T0` route.
 All remaining gates and the reviewer still apply.
 The loader rejects unknown rule fields and categories, malformed selectors, and every exception to `stamphog_policy`.
-The hosted default-branch overlay accepts a file containing only this section and keeps the inherited `deny` rules, including future additions.
+A repository file containing only this section keeps the inherited `deny` rules, including future additions.
+A deny exception without `keyword` also suppresses the category's title scrutiny flag when it covers every changed file, so a connector fix that says "stripe" in its title is not flagged.
 See the [repository configuration example](../../README.md#deny-exceptions).
 
 ### `review-guidance.md`
 
-The trusted review-norms prose, injected into the reviewer's system prompt.
+The trusted review-norms prose, injected into the reviewer's system prompt: the repository's `.stamphog/review-guidance.md` when present, which replaces the shipped [`defaults/review-guidance.md`](defaults/review-guidance.md) as a whole, else that default.
 Ordinary markdown.
 Editing it changes the reviewer's behavior directly, so update it deliberately.
 
@@ -377,7 +378,7 @@ And the reviewer prompt must REFUSE on execution-bearing changes the scan can't 
 Manifest and lockfile pairing is per-ecosystem, from the `DEPENDENCY_ECOSYSTEMS` table in `gates.py`, which is the single source the deny patterns and helpers derive from.
 So a Cargo.lock bump hard-denies on its own but doesn't silence the scripts guard on an unrelated package.json edit in the same PR.
 
-A deny category may carry `exempt_path_prefixes`, for code that legitimately looks like a sensitive domain without touching one.
+Code that legitimately looks like a sensitive domain without touching one gets a `deny_exceptions` rule. The removed `exempt_path_prefixes` key fails the load with a pointer to it.
 
 A deny category may also carry `exempt_author_teams`, a list of bare GitHub team slugs.
 It makes the category owner-only: the category does not deny a PR whose author is on one of the teams, and denies everyone else's, so stamphog approves those paths only for the team that owns them.
