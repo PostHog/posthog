@@ -12,15 +12,15 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.product_analytics.backend import insight_data_checks
-from products.product_analytics.backend.facade.contracts import InsightDataChecks
+from products.product_analytics.backend.facade.contracts import InsightDataChecks, TeamEmailAccess
 
 
 def run_insight_data_checks(
-    query: Mapping[str, Any], *, team: Team, user: User, can_read_members: bool
+    query: Mapping[str, Any], *, team: Team, user: User, email_access: TeamEmailAccess
 ) -> InsightDataChecks:
     """Check the events an insight query reads for internal users, local traffic, bots and events sent twice.
 
     The checks read the events as `user`. They do not run when a property they read is hidden from that person.
-    Without `can_read_members`, the internal users check does not match the emails of the organization's members.
+    The internal users check matches only the member emails and verified domains that `email_access` allows.
     """
-    return insight_data_checks.run_insight_data_checks(query, team, user, can_read_members=can_read_members)
+    return insight_data_checks.run_insight_data_checks(query, team, user, email_access=email_access)

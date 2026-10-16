@@ -19,6 +19,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import APIQueriesBudgetExceeded
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.team import Team
 
 from products.access_control.backend.facade.api import upsert_property_access_control
@@ -29,6 +30,7 @@ from products.product_analytics.backend.facade.contracts import (
     InsightDataCheck,
     InsightDataChecks,
     InsightDataChecksCoverage,
+    TeamEmailAccess,
 )
 from products.product_analytics.backend.facade.data_checks import run_insight_data_checks
 from products.product_analytics.backend.facade.enums import (
@@ -78,6 +80,9 @@ HAS_NO_PLAN_TODAY = {"key": "plan", "value": "is_not_set", "operator": "is_not_s
 ONE_STEP = [{"kind": "EventsNode", "event": EVENT}]
 TWO_STEPS = [{"kind": "EventsNode", "event": EVENT}, {"kind": "EventsNode", "event": EVENT}]
 SEVEN_DAYS = [date(2026, 3, 1) + timedelta(days=offset) for offset in range(7)]
+CHECK_SCOPES = ["insight:read", "query:read"]
+MEMBER_EMAIL = "founder@gmail.com"
+VERIFIED_DOMAIN_EMAIL = "buyer@acme.example"
 
 
 def checked(
@@ -263,7 +268,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         _create_person(team=self.team, distinct_ids=["internal"], properties={"email": "dev@posthog.com"})
         self._second = 0
         self._events(200)
-        self._events(60, distinct_id="internal")
+        self._events(60, distinct_id="internal", person_properties={"email": "dev@posthog.com"})
         self._events(60, properties={"$host": LOCAL_HOST})
         self._events(30, properties={"$raw_user_agent": BOT_USER_AGENT, "$group_0": "acme"})
         self._events(30, properties={"$raw_user_agent": BROWSER_USER_AGENT, "$ip": CRAWLER_IP, "$group_0": "acme"})
@@ -311,7 +316,12 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         }
 
     def _check(self, query: dict[str, Any]) -> InsightDataChecks:
-        return run_insight_data_checks(query, team=self.team, user=self.user, can_read_members=True)
+        return run_insight_data_checks(
+            query,
+            team=self.team,
+            user=self.user,
+            email_access=TeamEmailAccess(member_emails=True, verified_domains=True),
+        )
 
     def _internal_users(self, result: InsightDataChecks) -> InsightDataCheck:
         return next(check for check in result.checks if check.key == INTERNAL)
@@ -599,6 +609,19 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
         assert (internal_users.events, internal_users.action) == expected
 
+    def test_matching_team_emails_keeps_events_without_a_person_when_persons_are_not_on_events(self) -> None:
+        self.team.test_account_filters = []
+        self.team.save()
+        self._events(20, distinct_id="no person", event=WIDELY_SENT_EVENT)
+        flush_persons_and_events()
+        query = self._query(
+            [{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}],
+            kind="TrendsQuery",
+            modifiers={"personsOnEventsMode": "disabled"},
+        )
+
+        assert self._events_checked(query) == 20
+
     @parameterized.expand([("on_a_deleted_cohort", "cohort"), ("on_a_field_that_does_not_exist", "hogql")])
     def test_reports_the_other_checks_when_the_projects_filter_cannot_run(self, _name: str, filter_type: str) -> None:
         if filter_type == "cohort":
@@ -643,6 +666,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             ("a_property_the_checks_read", "$host", PropertyDefinition.Type.EVENT, "unsupported", None),
             ("a_property_the_checks_do_not_read", "plan", PropertyDefinition.Type.EVENT, "warning", None),
             ("the_email_of_a_person", "email", PropertyDefinition.Type.PERSON, "warning", "hidden_property"),
+            ("an_event_property_named_email", "email", PropertyDefinition.Type.EVENT, "warning", None),
         ]
     )
     def test_a_hidden_property_stops_the_checks_only_when_they_read_it(
@@ -727,18 +751,39 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("session_that_may_see_the_member", None, True, 80),
-            ("token_with_the_member_scope", ["insight:read", "query:read", "organization_member:read"], True, 80),
-            ("token_without_the_member_scope", ["insight:read", "query:read"], True, 0),
-            ("session_that_may_not_see_the_member", None, False, 0),
+            ("member_for_a_session_that_may_see_them", MEMBER_EMAIL, None, True, 80),
+            (
+                "member_for_a_token_with_the_member_scope",
+                MEMBER_EMAIL,
+                [*CHECK_SCOPES, "organization_member:read"],
+                True,
+                80,
+            ),
+            ("member_for_a_token_without_the_member_scope", MEMBER_EMAIL, CHECK_SCOPES, True, 0),
+            ("member_for_a_session_that_may_not_see_them", MEMBER_EMAIL, None, False, 0),
+            (
+                "verified_domain_for_a_token_with_the_organization_scope",
+                VERIFIED_DOMAIN_EMAIL,
+                [*CHECK_SCOPES, "organization:read"],
+                True,
+                80,
+            ),
+            (
+                "verified_domain_for_a_token_without_the_organization_scope",
+                VERIFIED_DOMAIN_EMAIL,
+                [*CHECK_SCOPES, "organization_member:read"],
+                True,
+                0,
+            ),
         ]
     )
-    def test_matches_a_members_email_only_for_a_caller_who_may_see_that_member(
-        self, _name: str, scopes: list[str] | None, member_is_visible: bool, internal_user_events: int
+    def test_matches_a_team_email_only_for_a_caller_who_may_read_it(
+        self, _name: str, email: str, scopes: list[str] | None, member_is_visible: bool, internal_user_events: int
     ) -> None:
-        self._create_user("founder@gmail.com")
-        _create_person(team=self.team, distinct_ids=["founder"], properties={"email": "founder@gmail.com"})
-        self._events(80, distinct_id="founder")
+        self._create_user(MEMBER_EMAIL)
+        OrganizationDomain.objects.create(organization=self.organization, domain="acme.example", verified_at=NOW)
+        _create_person(team=self.team, distinct_ids=["teammate"], properties={"email": email})
+        self._events(80, distinct_id="teammate", person_properties={"email": email})
         flush_persons_and_events()
         if not member_is_visible:
             self._limit_the_member_list_to_project_members()

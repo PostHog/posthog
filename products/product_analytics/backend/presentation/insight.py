@@ -175,6 +175,7 @@ from products.product_analytics.backend.facade.api import (
     record_insight_views,
     with_last_viewed_at,
 )
+from products.product_analytics.backend.facade.contracts import TeamEmailAccess
 from products.product_analytics.backend.facade.data_checks import run_insight_data_checks
 from products.product_analytics.backend.facade.enums import (
     InsightDataCheckAction,
@@ -2568,10 +2569,10 @@ When set, the specified dashboard's filters and date range override will be appl
             "development traffic, bots and crawlers, and events sent twice. Works for trends, funnels, stickiness "
             "and lifecycle insights whose series are events. The checks apply the insight's own filters, and read "
             "the newest days of its date range, up to 7. The bot and duplicate checks read a sample of those days. "
-            "The internal users check matches the emails of the organization's members only for a token with the "
-            "`organization_member:read` scope. Nothing is stored. This route runs the query it is sent, so it needs "
-            "query access as well as insight access. To check a saved insight by its id, send a GET request to "
-            "`insights/{id}/data_checks/`."
+            "For a token, the internal users check matches the emails of the organization's members only with the "
+            "`organization_member:read` scope, and its verified domains only with `organization:read`. Nothing is "
+            "stored. This route runs the query it is sent, so it needs query access as well as insight access. To "
+            "check a saved insight by its id, send a GET request to `insights/{id}/data_checks/`."
         ),
     )
     @action(methods=["POST"], detail=False, required_scopes=["insight:read", "query:read"])
@@ -2609,16 +2610,22 @@ When set, the specified dashboard's filters and date range override will be appl
                     query,
                     team=self.team,
                     user=cast(User, self.request.user),
-                    can_read_members=self._can_read_members(),
+                    email_access=self._team_email_access(),
                 )
         except (ExposedHogQLError, ExposedCHQueryError, ResolutionError) as error:
             raise ValidationError(str(error), getattr(error, "code_name", None))
         return Response(InsightDataChecksSerializer(checks).data)
 
-    def _can_read_members(self) -> bool:
-        # A session has no scopes. A token may only learn which emails belong to members if it may list the members.
+    def _team_email_access(self) -> TeamEmailAccess:
+        # A session has no scopes. A token may only match the emails it could read through the organization's API.
         scopes = get_authenticator_scopes(self.request.successful_authenticator)
-        return scopes is None or "*" in scopes or not scopes_not_covered(scopes, ["organization_member:read"])
+
+        def holds(scope: str) -> bool:
+            return scopes is None or "*" in scopes or not scopes_not_covered(scopes, [scope])
+
+        return TeamEmailAccess(
+            member_emails=holds("organization_member:read"), verified_domains=holds("organization:read")
+        )
 
     # `Sequence` rather than `list` here: this viewset defines a `list` method that shadows the builtin `list`
     # in the class namespace, so `list[...]` in this signature breaks both at class-definition time and for mypy.

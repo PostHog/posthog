@@ -29,12 +29,17 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
+from products.access_control.backend.facade.contracts import RestrictedPropertyNames
 from products.product_analytics.backend.chart_events import ChartEvents, chart_events
 from products.product_analytics.backend.facade.contracts import (
     InsightDataChecks,
     InsightDataChecksCoverage,
     InsightDataChecksSample,
+    TeamEmailAccess,
 )
 from products.product_analytics.backend.facade.enums import (
     InsightDataCheckKey,
@@ -113,7 +118,8 @@ _COUNTED_EVENTS_QUERY = """
 
 _IS_LOCAL_HOST = "match(toString(properties.$host), {local_host_pattern})"
 
-_IS_TEAM_EMAIL = "match(lower(toString(person.properties.email)), {team_email_pattern})"
+# Without persons on events, `person` is an inner join that drops events with no person, so read the event's copy.
+_IS_TEAM_EMAIL = "match(lower(toString(poe.properties.email)), {team_email_pattern})"
 
 _SAMPLED_EVENTS_QUERY = """
     SELECT
@@ -245,9 +251,10 @@ def _check_modifiers(chart_modifiers: HogQLQueryModifiers, *, keep_project_bot_r
     return chart_modifiers.model_copy(update=update)
 
 
-def _hidden_property_names(team: Team, user: User) -> set[str]:
-    restricted = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
-    return {restricted_property.name for restricted_property in restricted}
+def _hidden_properties(team: Team, user: User) -> RestrictedPropertyNames:
+    return split_restricted_property_names(
+        get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
+    )
 
 
 def _start_of(day: date, timezone: ZoneInfo) -> ast.Constant:
@@ -339,13 +346,17 @@ def _passes_internal_users_filter(events: ChartEvents, team: Team) -> ast.Expr:
 
 
 def _internal_users_match(
-    events: ChartEvents, reader: _EventReader, *, can_read_members: bool, hidden_properties: set[str]
+    events: ChartEvents,
+    reader: _EventReader,
+    *,
+    email_access: TeamEmailAccess,
+    hidden_properties: RestrictedPropertyNames,
 ) -> _InternalUsersMatch | Skipped:
     # A hidden email reads as empty, so the check would miss every member found by email.
-    if EMAIL_PROPERTY in hidden_properties:
+    if EMAIL_PROPERTY in hidden_properties.person:
         return Skipped(reason=InsightDataCheckSkipReason.HIDDEN_PROPERTY)
 
-    team_emails = team_emails_of(reader.team, reader.user, can_read_members=can_read_members)
+    team_emails = team_emails_of(reader.team, reader.user, email_access)
     return _InternalUsersMatch(
         passes_filter=_passes_internal_users_filter(events, reader.team),
         is_team_email=parse_expr(
@@ -392,11 +403,16 @@ def _count_every_event(
 
 
 def _count_events_on_checked_days(
-    events: ChartEvents, reader: _EventReader, where: ast.Expr, *, can_read_members: bool, hidden_properties: set[str]
+    events: ChartEvents,
+    reader: _EventReader,
+    where: ast.Expr,
+    *,
+    email_access: TeamEmailAccess,
+    hidden_properties: RestrictedPropertyNames,
 ) -> CountedEvents | Skipped:
     try:
         internal_users = _internal_users_match(
-            events, reader, can_read_members=can_read_members, hidden_properties=hidden_properties
+            events, reader, email_access=email_access, hidden_properties=hidden_properties
         )
         return _count_every_event(events, reader, where, internal_users)
     except (ExposedHogQLError, ResolutionError, ExposedCHQueryError) as error:
@@ -450,9 +466,9 @@ def _read_checked_days(
     window: CheckWindow,
     timezone: ZoneInfo,
     *,
-    hidden_properties: set[str],
+    hidden_properties: RestrictedPropertyNames,
     filters_traffic_type: bool,
-    can_read_members: bool,
+    email_access: TeamEmailAccess,
 ) -> CheckedEvents:
     # The bounds apply to a whole range too, because a lifecycle chart also reads the interval before its range.
     first, last = window.days_to_check[0], window.days_to_check[-1]
@@ -461,7 +477,7 @@ def _read_checked_days(
     counted: CountedEvents | Skipped = Skipped(reason=InsightDataCheckSkipReason.TOO_MANY_EVENTS)
     if window.events_on_days_to_check <= MAX_COUNTED_EVENTS:
         counted = _count_events_on_checked_days(
-            events, reader, where, can_read_members=can_read_members, hidden_properties=hidden_properties
+            events, reader, where, email_access=email_access, hidden_properties=hidden_properties
         )
     sample = _sample_events(events, reader, where, events_before_filters=window.events_on_days_to_check)
     return CheckedEvents(counted=counted, sample=sample, insight_filters_traffic_type=filters_traffic_type)
@@ -505,14 +521,14 @@ def _nothing_checked(
 
 
 def run_insight_data_checks(
-    query: Mapping[str, Any], team: Team, user: User, *, can_read_members: bool
+    query: Mapping[str, Any], team: Team, user: User, *, email_access: TeamEmailAccess
 ) -> InsightDataChecks:
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, name="insight_data_checks"):
         events = chart_events(query, team, user)
         if events is None:
             return _nothing_checked(InsightDataChecksStatus.UNSUPPORTED)
-        hidden_properties = _hidden_property_names(team, user)
-        if hidden_properties & CHECKED_PROPERTIES:
+        hidden_properties = _hidden_properties(team, user)
+        if hidden_properties.event & CHECKED_PROPERTIES:
             return _nothing_checked(InsightDataChecksStatus.UNSUPPORTED)
 
         # A chart that filters on traffic type reads the project's bot rules, so the checks keep them to read its events.
@@ -534,7 +550,7 @@ def run_insight_data_checks(
             timezone,
             hidden_properties=hidden_properties,
             filters_traffic_type=filters_traffic_type,
-            can_read_members=can_read_members,
+            email_access=email_access,
         )
 
     coverage = _coverage(events, window, checked)

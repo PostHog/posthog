@@ -12,6 +12,7 @@ from posthog.models.user import User
 from posthog.utils import GenericEmails
 
 from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
+from products.product_analytics.backend.facade.contracts import TeamEmailAccess
 
 # A real person's email can contain one of these words, so only a word that stands alone marks a test account.
 TEST_ACCOUNT_WORDS = "test|testing|qa|demo|dummy|fake"
@@ -33,19 +34,25 @@ def _generic_emails() -> GenericEmails:
     return GenericEmails()
 
 
-def team_emails_of(team: Team, user: User, *, can_read_members: bool) -> TeamEmails:
-    """The emails of the organization's members that `user` may see, and the organization's verified domains."""
+def _visible_member_emails(team: Team, user: User) -> list[str]:
     memberships = OrganizationMembership.objects.filter(organization_id=team.organization_id)
-    if not can_read_members:
-        memberships = memberships.none()
     # A match on a member `user` may not see would tell them that the address belongs to a member.
     visible_membership_ids = restricted_visible_membership_ids(team.organization, user)
     if visible_membership_ids is not None:
         memberships = memberships.filter(id__in=visible_membership_ids)
+    return list(memberships.values_list("user__email", flat=True))
 
+
+def _verified_domains(team: Team) -> list[str]:
+    verified_domains = OrganizationDomain.objects.verified_domains().filter(organization_id=team.organization_id)
+    return list(verified_domains.values_list("domain", flat=True))
+
+
+def team_emails_of(team: Team, user: User, access: TeamEmailAccess) -> TeamEmails:
+    """The emails of the organization's members that `user` may see, and the organization's verified domains."""
     domains: Counter[str] = Counter()
     addresses: set[str] = set()
-    for member_email in memberships.values_list("user__email", flat=True):
+    for member_email in _visible_member_emails(team, user) if access.member_emails else []:
         email = member_email.strip().lower()
         if "@" not in email:
             continue
@@ -53,8 +60,7 @@ def team_emails_of(team: Team, user: User, *, can_read_members: bool) -> TeamEma
             addresses.add(email)
         else:
             domains[email.rpartition("@")[2]] += 1
-    verified_domains = OrganizationDomain.objects.verified_domains().filter(organization_id=team.organization_id)
-    for domain in verified_domains.values_list("domain", flat=True):
+    for domain in _verified_domains(team) if access.verified_domains else []:
         domains.setdefault(domain.strip().lower(), 0)
 
     most_members_first = sorted(
