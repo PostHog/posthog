@@ -184,8 +184,8 @@ export type scoutDetailLogicType = MakeLogicType<
 /**
  * Per-scout detail logic, keyed by skill_name. Loads this scout's runs into the singleton
  * `scoutFleetLogic`'s runs window on mount (the fleet poll keeps them fresh after that) to find
- * this scout's emitted runs, then fetches each run's emissions and flattens them into one newest-first list — the
- * Signals section. The runs endpoint has no per-finding listing, so emissions are fetched
+ * this scout's emitted runs, then fetches each run's emissions and flattens them into one
+ * newest-first list — the Signals section. The runs endpoint has no per-finding listing, so emissions are fetched
  * per emitted run; quiet runs (the vast majority) are never hit.
  */
 export const scoutDetailLogic = kea<scoutDetailLogicType>([
