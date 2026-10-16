@@ -33,8 +33,6 @@ deny:
                 - 'auth/session'
                 - 'auth/token'
                 - 'permission'
-        exempt_path_prefixes:
-            - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
     crypto_secrets:
         description: 'Cryptography, secrets, and key material.'
         rationale: 'key/secret/cert/signing are too broad for titles (key matches keyboard, hotkey, localStorage key), so they are path-only with compound patterns.'
@@ -99,8 +97,6 @@ deny:
                 - 'stripe'
                 - 'invoice'
                 - 'pricing'
-        exempt_path_prefixes:
-            - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
     public_api:
         description: 'Public API contracts and schemas.'
         rationale: 'Changes to the published API surface need human review.'
@@ -136,7 +132,6 @@ deny:
                 # validates this file ships in the server image, so a deploy that still
                 # runs the previous engine needs this exact literal.
                 - 'tools/pr-approval-agent/'
-                - 'products/stamphog/backend/logic/policy_defaults/'
                 - 'packages/owners-yaml/'
                 # Transitional: branches that predate the move still carry the resolver here.
                 - 'tools/owners/'
@@ -177,11 +172,21 @@ deny:
                 - '^products/workflows/backend/(facade|presentation|models)/'
                 - '^products/messaging/backend/(api|models)/'
                 - '^nodejs/src/cdp/[\s\S]*(?<!\.test\.ts)\Z'
-        exempt_path_prefixes:
-            - 'products/cdp/backend/api/test/'
-            - 'products/messaging/backend/api/test/'
         exempt_author_teams:
             - 'team-workflows'
+deny_exceptions:
+    # Connector code does OAuth and talks to the Stripe API without touching PostHog's auth system
+    # or its billing.
+    auth:
+        - path_prefixes:
+              - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
+    billing:
+        - path_prefixes:
+              - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
+    workflows_delivery:
+        - path_prefixes:
+              - 'products/cdp/backend/api/test/'
+              - 'products/messaging/backend/api/test/'
 allow:
     path_patterns:
         - 'docs/'

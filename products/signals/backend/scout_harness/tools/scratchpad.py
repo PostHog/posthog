@@ -48,6 +48,20 @@ MAX_SCRATCHPAD_KEY_LENGTH = 300
 # runaway write can't bloat the scratchpad or a later prompt. Generous for prose.
 MAX_SCRATCHPAD_CONTENT_LENGTH = 50_000
 
+# The columns `_to_entry` reads, joined run and task run included. Both joined rows also carry
+# unbounded text and JSON columns, and a search must not fetch them.
+_ENTRY_FIELDS = (
+    "team_id",
+    "key",
+    "content",
+    "created_at",
+    "updated_at",
+    "expires_at",
+    "created_by_identity",
+    "created_by_run__skill_name",
+    "created_by_run__task_run__task_id",
+)
+
 
 class InvalidScratchpadError(ValueError):
     """The agent tried to write a memory with invalid shape (empty key, oversized, etc)."""
@@ -121,7 +135,11 @@ def search_scratchpad(
     clamped_limit = _clamp_search_limit(limit)
     # Join the creating run (and its task_run) so per-row skill/url resolution in `_to_entry`
     # stays a single query rather than an N+1 across the result window.
-    qs = SignalScratchpad.objects.filter(team_id=team_id).select_related("created_by_run", "created_by_run__task_run")
+    qs = (
+        SignalScratchpad.objects.filter(team_id=team_id)
+        .select_related("created_by_run", "created_by_run__task_run")
+        .only(*_ENTRY_FIELDS)
+    )
     qs = _project_content_in_sql(qs, keys_only=keys_only, content_max_chars=content_max_chars)
     if key:
         qs = qs.filter(key=key)
@@ -157,8 +175,10 @@ def search_scratchpad_naming(
         return []
     boundary = "[^A-Za-z0-9_-]"
     pattern = f"(^|{boundary})({'|'.join(re.escape(term) for term in wanted)})({boundary}|$)"
-    qs = SignalScratchpad.objects.filter(team_id=team_id, key__startswith=key_prefix).select_related(
-        "created_by_run", "created_by_run__task_run"
+    qs = (
+        SignalScratchpad.objects.filter(team_id=team_id, key__startswith=key_prefix)
+        .select_related("created_by_run", "created_by_run__task_run")
+        .only(*_ENTRY_FIELDS)
     )
     qs = _project_content_in_sql(qs, keys_only=True, content_max_chars=None)
     qs = qs.filter(Q(content__iregex=pattern) | Q(key__iregex=pattern))
