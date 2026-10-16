@@ -363,6 +363,7 @@ export function App({
     taskOf,
     localSessions,
     pending: pendingTaskIds,
+    listed: page.tasks ?? undefined,
   });
   const search = useSearch({
     work,
@@ -375,6 +376,11 @@ export function App({
   });
   latestSearch.current = search;
 
+  // A chat's message on its way counts as a turn before its run says so; a new chat's is keyed by its pane.
+  const working = useMemo(
+    () => new Set([...turns.working, ...pending.keys()]),
+    [turns.working, pending],
+  );
   const sidebar = useSidebar({
     layout,
     setLayout,
@@ -385,7 +391,7 @@ export function App({
     localActive,
     localSessions,
     loadMore,
-    working: turns.working,
+    working,
     waiting: turns.waiting,
     titles,
     showToday,

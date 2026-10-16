@@ -417,6 +417,48 @@ describe("App flows", () => {
     }
   });
 
+  // On a reload the sidebar used to show every chat off the active workspace with the work list's dot, until the
+  // chat was opened and its stream said a turn was open.
+  it("spins the dots of chats mid-turn in another workspace and in the list on load, without opening the chat", async () => {
+    const other = cloudTask({ id: "c2", title: "Other workspace chat" });
+    const listed = cloudTask({ id: "c3", title: "Listed chat" });
+    // Workspace 1 holds c2; the main view holds c1 and is active.
+    let layout = openTask(initialLayout(), "c2");
+    layout = openTask(splitFocused(layout, "row"), "c1");
+    layout = openTask(layout, "c1");
+    const watched: string[] = [];
+    const app = cloudApp({
+      layout,
+      tasks: [cloudTask(), other, listed],
+      runs: {
+        watch: (
+          taskId: string,
+          _runId: string,
+          onView: (view: RunView) => void,
+        ) => {
+          watched.push(taskId);
+          onView(liveView());
+          return { stop: () => {}, loadOlder: async () => {} };
+        },
+        // The listed chat is never watched; its prefetched view is what the list reads.
+        preview: (taskId: string) => (taskId === "c3" ? liveView() : undefined),
+      },
+    });
+    try {
+      await vi.waitFor(
+        () => {
+          const screen = app.plain().slice(-3000);
+          expect(screen).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Other workspace chat/);
+          expect(screen).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Listed chat/);
+        },
+        { timeout: 3_000 },
+      );
+      expect(watched).not.toContain("c3");
+    } finally {
+      app.close();
+    }
+  });
+
   it("closes a split pane only on a second Ctrl+C, and quits the last pane the same way", async () => {
     const split = splitFocused(openTask(initialLayout(), "c1"), "row");
     const app = cloudApp({ layout: split });

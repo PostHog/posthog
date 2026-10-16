@@ -591,6 +591,9 @@ describe("CloudRuns", () => {
     expect(seen[0]).toMatchObject({ loaded: true, windowStart: 200 });
     expect(ids(seen[0])).toHaveLength(300);
     expect(ids(seen[0]).at(-1)).toBe("e499");
+    // The sidebar reads the same tail for a run no pane shows, without a stream.
+    expect(runs.preview("t1", "r1")).toEqual(seen[0]);
+    expect(runs.preview("t1", "r9")).toBeUndefined();
   });
 });
 

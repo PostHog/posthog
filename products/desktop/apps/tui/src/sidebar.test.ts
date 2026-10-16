@@ -96,7 +96,7 @@ describe("sidebarRows", () => {
       "",
       "## All chats",
       "New chat",
-            "Task a",
+      "Task a",
       "Task b",
       "Task c",
     ]);
@@ -127,7 +127,7 @@ describe("sidebarRows", () => {
       "",
       "## All chats",
       "New chat",
-            "Task a",
+      "Task a",
     ]);
     const mainPane = activeWorkspace(empty).focusedPaneId;
     expect(rows[1]).toEqual({ kind: "today", paneId: null });
@@ -135,7 +135,16 @@ describe("sidebarRows", () => {
       kind: "task",
       taskId: null,
       paneId: mainPane,
+      indicator: null,
     });
+    // A new chat whose first message is on its way spins like a chat mid-turn: its message is keyed by its pane.
+    const starting = sidebarRows({
+      layout: empty,
+      work: page({ tasks: [task("a")] }),
+      collapsed: new Set(),
+      working: new Set([mainPane]),
+    });
+    expect(starting[4]).toMatchObject({ taskId: null, indicator: "working" });
 
     const today = activateRow(empty, rows[1]);
     expect(today !== "viewMore" && activeWorkspace(today).root).toMatchObject({
@@ -154,7 +163,7 @@ describe("sidebarRows", () => {
       "",
       "## All chats",
       "New chat",
-            "Task a",
+      "Task a",
     ]);
     expect(shown[1]).toEqual({ kind: "today", paneId: mainPane });
     // The row stays while the main view shows something else, and opens a new chat there.
@@ -248,7 +257,7 @@ describe("sidebarRows", () => {
       "",
       "## All chats",
       "New chat",
-            "[loading]",
+      "[loading]",
     ]);
     expect(rows[5]).toMatchObject({ kind: "task", indicator: null });
   });
@@ -267,7 +276,7 @@ describe("sidebarRows", () => {
       "",
       "## All chats",
       "New chat",
-            "[signedOut]",
+      "[signedOut]",
     ]);
   });
 
@@ -520,7 +529,7 @@ describe("sidebar selection", () => {
       "",
       "## All chats",
       "New chat",
-            "Task a",
+      "Task a",
       "Task new",
       "Task b",
       "[viewMore]",

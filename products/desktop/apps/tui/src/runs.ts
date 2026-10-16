@@ -770,6 +770,12 @@ export class CloudRuns {
     });
   }
 
+  // The run's view as the store holds it, streamed or prefetched, for a reader that opens no stream of its own.
+  preview(taskId: string, runId: string): RunView | undefined {
+    const view = this.runs.get(keyOf(taskId, runId))?.view;
+    return view?.loaded ? view : undefined;
+  }
+
   // Fetches the last `entries` log entries so opening the run shows its recent messages at once.
   async prefetch(
     taskId: string,
