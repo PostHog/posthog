@@ -175,8 +175,7 @@ def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | No
     lane_runs = (
         SignalScoutRun.objects.for_team(team_id).filter(skill_name=skill_name).exclude(metadata__has_key="scout_trial")
     )
-    in_flight = lane_has_live_run(lane_runs)
-    if not in_flight:
+    if not lane_has_live_run(lane_runs):
         return None
     return ScoutRunRejection(
         kind=ScoutRunRejectionKind.CONFLICT,
