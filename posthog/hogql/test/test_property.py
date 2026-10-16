@@ -842,6 +842,17 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'"),
         )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "element",
+                    "key": "href",
+                    "value": ["a", "b"],
+                    "operator": "not_in",
+                }
+            ),
+            self._parse_expr("elements_chain_href NOT IN ['a'] AND elements_chain_href NOT IN ['b']"),
+        )
         for text_key in ("text", "$el_text"):
             self.assertEqual(
                 self._property_to_expr(
@@ -1125,9 +1136,13 @@ class TestProperty(BaseTest):
             ),
         )
 
-    def test_cohort_filter_missing_cohort(self):
-        with self.assertRaisesMessage(QueryError, "Cohort 2137 does not exist"):
-            self._property_to_expr({"type": "cohort", "key": "id", "value": 2137}, self.team)
+    @parameterized.expand([("missing", False), ("deleted", True)])
+    def test_cohort_filter_missing_cohort(self, _name: str, deleted: bool):
+        cohort_id = 2137
+        if deleted:
+            cohort_id = Cohort.objects.create(team=self.team, name="gone", groups=[], deleted=True).pk
+        with self.assertRaisesMessage(QueryError, f"Cohort {cohort_id} does not exist"):
+            self._property_to_expr({"type": "cohort", "key": "id", "value": cohort_id}, self.team)
 
     def test_person_scope(self):
         self.assertEqual(
@@ -1293,47 +1308,53 @@ class TestProperty(BaseTest):
             self._parse_expr("person.extended_properties.bool_prop = true"),
         )
 
-    def test_data_warehouse_property_with_list_values(self):
-        credential = DataWarehouseCredential.objects.create(
-            team=self.team, access_key="_accesskey", access_secret="_secret"
-        )
-        DataWarehouseTable.objects.create(
-            team=self.team,
-            name="foobars",
-            columns={
-                "event": {"hogql": "StringDatabaseField", "clickhouse": "String"},
-                "properties": {"hogql": "JSONField", "clickhouse": "String"},
-            },
-            credential=credential,
-            url_pattern="",
-        )
-
-        expr = self._property_to_expr(
-            Property(
-                type="data_warehouse",
-                key="foobars.properties.$feature/test",
-                value=["control", "test"],
-                operator="exact",
+    @parameterized.expand(
+        [
+            (
+                "exact",
+                ["control", "test"],
+                "foobars.properties.`$feature/test` = 'control' OR foobars.properties.`$feature/test` = 'test'",
             ),
+            (
+                "is_not",
+                ["control", "test"],
+                "foobars.properties.`$feature/test` != 'control' AND foobars.properties.`$feature/test` != 'test'",
+            ),
+            (
+                "not_in",
+                ["control", "test"],
+                "foobars.properties.`$feature/test` NOT IN ('control', 'test')",
+            ),
+            (
+                "not_icontains_multi",
+                ["control", "test"],
+                "NOT multiSearchAnyCaseInsensitive(toString(foobars.properties.`$feature/test`), ['control', 'test']) > 0",
+            ),
+            (
+                "between",
+                [1, 10],
+                "foobars.properties.`$feature/test` >= 1 AND foobars.properties.`$feature/test` <= 10",
+            ),
+            (
+                "not_between",
+                [1, 10],
+                "foobars.properties.`$feature/test` < 1 OR foobars.properties.`$feature/test` > 10"
+                " OR isNull(foobars.properties.`$feature/test`)",
+            ),
+        ]
+    )
+    def test_data_warehouse_property_with_list_values(self, operator: str, value: list, expected: str):
+        expr = self._property_to_expr(
+            {
+                "type": "data_warehouse",
+                "key": "foobars.properties.$feature/test",
+                "value": value,
+                "operator": operator,
+            },
             self.team,
         )
 
-        self.assertIsInstance(expr, ast.Or)
-        self.assertEqual(len(expr.exprs), 2)
-
-        # First expression
-        compare_op_1 = expr.exprs[0]
-        self.assertIsInstance(compare_op_1, ast.CompareOperation)
-        self.assertIsInstance(compare_op_1.left, ast.Field)
-        self.assertEqual(compare_op_1.left.chain, ["foobars", "properties", "$feature/test"])
-        self.assertEqual(compare_op_1.right.value, "control")
-
-        # Second expression
-        compare_op_2 = expr.exprs[1]
-        self.assertIsInstance(compare_op_2, ast.CompareOperation)
-        self.assertIsInstance(compare_op_2.left, ast.Field)
-        self.assertEqual(compare_op_2.left.chain, ["foobars", "properties", "$feature/test"])
-        self.assertEqual(compare_op_2.right.value, "test")
+        self.assertEqual(expr, self._parse_expr(expected))
 
     def test_revenue_analytics_property(self):
         self.assertEqual(

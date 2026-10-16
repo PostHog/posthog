@@ -69,7 +69,6 @@ from products.feature_flags.backend.api.feature_flag import (
     FLAG_FILTERS_WRITE_COUNTER,
     FeatureFlagSerializer,
     FeatureFlagStatusResponseSerializer,
-    _create_usage_dashboard,
     _flag_write_source,
     parse_created_by_ids,
 )
@@ -84,6 +83,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag, Feat
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
 from products.feature_flags.backend.realtime_targeting import REALTIME_COHORT_FLAG_TARGETING_FLAG
 from products.feature_flags.backend.test.replay_gate_fixtures import set_linked_flag, set_trigger_groups, trigger_groups
+from products.feature_flags.backend.test.usage_dashboard_fixtures import create_usage_dashboard
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
 from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
@@ -133,7 +133,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         return query["source"]["properties"]["values"][0]["values"][0]["value"]
 
     def _generate_usage_dashboard(self, flag_id: int) -> None:
-        _create_usage_dashboard(FeatureFlag.objects.get(id=flag_id), self.user)
+        create_usage_dashboard(FeatureFlag.objects.get(id=flag_id), self.user)
 
     def test_cant_create_flag_with_duplicate_key(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -2271,7 +2271,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Personal-key requests are the app's preview feature, not SDK usage, so they aren't counted.
         self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
 
-    def test_remote_config_with_project_secret_api_key(self):
+    @parameterized.expand(
+        [
+            ("legacy_verifiers_on", True),
+            # With the verifiers off, only the mirror row the rotation minted authenticates the token.
+            ("legacy_verifiers_off", False),
+        ]
+    )
+    def test_remote_config_with_project_secret_api_key(self, _name, accept_team_secret_tokens):
         self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
         FeatureFlag.objects.create(
             team=self.team,
@@ -2290,10 +2297,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             is_remote_configuration=True,
         )
         self.client.logout()
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
-        )
+        with self.settings(ACCEPT_TEAM_SECRET_TOKENS=accept_team_secret_tokens):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+                headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
 
@@ -4555,33 +4563,41 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert keys & {"flag-with-contexts", "flag-without-contexts"} == expected_keys
 
     def test_getting_flags_is_not_nplus1(self) -> None:
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": f"flag",
-                "key": f"flag_0",
-                "filters": {"groups": [{"rollout_percentage": 5}]},
-            },
-            format="json",
-        ).json()
-
-        with self.assertNumQueries(FuzzyInt(19, 20)):
-            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        for i in range(1, 5):
-            self.client.post(
+        def create_flag_targeting_a_new_cohort(i: int) -> None:
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name=f"cohort_{i}",
+                groups=[{"properties": [{"key": "email", "value": "@posthog.com", "type": "person"}]}],
+            )
+            response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 data={
                     "name": f"flag",
                     "key": f"flag_{i}",
-                    "filters": {"groups": [{"rollout_percentage": 5}]},
+                    "filters": {
+                        "groups": [
+                            {
+                                "properties": [{"key": "id", "type": "cohort", "value": cohort.pk}],
+                                "rollout_percentage": 5,
+                            }
+                        ]
+                    },
                 },
                 format="json",
-            ).json()
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        # Query count should stay constant regardless of flag count (no N+1)
-        with self.assertNumQueries(FuzzyInt(19, 20)):
+        create_flag_targeting_a_new_cohort(0)
+
+        with self.assertNumQueries(FuzzyInt(18, 19)):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(1, 5):
+            create_flag_targeting_a_new_cohort(i)
+
+        # Query count should stay constant regardless of flag and cohort count (no N+1)
+        with self.assertNumQueries(FuzzyInt(18, 19)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -4605,7 +4621,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Flag role access",
         )
 
-        with self.assertNumQueries(FuzzyInt(19, 20)):
+        with self.assertNumQueries(FuzzyInt(17, 18)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -4644,7 +4660,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Capture query count with 5 flags
-        with self.assertNumQueries(FuzzyInt(17, 22)):
+        with self.assertNumQueries(FuzzyInt(17, 21)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 5)
@@ -4668,7 +4684,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Query count should remain similar (not scale linearly with flag count)
-        with self.assertNumQueries(FuzzyInt(17, 24)):
+        with self.assertNumQueries(FuzzyInt(17, 20)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 30)
@@ -4719,7 +4735,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Should not cause extra queries for the targeting flags
-        with self.assertNumQueries(FuzzyInt(15, 22)):
+        with self.assertNumQueries(FuzzyInt(15, 21)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should include main_flag but not targeting flags (they're filtered out)
@@ -7216,38 +7232,47 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response.json().items(),
         )
 
-    def test_feature_flag_includes_cohort_names(self):
-        cohort = Cohort.objects.create(
+    @parameterized.expand([("retrieve",), ("list",)])
+    def test_feature_flag_includes_cohort_names(self, endpoint: str):
+        groups = [{"properties": [{"key": "email", "value": "@posthog.com", "type": "person"}]}]
+        cohort = Cohort.objects.create(team=self.team, name="test_cohort", groups=groups)
+        other_project_team = Team.objects.create(organization=self.organization, name="Other project")
+        other_project_cohort = Cohort.objects.create(team=other_project_team, name="other_cohort", groups=groups)
+        flag = FeatureFlag.objects.create(
             team=self.team,
-            name="test_cohort",
-            groups=[{"properties": [{"key": "email", "value": "@posthog.com", "type": "person"}]}],
-        )
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Alpha feature",
-                "key": "alpha-feature",
-                "filters": {
-                    "groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]}],
-                },
+            created_by=self.user,
+            key="alpha-feature",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]},
+                    {"properties": [{"key": "id", "type": "cohort", "value": str(cohort.pk)}]},
+                    {"properties": [{"key": "id", "type": "cohort", "value": other_project_cohort.pk}]},
+                ]
             },
-            format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="legacy-malformed-cohort-value",
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": "not-a-cohort-id"}]}]},
+        )
 
-        # Get the flag
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/{response.json()['id']}/",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        if endpoint == "list":
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            filters = next(result for result in response.json()["results"] if result["id"] == flag.id)["filters"]
+        else:
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            filters = response.json()["filters"]
+
         self.assertEqual(
-            response.json()["filters"]["groups"][0]["properties"][0],
-            {
-                "key": "id",
-                "type": "cohort",
-                "value": cohort.pk,
-                "cohort_name": "test_cohort",
-            },
+            [group["properties"][0] for group in filters["groups"]],
+            [
+                {"key": "id", "type": "cohort", "value": cohort.pk, "cohort_name": "test_cohort"},
+                {"key": "id", "type": "cohort", "value": str(cohort.pk), "cohort_name": "test_cohort"},
+                {"key": "id", "type": "cohort", "value": other_project_cohort.pk, "cohort_name": None},
+            ],
         )
 
     def test_feature_flag_includes_group_key_names(self):
@@ -8842,11 +8867,22 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flush_persons_and_events()
         cohort = self._create_static_cohort()
 
-        mock_batch_evaluate.side_effect = [
-            self._page([str(persons[0].uuid)], next_cursor=100),
-            self._page([str(persons[1].uuid)], next_cursor=200),
-            self._page([str(persons[2].uuid)], next_cursor=None),
-        ]
+        pages = iter(
+            [
+                self._page([str(persons[0].uuid)], next_cursor=100),
+                self._page([str(persons[1].uuid)], next_cursor=200),
+                self._page([str(persons[2].uuid)], next_cursor=None),
+            ]
+        )
+        open_history_rows_during_run = []
+
+        def evaluate_page(*args, **kwargs):
+            open_history_rows_during_run.append(
+                CohortCalculationHistory.objects.filter(cohort=cohort, finished_at__isnull=True).count()
+            )
+            return next(pages)
+
+        mock_batch_evaluate.side_effect = evaluate_page
 
         get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk, batchsize=2)
 
@@ -8869,6 +8905,8 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIsNone(history.error)
         self.assertEqual(history.count, 3)
         self.assertIsNotNone(history.finished_at)
+        # The stuck-cohort sweep measures a live run from this open row.
+        self.assertEqual(open_history_rows_during_run, [1, 1, 1])
 
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
     def test_history_write_failure_does_not_fail_a_populated_cohort(self, mock_batch_evaluate):
@@ -8879,7 +8917,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         mock_batch_evaluate.return_value = self._page([str(person.uuid)])
 
-        with patch.object(CohortCalculationHistory.objects, "create", side_effect=IntegrityError("no row for you")):
+        with patch.object(CohortCalculationHistory, "save", side_effect=IntegrityError("no row for you")):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
 
         cohort.refresh_from_db()

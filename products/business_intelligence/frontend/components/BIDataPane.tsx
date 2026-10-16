@@ -8,13 +8,20 @@ import { BIDataPaneSection } from 'products/business_intelligence/frontend/BIDat
 import { BIDataSourcePicker } from 'products/business_intelligence/frontend/BIDataSourcePicker'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 import { BIHierarchySection } from 'products/business_intelligence/frontend/BIHierarchySection'
+import { BISourceContext } from 'products/business_intelligence/frontend/BISourceContext'
 
+import { BIMemberAliasesModal } from '../BIMemberAliasesModal'
+import { biSceneLogic } from '../biSceneLogic'
+import { biSourcePreviewLogic } from '../biSourcePreviewLogic'
+import { BISourcePreviewModal } from '../BISourcePreviewModal'
 import { BIConnectionSelector } from './BIConnectionSelector'
 
 /** Lists the selected table's fields as dimensions and measures, ready to drag onto shelves. */
 export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
     const {
         config,
+        allTables,
+        databaseConnectionId,
         dataPaneFields,
         dataPaneFieldsLoading,
         dataPaneFieldsError,
@@ -22,18 +29,32 @@ export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
         filteredDataPaneFields,
     } = useValues(biEditorLogic)
     const { editCalculatedField, hydrateTableFields, setDataPaneSearch } = useActions(biEditorLogic)
+    const { worksheet } = useValues(biSceneLogic({ tabId }))
+    const { open } = useActions(biSourcePreviewLogic({ tabId }))
 
     const hasFields = dataPaneFields.dimensions.length > 0 || dataPaneFields.measures.length > 0
     const hasMatches = filteredDataPaneFields.dimensions.length > 0 || filteredDataPaneFields.measures.length > 0
+    const sourceTable =
+        !config.source?.connectionId && !databaseConnectionId
+            ? allTables.find((table) => table.name === config.source?.table)
+            : undefined
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex items-center justify-between gap-1 px-2 pt-2">
-                <span className="text-sm font-semibold">Data</span>
-            </div>
+            <BISourcePreviewModal tabId={tabId} />
+            <BIMemberAliasesModal tabId={tabId} />
             <div className="flex flex-col gap-1.5 p-2">
                 <BIConnectionSelector tabId={tabId} />
                 <BIDataSourcePicker />
+                <LemonButton
+                    size="xsmall"
+                    onClick={() => open(worksheet)}
+                    disabledReason={!config.source ? 'Select a data source first' : undefined}
+                    data-attr="bi-source-view-data"
+                >
+                    View source data
+                </LemonButton>
+                {sourceTable && <BISourceContext table={sourceTable} />}
                 {config.source ? (
                     <LemonInput
                         type="search"

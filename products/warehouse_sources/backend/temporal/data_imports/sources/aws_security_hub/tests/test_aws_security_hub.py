@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 import requests
+from botocore.session import Session
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_security_hub import aws_security_hub
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_security_hub.aws_security_hub import (
@@ -17,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_securi
     probe_endpoint_permissions,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.aws_security_hub.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_security_hub.source import (
     AwsSecurityHubSource,
 )
@@ -25,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awssecurityhub import (
@@ -32,6 +35,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 
 VERSION = "2018-10-26"
+SUBSCRIPTION_A = "arn:aws:securityhub:eu-west-1:111111111111:subscription/example-standard/v/1.0.0"
+SUBSCRIPTION_B = "arn:aws:securityhub:eu-west-1:111111111111:subscription/other-standard/v/2.0.0"
+
+
+def controls_path(subscription_arn: str) -> str:
+    return "/standards/controls/" + subscription_arn.replace(":", "%3A")
 
 
 def config(region: str = "eu-west-1", token: str | None = "fake-session-token") -> AwsSecurityHubSourceConfig:
@@ -283,12 +292,126 @@ def test_permission_probes_do_not_hide_tables_on_transient_errors(failure: Excep
     assert {request.path for request in network.requests_log} == {"/findings"}
 
 
-def test_permission_probe_names_missing_permission() -> None:
-    answer = ScriptedResponse(status=403, json={}, headers={"x-amzn-ErrorType": "AccessDeniedException"})
-    with scripted_network([answer]) as network:
-        permissions = probe_endpoint_permissions(config(), VERSION, ["enabled_standards"])
-    assert "securityhub:GetEnabledStandards" in (permissions["enabled_standards"] or "")
-    assert network.requests_log[0].path == "/standards/get"
+DENIED = ScriptedResponse(status=403, json={}, headers={"x-amzn-ErrorType": "AccessDeniedException"})
+ONE_SUBSCRIPTION = ScriptedResponse(json={"StandardsSubscriptions": [{"StandardsSubscriptionArn": SUBSCRIPTION_A}]})
+
+
+@pytest.mark.parametrize(
+    "endpoint,script,missing,paths",
+    [
+        ("enabled_standards", [DENIED], "GetEnabledStandards", ["/standards/get"]),
+        (
+            "standards_controls",
+            [ONE_SUBSCRIPTION, DENIED],
+            "DescribeStandardsControls",
+            ["/standards/get", controls_path(SUBSCRIPTION_A)],
+        ),
+        ("standards_controls", [DENIED], "GetEnabledStandards", ["/standards/get"]),
+        ("standards_controls", [ScriptedResponse(json={"StandardsSubscriptions": []})], None, ["/standards/get"]),
+    ],
+)
+def test_permission_probe_names_missing_permission(
+    endpoint: str, script: list[ScriptedResponse], missing: str | None, paths: list[str]
+) -> None:
+    with scripted_network(script) as network:
+        permissions = probe_endpoint_permissions(config(), VERSION, [endpoint])
+    if missing:
+        assert f"securityhub:{missing}" in (permissions[endpoint] or "")
+    else:
+        assert permissions[endpoint] is None
+    assert [request.path for request in network.requests_log] == paths
+
+
+def test_standards_controls_fan_out_over_enabled_standards() -> None:
+    script = route(
+        {
+            "/standards/get": [
+                ScriptedResponse(
+                    json={"StandardsSubscriptions": [{"StandardsSubscriptionArn": SUBSCRIPTION_B}], "NextToken": "p2"}
+                ),
+                ONE_SUBSCRIPTION,
+            ],
+            controls_path(SUBSCRIPTION_A): [
+                ScriptedResponse(json={"Controls": [{"StandardsControlArn": "control-a1"}], "NextToken": "c2"}),
+                ScriptedResponse(json={"Controls": [{"StandardsControlArn": "control-a2"}]}),
+            ],
+            controls_path(SUBSCRIPTION_B): [
+                ScriptedResponse(
+                    json={
+                        "Controls": [
+                            {"StandardsControlArn": "control-b1", "ControlStatusUpdatedAt": "2025-01-01T00:00:00Z"}
+                        ]
+                    }
+                )
+            ],
+        }
+    )
+    result = driver().run("standards_controls", script)
+    assert result.raised is None
+    assert result.rows == [
+        {"standards_subscription_arn": SUBSCRIPTION_A, "standards_control_arn": "control-a1"},
+        {"standards_subscription_arn": SUBSCRIPTION_A, "standards_control_arn": "control-a2"},
+        {
+            "standards_subscription_arn": SUBSCRIPTION_B,
+            "standards_control_arn": "control-b1",
+            "control_status_updated_at": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+        },
+    ]
+    assert [(request.path, request.param("NextToken")) for request in result.requests] == [
+        ("/standards/get", None),
+        ("/standards/get", None),
+        (controls_path(SUBSCRIPTION_A), None),
+        (controls_path(SUBSCRIPTION_A), "c2"),
+        (controls_path(SUBSCRIPTION_B), None),
+    ]
+    assert result.requests[1].json()["NextToken"] == "p2"
+    assert [(state.parent_id, state.next_token, state.finished) for state in result.saved_states] == [
+        (SUBSCRIPTION_A, "c2", False),
+        (SUBSCRIPTION_B, None, False),
+        (None, None, True),
+    ]
+
+
+@pytest.mark.parametrize("next_token", ["saved", None])
+def test_standards_controls_resume_skips_finished_subscriptions(next_token: str | None) -> None:
+    script = route(
+        {
+            "/standards/get": [
+                ScriptedResponse(
+                    json={
+                        "StandardsSubscriptions": [
+                            {"StandardsSubscriptionArn": SUBSCRIPTION_A},
+                            {"StandardsSubscriptionArn": SUBSCRIPTION_B},
+                        ]
+                    }
+                )
+            ],
+            controls_path(SUBSCRIPTION_B): [
+                ScriptedResponse(json={"Controls": [{"StandardsControlArn": "control-b"}]})
+            ],
+        }
+    )
+    state = AwsSecurityHubResumeConfig(next_token=next_token, parent_id=SUBSCRIPTION_B)
+    result = driver().run("standards_controls", script, resume_state=state)
+    assert result.raised is None
+    assert result.rows == [{"standards_subscription_arn": SUBSCRIPTION_B, "standards_control_arn": "control-b"}]
+    assert result.requests[-1].path == controls_path(SUBSCRIPTION_B)
+    assert result.requests[-1].param("NextToken") == next_token
+
+
+@pytest.mark.parametrize("endpoint", ["security_control_definitions", "products", "members"])
+def test_page_size_stays_within_vendor_limit(endpoint: str) -> None:
+    endpoint_config = ENDPOINTS[endpoint]
+    result = driver().run(endpoint, [ScriptedResponse(json={endpoint_config.result_key: []})])
+    assert result.raised is None
+    request = result.requests[0]
+    model = Session().get_service_model("securityhub", api_version=VERSION)
+    input_shape = model.operation_model(endpoint_config.operation).input_shape
+    assert input_shape is not None
+    limit = input_shape.members["MaxResults"].metadata["max"]
+    assert 0 < int(request.param("MaxResults") or 0) <= limit
+    if endpoint == "members":
+        assert request.param("OnlyAssociated") == "false"
 
 
 def test_finding_identity_and_timestamps_survive_normalization() -> None:

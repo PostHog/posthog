@@ -79,12 +79,19 @@ class TestValidateNextUrl:
 class TestFirstRequestParams:
     """The first request carries the page size, cursor opt-in, static params, and incremental filter."""
 
-    def test_windowed_endpoints_request_all_time(self) -> None:
-        # Without all_time=true these endpoints silently default to roughly the last six months.
-        for endpoint in ("chart_transactions", "journal_entries"):
-            result = _driver().run(endpoint, [_response({"results": [], "next": None})])
-            assert result.raised is None
-            assert result.requests[0].param("all_time") == "true", endpoint
+    @parameterized.expand(
+        [
+            # Without all_time=true these endpoints silently default to roughly the last six months.
+            ("chart_transactions_all_time", "chart_transactions", "all_time", "true"),
+            ("journal_entries_all_time", "journal_entries", "all_time", "true"),
+            # Inactive tags still label historical transactions, and the API hides them by default.
+            ("custom_dimensions_include_inactive", "custom_dimensions", "include_inactive", "true"),
+        ]
+    )
+    def test_static_params_on_first_request(self, _name: str, endpoint: str, param: str, value: str) -> None:
+        result = _driver().run(endpoint, [_response({"results": [], "next": None})])
+        assert result.raised is None
+        assert result.requests[0].param(param) == value
 
     def test_cursor_endpoints_send_empty_cursor(self) -> None:
         result = _driver().run("bill_payments", [_response({"results": [], "next": None})])
@@ -231,7 +238,7 @@ class TestIncrementalConfig:
 
 
 class TestFanout:
-    """`contract_subscriptions` is only reachable per contract, so it walks `contracts` first."""
+    """Fan-out children are only reachable per parent, so they walk the parent listing first."""
 
     def _responses(self) -> list[ScriptedResponse]:
         return [
@@ -239,6 +246,61 @@ class TestFanout:
             _response([{"id": 1, "contract": 11}]),
             _response([{"id": 2, "contract": 22}]),
         ]
+
+    @parameterized.expand(
+        [
+            (
+                "contract_subscriptions",
+                "/rr/api/v1/contracts",
+                [[{"id": 1, "contract": 11}], [{"id": 2, "contract": 22}]],
+                ["/rr/api/v1/contracts/11/subscriptions", "/rr/api/v1/contracts/22/subscriptions"],
+            ),
+            (
+                "contract_milestones",
+                "/rr/api/v1/contracts",
+                [
+                    {"count": 1, "next": None, "results": [{"id": 1, "contract": 11}]},
+                    {"count": 1, "next": None, "results": [{"id": 2, "contract": 22}]},
+                ],
+                ["/rr/api/v1/contracts/11/milestones", "/rr/api/v1/contracts/22/milestones"],
+            ),
+            (
+                "budget_accounts",
+                "/coa/api/budgets",
+                [[{"id": 1, "budget": 11}], [{"id": 2, "budget": 22}]],
+                ["/coa/api/budgets/11/accounts", "/coa/api/budgets/22/accounts"],
+            ),
+        ]
+    )
+    def test_walks_each_parent_and_checkpoints_it(
+        self, endpoint: str, parent_path: str, child_bodies: list[Any], child_paths: list[str]
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _response({"count": 2, "next": None, "results": [{"id": 11}, {"id": 22}]}),
+                *[_response(body) for body in child_bodies],
+            ],
+        )
+        assert result.raised is None
+        assert result.paths == [parent_path, *child_paths]
+        assert [row["id"] for row in result.rows] == [1, 2]
+        assert result.saved_states[-1].completed == child_paths
+
+    def test_paginated_child_follows_next_link_within_a_parent(self) -> None:
+        page2 = f"{CAMPFIRE_BASE_URL}/rr/api/v1/contracts/11/milestones?limit=500&offset=500"
+        result = _driver().run(
+            "contract_milestones",
+            [
+                _response({"count": 1, "next": None, "results": [{"id": 11}]}),
+                _response({"count": 2, "next": page2, "results": [{"id": 1, "contract": 11}]}),
+                _response({"count": 2, "next": None, "results": [{"id": 2, "contract": 11}]}),
+            ],
+        )
+        assert result.raised is None
+        assert result.requests[1].param("limit") == "500"
+        assert result.urls[2] == page2
+        assert [row["id"] for row in result.rows] == [1, 2]
 
     def test_child_requests_carry_the_watermark(self) -> None:
         result = _driver().run(
@@ -268,14 +330,6 @@ class TestFanout:
         )
         assert result.raised is None
         assert result.requests[1].param("last_modified_at__gte") == "1970-01-01T00:00:00Z"
-
-    def test_checkpoints_each_finished_contract(self) -> None:
-        result = _driver().run("contract_subscriptions", self._responses())
-        assert result.raised is None
-        assert result.saved_states[-1].completed == [
-            "/rr/api/v1/contracts/11/subscriptions",
-            "/rr/api/v1/contracts/22/subscriptions",
-        ]
 
     def test_resumes_past_contracts_already_synced(self) -> None:
         result = _driver().run(

@@ -64,10 +64,10 @@ reminders
 replay
 replay_vision
 revenue_analytics
-review_hog
 signals
 skills
 slack_app
+subscriptions
 surveys
 tasks
 tracing

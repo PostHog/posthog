@@ -13,7 +13,7 @@ import { ExperimentMetaBar } from 'products/experiments/frontend/components/Expe
 import { ExperimentHealthDebug } from 'products/experiments/frontend/health/ExperimentHealthDebug'
 import { ExperimentHealthPanel } from 'products/experiments/frontend/health/ExperimentHealthPanel'
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
-import { LegacyExperimentView } from 'products/experiments/frontend/legacy'
+import { LegacyExperimentView } from 'products/experiments/frontend/legacy/LegacyExperimentView'
 import { ExperimentMetricModal } from 'products/experiments/frontend/modals/ExperimentMetricModal/ExperimentMetricModal'
 import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 import { MetricSourceModal } from 'products/experiments/frontend/modals/MetricSourceModal/MetricSourceModal'

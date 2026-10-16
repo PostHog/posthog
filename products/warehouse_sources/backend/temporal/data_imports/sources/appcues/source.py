@@ -2,6 +2,9 @@ from typing import cast
 
 from requests import HTTPError
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +37,24 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppcuesSource(SimpleSource[AppcuesSourceConfig]):
+    codebase_detection = detect(
+        env=("^APPCUES_", "^(NEXT_PUBLIC|VITE|REACT_APP)_APPCUES_"),
+        script_hosts=("fast.appcues.com", "fast.eu.appcues.com"),
+        npm=(
+            "@appcues/web-sdk",
+            "@appcues/react-native",
+            "@appcues/capacitor",
+            "@appcues/segment-react-native",
+            "@appcues/expo-config",
+            "appcues-loader",
+        ),
+        cocoapods=("Appcues",),
+        maven=("com.appcues:appcues", "com.appcues:segment-appcues"),
+        pub=("appcues_flutter",),
+        swiftpm=("github.com/appcues/appcues-ios-sdk", "github.com/appcues/segment-appcues-ios"),
+        alternative_to=(ProductKey.PRODUCT_TOURS, ProductKey.SURVEYS),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"

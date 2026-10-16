@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SlashSource(ResumableSource[SlashSourceConfig, SlashResumeConfig]):
+    codebase_detection = detect(env=("^SLASH_SDK_",), npm=("slash-sdk",), pypi=("slash-sdk",))
+
     lists_tables_without_credentials = True
     api_docs_url = "https://docs.slash.com/changelog"
 

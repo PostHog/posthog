@@ -46,6 +46,7 @@ HEAD_FILE_SUFFIX = ".ubj"
 
 MANIFEST_FILE = "manifest.json"
 METADATA_FILE = "metadata.json"
+PROJECT_VECTORS_FILE = "project_vectors.parquet"
 
 _SERVING_SEGMENT = "serving"
 
@@ -58,6 +59,12 @@ def serving_model_prefix(prefix: str, key: str) -> str:
     """Where one model's `metadata.json` and model files sit. Keyed by `<name>@<version>`, so a
     version is published once however many manifests name it."""
     return f"{prefix}/{_SERVING_SEGMENT}/models/{key}"
+
+
+def serving_project_vectors_key(prefix: str, partition_key: str) -> str:
+    """Where one day of `inbox_project_vectors` sits. Keyed by its `dt`, so a day is published once
+    however many manifests name it."""
+    return f"{prefix}/{_SERVING_SEGMENT}/project_vectors/{partition_key}/{PROJECT_VECTORS_FILE}"
 
 
 def model_key(model_name: str, model_version: str) -> str:
@@ -88,6 +95,10 @@ class ServingManifestEntry(BaseModel):
             f"The one file under `prefix` that scores every head, e.g. `{ONNX_MODEL_FILE}`. "
             f"Null when each head has its own `<head>{HEAD_FILE_SUFFIX}` booster."
         ),
+    )
+    reads_project_vectors: bool = Field(
+        default=False,
+        description="True when the model also reads its team's project vectors, from the manifest's `project_vectors`.",
     )
 
     @field_validator("key", "model_name", "model_version", "model_kind", "prefix")
@@ -127,6 +138,13 @@ class ServingManifest(BaseModel):
         # The cap is the artefact's, so a manifest can never produce a row `RankingScore` refuses.
         max_length=MAX_RANKING_MODEL_RESULTS,
         description="Every model the pass runs, served first.",
+    )
+    project_vectors: str | None = Field(
+        default=None,
+        description=(
+            "Object key of the one `inbox_project_vectors` day that every entry with `reads_project_vectors` reads. "
+            "Null when no entry reads them, or when this store has no copy, and then those entries score nothing."
+        ),
     )
 
     @field_validator("manifest_version")

@@ -15,12 +15,14 @@ from .agentsh import (
     generate_policy_yaml,
     read_gh_guard_script,
 )
+from .task_filesystem import TASK_FILESYSTEM_SCRIPT, read_task_filesystem_script
 
 
 def build_modal_launch_preparation_script(allowed_domains: list[str] | None) -> str:
     files = [
         (BASH_ENV_SCRIPT, generate_bash_env_script().encode(), "644"),
         (GH_GUARD_INSTALL_PATH, read_gh_guard_script(), "755"),
+        (TASK_FILESYSTEM_SCRIPT, read_task_filesystem_script(), "644"),
     ]
     if allowed_domains is not None:
         files.extend(
@@ -34,6 +36,7 @@ def build_modal_launch_preparation_script(allowed_domains: list[str] | None) -> 
     script = [
         "#!/bin/bash",
         "set -euo pipefail",
+        "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "umask 077",
         "stage=install",
         "staged_files=()",
@@ -91,7 +94,7 @@ def build_modal_launch_preparation_script(allowed_domains: list[str] | None) -> 
                 "if pgrep -f '[a]gentsh server' > /dev/null; then exit 1; fi",
                 "mkdir -p /var/log/agentsh /var/lib/agentsh/sessions",
                 f"rm -f -- {shlex.quote(SESSION_ID_FILE)}",
-                "nohup agentsh server --config /etc/agentsh/config.yaml > /var/log/agentsh/agentsh.log 2>&1 &",
+                f"nohup /usr/bin/python3 -I {TASK_FILESYSTEM_SCRIPT} enter -- /usr/bin/agentsh server --config /etc/agentsh/config.yaml > /var/log/agentsh/agentsh.log 2>&1 &",
                 "daemon_pid=$!",
                 "healthy=0",
                 "for i in $(seq 1 30); do",
@@ -103,7 +106,7 @@ def build_modal_launch_preparation_script(allowed_domains: list[str] | None) -> 
                 "done",
                 '[ "$healthy" -eq 1 ]',
                 'kill -0 "$daemon_pid"',
-                f"session_id=$(timeout 60s agentsh session create --workspace {shlex.quote(DEFAULT_SANDBOX_WORKING_DIR)} --policy default --json | jq -er '.id | select(type == \"string\" and length > 0)')",
+                f"session_id=$(timeout 60s /usr/bin/agentsh session create --workspace {shlex.quote(DEFAULT_SANDBOX_WORKING_DIR)} --policy default --json | jq -er '.id | select(type == \"string\" and length > 0)')",
                 f"temporary=$(mktemp {shlex.quote(SESSION_ID_FILE + '.tmp.XXXXXX')})",
                 'staged_files+=("$temporary")',
                 'printf %s "$session_id" > "$temporary"',

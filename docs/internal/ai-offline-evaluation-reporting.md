@@ -1,30 +1,191 @@
 # Offline evaluation result reporting
 
-The sandboxed evaluation harness in `products/posthog_ai/eval_harness/` reports scorer results as PostHog `$ai_evaluation` events.
-With the Braintrust engine, each suite runs once and the harness sends the resulting scores to PostHog when uploads are enabled.
+The evaluation harness in `products/posthog_ai/eval_harness/` reports public-suite scorer results to Braintrust.
+The SQL suite also publishes those results to PostHog's offline experiment API when configured.
+The Signals pytest suites reuse the same publisher for their completed results.
+Agent and judge trace capture remains available.
 Reporting does not run the agent or scorers again.
 Use `hogli evals` to run PostHog AI 2.0 suites. See the [eval harness guide](../../products/posthog_ai/eval_harness/README.md) for suite discovery and execution.
 
 ## Capture settings
 
 Evaluation result uploads to Braintrust and PostHog share the `no_send_logs` setting.
-`SandboxedPublicEval` sets `no_send_logs=False` and uploads to both services.
+`SandboxedPublicEval` sets `no_send_logs=False` and uploads to Braintrust, plus PostHog when the suite has offline publishing configured.
 `SandboxedPrivateEval` sets `no_send_logs=True` and uploads to neither service; local logs are still written.
 
-The harness creates one dedicated result client at startup, shares it across all suites, and shuts it down after the invocation.
-Each suite waits for queued PostHog uploads in worker threads so other suites can keep running.
-This client permits `$ai_evaluation` reporting independently of `TEST` and `OPT_OUT_CAPTURE`, so those settings do not separate the two result destinations.
-Ordinary PostHog SDK clients and trace clients retain their existing `TEST` and `OPT_OUT_CAPTURE` guards.
+Offline API uploads run through the Python SDK independently of `TEST` and `OPT_OUT_CAPTURE`.
+The shared trace client retains its existing `TEST` and `OPT_OUT_CAPTURE` guards for `$ai_generation`, `$ai_span`, and `$ai_trace` events.
 
 ## Result contents and scope
 
-Each event contains the existing experiment, case, and metric properties, including input, output, and expected values when available.
-Each event also carries the run's configuration: `agent_model`, `trials`, `git_sha`, `git_dirty`, and for sandboxed runs `agent_runtime`, `skill_delivery`, and `reasoning_effort`.
+Published results include experiment, case, and scorer details, with input, output, and expected values when available.
+Run metadata includes `agent_model`, `trials`, `git_sha`, `git_dirty`, and for sandboxed runs `agent_runtime`, `skill_delivery`, and `reasoning_effort`.
+
+Each trial has a unique ID in engine metadata. Local logs and summaries use that ID, so repeated trials retain separate output and scores.
+The harness shortens long case names in filenames to stay within 255 bytes. It keeps the complete trial ID and file extension.
+Scorer traces and agent trace roots use the same ID to match each result to its own execution.
+Case names stay the same across trials.
+For a repeatable smoke comparison, use the [Claude and Codex command pair](../../products/posthog_ai/eval_harness/README.md#claude-and-codex-smoke-comparison).
+Both commands select the same MCP case and record the model, runtime, delivery mode, and checkout.
+Compare completed coverage and infrastructure errors alongside named scores and duration.
+Trial metadata and local summaries also record phase durations in seconds.
+The scoring phase includes time waiting for the experiment results, rather than scorer execution alone.
+A failed final metadata upload produces a warning and keeps the completed results available locally.
+A scorer failure marks the case as an error. Statistics still include scores from other successful scorers.
+
+## SQL offline experiment pilot
+
+The `sql/eval_sql::eval_sql` suite (`sandboxed-sql-cli`) opts into the offline experiment publisher.
+Other public suites continue reporting scores to Braintrust until they opt into offline publishing.
+After scoring, the harness prepares the completed results in memory and queues delivery through the Python SDK's `AsyncOfflineEvaluations` client. It does not execute another agent run or judge call.
+`no_send_logs=True` suppresses this upload too.
+
+The [SQL suite definition](../../products/posthog_ai/evals/sql/eval_sql.py) pins destination project `2` and the seven immutable scorer version UUIDs.
+Provide the API key through the environment before running the suite:
+
+| Variable                       | Purpose                                                                                                                           |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTHOG_OFFLINE_EVAL_API_KEY` | Personal or project secret API key with `offline_evaluation_ingestion:write`. A public project token cannot authenticate uploads. |
+| `POSTHOG_OFFLINE_EVAL_HOST`    | App origin; defaults to `https://us.posthog.com`.                                                                                 |
+
+The publisher normalizes the cloud ingestion hosts (`us.i.posthog.com`, `eu.i.posthog.com`) and the legacy `app.posthog.com` host to their app origins.
+Uploads, result links, and trace-destination checks use that same origin.
+
+The suite uses these existing scorers:
+
+| Metric name                          | Scorer kind                      |
+| ------------------------------------ | -------------------------------- |
+| `exit_code_zero`                     | Boolean                          |
+| `no_persistent_insight_save`         | Boolean                          |
+| `execute_sql_called`                 | Boolean                          |
+| `answer_tool_not_typed_query`        | Boolean                          |
+| `querying_posthog_data_skill_loaded` | Boolean                          |
+| `sql_schema_alignment`               | Numeric, minimum 0 and maximum 1 |
+| `sql_result_message_alignment`       | Numeric, minimum 0 and maximum 1 |
+
+The harness loads the repo-root `.env` automatically; shell values take precedence.
+For CI, store the key as the `POSTHOG_OFFLINE_EVAL_API_KEY` [organization Actions secret](https://github.com/organizations/PostHog/settings/secrets/actions), grant access to the selected repository `PostHog/posthog`, and expose it to the eval step under the same environment variable name.
+No project ID or scorer mapping environment variables are required.
+
+```bash
+export POSTHOG_OFFLINE_EVAL_API_KEY='your-secret-key'
+hogli evals sql/eval_sql::eval_sql
+```
+
+Without an API key, the SQL run reports that offline uploads are disabled.
+Keys containing whitespace are rejected before evaluation starts; remove any spaces, tabs, or pasted trailing newlines.
+Invalid configuration produces a warning and skips this destination; Braintrust and local reporting continue.
+An upload failure also warns without changing the evaluation's score gate.
+The final summary shows a PostHog results link only after a successful offline upload; otherwise it shows the upload status.
+
+### CI configuration
+
+CI jobs running this suite need `POSTHOG_OFFLINE_EVAL_API_KEY` and `BRAINTRUST_API_KEY` in the environment.
+Map the dedicated `ANTHROPIC_OFFLINE_EVALS_API_KEY` and `OPENAI_OFFLINE_EVALS_API_KEY` Actions secrets to `LLM_GATEWAY_ANTHROPIC_API_KEY` and `OPENAI_API_KEY` for the harness and judges.
+Publishing failures remain warnings, so check the final harness upload status even when a CI job is green.
+The harness sets the SDK's `run_source` to `ci` when `CI` is set, including manual Actions runs, and to `local` otherwise.
+
+### Published results
+
+Each case and trial becomes a separate item, with one result per configured scorer.
+Boolean scores convert `0` and `1` to `false` and `true`; numeric scores retain their values.
+Both `false` and numeric zero have status `ok`: this status means scoring produced a value, not that the agent passed.
+A `None` score becomes `skipped`; a task error or missing scorer result becomes `error`, with no score value.
+LLM judge exceptions publish an `error` outcome with code `judge_error`; the existing zero fallback remains in Braintrust and local aggregates.
+A failed scorer does not replace successful results from other scorers on the same case.
+Scorer metadata and `reason` or `rationale` explanations are retained for each trial, including skip reasons and judge errors.
+The scorer recorder observes return values and exceptions only when a suite has valid offline publishing configuration and allows uploads. Other runs pass scorers directly to Braintrust.
+Braintrust still owns scorer execution, return-value validation, and numeric aggregation.
+Application and evaluator trace links are included when capture is enabled and the trace and offline destinations match.
+Application and dataset revisions use the commit captured at run start.
+
+Items include available input, output, expected output, and case metadata.
+The publisher excludes `raw_log` from the new API payload; the existing local logs and Braintrust output retain it.
+The SDK validates optional fields and the combined payload as fields are added. An invalid or oversized field is omitted as a whole, with its name recorded in `metadata.omitted_fields`.
+Item payloads prioritize input, output, expected output, then metadata. Output fields are not pruned individually, and accepted fields are not removed to make room for omission diagnostics.
+Invalid optional case keys, dataset references, or trace identifiers are omitted individually, preserving the other cases and scores in the prepared upload.
+
+The publisher retains the prepared experiment, items, scorer versions, and result payloads in memory until delivery finishes.
+The SDK owns request validation, batching, acknowledgements, and retries. Requests use a 5-second timeout and up to two retries with the same experiment and item identities, subject to the overall upload deadline.
+This leaves time for create, one upload batch, and completion to each retry timed-out requests within the 60-second upload budget. Larger uploads and server-requested retry delays still share that budget; retries are not guaranteed to finish before it expires.
+Failure reports retain sanitized error codes and field paths, persistence state, retry guidance, and acknowledged batch/item/result counts without including raw responses or result payloads.
+Local case exports finish before delivery is queued. Up to two uploads run concurrently, with at most 32 queued or active uploads and a 60-second deadline per active upload.
+After suites finish, the harness pauses unfinished uploads before synchronous infrastructure teardown, then retries the same prepared objects with fresh request and upload deadlines.
+These retries retain the experiment, item, and scorer version identities, including after partial acceptance or a lost completion response.
+The harness waits up to the full upload deadline (60 seconds by default) for remaining uploads after teardown, including time waiting for a delivery slot.
+After an API error following successful experiment creation, the publisher makes a best-effort attempt to mark the experiment failed, limited to 5 seconds, and retains the original upload error. Accepted results remain available on failed experiments.
+Pausing or cancelling delivery does not mark the experiment failed, so teardown pauses can resume the same experiment. Timeouts, interruptions, and failed cleanup can leave an experiment in the uploading state.
+Timeout, cancellation, a full queue, or a rejected request produces a warning without changing the score gate.
+Failed or interrupted uploads are not saved for later retry. To try publishing again, correct the configuration or connectivity problem and rerun the suite.
+Existing local logs, enabled case exports, and Braintrust results remain available.
+
+### Enrolling other suites and richer results
+
+Both `SandboxedEval` and `OneShotEval` accept `offline_suite=OfflineEvalSuite(...)`.
+Each suite declares its destination `project_id`, selects at least one metric in `scorer_kinds`, and pins the corresponding immutable version UUIDs in `scorer_versions`.
+These fields belong to `OfflineEvalSuite` in code. Scorer version UUIDs must be distinct for the suite's enrolled metrics.
+Numeric scores can use the domain of their configured scorer version. The API validates bounds and steps; the harness does not restrict every numeric metric to `[0, 1]`.
+
+`OfflineEvalSuite.experiment_options` accepts the SDK's `ExperimentOptions` for external dataset identifiers, `prompt_version`, model/application versions, and `run_source`.
+The harness owns the experiment ID, start time, suite key, and expected counts.
+For external datasets, case metadata can supply `dataset_item_identifier` and `dataset_item_version_identifier`.
+The harness publisher does not support hosted datasets. A non-null `dataset_revision_id` stops preparation with a local error before any upload request.
+
+Ordinary scorers continue returning numeric `Score` values. A scorer can additionally return a typed `ScorerResult` through `Score.result` to publish categorical values or `not_applicable`, explicit errors, reasoning, metadata, timestamps, and evaluator trace references:
+
+```python
+from products.posthog_ai.eval_harness.engines.types import ScorerResult
+from products.posthog_ai.eval_harness.scorers.contract import Score
+
+result = Score(
+    name="answer_category",
+    score=None,
+    result=ScorerResult(status="ok", value=["correct"], reasoning="The answer matches the reference."),
+)
+```
+
+The numeric `score` still controls existing Braintrust and local aggregates; `result` describes the offline outcome. Configure this example's scorer kind as `categorical`.
+Scorer provisioning stays separate from uploading results, so publishing requires only the ingestion scope and does not create or modify scorer definitions.
+
+## Signals pytest suites
+
+The suites in `products/signals/eval/` keep their pytest runner and mocked infrastructure.
+They publish completed metrics through `OfflineEvalPublisher` without running the pipeline or judges again.
+Run them from the repository root:
+
+```bash
+pytest products/signals/eval/eval_grouping_e2e.py products/signals/eval/eval_scout_safety.py
+```
+
+The grouping suite has 111 input signals across 48 fixture groups; scout safety has 7 cases.
+Each suite execution publishes one experiment: `signals/grouping-e2e` or `signals/scout-safety`.
+Grouping records separate items for pipeline stages, generated reports, and aggregate statistics, so uploaded item counts exceed the input signal count.
+Scout safety records one item per case and one aggregate item.
+Use `--limit N` for a subset; the run metadata records the limit and checkout revision.
+
+Both suites target project `2` and pin immutable scorer version UUIDs in
+[`offline_config.py`](../../products/signals/eval/offline_config.py).
+There are 16 grouping scorers and 3 scout safety scorers, reused across inputs.
+Classification checks at different stages have separate scorers.
+Per-report `group_recall` and aggregate `mean_group_recall` also stay separate.
+Metrics that do not apply to an item's stage publish `not_applicable`.
+Numeric definitions allow ARI in `[-1, 1]` and query cosine distance in `[0, 2]`.
+
+Set `POSTHOG_OFFLINE_EVAL_API_KEY` with `offline_evaluation_ingestion:write` and optionally
+`POSTHOG_OFFLINE_EVAL_HOST`, as for the SQL suite.
+Missing or invalid configuration disables offline uploads with a message; upload failures also report a message without changing the eval outcome.
+Successful uploads print the experiment URL.
+Scout results upload before the existing assertion against unsafe payload leaks.
+Each execution has a fresh experiment ID, so repeated runs do not overwrite one another.
+
+`--no-capture` suppresses result uploads and trace capture.
+`POSTHOG_PROJECT_API_KEY` and `POSTHOG_HOST` remain the separate trace-capture settings.
+Runs appear in the offline experiments UI.
 
 ## Postgres experiment ingestion
 
 The project API accepts offline experiment results behind the `ai-observability-offline-evaluations` feature flag.
-The harness above still uses event capture; it does not call this API yet.
+The configured SQL pilot calls this API to publish completed scorer results.
 
 Experiments and their items, results, and payloads belong to the exact project/environment in the request path.
 Scorers and hosted datasets must belong to that same environment.
@@ -120,7 +281,7 @@ Automatic payload deletion and usage billing are not enabled by these endpoints.
 ## Postgres experiment reads
 
 Read endpoints use the same feature flag as ingestion.
-The offline UI uses these APIs. The harness above still reports through event capture until its producer migration.
+The offline UI uses these APIs. The configured SQL pilot and Signals suites publish results here.
 
 The following GET paths are relative to `/api/projects/{project_id}/ai_observability/`:
 

@@ -29,6 +29,7 @@ export interface watchFeedLogicValues {
     quotaLoading: boolean // visionQuotaLogic
     scanners: ReplayScannerApi[] // visionScannersListLogic
     scannersLoading: boolean // visionScannersListLogic
+    createdByFilter: string[]
     dateFrom: string
     dateTo: string | null
     emptyReason: WatchFeedEmptyReason | null
@@ -80,11 +81,16 @@ export interface watchFeedLogicActions {
     restoreFeedFilters: (
         search: string,
         scannerIds: string[],
-        tags: string[]
+        tags: string[],
+        createdBy: string[]
     ) => {
+        createdBy: string[]
         scannerIds: string[]
         search: string
         tags: string[]
+    }
+    setCreatedByFilter: (userIds: string[]) => {
+        userIds: string[]
     }
     setDateRange: (
         dateFrom: string | null,
@@ -127,6 +133,7 @@ export interface watchFeedLogicMeta {
         hasFeedFilters: (
             scannerIdsFilter: string[],
             tagsFilter: string[],
+            createdByFilter: string[],
             scannerTypeFilter: ScannerTypeEnumApi | null,
             search: string
         ) => boolean
@@ -164,6 +171,7 @@ function reportFiltered(values: watchFeedLogicValues): void {
         scanner_type: values.scannerTypeFilter,
         scanner_ids_count: values.scannerIdsFilter.length,
         tags_count: values.tagsFilter.length,
+        created_by_count: values.createdByFilter.length,
         has_search: values.search.trim().length > 0,
     })
 }
@@ -192,9 +200,15 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
         setSearch: (search: string) => ({ search }),
         setScannerIdsFilter: (scannerIds: string[]) => ({ scannerIds }),
         setTagsFilter: (tags: string[]) => ({ tags }),
+        setCreatedByFilter: (userIds: string[]) => ({ userIds }),
         // Restores every shared-link filter at once so one request runs and every recipient sees the
         // same feed, regardless of the scanner/tag selections their browser remembered.
-        restoreFeedFilters: (search: string, scannerIds: string[], tags: string[]) => ({ search, scannerIds, tags }),
+        restoreFeedFilters: (search: string, scannerIds: string[], tags: string[], createdBy: string[]) => ({
+            search,
+            scannerIds,
+            tags,
+            createdBy,
+        }),
         clearFeedFilters: true,
         loadFeed: true,
         setFeedRanker: (ranker: WatchFeedRanker, variant: string | null) => ({ ranker, variant }),
@@ -223,6 +237,9 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                     }
                     if (values.tagsFilter.length > 0) {
                         params.tags = values.tagsFilter.join(',')
+                    }
+                    if (values.createdByFilter.length > 0) {
+                        params.created_by = values.createdByFilter.join(',')
                     }
                     const trimmedSearch = values.search.trim()
                     if (trimmedSearch) {
@@ -288,6 +305,15 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                 clearFeedFilters: () => [],
             },
         ],
+        createdByFilter: [
+            [] as string[],
+            { persist: true, prefix: `${getCurrentTeamIdOrNone() ?? 'unknown'}__` },
+            {
+                setCreatedByFilter: (_, { userIds }) => userIds,
+                restoreFeedFilters: (_, { createdBy }) => createdBy,
+                clearFeedFilters: () => [],
+            },
+        ],
         feedFailed: [
             false,
             {
@@ -324,6 +350,10 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
             actions.loadFeed()
         },
         setTagsFilter: () => {
+            reportFiltered(values)
+            actions.loadFeed()
+        },
+        setCreatedByFilter: () => {
             reportFiltered(values)
             actions.loadFeed()
         },
@@ -382,9 +412,19 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                     : resolveWatchFeedEmptyReason({ scanners, quota, hasFeedFilters }),
         ],
         hasFeedFilters: [
-            (s) => [s.scannerIdsFilter, s.tagsFilter, s.scannerTypeFilter, s.search],
-            (scannerIds: string[], tags: string[], scannerType: ScannerType | null, search: string): boolean =>
-                scannerIds.length > 0 || tags.length > 0 || !!scannerType || search.trim().length > 0,
+            (s) => [s.scannerIdsFilter, s.tagsFilter, s.createdByFilter, s.scannerTypeFilter, s.search],
+            (
+                scannerIds: string[],
+                tags: string[],
+                createdBy: string[],
+                scannerType: ScannerType | null,
+                search: string
+            ): boolean =>
+                scannerIds.length > 0 ||
+                tags.length > 0 ||
+                createdBy.length > 0 ||
+                !!scannerType ||
+                search.trim().length > 0,
         ],
         tagOptions: [
             (s) => [s.allTags, s.tagsFilter],
@@ -404,6 +444,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                 feed_search: values.search.trim() || undefined,
                 feed_scanners: csvParam(values.scannerIdsFilter),
                 feed_tags: csvParam(values.tagsFilter),
+                feed_created_by: csvParam(values.createdByFilter),
             },
             undefined,
             { replace: true },
@@ -412,32 +453,36 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
             setSearch: buildUrl,
             setScannerIdsFilter: buildUrl,
             setTagsFilter: buildUrl,
+            setCreatedByFilter: buildUrl,
             clearFeedFilters: buildUrl,
         }
     }),
 
     urlToAction(({ actions, values }) => ({
         [urls.replayVision()]: (_, searchParams) => {
-            // A link that carries any feed_* param is a full filter snapshot, so restore all three and
+            // A link that carries any feed_* param is a full filter snapshot, so restore all of them and
             // clear the ones it omits — otherwise the reader's remembered scanner/tag picks would leak
             // in and the same link would show different feeds to different people. A link with no feed_*
             // param leaves those remembered picks alone rather than widening the feed to the whole fleet.
             const hasFeedParams =
                 searchParams.feed_search !== undefined ||
                 searchParams.feed_scanners !== undefined ||
-                searchParams.feed_tags !== undefined
+                searchParams.feed_tags !== undefined ||
+                searchParams.feed_created_by !== undefined
             if (!hasFeedParams) {
                 return
             }
             const search = typeof searchParams.feed_search === 'string' ? searchParams.feed_search : ''
             const scanners = parseCsvParam(searchParams.feed_scanners)
             const tags = parseCsvParam(searchParams.feed_tags)
+            const createdBy = parseCsvParam(searchParams.feed_created_by)
             const unchanged =
                 search === values.search &&
                 objectsEqual(scanners, values.scannerIdsFilter) &&
-                objectsEqual(tags, values.tagsFilter)
+                objectsEqual(tags, values.tagsFilter) &&
+                objectsEqual(createdBy, values.createdByFilter)
             if (!unchanged) {
-                actions.restoreFeedFilters(search, scanners, tags)
+                actions.restoreFeedFilters(search, scanners, tags, createdBy)
             }
         },
     })),

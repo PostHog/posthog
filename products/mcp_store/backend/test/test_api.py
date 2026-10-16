@@ -24,6 +24,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.security.url_validation import PinnedUrlVerdict
+from posthog.test.authentication_checks import covers_authentication
 
 from products.mcp_store.backend.agents import create_gateway_agent_token, sync_built_in_agents
 from products.mcp_store.backend.catalog import MCP_SERVER_CATALOG
@@ -42,6 +43,7 @@ from products.mcp_store.backend.models import (
     TeamMCPGatewayConfig,
 )
 from products.mcp_store.backend.oauth import DcrClientRegistration, DCRRegistrationRejectedError
+from products.mcp_store.backend.presentation.agent_views import GatewayAgentAuthentication
 from products.mcp_store.backend.presentation.gateway_views import (
     MAX_TOOL_POLICIES_PER_REQUEST,
     GatewayPoliciesUpsertSerializer,
@@ -2057,6 +2059,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         account.save(update_fields=["status", "updated_at"])
         assert client.get("/api/mcp_store/gateway/servers/").status_code == status.HTTP_401_UNAUTHORIZED
 
+    @covers_authentication(GatewayAgentAuthentication)
     def test_agent_endpoint_does_not_gate_on_product_state(self) -> None:
         account = self._active_scout_account()
         client = self._agent_client(account)

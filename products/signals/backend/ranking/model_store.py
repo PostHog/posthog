@@ -8,27 +8,38 @@ bucket: the scoring workers hold no credential for that bucket.
 A model key is `<name>@<version>`, and the dag never re-copies a published version, so a loaded
 model is cached in the process by key with no invalidation. The manifest itself is read on every
 call, because a promotion changes it in place.
+
+A model that reads its team's project vectors reads them from the one day the manifest names
+(`load_project_vectors`). The sweep reads that day once per pass, for the teams it scores.
 """
 
 from __future__ import annotations
 
+import io
 import json
 import threading
 from collections import OrderedDict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import replace
 from typing import Any, Protocol
 
 from django.conf import settings
 
 import numpy as np
+import pandas as pd
 import structlog
 
 from posthog.dataclasses import frozen
 from posthog.storage import object_storage
 
 from products.signals.backend.artefact_schemas import MAX_RANKING_MODEL_RESULTS
-from products.signals.backend.ranking.features import FeatureSet
+from products.signals.backend.ranking.features import (
+    EMBEDDING_DIMENSIONS,
+    PROJECT_VECTOR_KINDS,
+    FeatureSet,
+    ProjectInputs,
+    project_inputs,
+)
 from products.signals.backend.ranking.model_contract import (
     booster_mismatch,
     model_feature_set,
@@ -58,6 +69,14 @@ ONNX_OUTPUT = "probabilities"
 ONNX_OUTPUT_HEADS_KEY = "output_heads"
 # The input that takes the feature set's matrix, the report vector.
 ONNX_REPORT_INPUT = "report"
+# The inputs that take the team's project vectors and their history flags, in
+# `PROJECT_VECTOR_KINDS` order. Only a graph whose `metadata.json` lists the kinds under
+# `ONNX_PROJECT_VECTOR_KINDS_KEY` takes them.
+ONNX_PROJECT_INPUT = "project"
+ONNX_HAS_HISTORY_INPUT = "has_history"
+ONNX_PROJECT_VECTOR_KINDS_KEY = "project_vector_kinds"
+# The `inbox_project_vectors` columns `project_inputs` reads.
+PROJECT_VECTORS_COLUMNS = ["team_id", "kind", "vector", "n_reports"]
 # Threads one ONNX session may use for one operator. The sweep shares the worker with other
 # activities, so a model must not take every core.
 ONNX_INTRA_OP_THREADS = 2
@@ -65,6 +84,12 @@ ONNX_INTRA_OP_THREADS = 2
 
 class ModelLoadError(Exception):
     """One manifest entry could not be loaded into a model this build can score."""
+
+
+class Predict(Protocol):
+    def __call__(self, matrix: np.ndarray, project: ProjectInputs | None = None) -> Mapping[str, np.ndarray]:
+        """`project` holds one row per row of `matrix`, and only a model that reads project vectors needs it."""
+        ...
 
 
 @frozen
@@ -75,7 +100,9 @@ class LoadedModel:
     # The model's `metadata.json`, copied onto every result it produces.
     metadata: Mapping[str, Any]
     # A matrix in `feature_set.feature_names` order to the probabilities of each head.
-    predict: Callable[[np.ndarray], Mapping[str, np.ndarray]]
+    predict: Predict
+    # True when `predict` also needs the team's project vectors.
+    reads_project_vectors: bool = False
 
 
 @frozen
@@ -127,7 +154,7 @@ class XGBoostHandler:
             boosters[head] = booster
         feature_names = list(feature_set.feature_names)
 
-        def predict(matrix: np.ndarray) -> dict[str, np.ndarray]:
+        def predict(matrix: np.ndarray, project: ProjectInputs | None = None) -> dict[str, np.ndarray]:
             dmatrix = xgb.DMatrix(matrix, feature_names=feature_names)
             return {head: booster.predict(dmatrix) for head, booster in boosters.items()}
 
@@ -156,7 +183,15 @@ class ONNXHandler:
         # onnxruntime's errors share no base class below Exception.
         except Exception as error:
             raise ModelLoadError(f"{entry.key} {ONNX_MODEL_FILE} does not load: {error}") from error
-        mismatch = _onnx_input_mismatch(session.get_inputs(), _onnx_input_widths(feature_set))
+        kinds = tuple(metadata.get(ONNX_PROJECT_VECTOR_KINDS_KEY) or ())
+        if kinds and kinds != PROJECT_VECTOR_KINDS:
+            raise ModelLoadError(
+                f"{entry.key} {METADATA_FILE} {ONNX_PROJECT_VECTOR_KINDS_KEY} {list(kinds)} are not {list(PROJECT_VECTOR_KINDS)}"
+            )
+        reads_project_vectors = bool(kinds)
+        mismatch = _onnx_input_mismatch(
+            session.get_inputs(), _onnx_input_shapes(feature_set, reads_project_vectors=reads_project_vectors)
+        )
         if mismatch is not None:
             raise ModelLoadError(f"{entry.key} {mismatch}")
         output_heads = list(metadata.get(ONNX_OUTPUT_HEADS_KEY) or ())
@@ -165,35 +200,47 @@ class ONNXHandler:
             raise ModelLoadError(f"{entry.key} {mismatch}")
         columns = {head: output_heads.index(head) for head in entry.heads}
 
-        def predict(matrix: np.ndarray) -> dict[str, np.ndarray]:
-            (probabilities,) = session.run(
-                [ONNX_OUTPUT], {ONNX_REPORT_INPUT: np.ascontiguousarray(matrix, dtype=np.float32)}
-            )
+        def predict(matrix: np.ndarray, project: ProjectInputs | None = None) -> dict[str, np.ndarray]:
+            feeds = {ONNX_REPORT_INPUT: np.ascontiguousarray(matrix, dtype=np.float32)}
+            if reads_project_vectors:
+                if project is None:
+                    raise ValueError(f"{entry.key} reads project vectors and none were given")
+                feeds[ONNX_PROJECT_INPUT] = np.ascontiguousarray(project.vectors, dtype=np.float32)
+                feeds[ONNX_HAS_HISTORY_INPUT] = np.ascontiguousarray(project.has_history, dtype=np.float32)
+            (probabilities,) = session.run([ONNX_OUTPUT], feeds)
             return {head: probabilities[:, column] for head, column in columns.items()}
 
-        return LoadedModel(entry=entry, feature_set=feature_set, metadata=metadata, predict=predict)
+        return LoadedModel(
+            entry=entry,
+            feature_set=feature_set,
+            metadata=metadata,
+            predict=predict,
+            reads_project_vectors=reads_project_vectors,
+        )
 
 
-def _onnx_input_widths(feature_set: FeatureSet) -> dict[str, int]:
-    """The width of each ONNX input the scorer can feed for `feature_set`.
+def _onnx_input_shapes(feature_set: FeatureSet, *, reads_project_vectors: bool) -> dict[str, tuple[int, ...]]:
+    """The shape after the batch axis of each ONNX input the scorer feeds for `feature_set`."""
+    shapes: dict[str, tuple[int, ...]] = {ONNX_REPORT_INPUT: (len(feature_set.feature_names),)}
+    if reads_project_vectors:
+        shapes[ONNX_PROJECT_INPUT] = (len(PROJECT_VECTOR_KINDS), EMBEDDING_DIMENSIONS)
+        shapes[ONNX_HAS_HISTORY_INPUT] = (len(PROJECT_VECTOR_KINDS),)
+    return shapes
 
-    Only the report vector today. The project-vector inputs join here when the sweep can read
-    project vectors, and `predict` then feeds them too.
-    """
-    return {ONNX_REPORT_INPUT: len(feature_set.feature_names)}
 
-
-def _onnx_input_mismatch(inputs: Sequence[Any], widths: Mapping[str, int]) -> str | None:
+def _onnx_input_mismatch(inputs: Sequence[Any], shapes: Mapping[str, tuple[int, ...]]) -> str | None:
     """Why the graph's inputs differ from what the scorer feeds, or None when they agree.
 
-    Each input must be float32 with shape `(batch, width)`.
+    Each input must be float32 with shape `(batch, *shape)`.
     """
     names = sorted(node.name for node in inputs)
-    if names != sorted(widths):
-        return f"{ONNX_MODEL_FILE} inputs {names} are not {sorted(widths)}"
+    if names != sorted(shapes):
+        return f"{ONNX_MODEL_FILE} inputs {names} are not {sorted(shapes)}"
     for node in inputs:
-        if node.type != "tensor(float)" or len(node.shape) != 2 or node.shape[1] != widths[node.name]:
-            return f"{ONNX_MODEL_FILE} input {node.name} is {node.type} {node.shape}, not float (batch, {widths[node.name]})"
+        shape = shapes[node.name]
+        if node.type != "tensor(float)" or tuple(node.shape[1:]) != shape or len(node.shape) != 1 + len(shape):
+            expected = ", ".join(str(size) for size in shape)
+            return f"{ONNX_MODEL_FILE} input {node.name} is {node.type} {node.shape}, not float (batch, {expected})"
     return None
 
 
@@ -311,6 +358,47 @@ def load_serving_set(overrides: RankingOverrides | None = None) -> ServingSet | 
     return _with_served_override(serving, overrides)
 
 
+@frozen
+class ProjectVectors:
+    """The project vectors one pass reads, for the teams it scores."""
+
+    # False when the manifest names no object or the object is missing, so no team has vectors.
+    available: bool
+    by_team: Mapping[int, ProjectInputs]
+
+    def for_team(self, team_id: int) -> ProjectInputs | None:
+        """One row of the team's vectors, all zero when the day has no row for the team, or None
+        when the pass has no project vectors at all."""
+        if not self.available:
+            return None
+        return self.by_team.get(team_id) or project_inputs(pd.DataFrame(columns=PROJECT_VECTORS_COLUMNS), [team_id])
+
+
+def load_project_vectors(manifest: ServingManifest, team_ids: Collection[int]) -> ProjectVectors:
+    """The vectors of `team_ids` from the day the manifest names, read once.
+
+    Only the rows of `team_ids` are kept, so the pass holds one vector per (team, kind) it scores.
+    A missing object is no vectors at all rather than an empty day, so the models that read them
+    are skipped instead of scoring every team as a team without history.
+    """
+    key = manifest.project_vectors
+    teams = sorted({int(team_id) for team_id in team_ids})
+    body = None if key is None or not teams else object_storage.read_bytes(key, missing_ok=True)
+    if body is None:
+        if key is not None and teams:
+            logger.warning("inbox_ranking_project_vectors_missing", project_vectors_key=key)
+        return ProjectVectors(available=False, by_team={})
+    rows = pd.read_parquet(io.BytesIO(body), columns=PROJECT_VECTORS_COLUMNS, filters=[("team_id", "in", teams)])
+    inputs = project_inputs(rows, teams)
+    by_team = {
+        team_id: ProjectInputs(
+            vectors=inputs.vectors[index : index + 1], has_history=inputs.has_history[index : index + 1]
+        )
+        for index, team_id in enumerate(teams)
+    }
+    return ProjectVectors(available=True, by_team=by_team)
+
+
 def served_override_rejection(serving: ServingSet, key: str) -> str | None:
     """Why the model `key` cannot take the served role this pass, or None when it can.
 
@@ -326,6 +414,8 @@ def served_override_rejection(serving: ServingSet, key: str) -> str | None:
     missing_heads = sorted(set(serving.served.entry.heads) - set(model.entry.heads))
     if missing_heads:
         return f"{key} has no head for {missing_heads}"
+    if model.reads_project_vectors and serving.manifest.project_vectors is None:
+        return f"{key} reads project vectors and the manifest names none"
     return None
 
 

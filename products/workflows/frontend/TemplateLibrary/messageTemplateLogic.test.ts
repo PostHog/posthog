@@ -330,4 +330,31 @@ describe('messageTemplateLogic', () => {
             await expectLogic(logic).toMatchValues({ templatePickerOpen: true })
         })
     })
+
+    describe('make transactional', () => {
+        it('keeps edits made while the conversion runs', async () => {
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/messaging_templates/:id/make_transactional/': {
+                        id: 'existing-id',
+                        name: 'Existing',
+                        transactional_hog_flow_id: 'flow-id',
+                        updated_at: '2026-01-02T00:00:00Z',
+                    },
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.makeTransactional()
+                logic.actions.setTemplateValue('name', 'Renamed while converting')
+            })
+                .toDispatchActions(['makeTransactionalDone'])
+                .toMatchValues({ transactionalHogFlowId: 'flow-id', templateChanged: true })
+
+            expect(logic.values.template.name).toEqual('Renamed while converting')
+        })
+    })
 })

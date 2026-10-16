@@ -1,20 +1,10 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 
-export type PanelLayoutNavIdentifier =
-    | 'Project'
-    | 'Products'
-    | 'People'
-    | 'Games'
-    | 'Shortcuts'
-    | 'DataManagement'
-    | 'DataAndPeople'
-    | 'Chat'
-    | 'Notifications'
+export type PanelLayoutNavIdentifier = 'Project' | 'Notifications'
+const PANEL_LAYOUT_NAV_IDENTIFIERS: string[] = ['Project', 'Notifications'] satisfies PanelLayoutNavIdentifier[]
 export type NavExperimentTab = 'home' | 'files' | 'chat'
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
@@ -34,15 +24,11 @@ export interface panelLayoutLogicValues {
         hash: string
     } // router
     activePanelIdentifier: string
-    activePanelIdentifierFromUrl: PanelLayoutNavIdentifier | ''
-    activePanelIdentifierFromUrlAiFirst: PanelLayoutNavIdentifier | ''
-    expandedNavSections: Record<string, boolean>
     isLayoutNavCollapsed: boolean
     isLayoutNavCollapsedDesktop: boolean
     isLayoutNavbarVisible: boolean
     isLayoutNavbarVisibleForDesktop: boolean
     isLayoutNavbarVisibleForMobile: boolean
-    isLayoutPanelCloseable: boolean
     isLayoutPanelVisible: boolean
     isNavOverlayOpen: boolean
     layoutNavCollapsedOverride: {
@@ -58,7 +44,6 @@ export interface panelLayoutLogicValues {
     panelWillHide: boolean
     pathname: string
     sidePanelWidth: number
-    visibleSideAction: string
     visitedNavTabs: NavExperimentTab[]
     visitedPanels: PanelLayoutNavIdentifier[]
 }
@@ -114,9 +99,6 @@ export interface panelLayoutLogicActions {
     setSidePanelWidth: (width: number) => {
         width: number
     }
-    setVisibleSideAction: (sideAction: string) => {
-        sideAction: string
-    }
     showLayoutNavBar: (visible: boolean) => {
         visible: boolean
     }
@@ -125,9 +107,6 @@ export interface panelLayoutLogicActions {
     }
     toggleLayoutNavCollapsed: (override?: boolean) => {
         override: boolean | undefined
-    }
-    toggleNavSection: (section: string) => {
-        section: string
     }
 }
 
@@ -142,16 +121,6 @@ export interface panelLayoutLogicMeta {
             } | null,
             mobileLayout: boolean
         ) => boolean
-        activePanelIdentifierFromUrl: (location: {
-            hash: string
-            pathname: string
-            search: string
-        }) => PanelLayoutNavIdentifier | ''
-        activePanelIdentifierFromUrlAiFirst: (location: {
-            hash: string
-            pathname: string
-            search: string
-        }) => PanelLayoutNavIdentifier | ''
         pathname: (location: { hash: string; pathname: string; search: string }) => string
     }
 }
@@ -180,14 +149,12 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         toggleLayoutNavCollapsed: (override?: boolean) => ({ override }),
         setLayoutNavCollapsedDesktop: (collapsed: boolean) => ({ collapsed }),
         setLayoutNavCollapsedOverride: (owner: string, collapsed: boolean | null) => ({ owner, collapsed }),
-        setVisibleSideAction: (sideAction: string) => ({ sideAction }),
         setPanelWidth: (width: number) => ({ width }),
         setPanelIsResizing: (isResizing: boolean) => ({ isResizing }),
         setPanelWillHide: (willHide: boolean) => ({ willHide }),
         resetPanelLayout: (keyboardAction: boolean) => ({ keyboardAction }),
         setMainContentRect: (rect: DOMRect) => ({ rect }),
         setSidePanelWidth: (width: number) => ({ width }),
-        toggleNavSection: (section: string) => ({ section }),
         setNavExperimentTab: (tab: NavExperimentTab) => ({ tab }),
         setNavbarWidth: (width: number) => ({ width }),
         setNavOverlayOpen: (open: boolean) => ({ open }),
@@ -216,12 +183,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             {
                 showLayoutNavBar: (_, { visible }) => visible,
                 mobileLayout: () => true,
-            },
-        ],
-        isLayoutPanelCloseable: [
-            true,
-            {
-                showLayoutPanel: () => true,
             },
         ],
         isLayoutNavbarVisible: [
@@ -289,12 +250,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                     collapsed === null ? (state?.owner === owner ? null : state) : { owner, collapsed },
             },
         ],
-        visibleSideAction: [
-            '',
-            {
-                setVisibleSideAction: (_, { sideAction }) => sideAction,
-            },
-        ],
         panelWidth: [
             PANEL_LAYOUT_DEFAULT_WIDTH,
             { persist: true, prefix: '2', separator: '.' },
@@ -340,16 +295,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             PANEL_NAVBAR_DEFAULT_WIDTH,
             {
                 setNavbarWidth: (_, { width }) => width,
-            },
-        ],
-        expandedNavSections: [
-            { ai: true, project: true, files: true, favorites: false, tools: true } as Record<string, boolean>,
-            { persist: true, prefix: 'v2.' },
-            {
-                toggleNavSection: (state, { section }) => ({
-                    ...state,
-                    [section]: !state[section],
-                }),
             },
         ],
     }),
@@ -421,39 +366,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 mobileLayout: boolean
             ): boolean => !mobileLayout && (layoutNavCollapsedOverride?.collapsed ?? isLayoutNavCollapsedDesktop),
         ],
-        activePanelIdentifierFromUrl: [
-            () => [router.selectors.location],
-            (location: { hash: string; pathname: string; search: string }): PanelLayoutNavIdentifier | '' => {
-                const cleanPath = removeProjectIdIfPresent(location.pathname)
-
-                if (cleanPath.startsWith('/data-management/')) {
-                    return 'DataManagement'
-                }
-
-                if (cleanPath === '/persons' || cleanPath === '/cohorts' || cleanPath.startsWith('/groups/')) {
-                    return 'People'
-                }
-
-                return ''
-            },
-        ],
-        activePanelIdentifierFromUrlAiFirst: [
-            () => [router.selectors.location],
-            (location: { hash: string; pathname: string; search: string }): PanelLayoutNavIdentifier | '' => {
-                const cleanPath = removeProjectIdIfPresent(location.pathname)
-
-                if (
-                    cleanPath.startsWith('/data-management/') ||
-                    cleanPath === '/persons' ||
-                    cleanPath === '/cohorts' ||
-                    cleanPath.startsWith('/groups/')
-                ) {
-                    return 'DataAndPeople'
-                }
-
-                return ''
-            },
-        ],
         pathname: [
             (s) => [s.location],
             (location: { hash: string; pathname: string; search: string }): string => location.pathname,
@@ -464,9 +376,8 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             if (values.isNavOverlayOpen) {
                 actions.setNavOverlayOpen(false)
             }
-            // URL-surfaced panels (DataAndPeople, DataManagement) set activePanelIdentifier
-            // without flipping isLayoutPanelVisible, so check the identifier too — otherwise
-            // navigating away from one leaves the panel and its dim mounted.
+            // Notifications sets activePanelIdentifier without flipping isLayoutPanelVisible, so check the
+            // identifier too. Otherwise navigating away leaves the panel and its dim mounted.
             const panelIsShown = values.isLayoutPanelVisible || values.activePanelIdentifier !== ''
             if (values.mobileLayout && (values.isLayoutNavbarVisibleForMobile || panelIsShown)) {
                 actions.showLayoutNavBar(false)
@@ -479,8 +390,13 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         // visitedPanels is not persisted, but activePanelIdentifier is. Seed visitedPanels from
         // the rehydrated identifier so the panel that was open on the previous session starts
         // keep-mounted — without this, the first switch after reload tears the panel down once.
-        if (values.activePanelIdentifier) {
+        if (PANEL_LAYOUT_NAV_IDENTIFIERS.includes(values.activePanelIdentifier)) {
             actions.setActivePanelIdentifier(values.activePanelIdentifier as PanelLayoutNavIdentifier)
+        } else if (values.activePanelIdentifier) {
+            // A panel removed from the app can still be stored from an earlier session. Clear it, because
+            // PanelLayout shows its dim for any stored panel, and nothing would render inside it.
+            actions.clearActivePanelIdentifier()
+            actions.showLayoutPanel(false)
         }
         // Same for the persisted nav tab: a user who was on the chat tab last session gets its
         // panel mounted from the start.

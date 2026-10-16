@@ -7,7 +7,7 @@ objects stay inside the product.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterable, Iterator, Sequence
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Final
@@ -26,7 +26,15 @@ from products.alerts_platform.backend.facade.contracts import (
     OwnedAlertDestination,
 )
 
-from ..logic import alert_email, destination_configs, destinations, insight_alert_destinations
+from ..logic import (
+    delivery_destinations,
+    destination_bucket_report,
+    destination_configs,
+    destination_eligibility,
+    destinations,
+    insight_alert_destinations,
+)
+from .contracts import DestinationBucket, DestinationEligibility
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -214,7 +222,39 @@ def alert_internal_event_delivered(
 def list_delivery_destination_groups(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> list[AlertDestinationGroup]:
-    """Everything the shared platform delivers one alert's events to, including subscriber email."""
-    return alert_email.list_delivery_destination_groups(
+    """Everything the shared platform delivers one alert's events to, including subscriber email and
+    in-app notifications."""
+    return delivery_destinations.list_delivery_destination_groups(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
+
+
+def classify_alert_destinations(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], lock: bool = False
+) -> tuple[DestinationEligibility, ...]:
+    """Every destination function of one alert, with what native delivery cannot carry for each.
+
+    With `lock`, call inside a transaction: the function rows stay locked until it ends.
+    """
+    return destination_eligibility.classify_alert_destinations(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids, lock=lock
+    )
+
+
+def unbound_alert_destinations(
+    *, team_id: int, allowed_event_ids: Collection[str], include_disabled: bool = False
+) -> tuple[UUID, ...]:
+    """Functions that take a source's alert events without being bound to one alert, enabled ones only by default."""
+    return destination_eligibility.unbound_alert_destinations(
+        team_id=team_id, allowed_event_ids=allowed_event_ids, include_disabled=include_disabled
+    )
+
+
+def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
+    """The most restrictive bucket among a destination's hold-backs. No hold-back means stock."""
+    return destination_eligibility.bucket_for(eligibility)
+
+
+def bucket_report_lines(team_alerts: Iterable[tuple[int, str]], *, allowed_event_ids: Collection[str]) -> Iterator[str]:
+    """One line per destination of the given (team id, alert id) pairs, then the count per bucket and per reason."""
+    return destination_bucket_report.bucket_report_lines(team_alerts, allowed_event_ids=allowed_event_ids)

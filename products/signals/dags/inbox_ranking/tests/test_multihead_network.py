@@ -33,6 +33,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 import django
 django.setup()
 import posthog.dags.locations.signals
+import posthog.dags.locations.signals_ml
 import products.signals.backend.temporal
 import products.signals.backend.ranking.scorer
 import products.signals.dags.inbox_ranking.multihead.local

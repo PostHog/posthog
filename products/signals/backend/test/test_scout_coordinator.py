@@ -21,6 +21,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team, User
 from posthog.models.scoping import team_scope
+from posthog.models.scoping.manager import TeamScopeError
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import (
@@ -35,8 +36,11 @@ from products.signals.backend.scout_harness.config_registry import register_miss
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
     AUTO_PAUSE_PROBE_INTERVAL_S,
+    CHILD_START_CHUNK_SIZE,
+    CRON_START_DELAY_CAP_SECONDS,
     DISPATCH_BATCH_INTERVAL_SECONDS,
     DISPATCH_SMEAR_SECONDS,
+    MAX_DISPATCH_SMEAR_SECONDS,
     MAX_ENABLED_SCOUTS_PER_TEAM,
 )
 
@@ -84,12 +88,14 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     _breaker_paused_configs_by_team,
     _collect_planned_runs,
     _collect_probe_runs,
+    _config_start_delay_seconds,
     _dispatch_batches,
     _dispatch_slot,
     _DueRun,
     _overdue_seconds,
     _slot_anchor,
     _stamp_dispatched_runs,
+    _start_delay_seconds,
     fetch_enabled_signals_scout_runs_activity,
     run_due_signal_report_checks_activity,
     stamp_dispatched_signals_scout_runs_activity,
@@ -497,6 +503,8 @@ def test_resolve_global_max_runs_per_tick(payload, expected):
         ({"dispatch_smear_seconds": -60}, DISPATCH_SMEAR_SECONDS),  # negative → default
         ({"dispatch_smear_seconds": "0"}, DISPATCH_SMEAR_SECONDS),  # wrong type → default
         ({"dispatch_smear_seconds": False}, DISPATCH_SMEAR_SECONDS),  # bool is not a valid int here
+        # A window as long as the tick would start this tick's runs in the next one.
+        ({"dispatch_smear_seconds": 1800}, MAX_DISPATCH_SMEAR_SECONDS),
     ],
 )
 def test_resolve_dispatch_smear_seconds(payload, expected):
@@ -2651,6 +2659,31 @@ async def test_seed_failure_does_not_abort_tick(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_team_deleted_during_the_tick_is_skipped(ateam, aother_team):
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-gone")
+
+    def _seed_other():
+        with team_scope(aother_team.id, canonical=True):
+            _create_skill(aother_team, "signals-scout-kept")
+
+    await database_sync_to_async(_seed_other)()
+    real_register = register_missing_configs
+
+    def _register(team_id, *args, **kwargs):
+        if team_id == ateam.id:
+            raise TeamScopeError(f"Team {team_id} not found on default DB")
+        return real_register(team_id, *args, **kwargs)
+
+    with patch(
+        "products.signals.backend.temporal.agentic.scout_coordinator.register_missing_configs", side_effect=_register
+    ):
+        planned = await _run_activity()
+
+    assert {(p.team_id, p.skill_name) for p in planned} == {(aother_team.id, "signals-scout-kept")}
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 @pytest.mark.real_canonical_sync
 async def test_enrolled_team_registers_and_runs_canonical_fleet(ateam):
     # Enrolling a team seeds the canonical fleet; the coordinator then auto-registers a
@@ -2997,3 +3030,106 @@ async def test_hard_dispatch_error_does_not_stamp():
         run_due_signal_report_checks_activity,
         fetch_enabled_signals_scout_runs_activity,
     ]
+
+
+def test_start_delay_is_stable_bounded_and_scales_with_the_spread():
+    pks = [f"00000000-0000-4000-8000-{index:012d}" for index in range(2000)]
+    spread = 1500
+
+    delays = [_start_delay_seconds(pk, spread) for pk in pks]
+
+    assert delays == [_start_delay_seconds(pk, spread) for pk in pks]
+    assert all(0 <= delay < spread for delay in delays)
+    # Roughly uniform: no minute of the window holds a burst.
+    per_minute = [0] * (spread // 60)
+    for delay in delays:
+        per_minute[delay // 60] += 1
+    assert max(per_minute) < 3 * len(pks) / len(per_minute)
+
+    # A spread change keeps the order of scouts and moves none by more than the change.
+    wider = [_start_delay_seconds(pk, spread + 300) for pk in pks]
+    in_old_order = [after for _, after in sorted(zip(delays, wider))]
+    assert in_old_order == sorted(in_old_order)
+    assert all(0 <= after - before <= 300 for before, after in zip(delays, wider))
+
+
+@parameterized.expand(
+    [
+        ("interval scout spreads over the whole window", None, _TICK_STARTED_AT, 1500, 1500),
+        ("cron scout spreads over its smaller cap", "0 9 * * *", _TICK_STARTED_AT, 1500, CRON_START_DELAY_CAP_SECONDS),
+        ("first run starts at once", None, None, 1500, 0),
+        ("no spread starts at once", None, _TICK_STARTED_AT, 0, 0),
+    ]
+)
+def test_config_start_delay_seconds(_name, cron, last_run_at, spread, expected_cap):
+    config = SignalScoutConfig(
+        pk=_SLOT_TEST_PKS[0], skill_name="signals-scout-a", run_cron_schedule=cron, last_run_at=last_run_at
+    )
+
+    delay = _config_start_delay_seconds(config, spread)
+
+    assert delay == _start_delay_seconds(_SLOT_TEST_PKS[0], expected_cap)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail_team_id", [None, 3])
+async def test_child_start_delay_starts_every_child_at_once_and_stamps_them(fail_team_id):
+    # Catches the coordinator falling back to the paced loop when the flag is on, a child started
+    # without its delay, and a hard start error leaving the children that did start unstamped,
+    # which would dispatch them again next tick while they still sleep.
+    planned = [
+        PlannedRun(team_id=team_id, skill_name=f"signals-scout-{team_id}", start_delay_seconds=team_id * 60)
+        for team_id in range(CHILD_START_CHUNK_SIZE + 5)
+    ]
+    started_inputs: list[Any] = []
+    stamps: list[StampDispatchedRunsInput] = []
+
+    async def fake_start_child(_workflow_run, run_input, **kwargs):
+        if run_input.team_id == fail_team_id:
+            raise RuntimeError("start failed")
+        started_inputs.append(run_input)
+        return AsyncMock()
+
+    async def fake_execute_activity(activity, activity_input, **kwargs):
+        if activity is stamp_dispatched_signals_scout_runs_activity:
+            stamps.append(activity_input)
+            return None
+        return FetchEnabledRunsOutput(planned_runs=planned, dispatch_smear_seconds=600, child_start_delay=True)
+
+    coordinator = SignalsScoutCoordinatorWorkflow()
+    with (
+        _patch_check_gate(),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
+            side_effect=fake_execute_activity,
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.info",
+            return_value=_fake_info(),
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.start_child_workflow",
+            side_effect=fake_start_child,
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.sleep",
+            new_callable=AsyncMock,
+        ) as sleep_mock,
+    ):
+        if fail_team_id is None:
+            output = await coordinator.run(CoordinatorWorkflowInput())
+            assert output == CoordinatorWorkflowOutput(
+                planned_count=len(planned), started_count=len(planned), skipped_count=0
+            )
+        else:
+            with pytest.raises(RuntimeError):
+                await coordinator.run(CoordinatorWorkflowInput())
+
+    sleep_mock.assert_not_awaited()
+    expected = [run for run in planned if run.team_id != fail_team_id]
+    assert {(i.team_id, i.start_delay_seconds) for i in started_inputs} == {
+        (run.team_id, run.start_delay_seconds) for run in expected
+    }
+    assert len(stamps) == 1
+    assert stamps[0].dispatched_runs == expected
+    assert stamps[0].dispatched_at == _TICK_STARTED_AT

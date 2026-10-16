@@ -23,7 +23,7 @@ For example, "which active users will open a report in the next 7 days?".
 3. The server picks the **champion** from the kept experiments. The agent proposes; the backend decides.
 4. Every cadence (daily by default, at 02:00 UTC), the champion scores the inference population.
    Each scored person gets an `autoresearch_prediction` event with their probability.
-   A person who resolves to a current distinct ID also gets the model's output person property, for example `predicted_p_adopt_insights_14d`.
+   When the model's `write_person_property` is on, a person who resolves to a current distinct ID also gets the model's output person property, for example `predicted_p_adopt_insights_14d`. It is off by default for new models. Turn it on with `autoresearch-partial-update` before you target people by score in a flag, cohort, workflow or insight. Turning it off removes the property from the people the model scored. Changing the setting needs the `person:write` scope.
 5. When a prediction date's horizon has passed, online validation checks the scores against what really happened and records **realized AUC**.
 
 In the PostHog UI the entity is a **model**. The API and tools call it a **pipeline**. Use "model" when you talk to people.
