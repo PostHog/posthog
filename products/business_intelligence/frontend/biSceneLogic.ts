@@ -97,6 +97,7 @@ export interface biSceneLogicValues {
     connectionOptionsLoading: boolean // connectionSelectorLogic
     connectionId: string | null // databaseTableListLogic
     currentTeamId: number | null // teamLogic
+    agentUpdateConflict: boolean
     agentUpdateState: 'conflict' | 'error' | 'loading' | null
     canRedo: boolean
     canUndo: boolean
@@ -495,6 +496,15 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             },
         ],
         insight: { clearInsight: () => null, setInsightFromAgent: (_, { insight }) => insight },
+        agentUpdateConflict: [
+            false,
+            {
+                setAgentUpdateState: (conflict, { state }) => state === 'conflict' || (state !== null && conflict),
+                loadInsightSuccess: () => false,
+                clearInsight: () => false,
+                discardChanges: () => false,
+            },
+        ],
         agentUpdateState: [
             null as 'loading' | 'conflict' | 'error' | null,
             {
@@ -637,7 +647,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             if (!baseline || (String(targetId) !== String(baseline.id) && targetId !== baseline.short_id)) {
                 return
             }
-            const hadConflict = values.agentUpdateState === 'conflict'
+            const hadConflict = values.agentUpdateConflict
             actions.setAgentUpdateState('loading')
             try {
                 const response = await insightsList(String(values.currentTeamId), {

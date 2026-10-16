@@ -175,6 +175,13 @@ describe('biSceneLogic', () => {
         await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
         expect(logic.values.agentUpdateState).toBe('conflict')
 
+        useMocks({ get: { '/api/projects/:team_id/insights/': [503, { detail: 'Unavailable' }] } })
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+        expect(logic.values.agentUpdateState).toBe('error')
+        useMocks({ get: { '/api/projects/:team_id/insights/': () => [200, { results: [stored] }] } })
+        await expectLogic(logic, () => logic.actions.refreshInsightFromAgent(stored.id)).toFinishAllListeners()
+        expect(logic.values.agentUpdateState).toBe('conflict')
+
         logic.actions.discardChanges()
         expect(logic.values.worksheet.config.limit).toBe(50000)
         expect(logic.values.agentUpdateState).toBeNull()
