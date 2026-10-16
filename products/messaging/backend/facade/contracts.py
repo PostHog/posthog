@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from posthog.dataclasses import frozen
+
 
 class UnlayerError(Exception):
     pass
@@ -46,3 +48,28 @@ class MarketingTemplate(TransactionalEmailError):
 
 class SenderUnavailable(TransactionalEmailError):
     code = "sender_unavailable"
+
+
+class TemplateNotTransactional(TransactionalEmailError):
+    code = "template_not_transactional"
+
+
+class TransactionalEmailPaused(TransactionalEmailError):
+    code = "transactional_email_paused"
+
+
+class InvalidRecipient(TransactionalEmailError):
+    code = "invalid_recipient"
+
+
+class QuotaLimited(TransactionalEmailError):
+    code = "quota_limited"
+
+
+class DeliveryUnavailable(Exception):
+    """The email pipeline did not accept the send. Safe to retry."""
+
+
+@frozen
+class QueuedEmail:
+    message_id: str

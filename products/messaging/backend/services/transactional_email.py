@@ -8,9 +8,23 @@ from django.db import transaction
 
 import structlog
 
-from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
+from posthog.models.team import Team
+from posthog.plugins.plugin_server_api import (
+    reload_hog_flows_on_workers,
+    send_transactional_email as run_transactional_workflow,
+)
 
-from products.messaging.backend.facade.contracts import MarketingTemplate, SenderUnavailable, TemplateNotSendable
+from products.messaging.backend.facade.contracts import (
+    DeliveryUnavailable,
+    InvalidRecipient,
+    MarketingTemplate,
+    QueuedEmail,
+    QuotaLimited,
+    SenderUnavailable,
+    TemplateNotSendable,
+    TemplateNotTransactional,
+    TransactionalEmailPaused,
+)
 from products.messaging.backend.models import MessageCategory, MessageTemplate
 from products.messaging.backend.models.message_category import MessageCategoryType
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
@@ -157,3 +171,57 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
         raise TemplateNotSendable("The template needs a subject and a body to send.") from e
     except TransactionalEmailSenderUnavailable as e:
         raise SenderUnavailable("No verified email sender. Verify a sending domain first.") from e
+
+
+def _transactional_workflow_id(team_id: int, template_id: UUID) -> UUID:
+    template = MessageTemplate.objects.get(team_id=team_id, id=template_id, deleted=False)
+    if not template.transactional_hog_flow_id:
+        raise TemplateNotTransactional("The template isn't transactional. Make it transactional to send it.")
+    # A category's type can change after the template was made transactional.
+    check_sendable(
+        team_id,
+        template_type=template.type,
+        content=template.content,
+        message_category_id=template.message_category_id,
+    )
+    try:
+        workflow = get_workflow_summary(team_id=team_id, workflow_id=str(template.transactional_hog_flow_id))
+    except WorkflowNotFound as e:
+        raise TransactionalEmailPaused("The template's transactional email no longer exists.") from e
+    if workflow.status != "active":
+        raise TransactionalEmailPaused("The template's transactional email isn't active.")
+    return template.transactional_hog_flow_id
+
+
+def send_transactional_email(
+    team: Team, template_id: UUID, *, to: str, distinct_id: str | None, message_data: dict[str, Any]
+) -> QueuedEmail:
+    # Defense in depth: the workflow reads the recipient from an event property, which Liquid outputs as typed.
+    if "{" in to or "}" in to:
+        raise InvalidRecipient("The recipient address can't contain { or }.")
+
+    hog_flow_id = _transactional_workflow_id(team.id, template_id)
+    payload = {
+        "to": to,
+        # The recipient is the person the send is tracked against. Without a distinct_id, the address is one.
+        "distinct_id": distinct_id or to,
+        "variables": message_data,
+    }
+    try:
+        response = run_transactional_workflow(team.id, str(hog_flow_id), payload)
+    except Exception as e:
+        logger.exception("transactional_email_queue_failed", team_id=team.id, template_id=str(template_id))
+        raise DeliveryUnavailable() from e
+
+    if response.status_code != 202:
+        if response.status_code == 429:
+            raise QuotaLimited("The project is over its email quota.")
+        logger.error(
+            "transactional_email_queue_rejected",
+            team_id=team.id,
+            template_id=str(template_id),
+            status_code=response.status_code,
+        )
+        raise DeliveryUnavailable()
+
+    return QueuedEmail(message_id=str(response.json()["invocation_id"]))
