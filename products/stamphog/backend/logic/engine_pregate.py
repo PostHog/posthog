@@ -218,6 +218,8 @@ def _child_environment(root: Path, extra: Mapping[str, str]) -> dict[str, str]:
         # The engine asks git for the policy commit when it renders the review body. The tree is not a
         # repository, and this stops git from walking up into one that encloses the temp dir.
         "GIT_CEILING_DIRECTORIES": str(root.parent),
+        # The tree holds the PR head's folder files, so a `.stamphog/` among them must not become the root.
+        "STAMPHOG_REPO_ROOT": str(root),
         **extra,
     }
 

@@ -1205,6 +1205,7 @@ def _run_reviewer(
     command = (
         f'export AI_GATEWAY_API_KEY="$(cat {token_path})" && rm -f {token_path} && '
         f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
+        f"STAMPHOG_REPO_ROOT={shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} "
         f"STAMPHOG_LAUNCHED_AT_MS=$(date +%s%3N) {_harden_reviewer_command(invocation.command)}"
     )
     with timer.step("reviewer"):
@@ -2217,8 +2218,9 @@ def _review_payload_command() -> str:
     """Wipe the PR head's copies of everything the archive carries, then extract the archive.
 
     Written AFTER checkout, so the trusted default-branch policy and review norms win over whatever
-    the (untrusted) PR head carried. The engine reads them from the tree at import via its repo-root
-    walk, which is what makes the run judge the PR against our policy, not the PR's own.
+    the (untrusted) PR head carried. The engine reads them at import from the checkout root that the
+    reviewer command names in STAMPHOG_REPO_ROOT, which is what makes the run judge the PR against our
+    policy, not the PR's own.
 
     Every policy path's PR-head copy is deleted first, required AND optional: an uninjected optional
     file (a repo with no steering.md) must not leave the PR head's planted copy behind for the engine
@@ -2231,15 +2233,8 @@ def _review_payload_command() -> str:
     """
     repo_dir = shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)
     policy_paths = " ".join(shlex.quote(path) for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS))
-    # The engine takes the nearest `.stamphog/` above its own directory as the repository root, so a
-    # PR-head copy in a directory between the checkout root and the engine would shadow the trusted one.
-    planted_roots = " ".join(
-        shlex.quote(f"{parent}/.stamphog")
-        for parent in PurePosixPath(_ENGINE_RELATIVE_DIR).parents
-        if str(parent) != "."
-    )
     return (
-        f"cd {repo_dir} && rm -f {policy_paths} && rm -rf {planted_roots} && "
+        f"cd {repo_dir} && rm -f {policy_paths} && "
         f"rm -rf {shlex.quote(_ENGINE_RELATIVE_DIR)} {shlex.quote(_OWNERS_RELATIVE_DIR)} && "
         f"tar -xzf {shlex.quote(STAMPHOG_SANDBOX_PAYLOAD_PATH)} --no-same-owner && "
         f"rm -f {shlex.quote(STAMPHOG_SANDBOX_PAYLOAD_PATH)}"
@@ -2251,8 +2246,8 @@ def _ship_review_payload(
 ) -> None:
     """Place the trusted policy, the engine, the owners resolver and the review context in the checkout.
 
-    The engine goes under ``<checkout>/tools/pr-approval-agent``, so its repo-root walk lands on the
-    checkout and reads the injected trusted policy. We always run our version, not the PR's.
+    The engine goes under ``<checkout>/tools/pr-approval-agent`` and reads the injected trusted policy
+    from the checkout root. We always run our version, not the PR's.
     """
     sandbox.write_file(STAMPHOG_SANDBOX_PAYLOAD_PATH, _review_payload_archive(policy_files, context_json))
     result = sandbox.execute(_review_payload_command(), timeout_seconds=_step_timeout(deadline, 60))

@@ -23,6 +23,7 @@ Security posture (see .stamphog/README.md):
   it reaches the reviewer prompt, where it sits inside the untrusted region.
 """
 
+import os
 import re
 import functools
 from collections.abc import Iterable, Mapping
@@ -68,7 +69,14 @@ def repo_root() -> Path:
     same checked-out tree as this script, never from wherever the process runs.
     The single resolver for the whole tool; cached, the tree never moves
     mid-process.
+
+    A hosted run names the checkout in STAMPHOG_REPO_ROOT. The checkout is the
+    untrusted PR head, so a `.stamphog/` that the PR adds between the checkout
+    root and the engine would otherwise become the root.
     """
+    explicit_root = os.environ.get("STAMPHOG_REPO_ROOT")
+    if explicit_root:
+        return Path(explicit_root).resolve()
     here = Path(__file__).resolve().parent
     for parent in [here, *here.parents]:
         if (parent / ".stamphog").is_dir() or (parent / ".git").exists():

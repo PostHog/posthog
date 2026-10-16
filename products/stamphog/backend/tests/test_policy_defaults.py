@@ -154,7 +154,6 @@ def test_review_payload_command_wipes_optional_paths_from_pr_head() -> None:
     assert ".stamphog/steering.md" in wipe
     assert ".stamphog/policy.yml" in wipe
     assert "rm -rf tools/pr-approval-agent tools/owners" in wipe
-    assert "rm -rf tools/.stamphog" in wipe
     assert extract
 
 

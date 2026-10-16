@@ -411,7 +411,10 @@ def test_a_final_gate_verdict_is_posted_without_a_sandbox_review(
     run = ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).latest("created_at")
     assert run.output["pregate_outcome"] == expect_pregate_outcome
     if expect_in_body is None:
-        assert any("review_local.py" in command for command in stamphog_chain.sandbox_class.executed_commands)
+        reviewer_commands = [c for c in stamphog_chain.sandbox_class.executed_commands if "review_local.py" in c]
+        assert reviewer_commands
+        # A PR can add a .stamphog/ between the checkout root and the engine, so the root is named, not found.
+        assert all("STAMPHOG_REPO_ROOT=" in command for command in reviewer_commands)
         assert "fast_path" not in run.output
         return
 

@@ -934,3 +934,17 @@ def test_review_body_without_familiarity_has_no_familiarity_bullet() -> None:
     body = _body_pipeline(None)._render_review_body()
     assert body is not None
     assert "familiarity" not in body.lower()
+
+
+def test_explicit_repo_root_wins_over_a_nearer_stamphog_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The hosted checkout is the PR head, and the engine sits at tools/pr-approval-agent. A PR that adds
+    # tools/.stamphog/ would become the root of the upward walk and supply its own policy.
+    (tmp_path / ".stamphog").mkdir()
+    (tmp_path / "tools" / ".stamphog").mkdir(parents=True)
+    monkeypatch.setenv("STAMPHOG_REPO_ROOT", str(tmp_path))
+    policy.repo_root.cache_clear()
+    try:
+        assert policy.repo_root() == tmp_path.resolve()
+    finally:
+        monkeypatch.delenv("STAMPHOG_REPO_ROOT")
+        policy.repo_root.cache_clear()
