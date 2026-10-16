@@ -57,6 +57,7 @@ def monitoring_metric_query(query: dict[str, Any], *, start: datetime, cutoff: d
                 "date_from": start.isoformat(),
                 "date_to": cutoff.isoformat(),
                 "explicitDate": True,
+                "excludeIncompletePeriods": False,
             },
         },
     }

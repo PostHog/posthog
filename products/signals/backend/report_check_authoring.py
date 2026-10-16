@@ -517,7 +517,8 @@ def _arm_pending_checks(
             and bool(check.config.get("monitoring"))
         )
         if interim:
-            next_run_at = resolved_at + timedelta(minutes=monitoring_interval_minutes(check.run_interval_minutes))
+            last_sample_at = max(resolved_at, check.last_run_at or resolved_at)
+            next_run_at = last_sample_at + timedelta(minutes=monitoring_interval_minutes(check.run_interval_minutes))
         elif check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
             try:
                 config = parse_check_config(check.kind, check.config)
