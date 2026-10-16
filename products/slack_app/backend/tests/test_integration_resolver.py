@@ -14,6 +14,7 @@ from products.slack_app.backend.services.integration_resolver import (
     UserAndIntegrationsResolution,
     load_integrations,
     pick_a_project_message,
+    project_named_in_text,
     resolve_from_candidates,
     resolve_user_for_workspace,
     unresolved_user_properties,
@@ -821,6 +822,43 @@ class TestPickAProjectMessage:
         assert "<!channel>" not in message
         assert "&lt;!channel&gt;" in message
         assert "<https://evil.example|Open PostHog>" not in message
+
+
+class TestProjectNamedInText:
+    PROJECTS = {
+        "production": (11, "Production"),
+        "staging": (12, "Staging"),
+        "fernwood": (13, "Fernwood"),
+        "fernwood_sandbox": (14, "Fernwood sandbox"),
+    }
+
+    @classmethod
+    def _projects(cls) -> list[Integration]:
+        return [
+            Integration(id=team_id, team=Team(id=team_id, name=name), kind="slack", integration_id=WORKSPACE)
+            for team_id, name in cls.PROJECTS.values()
+        ]
+
+    @pytest.mark.parametrize(
+        "text, expected",
+        [
+            ("<@U0BOT> why is staging throwing 500s", "staging"),
+            ("<@U0BOT> in PRODUCTION, which exports failed?", "production"),
+            ("<@U0BOT> check signups in Fernwood   Sandbox", "fernwood_sandbox"),
+            ("<@U0BOT> how many orders did Fernwood take today", "fernwood"),
+            ("<@U0BOT> look at <https://us.posthog.com/project/12/insights|this chart>", "staging"),
+            ("<@U0BOT> for project #11 count the signups", "production"),
+            ("<@U0BOT> how many signups last week", None),
+            ("<@U0BOT> compare staging and production", None),
+            ("<@U0BOT> we had 12 errors in the prestaging run", None),
+            ("<@U0BOT> look at project 99", None),
+            ("<@U0BOT> summarize <#C123|staging>", None),
+        ],
+    )
+    def test_reads_the_one_named_project(self, text, expected):
+        named = project_named_in_text(text, self._projects())
+
+        assert (named.team.name if named else None) == (self.PROJECTS[expected][1] if expected else None)
 
 
 class TestUnresolvedUserProperties:

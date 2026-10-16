@@ -106,7 +106,7 @@ class TestProjectPickerFlow(TestCase):
         return {
             "blocks": mock_picker.call_args.kwargs["blocks"] if mock_picker.called else None,
             "hint_posted": mock_hint.called,
-            "drop": drops[0],
+            "drop": drops[0] if drops else None,
         }
 
     @override_settings(DEBUG=True)
@@ -157,6 +157,17 @@ class TestProjectPickerFlow(TestCase):
         assert outcome["drop"]["picker_shown"] is expect_picker
         assert outcome["drop"]["replied"] is True
         self.mock_start.assert_not_called()
+
+    def test_mention_that_names_a_project_skips_the_picker(self):
+        self.event["text"] = "<@U0BOT> how many signups last week on staging"
+
+        outcome = self._mention()
+
+        assert outcome["blocks"] is None
+        assert outcome["hint_posted"] is False
+        assert outcome["drop"] is None
+        assert self.mock_start.call_args.args[1] == self.staging
+        assert self._saved_default() is None
 
     def test_pick_runs_the_original_mention_and_saves_the_default(self):
         blocks = self._mention()["blocks"]
