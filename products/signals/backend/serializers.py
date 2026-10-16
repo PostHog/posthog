@@ -2213,6 +2213,14 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
         config = representation.get("config")
         if isinstance(config, Mapping):
             config = dict(config)
+            if "monitoring" in config:
+                enabled_by_team = cast(
+                    dict[int, bool], self.context.setdefault("report_monitoring_enabled_by_team", {})
+                )
+                if instance.team_id not in enabled_by_team:
+                    enabled_by_team[instance.team_id] = team_report_monitoring_enabled(instance.team_id)
+                if not enabled_by_team[instance.team_id]:
+                    config.pop("monitoring")
             if instance.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
                 metric = next(
                     (
