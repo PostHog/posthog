@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 use common_types::{CapturedEvent, RawEvent};
 
-use capture::config::EnvelopeCompression;
+use capture::config::{Config, EnvelopeCompression};
 use capture::outputs::OutputRegistry;
 use capture::producers::{self, ProducerRegistry};
 use capture::sinks::kafka::KafkaSink;
@@ -34,6 +34,13 @@ fn v1_test_context() -> RequestContext {
 }
 
 async fn v1_outputs(topic: &str) -> OutputRegistry {
+    v1_outputs_with(topic, |_| {}).await
+}
+
+async fn v1_outputs_with(
+    topic: &str,
+    override_outputs: impl FnOnce(&mut Config),
+) -> OutputRegistry {
     let producer_configs =
         producers::load_all(&test_producer_env()).expect("failed to load producer config");
     let producers = ProducerRegistry::build(&producer_configs, HashMap::new())
@@ -41,7 +48,9 @@ async fn v1_outputs(topic: &str) -> OutputRegistry {
 
     let mut config = DEFAULT_CONFIG.clone();
     point_outputs_at(&mut config, topic);
-    let table = OutputTable::from(&config.outputs).map_producers(|name| producers.get(*name));
+    override_outputs(&mut config);
+    let table = OutputTable::new(&config.outputs, config.capture_mode.has_ai_overflow_lane())
+        .map_producers(|name| producers.get(*name));
 
     OutputRegistry::single(KafkaSink::new(table, EnvelopeCompression::None))
 }
@@ -213,14 +222,18 @@ async fn v1_dropped_event_not_published() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Exception event routes to exception topic
+// Exception event routes to the error tracking topic
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn v1_exception_event_round_trip() -> Result<()> {
     setup_tracing();
     let topic = EphemeralTopic::new().await;
-    let outputs = v1_outputs(topic.topic_name()).await;
+    let exception_topic = EphemeralTopic::new().await;
+    let outputs = v1_outputs_with(topic.topic_name(), |config| {
+        config.outputs.error_tracking_topic = exception_topic.topic_name().to_string();
+    })
+    .await;
     let ctx = v1_test_context();
 
     let uuid = uuid::Uuid::new_v4();
@@ -235,12 +248,13 @@ async fn v1_exception_event_round_trip() -> Result<()> {
     assert_eq!(results.len(), 1);
     assert!(matches!(results[0].outcome, Outcome::Published));
 
-    let event_json = topic.next_event()?;
+    let event_json = exception_topic.next_event()?;
     let captured: CapturedEvent = serde_json::from_value(event_json)?;
     assert_eq!(captured.event, "$exception");
     assert_eq!(captured.uuid, uuid);
     assert_eq!(captured.distinct_id, "integ-user-exception");
 
+    exception_topic.assert_empty();
     topic.assert_empty();
     Ok(())
 }
@@ -364,14 +378,22 @@ async fn v1_empty_options_no_injection() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Multi-destination batch — events route correctly
+// Multi-destination batch — each event lands on its destination's topic
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn v1_multi_destination_batch() -> Result<()> {
     setup_tracing();
     let topic = EphemeralTopic::new().await;
-    let outputs = v1_outputs(topic.topic_name()).await;
+    let main_topic = EphemeralTopic::new().await;
+    let historical_topic = EphemeralTopic::new().await;
+    let overflow_topic = EphemeralTopic::new().await;
+    let outputs = v1_outputs_with(topic.topic_name(), |config| {
+        config.outputs.analytics_main_topic = main_topic.topic_name().to_string();
+        config.outputs.analytics_historical_topic = historical_topic.topic_name().to_string();
+        config.outputs.analytics_overflow_topic = overflow_topic.topic_name().to_string();
+    })
+    .await;
     let ctx = v1_test_context();
 
     let main_ev = test_utils::realistic_pageview("integ-dest-main");
@@ -387,17 +409,15 @@ async fn v1_multi_destination_batch() -> Result<()> {
         assert!(matches!(r.outcome, Outcome::Published));
     }
 
-    let mut distinct_ids = Vec::new();
-    for _ in 0..3 {
-        let json = topic.next_event()?;
-        let captured: CapturedEvent = serde_json::from_value(json)?;
-        distinct_ids.push(captured.distinct_id.clone());
+    for (dest_topic, expected_distinct_id) in [
+        (&main_topic, "integ-dest-main"),
+        (&historical_topic, "integ-dest-hist"),
+        (&overflow_topic, "integ-dest-overflow"),
+    ] {
+        let captured: CapturedEvent = serde_json::from_value(dest_topic.next_event()?)?;
+        assert_eq!(captured.distinct_id, expected_distinct_id);
+        dest_topic.assert_empty();
     }
-    distinct_ids.sort();
-    assert_eq!(
-        distinct_ids,
-        vec!["integ-dest-hist", "integ-dest-main", "integ-dest-overflow"]
-    );
 
     topic.assert_empty();
     Ok(())
