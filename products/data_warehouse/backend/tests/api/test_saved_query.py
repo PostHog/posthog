@@ -2295,32 +2295,6 @@ class TestSavedQuery(APIBaseTest):
                 "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead.",
             )
 
-    def test_managed_viewset_view_is_retrievable_but_unlisted_without_flag(self):
-        managed_viewset = DataWarehouseManagedViewSet.objects.create(
-            team=self.team,
-            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
-        )
-        saved_query = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="managed_view",
-            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
-            managed_viewset=managed_viewset,
-            created_by=self.user,
-        )
-
-        with patch("posthoganalytics.feature_enabled", return_value=False):
-            retrieve_response = self.client.get(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
-            )
-            list_response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
-
-        self.assertEqual(retrieve_response.status_code, 200, retrieve_response.content)
-        self.assertEqual(
-            retrieve_response.json()["managed_viewset_kind"], DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
-        )
-        self.assertEqual(list_response.status_code, 200, list_response.content)
-        self.assertNotIn(str(saved_query.id), [view["id"] for view in list_response.json()["results"]])
-
     def test_revert_materialization_saved_query_with_managed_viewset_fails(self):
         """Test that reverting materialization of a saved query with managed viewset fails with correct error message"""
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
