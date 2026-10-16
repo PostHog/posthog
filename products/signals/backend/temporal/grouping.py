@@ -41,7 +41,7 @@ from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
-from products.signals.backend.spend import signal_spend_summaries
+from products.signals.backend.spend import complete_signal_pipeline, signal_spend_summaries
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
@@ -1167,6 +1167,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             db_result.report_id, input.team_id
         ):
             report_title = ""
+        await database_sync_to_async(complete_signal_pipeline)(
+            team_id=input.team_id, signal_id=input.signal_id, report_id=db_result.report_id
+        )
         return AssignAndEmitSignalOutput(
             report_id=db_result.report_id,
             promoted=db_result.promoted,

@@ -226,3 +226,11 @@ Missing data, failed checks, and inconclusive results do not establish that the 
 
 When a report has a linked task run, the View task button opens it in the PostHog AI sidebar.
 The button fits its label, including when it appears below the Solution section.
+
+## Spend completion
+
+Each signal or scout run owns one cumulative `SignalSpend` row. Request IDs and task-run IDs identify contributions within that row, so activity retries and repeated usage updates replace the same contribution rather than charge it twice. Each task run contributes one task fee. Resumed runs remain attached to the signal that originally started the task, even if the report has since acquired a different triggering signal.
+
+`finalized_at` is set only after the owner's pipeline and workflow work has finished and all recorded costs are known. The summary workflow keeps spend open through its implementation buffer and dispatch decision. Task workflow teardown closes the individual run; the existing gateway-usage workflow can settle costs that arrive later. Failed and cancelled runs can finalize once their usage is settled. A later run reopens the same owner row. Billing consumers must account for previously reported spend when reading a reopened row.
+
+The migration preserves historical source contributions in owner rows but does not infer historical completion from a terminal task status. The old source table remains readable during rolling deployment so late writes from older workers can be incorporated without double counting. New workers write only owner rows. Removing that compatibility table requires a later migration after old workers have drained. Billing product selection and limit enforcement are unchanged.

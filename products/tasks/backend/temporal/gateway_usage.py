@@ -2,6 +2,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from asgiref.sync import async_to_sync
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
@@ -12,6 +13,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.utils import asyncify
 
+    from products.signals.backend.facade.spend import publish_signal_spend, refresh_task_spend
     from products.tasks.backend.logic.services.gateway_usage import process_pending_gateway_usage
     from products.tasks.backend.models import TaskRun
 
@@ -28,6 +30,9 @@ class GatewayUsageInput:
 def reconcile_gateway_usage(input: GatewayUsageInput) -> int:
     try:
         process_pending_gateway_usage(run_id=UUID(input.run_id), team_id=input.team_id)
+        signal_id = refresh_task_spend(team_id=input.team_id, run_id=input.run_id)
+        if signal_id:
+            async_to_sync(publish_signal_spend)(team_id=input.team_id, signal_id=signal_id, wait_for_completion=False)
         state = TaskRun.objects.get(id=input.run_id, team_id=input.team_id).state or {}
         return len(state.get("unprocessed_request_ids", []))
     except TaskRun.DoesNotExist:

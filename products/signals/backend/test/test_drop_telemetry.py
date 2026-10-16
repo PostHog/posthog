@@ -1,8 +1,13 @@
+from uuid import uuid4
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
 from temporalio.exceptions import ActivityError, ApplicationError
 
+from posthog.sync import database_sync_to_async
+
+from products.signals.backend.models import SignalSpend
 from products.signals.backend.temporal.drop_telemetry import (
     CaptureSignalDroppedInput,
     capture_signal_dropped,
@@ -43,10 +48,12 @@ def _make_activity_error(cause: BaseException) -> ActivityError:
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_capture_signal_dropped_activity_emits_event(ateam):
+    signal_id = str(uuid4())
     with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture:
         await capture_signal_dropped_activity(
             CaptureSignalDroppedInput(
                 team_id=ateam.id,
+                signal_id=signal_id,
                 source_product="signals_scout",
                 source_type="cross_source_issue",
                 source_id="run:abc:finding:def",
@@ -63,6 +70,9 @@ async def test_capture_signal_dropped_activity_emits_event(ateam):
         )
 
     capture.assert_called_once()
+    spend = await database_sync_to_async(lambda: SignalSpend.objects.for_team(ateam.id).get(signal_id=signal_id))()
+    assert spend.finalized_at is not None
+    assert spend.token_cost_microusd == 0
     kwargs = capture.call_args.kwargs
     assert kwargs["event"] == "signal_dropped"
     assert kwargs["distinct_id"] == str(ateam.uuid)

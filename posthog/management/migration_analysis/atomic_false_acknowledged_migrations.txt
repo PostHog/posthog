@@ -55,3 +55,5 @@ posthog.1383_taggeditem_untrack_legacy_keys
 ee.0064_split_identity_provider_config_scopes
 conversations.0076_tag_legacy_conversation_attachments
 posthog.1398_remove_userproductlist_state
+# Copies absolute contributions in batches; source IDs and observation timestamps make retries idempotent.
+signals.0187_backfill_owner_spend
