@@ -51,13 +51,14 @@ class TestInsightRules(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no recorded views", [], True),
-            ("views from the last week", [[TODAY - timedelta(days=6)], [TODAY]], True),
-            ("a view two weeks ago", [[TODAY], [TODAY - timedelta(days=14)]], False),
+            ("the day recording started", date(2026, 10, 16), True),
+            ("the last warm-up day", date(2026, 10, 29), True),
+            ("two weeks after recording started", date(2026, 10, 30), False),
+            ("months later", date(2027, 3, 1), False),
         ]
     )
-    def test_is_warming_up(self, _name: str, view_days: list[list[date]], expected: bool) -> None:
-        self.assertEqual(routine.is_warming_up(view_days, TODAY), expected)
+    def test_is_warming_up(self, _name: str, today: date, expected: bool) -> None:
+        self.assertEqual(routine.is_warming_up(today), expected)
 
     @parameterized.expand(
         [

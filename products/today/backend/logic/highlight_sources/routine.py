@@ -19,6 +19,7 @@ ROUTINE_WINDOW_DAYS = 28
 DAILY_ROUTINE_DAYS = 8
 WARMUP_ROUTINE_DAYS = 2
 WARMUP_HISTORY_DAYS = 14
+VIEW_DAYS_RECORDED_SINCE = date(2026, 10, 16)
 WEEKLY_ROUTINE_WEEKS = 3
 ROUTINE_CANDIDATES = 6
 ROUTINE_TILES = 2
@@ -43,10 +44,9 @@ def routine_days(view_days: Sequence[date], today: date, warming_up: bool = Fals
     return len(recent) if daily or weekly else 0
 
 
-def is_warming_up(view_days: Sequence[Sequence[date]], today: date) -> bool:
-    """Whether the person's recorded view days are too short a history for the daily rule."""
-    earliest = min((day for days in view_days for day in days), default=None)
-    return earliest is None or (today - earliest).days < WARMUP_HISTORY_DAYS
+def is_warming_up(today: date) -> bool:
+    """Whether view days have been recorded for too short a time for the daily rule."""
+    return (today - VIEW_DAYS_RECORDED_SINCE).days < WARMUP_HISTORY_DAYS
 
 
 def _routine_insights(context: Context) -> list[str]:
@@ -56,7 +56,7 @@ def _routine_insights(context: Context) -> list[str]:
         type="insight",
         viewed_at__gte=timezone.now() - timedelta(days=ROUTINE_WINDOW_DAYS),
     ).values_list("ref", "view_days", "viewed_at")
-    warming_up = is_warming_up([days or [] for _ref, days, _viewed_at in views], context.today)
+    warming_up = is_warming_up(context.today)
     ranked = sorted(
         ((routine_days(days or [], context.today, warming_up), viewed_at, ref) for ref, days, viewed_at in views),
         reverse=True,
