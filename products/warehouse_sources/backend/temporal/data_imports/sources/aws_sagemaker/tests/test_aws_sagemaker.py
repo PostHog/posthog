@@ -362,6 +362,23 @@ def execution(arn: str) -> ScriptedResponse:
             ["arn-z1"],
             [AwsSagemakerResumeConfig(complete=True)],
         ),
+        (
+            None,
+            [
+                ScriptedResponse(json={"PipelineSummaries": [{"PipelineName": "zeta"}, {"PipelineName": "alpha"}]}),
+                ScriptedResponse(status=400, json={"__type": "ResourceNotFound"}),
+                ScriptedResponse(json={"PipelineExecutionSummaries": [{"PipelineExecutionArn": "arn-z1"}]}),
+                execution("arn-z1"),
+            ],
+            [
+                ("ListPipelines", {}),
+                ("ListPipelineExecutions", {"PipelineName": "alpha"}),
+                ("ListPipelineExecutions", {"PipelineName": "zeta"}),
+                ("DescribePipelineExecution", {"PipelineExecutionArn": "arn-z1"}),
+            ],
+            ["arn-z1"],
+            [AwsSagemakerResumeConfig(parent_name="zeta"), AwsSagemakerResumeConfig(complete=True)],
+        ),
     ],
 )
 def test_pipeline_executions_walk_every_pipeline_and_resume_from_the_saved_one(

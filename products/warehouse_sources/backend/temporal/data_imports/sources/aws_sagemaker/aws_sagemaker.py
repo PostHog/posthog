@@ -273,16 +273,26 @@ def get_rows(
         start = state.parent_name if state else None
         parents = [name for name in parent_names(client, settings.parent, manager) if start is None or name >= start]
         for index, name in enumerate(parents):
-            yield from list_pages(
-                client,
-                settings,
-                manager,
-                watermark,
-                incremental,
-                token if name == start else None,
-                parent_name=name,
-                following_parent=parents[index + 1] if index + 1 < len(parents) else None,
-            )
+            following = parents[index + 1] if index + 1 < len(parents) else None
+            try:
+                yield from list_pages(
+                    client,
+                    settings,
+                    manager,
+                    watermark,
+                    incremental,
+                    token if name == start else None,
+                    parent_name=name,
+                    following_parent=following,
+                )
+            except AwsSagemakerError as error:
+                # A parent deleted during the walk must not stop the walk over the remaining parents.
+                if error.code != "ResourceNotFound":
+                    raise
+                manager.save_state(
+                    AwsSagemakerResumeConfig(watermark=watermark, complete=following is None, parent_name=following)
+                )
+                manager.safe_point()
     finally:
         client.close()
 
