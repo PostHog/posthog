@@ -160,6 +160,16 @@ def _property_group_columns_read(events_sql: str) -> list[str]:
     return sorted(column for column in columns if re.search(rf"\b{re.escape(column)}\b", events_sql))
 
 
+# Events names a materialized property column mat_<property>, and a dynamic slot dmat_string_<n>. A
+# persons subquery reads pmat_ columns the same way on both tables, so this leaves them out.
+_EVENTS_MATERIALIZED_COLUMN = re.compile(r"(?<![\w$])(?:mat_|dmat_string_)[\w$]+")
+
+
+def _materialized_columns_read(events_sql: str) -> list[str]:
+    """The events materialized columns that an events-compiled fragment reads."""
+    return sorted(set(_EVENTS_MATERIALIZED_COLUMN.findall(events_sql)))
+
+
 # Compiling a predicate builds the full HogQL schema graph, which is slow. The Django admin
 # recompiles it on every stats/preview render, so cache the result in the shared Django cache
 # (Redis). Keyed by request id and guarded by the predicate text it was compiled from, so a
@@ -347,12 +357,13 @@ class UncopiedRowsPredicate:
 def uncopied_rows_predicate(obj, target: "DeletionTarget") -> UncopiedRowsPredicate:
     """``obj``'s HogQL predicate compiled for the rows of ``target`` that have no copy in ``target.copied_from``.
 
-    The predicate cannot run there when events reads any part of it from a property-group map,
-    which only the events tables have. The map decodes JSON escapes, so a stored ``"a\\"b"`` reads
-    as ``a"b`` from the map and as ``a\\"b`` from raw JSON. With ``propertyGroupsMode`` set to
-    ``optimized``, events also compares a map value as a string for ``=``, ``!=`` and ``IN``, where
-    a raw JSON read casts a typed property to its defined type. So the two tables could match
-    different rows.
+    The predicate cannot run there when events reads any part of it from a property-group map or a
+    materialized column, which only the events tables have. The map decodes JSON escapes, so a stored
+    ``"a\\"b"`` reads as ``a"b`` from the map and as ``a\\"b`` from raw JSON. With
+    ``propertyGroupsMode`` set to ``optimized``, events also compares a map value as a string for
+    ``=``, ``!=`` and ``IN``, where a raw JSON read casts a typed property to its defined type. A
+    materialized column reads an empty string and the string ``"null"`` as NULL, and a nullable one
+    decodes JSON escapes. So the two tables could match different rows.
     """
     if target.uncopied_rows_hogql_table is None:
         return UncopiedRowsPredicate(compiled=None, error="This table has no HogQL table to compile it against.")
@@ -364,6 +375,13 @@ def uncopied_rows_predicate(obj, target: "DeletionTarget") -> UncopiedRowsPredic
                 error=f"Events reads it from the property-group map {', '.join(map_columns)}, which decodes JSON "
                 f"escapes and compares typed values as strings. {target.uncopied_rows_hogql_table} reads the raw "
                 "JSON, so the two can match different rows.",
+            )
+        if materialized_columns := _materialized_columns_read(events_sql):
+            return UncopiedRowsPredicate(
+                compiled=None,
+                error=f"Events reads it from the materialized column {', '.join(materialized_columns)}, which "
+                f"reads an empty string and the string 'null' as NULL. {target.uncopied_rows_hogql_table} reads "
+                "the raw JSON, so the two can match different rows.",
             )
         return UncopiedRowsPredicate(
             compiled=compile_hogql_predicate(obj, hogql_table=target.uncopied_rows_hogql_table)

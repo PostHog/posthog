@@ -369,10 +369,25 @@ def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
         ("NOT elements_chain ILIKE '%checkout%'", "elements_chain"),
         ("properties.plan = 'pro'", "property-group map"),
         ("properties.`$feature/beta` = 'true'", "property-group map"),
+        # mat_$browser reads a stored "" as NULL, and the raw JSON read on flag_evaluations reads it as "".
+        ("properties.$browser = ''", "materialized column mat_$browser"),
+        ("properties.$browser IS NULL", "materialized column mat_$browser"),
     ],
-    ids=["person_id", "person_id_through_person", "elements_chain", "custom_property", "feature_flag_property"],
+    ids=[
+        "person_id",
+        "person_id_through_person",
+        "elements_chain",
+        "custom_property",
+        "feature_flag_property",
+        "materialized_property_equals_empty_string",
+        "materialized_property_is_null",
+    ],
 )
-def test_uncopied_rows_predicate_refuses_what_flag_evaluations_rows_cannot_answer(team, predicate, error_match):
+def test_uncopied_rows_predicate_refuses_what_flag_evaluations_rows_cannot_answer(
+    team, request, predicate, error_match
+):
+    if "$browser" in predicate:
+        request.getfixturevalue("materialized_browser")
     uncopied = uncopied_rows_predicate(_flag_call_request(team, predicate), FLAG_EVALUATIONS)
 
     assert uncopied.compiled is None

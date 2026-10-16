@@ -9,7 +9,6 @@ from typing import NoReturn
 from uuid import UUID, uuid4
 
 import pytest
-from posthog.test.base import materialized
 from unittest.mock import Mock, patch
 
 from django.conf import settings as django_settings
@@ -71,7 +70,6 @@ from posthog.models.data_deletion_request import (
     RequestStatus,
     RequestType,
     auto_approve_pending_requests,
-    compile_hogql_predicate,
     count_remaining_for_request,
 )
 from posthog.models.deletion_targets import (
@@ -2577,18 +2575,6 @@ def _delete_uuid(table: str, uuid: UUID, client: Client) -> None:
     )
 
 
-@pytest.fixture
-def materialized_browser(cluster: ClickhouseCluster):
-    with materialized("events", "$browser"):
-        yield
-
-
-def _assert_events_reads_materialized_browser(obj) -> None:
-    # flag_evaluations has no mat_ columns, so an events fragment run there fails instead of matching.
-    events_sql, _ = compile_hogql_predicate(obj)
-    assert "mat_$browser" in events_sql
-
-
 def _deferred_hogql_flag_request(
     name: str, hogql_predicate: str = "properties.$browser = 'Chrome'"
 ) -> tuple[DataDeletionRequest, DeletionRequestContext]:
@@ -2625,12 +2611,11 @@ def _deferred_hogql_flag_request(
     ],
 )
 def test_deferred_event_removal_with_a_hogql_predicate_reaches_flag_evaluations_through_event_uuids(
-    cluster: ClickhouseCluster, materialized_browser: None, hogql_predicate: str
+    cluster: ClickhouseCluster, hogql_predicate: str
 ) -> None:
     from posthog.models.data_deletion_request import verify_queued_request
 
     request, ctx = _deferred_hogql_flag_request("test-deferred-hogql-flag-copies", hogql_predicate)
-    _assert_events_reads_materialized_browser(request)
     now = datetime.now(UTC)
     earlier = now - timedelta(days=10)
     chrome, firefox, earlier_chrome, drifted = uuid4(), uuid4(), uuid4(), uuid4()
@@ -2713,12 +2698,11 @@ def test_deferred_event_removal_with_a_hogql_predicate_reaches_flag_evaluations_
     ],
 )
 def test_deferred_event_removal_with_a_hogql_predicate_handles_flag_rows_without_an_event(
-    cluster: ClickhouseCluster, materialized_browser: None, hogql_predicate: str, refusal: str | None
+    cluster: ClickhouseCluster, hogql_predicate: str, refusal: str | None
 ) -> None:
     from posthog.models.data_deletion_request import verify_queued_request
 
     request, ctx = _deferred_hogql_flag_request("test-deferred-hogql-flag-no-copy", hogql_predicate)
-    _assert_events_reads_materialized_browser(request)
     earlier = datetime.now(UTC) - timedelta(days=10)
     chrome, firefox = uuid4(), uuid4()
     cluster.any_host(_truncate_adhoc_events_deletion).result()
@@ -3079,7 +3063,6 @@ def test_full_job_property_removal_survives_the_ttl_dropping_reingested_flag_eva
 )
 def test_immediate_event_deletion_of_flag_evaluations(
     cluster: ClickhouseCluster,
-    request: pytest.FixtureRequest,
     events: list[str],
     delete_all_events: bool,
     hogql_predicate: str,
@@ -3091,8 +3074,6 @@ def test_immediate_event_deletion_of_flag_evaluations(
 
     org = Organization.objects.create(name="test-org-immediate-flag-evaluations")
     team = Team.objects.create(organization=org, name="test-team-immediate-flag-evaluations")
-    if hogql_predicate:
-        request.getfixturevalue("materialized_browser")
     now = datetime.now(UTC)
     event_uuid = uuid4()
 
@@ -3120,8 +3101,6 @@ def test_immediate_event_deletion_of_flag_evaluations(
         delete_all_events=delete_all_events,
         hogql_predicate=hogql_predicate,
     )
-    if hogql_predicate:
-        _assert_events_reads_materialized_browser(deletion_ctx)
     with pytest.raises(dagster.Failure, match=refusal) if refusal else nullcontext():
         _run_event_deletion(cluster, deletion_ctx)
 

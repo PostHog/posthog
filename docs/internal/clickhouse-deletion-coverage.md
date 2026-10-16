@@ -256,10 +256,10 @@ On cloud, `propertyGroupsMode` is `optimized`, and events reads a custom propert
 The map is built with `JSONExtractKeysAndValues(properties, 'String')`, which decodes JSON escapes, so a stored `"a\"b"` reads as `a"b`.
 For `=`, `!=` and `IN`, the `optimized` rewrite also compares a typed property as a string.
 `flag_evaluations` has no property-group map, so it reads the raw JSON with the surrounding quotes stripped, which reads `a\"b`, and it casts a typed property to its defined type.
-The compile therefore refuses a predicate whenever the events compile of it reads a property-group map.
-Every other property reads raw JSON on `flag_evaluations`.
-On cloud, events reads some `$` properties from `mat_` columns instead, and those still differ on edge values: the column reads an empty string and the string `"null"` as NULL, and a nullable column decodes escapes.
-Events itself returns different results for those values once a key is materialized, and the guard does not cover them.
+On cloud, events reads some `$` properties from `mat_` or `dmat_string_` columns instead, and those differ on edge values: the column reads an empty string and the string `"null"` as NULL, and a nullable column decodes escapes.
+So with `$browser` materialized, `properties.$browser = ''` excludes a row that stores `""` on events and matches it on `flag_evaluations`.
+The compile therefore refuses a predicate whenever the events compile of it reads a property-group map or a materialized column.
+Every property the compile accepts reads raw JSON on both tables.
 It also refuses one that needs a join, such as `person_id`, because the fragment is spliced into a bare WHERE that has no join.
 `person.properties` and `elements_chain` do not resolve on the table, so those predicates fail to compile.
 
