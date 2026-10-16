@@ -245,7 +245,18 @@ export function LogsAlertTrigger(): JSX.Element {
                 </LemonField.Pure>
                 <LemonField.Pure
                     label="Notification cooldown"
-                    help="The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. Cooldown sets the minimum time between notifications. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. Set to 0 for no minimum."
+                    help={
+                        <div className="flex flex-col gap-1">
+                            <span>Set to 0 for no minimum.</span>
+                            <span>The alert notifies once when it starts firing, and once when it resolves.</span>
+                            <span>It does not re-notify unless it resolves and then fires again.</span>
+                            <span>
+                                Cooldown sets the minimum time between notifications. No notifications are sent during
+                                cooldown.
+                            </span>
+                            <span>Cooldown does not apply to PagerDuty incidents.</span>
+                        </div>
+                    }
                 >
                     <div className="flex items-center gap-2">
                         <LemonInput
