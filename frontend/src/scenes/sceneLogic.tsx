@@ -23,6 +23,7 @@ import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { markBootPhase } from 'lib/utils/bootTiming'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -56,7 +57,7 @@ import { AccessControlLevel } from '~/types'
 
 import { handleLoginRedirect } from './authentication/login/loginLogic'
 import { parseCouponCampaign } from './coupons/utils'
-import { isOnboardingRedirectSuppressed } from './onboarding/legacy/onboardingDelegationState'
+import { isOnboardingRedirectSuppressed } from './onboarding/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { isPathOpenWhileProjectPendingDeletion, projectLogic } from './projectLogic'
@@ -804,6 +805,10 @@ export const sceneLogic = kea<sceneLogicType>([
             await cache.homepageSave
         },
         setScene: ({ sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
+            if (exportedScene) {
+                markBootPhase('scene_loaded', { scene: sceneId })
+            }
+
             const {
                 sceneId: lastSceneId,
                 sceneKey: lastSceneKey,
@@ -1161,7 +1166,7 @@ export const sceneLogic = kea<sceneLogicType>([
         // already at it, which also guards against loops when the homepage is the launchpad itself.
         const redirectToConfiguredHomepage = (searchParams: Params, hashParams: Params): boolean => {
             const homepage = values.homepage
-            // The rail nav makes /home the Today briefing and has no control to change the homepage,
+            // The rail nav makes /home the Today page and has no control to change the homepage,
             // so a homepage saved before the rail would hide Today with no way back.
             if (!homepage || values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
                 return false

@@ -191,6 +191,7 @@ const accountsTableConcurrencyController = new ConcurrencyController(2)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
 const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
+const productAnalyticsHomeConcurrencyController = new ConcurrencyController(6, { batchStart: true })
 
 function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
     if (isAccountsTableQuery(query)) {
@@ -202,6 +203,10 @@ function getConcurrencyController(query: DataNode, currentTeam: TeamType): Concu
 
     if (activeScene === Scene.MarketingAnalytics) {
         return marketingAnalyticsConcurrencyController
+    }
+
+    if (activeScene === Scene.SavedInsights) {
+        return productAnalyticsHomeConcurrencyController
     }
 
     if (
@@ -443,8 +448,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
-            | null
-            | undefined,
+            | null,
         payload?: {
             overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
@@ -468,7 +472,6 @@ export interface dataNodeLogicActions {
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
             | null
-            | undefined
         payload?: {
             overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
@@ -1098,7 +1101,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     if (props.doNotLoad) {
-                        return props.cachedResults
+                        return props.cachedResults ?? null
                     }
 
                     const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null

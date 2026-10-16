@@ -44,13 +44,31 @@ class TestElasticsearchSource:
         self.team_id = 123
         self.config = _config()
 
+    @pytest.mark.parametrize(
+        "indices, data_streams, names, expected",
+        [
+            (
+                ["orders", "accounts"],
+                ["metrics-app", "logs-web"],
+                None,
+                ["accounts", "logs-web", "metrics-app", "orders"],
+            ),
+            (["orders"], [], None, ["orders"]),
+            ([], ["logs-web"], None, ["logs-web"]),
+            (["accounts", "orders"], ["logs-web"], ["orders", "logs-web"], ["logs-web", "orders"]),
+        ],
+    )
+    @mock.patch(f"{_SOURCE_MODULE}.list_data_streams")
     @mock.patch(f"{_SOURCE_MODULE}.list_indices")
-    def test_get_schemas_filtered_by_names(self, mock_list):
-        mock_list.return_value = ["accounts", "orders"]
+    def test_get_schemas_lists_indices_and_data_streams(
+        self, mock_indices, mock_streams, indices, data_streams, names, expected
+    ):
+        mock_indices.return_value = indices
+        mock_streams.return_value = data_streams
 
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["orders"])
+        schemas = self.source.get_schemas(self.config, self.team_id, names=names)
 
-        assert [s.name for s in schemas] == ["orders"]
+        assert [s.name for s in schemas] == expected
 
     @mock.patch(f"{_SOURCE_MODULE}.validate_elasticsearch_credentials")
     @mock.patch.object(ElasticsearchSource, "is_database_host_valid")

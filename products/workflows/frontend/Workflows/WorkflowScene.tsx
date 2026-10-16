@@ -21,6 +21,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
+import { DRAFT_SOURCE_PARAM } from '../MessageAudience/aiEmailDraft'
 import { EMAIL_PREFILL_PARAM } from '../MessageAudience/messageDrafts'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
@@ -38,6 +39,7 @@ import {
     buildWorkflowAgentContext,
     isEditingEmailAction,
 } from './workflowAgentContext'
+import { WorkflowAiEmailDraftStatus } from './WorkflowAiEmailDraftStatus'
 import { WorkflowAssets } from './WorkflowAssets'
 import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
@@ -77,12 +79,16 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const rawEmailPrefill = searchParams[EMAIL_PREFILL_PARAM]
     const emailPrefill =
         rawEmailPrefill && typeof rawEmailPrefill !== 'string' ? JSON.stringify(rawEmailPrefill) : rawEmailPrefill
+    const rawDraftSource = searchParams[DRAFT_SOURCE_PARAM]
+    const draftSource =
+        rawDraftSource && typeof rawDraftSource !== 'string' ? JSON.stringify(rawDraftSource) : rawDraftSource
     const workflowProps: WorkflowLogicProps = {
         id: workflowSceneProps.id,
         templateId,
         editTemplateId,
         triggerPrefill,
         emailPrefill,
+        draftSource,
         entrySource: typeof entrySource === 'string' ? entrySource : undefined,
     }
 
@@ -229,6 +235,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             <BindLogic logic={workflowLogic} props={workflowProps}>
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
+                {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
                 {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (

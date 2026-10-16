@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import type { XAxisConfig, ChartMargins } from '@posthog/quill-charts'
+import type { XAxisConfig, ChartMargins, ValueDomain } from '@posthog/quill-charts'
 
 import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -43,6 +43,8 @@ export type SqlChartProps = {
     labelFormatter?: (label: string) => string
     xAxis?: XAxisConfig
     margins?: Partial<ChartMargins>
+    /** Shared bounds for comparable charts rendered from the same worksheet result. */
+    valueDomain?: ValueDomain
     children?: ReactNode
 }
 

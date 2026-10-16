@@ -441,6 +441,7 @@ Each reply has a short button label and the full text the button sends. Every re
 - not guess information the answer asks the person for, such as a name, a value or a repository
 - be in the same language as the answer
 - mean something different from every other reply
+- if the answer offers to check something first and then make a change, such as a pull request, not ask for the check and the change together unless another reply asks for the check alone
 
 Answer `yes` if every reply follows all of these rules. Answer `no` if one reply breaks one rule.
 """.strip(),
