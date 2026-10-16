@@ -431,7 +431,15 @@ class TestSplitHotPartitionsInPlace:
         deltalake.write_deltalake(path, result.table, partition_by=PARTITION_KEY)
         return deltalake.DeltaTable(path)
 
-    def _split(self, live: deltalake.DeltaTable, current: dict | None, buckets: dict[str, int]) -> Mock:
+    def _split(
+        self,
+        live: deltalake.DeltaTable,
+        current: dict | None,
+        buckets: dict[str, int],
+        *,
+        done: list[str] | None = None,
+        should_stop: Any = None,
+    ) -> Mock:
         target = RepartitionTarget(
             partition_keys=["created_at"],
             trigger_reason="t",
@@ -440,8 +448,10 @@ class TestSplitHotPartitionsInPlace:
             hot_split={"hash_keys": ["uid"], "buckets": buckets},
         )
         schema = _schema(id="s1", partition_hot_split=current)
+        staged = {"state": "staged", "split": target.hot_split, "done": done or []}
         with (
-            patch.object(hot_partitions_module, "stage_hot_partition_split", Mock(return_value=True)),
+            patch.object(hot_partitions_module, "stage_hot_partition_split", Mock(return_value=staged)),
+            patch.object(hot_partitions_module, "mark_hot_split_partition_done", Mock(return_value=True)),
             patch.object(hot_partitions_module, "finalize_hot_partition_split", Mock(return_value=True)) as finalize,
             patch.object(hot_partitions_module, "_ensure_claim", new=AsyncMock()),
         ):
@@ -452,6 +462,7 @@ class TestSplitHotPartitionsInPlace:
                     target=target,
                     logger=logger,
                     claim_token="tok",
+                    should_stop=should_stop,
                 )
             )
         assert result["outcome"] == "completed"
@@ -482,6 +493,28 @@ class TestSplitHotPartitionsInPlace:
         assert {
             f for f in deltalake.DeltaTable(path).file_uris() if f"{PARTITION_KEY}=2024-01-01T11" in f
         } == cold_files
+
+    def test_a_resumed_split_skips_the_partitions_it_already_finished(self, tmp_path):
+        path = str(tmp_path / "live")
+        self._write(path, [f"u{index}" for index in range(20)], [10] * 10 + [12] * 10)
+        finished = {f for f in deltalake.DeltaTable(path).file_uris() if f"{PARTITION_KEY}=2024-01-01T10" in f}
+
+        self._split(deltalake.DeltaTable(path), None, {"2024-01-01T10": 3, "2024-01-01T12": 3}, done=["2024-01-01T10"])
+
+        files = deltalake.DeltaTable(path).file_uris()
+        assert {f for f in files if f"{PARTITION_KEY}=2024-01-01T10" in f} == finished
+        assert not any(f"{PARTITION_KEY}=2024-01-01T12/" in f for f in files)
+
+    def test_a_stop_during_a_partition_leaves_it_on_its_old_keys(self, tmp_path):
+        path = str(tmp_path / "live")
+        self._write(path, [f"u{index}" for index in range(30)], [10] * 30)
+        before = self._keys_by_uid(path)
+        checks = iter([False, True])
+
+        with pytest.raises(RepartitionStoppedError):
+            self._split(deltalake.DeltaTable(path), None, {"2024-01-01T10": 3}, should_stop=lambda: next(checks, True))
+
+        assert self._keys_by_uid(path) == before
 
 
 class TestSelectCoarsenTarget:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import decimal
 import hashlib
 import datetime
 from collections.abc import Mapping
@@ -108,9 +109,20 @@ def next_hot_split(
     return HotPartitionSplit(hash_keys=split.hash_keys, buckets=buckets)
 
 
+def _hash_input(value: Any) -> Any:
+    # The loader hashes a batch before it is cast to the stored types and the split rewrite hashes the
+    # stored values, so an integer key that arrives as 7.0 must hash as the stored 7 does.
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, decimal.Decimal) and value.is_finite() and value == value.to_integral_value():
+        return int(value)
+    return value
+
+
 def md5_bucket(values: list[Any], count: int) -> int:
+    joined = "|".join(str(_hash_input(value)) for value in values)
     # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
-    return int(hashlib.md5("|".join(str(value) for value in values).encode()).hexdigest(), 16) % count
+    return int(hashlib.md5(joined.encode()).hexdigest(), 16) % count
 
 
 def append_cursor_partition_keys(schema: ExternalDataSchema, *, table_is_replaced: bool = False) -> list[str] | None:

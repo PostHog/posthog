@@ -2172,6 +2172,13 @@ def test_next_hot_split_sizes_each_over_budget_partition_to_half_the_budget(curr
     assert split.hash_keys == (["uid"] if existing else ["other"])
 
 
+@pytest.mark.parametrize("value", [7, 7.0, decimal.Decimal("7"), decimal.Decimal("7.00")])
+def test_a_hot_split_hashes_an_integral_key_the_same_whatever_its_numeric_type(value):
+    split = HotPartitionSplit(hash_keys=["id"], buckets={"2026-10-01T10": 64})
+
+    assert split.key_for("2026-10-01T10", [value]) == split.key_for("2026-10-01T10", [7])
+
+
 def test_billing_limit_exception_is_non_reportable_error():
     # Subclassing NonReportableError is what keeps the intentional billing-limit halt out of
     # error tracking (the activity interceptor re-raises these without capturing them).
