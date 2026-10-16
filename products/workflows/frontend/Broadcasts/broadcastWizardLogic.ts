@@ -126,6 +126,7 @@ export type BroadcastWizardStep = 'recipients' | 'goal' | 'content' | 'schedule'
 const DEFAULT_BROADCAST_NAME = 'New broadcast'
 const EMAIL_AUTOSAVE_RETRIES = 3
 const EMAIL_AUTOSAVE_RETRY_MS = 2000
+const REALTIME_COHORT_STATUS_POLL_MS = 10000
 
 export const BROADCAST_WIZARD_STEPS: BroadcastWizardStep[] = ['recipients', 'goal', 'content', 'schedule', 'review']
 
@@ -2120,6 +2121,26 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     listeners(({ actions, values, cache }) => ({
         loadBlastRadius: () => {
             actions.loadRecipientsWithoutEmail(null)
+        },
+        loadBlastRadiusSuccess: async ({ blastRadius }, breakpoint) => {
+            // The send button reads the realtime cohort's status from the audience size, and the cohort can
+            // finish or recover while the page stays open. Only the size is refreshed, not the recipient check.
+            const state = blastRadius?.realtime_cohort?.state
+            if (!values.currentProjectId || !state || state === 'ready') {
+                return
+            }
+            await breakpoint(REALTIME_COHORT_STATUS_POLL_MS)
+            let refreshed: BlastRadiusApi
+            try {
+                refreshed = await hogFlowsUserBlastRadiusCreate(String(values.currentProjectId), {
+                    filters: { properties: values.audienceProperties },
+                    dedupe_key: 'email',
+                })
+            } catch {
+                return
+            }
+            breakpoint()
+            actions.loadBlastRadiusSuccess(refreshed)
         },
         setEmail: () => {
             if (

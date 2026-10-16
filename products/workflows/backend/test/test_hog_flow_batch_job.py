@@ -186,6 +186,8 @@ class TestHogFlowBatchJob(TestCase):
             # The resolver already ran, so there is nothing left to wake.
             ("resolver_finished", "calculated", 200, "job_completed", "waiting", True, False),
             ("another_cohort", "another_cohort", 200, "resumed", "waiting", False, False),
+            # The run parked on this cohort, so it resumes even after an edit drops the behavioral filter.
+            ("now_property_only", "property_only", 200, "resumed", "queued", True, False),
         ]
     )
     @patch("products.workflows.backend.services.batch_jobs.resume_hog_flow_batch_job")
@@ -208,6 +210,15 @@ class TestHogFlowBatchJob(TestCase):
         job = HogFlowBatchJob.objects.create(
             team=self.team, hog_flow=self.hog_flow, filters=self._realtime_audience(cohort)
         )
+        if cohort_state == "property_only":
+            Cohort.objects.filter(pk=cohort.pk).update(
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"key": "plan", "type": "person", "value": "pro", "operator": "exact"}],
+                    }
+                }
+            )
         if cohort_state != "calculating":
             Cohort.objects.filter(pk=cohort.pk).update(
                 last_backfill_events_at=datetime(2026, 1, 1, tzinfo=UTC),

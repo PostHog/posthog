@@ -9,6 +9,9 @@ from products.workflows.backend.services.batch_jobs import resume_batch_jobs_wai
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.DEFAULT.value,
+    # The ready signal fires once and a resume is idempotent, so a task a dying worker held runs again.
+    acks_late=True,
+    reject_on_worker_lost=True,
     autoretry_for=(Exception,),
     retry_backoff=True,
     # The ready signal fires once, so the retries span the run's 24-hour wait at up to 10 minutes apart,

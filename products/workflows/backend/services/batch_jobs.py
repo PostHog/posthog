@@ -19,11 +19,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import batch_job_audience_filters
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
-from products.workflows.backend.services.batch_audience_cohorts import (
-    realtime_audience_cohort,
-    realtime_cohort_is_ready,
-    sole_audience_cohort_id,
-)
+from products.workflows.backend.services.batch_audience_cohorts import realtime_cohort_is_ready, sole_audience_cohort_id
 
 logger = structlog.get_logger(__name__)
 
@@ -163,9 +159,10 @@ def resume_batch_jobs_waiting_for_cohort(*, team_id: int, cohort_id: int) -> Non
         filters = batch_job_audience_filters(job)
         if str(sole_audience_cohort_id(filters)) != str(cohort_id):
             continue
-        # A cohort edit during this loop clears the readiness stamps, so each run checks a fresh load.
-        audience_cohort = realtime_audience_cohort(job.team.project_id, filters)
-        if audience_cohort is None or audience_cohort.pk != cohort_id or not realtime_cohort_is_ready(audience_cohort):
+        # A cohort edit during this loop clears the readiness stamps, so each run checks a fresh load. The run
+        # parked on this cohort, so an edit that drops its behavioral filters still resumes it once ready.
+        fresh_cohort = Cohort.objects.filter(pk=cohort_id, team_id=team_id, deleted=False).first()
+        if fresh_cohort is None or not realtime_cohort_is_ready(fresh_cohort):
             continue
         try:
             response = resume_hog_flow_batch_job(

@@ -11,7 +11,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { BlastRadiusApi, HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { draftMessage } from '../MessageAudience/messageDrafts'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
@@ -568,6 +568,53 @@ describe('broadcastWizardLogic', () => {
             expect(router.values.searchParams).toEqual({ step })
         }
     )
+
+    it('refreshes the realtime cohort status until the cohort is ready', async () => {
+        const states = ['needs_attention', 'ready']
+        let calls = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/user_blast_radius/': async ({ request }) => {
+                    // The recipient email check posts here too, with an extra condition.
+                    const { filters } = (await request.json()) as { filters: { properties: unknown[] } }
+                    if (filters.properties.length > 1) {
+                        return [200, { affected: 0, total: 0 }]
+                    }
+                    const state = states[Math.min(calls++, states.length - 1)]
+                    return [
+                        200,
+                        {
+                            affected: 0,
+                            total: 0,
+                            realtime_cohort: { id: 42, name: 'Upgraded', state, percent_complete: null },
+                        },
+                    ]
+                },
+            },
+        })
+        const statusLoaded =
+            (state: string) =>
+            (action: { type: string; payload?: { blastRadius?: BlastRadiusApi | null } }): boolean =>
+                action.type === logic.actionTypes.loadBlastRadiusSuccess &&
+                action.payload?.blastRadius?.realtime_cohort?.state === state
+        await expectLogic(logic, () => {
+            logic.actions.setAudienceProperties([
+                { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
+            ])
+        }).toDispatchActions([statusLoaded('needs_attention')])
+
+        jest.useFakeTimers()
+        try {
+            await jest.advanceTimersByTimeAsync(10000)
+            await expectLogic(logic).toDispatchActions([statusLoaded('ready')])
+            expect(logic.values.blastRadius?.realtime_cohort?.state).toEqual('ready')
+
+            await jest.advanceTimersByTimeAsync(30000)
+            expect(calls).toEqual(2)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
 
     const dynamicCohort = { id: 42, name: 'Upgraded', is_static: false, is_calculating: true }
     it.each([
