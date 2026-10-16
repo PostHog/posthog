@@ -17,14 +17,9 @@ function backingSize(cssSize: number, dpr: number): number {
  *  Returns whether the backing store was reallocated — i.e. whether the bitmap was wiped and a
  *  repaint is now mandatory.
  *
- *  Assigning `canvas.width` or `canvas.height` resets the bitmap to transparent black — even when
- *  the assigned value is identical to the current one. The draw loops repaint on the *next*
- *  animation frame, so every redundant assignment costs one fully blank painted frame, and a
- *  container that keeps reporting resizes (a scrollbar appearing and disappearing on an
- *  `overflow: auto` ancestor, an animating panel) wipes the bitmap faster than it is repainted —
- *  the chart reads as blank while its DOM axis labels keep rendering. `ResizeObserver` also
- *  delivers an initial observation on top of the synchronous first measure, so the redundant case
- *  happens on every mount. */
+ *  Assigning `canvas.width` or `canvas.height` resets the bitmap to transparent black and
+ *  reallocates it, even when the assigned value is identical to the current one. Callers sync on
+ *  every paint, so a redundant assignment would reallocate the bitmap on every frame. */
 export function syncCanvasSize(canvas: HTMLCanvasElement, rect: SizeRect, dpr: number): boolean {
     const width = backingSize(rect.width, dpr)
     const height = backingSize(rect.height, dpr)
