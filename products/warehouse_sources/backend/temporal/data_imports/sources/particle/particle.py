@@ -67,10 +67,18 @@ def _product_id(config: ParticleSourceConfig) -> str | None:
 
 
 def event_prefixes(config: ParticleSourceConfig) -> list[str]:
+    """Configured prefixes, in order, without any that a broader prefix already covers.
+
+    Particle matches on prefix, so a hook for `env/` already receives `env/temp`; a second hook
+    for `env/temp` would deliver (and capture) every such publish twice.
+    """
+    requested = [prefix.strip() for prefix in (config.event_prefixes or "").split(",")]
+    requested = [prefix for prefix in requested if prefix]
     prefixes: list[str] = []
-    for prefix in (config.event_prefixes or "").split(","):
-        prefix = prefix.strip()
-        if prefix and prefix not in prefixes:
+    for prefix in requested:
+        if any(other != prefix and prefix.startswith(other) for other in requested):
+            continue
+        if prefix not in prefixes:
             prefixes.append(prefix)
     return prefixes
 
@@ -183,17 +191,15 @@ def create_webhook(config: ParticleSourceConfig, webhook_url: str) -> WebhookCre
     if not prefixes:
         return WebhookCreationResult(success=False, error=NO_PREFIXES_ERROR)
 
+    created_ids: list[str] = []
+    session = _session(config)
+    base_url = _integrations_url(config)
     try:
-        session = _session(config)
-        base_url = _integrations_url(config)
-        # Every hook carries the same fresh secret, so hooks left by an earlier setup are removed
-        # rather than left delivering with a secret the webhook function no longer accepts.
-        for hook in _list_our_hooks(session, config, webhook_url):
-            response = session.delete(f"{base_url}/{hook['id']}", timeout=REQUEST_TIMEOUT_SECONDS)
-            if _is_auth_error(response):
-                return WebhookCreationResult(success=False, error=WEBHOOK_AUTH_ERROR)
-            _raise_for_status(response, "cleanup")
+        stale_hooks = _list_our_hooks(session, config, webhook_url)
 
+        # The secret is only stored when every hook exists, so a hook created before a later
+        # failure would deliver with a secret PostHog never accepts. Create first, and remove the
+        # earlier setup's hooks last, so a failed setup leaves the previous configuration working.
         secret = secrets.token_urlsafe(32)
         for prefix in prefixes:
             response = session.post(
@@ -212,15 +218,38 @@ def create_webhook(config: ParticleSourceConfig, webhook_url: str) -> WebhookCre
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
             if _is_auth_error(response):
+                _delete_hooks(session, base_url, created_ids)
                 return WebhookCreationResult(success=False, error=WEBHOOK_AUTH_ERROR)
             _raise_for_status(response, "creation")
+            hook_id = response.json().get("id") if response.content else None
+            if hook_id is not None:
+                created_ids.append(str(hook_id))
+
+        # Every hook carries the same fresh secret, so hooks left by an earlier setup are removed
+        # rather than left delivering with a secret the webhook function no longer accepts.
+        for hook in stale_hooks:
+            response = session.delete(f"{base_url}/{hook['id']}", timeout=REQUEST_TIMEOUT_SECONDS)
+            if _is_auth_error(response):
+                _delete_hooks(session, base_url, created_ids)
+                return WebhookCreationResult(success=False, error=WEBHOOK_AUTH_ERROR)
+            _raise_for_status(response, "cleanup")
 
         return WebhookCreationResult(success=True, extra_inputs={"signing_secret": secret})
     except Exception as e:
         logger.exception(f"Particle: failed to create webhook: {e}")
+        _delete_hooks(session, base_url, created_ids)
         return WebhookCreationResult(
             success=False, error=f"Failed to create the Particle webhook: {e}. Please create it manually below."
         )
+
+
+def _delete_hooks(session: Session, base_url: str, hook_ids: list[str]) -> None:
+    """Best-effort removal of hooks this setup created before it failed."""
+    for hook_id in hook_ids:
+        try:
+            session.delete(f"{base_url}/{hook_id}", timeout=REQUEST_TIMEOUT_SECONDS)
+        except Exception as e:
+            logger.warning(f"Particle: failed to remove webhook {hook_id} after a failed setup: {e}")
 
 
 def get_external_webhook_info(config: ParticleSourceConfig, webhook_url: str) -> ExternalWebhookInfo:

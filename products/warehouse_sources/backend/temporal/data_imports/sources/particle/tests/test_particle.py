@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.particle.p
     _webhook_table_transformer,
     create_webhook,
     delete_webhook,
+    event_prefixes,
     get_external_webhook_info,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.particle.settings import WEBHOOK_SECRET_HEADER
@@ -62,6 +63,31 @@ class TestDevices:
         assert [row["id"] for row in result.rows] == ["d1", "d2"]
 
 
+class TestSchemas:
+    def test_events_is_webhook_only_so_it_cannot_be_switched_to_full_refresh(self):
+        schemas = {s.name: s for s in ParticleSource().get_schemas(_config(), team_id=1)}
+
+        assert schemas["events"].supports_webhooks is True
+        assert schemas["events"].webhook_only is True
+        assert schemas["devices"].webhook_only is False
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("env/, status", ["env/", "status"]),
+        # Particle matches by prefix, so `env/` already receives `env/temp`; a second hook would
+        # capture every `env/temp` publish twice.
+        ("env/, env/temp, status", ["env/", "status"]),
+        ("env/temp, env/", ["env/"]),
+        ("env/, env/", ["env/"]),
+        (" , ", []),
+    ],
+)
+def test_event_prefixes_drop_prefixes_covered_by_a_broader_one(raw, expected):
+    assert event_prefixes(_config(event_prefixes=raw)) == expected
+
+
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status", "product_id", "expected_path", "expected_error"),
@@ -93,9 +119,9 @@ class TestWebhooks:
         with scripted_network(
             [
                 ScriptedResponse(json=listing),
-                ScriptedResponse(status=204),
                 ScriptedResponse(status=201, json={"ok": True, "id": "h1"}),
                 ScriptedResponse(status=201, json={"ok": True, "id": "h2"}),
+                ScriptedResponse(status=204),
             ]
         ) as network:
             result = create_webhook(_config(product_id=product_id), WEBHOOK_URL)
@@ -105,14 +131,15 @@ class TestWebhooks:
         assert secret
         requests = network.requests_log
         # Every hook shares one secret, so a stale hook from an earlier setup is removed rather
-        # than left delivering with a secret the function no longer accepts.
+        # than left delivering with a secret the function no longer accepts. It is removed only
+        # after the new hooks exist, so a failed setup keeps the previous configuration.
         assert [(r.method, r.path) for r in requests] == [
             ("GET", base_path),
+            ("POST", base_path),
+            ("POST", base_path),
             ("DELETE", f"{base_path}/stale"),
-            ("POST", base_path),
-            ("POST", base_path),
         ]
-        bodies = [requests[2].json(), requests[3].json()]
+        bodies = [requests[1].json(), requests[2].json()]
         assert [body["event"] for body in bodies] == ["env/", "status"]
         for body in bodies:
             assert body["integration_type"] == "Webhook"
@@ -133,6 +160,29 @@ class TestWebhooks:
 
         assert result.success is False
         assert result.error == WEBHOOK_AUTH_ERROR
+
+    @pytest.mark.parametrize("status", [403, 500])
+    def test_create_rolls_back_new_hooks_and_keeps_old_ones_when_a_later_hook_fails(self, status):
+        # The first hook registers, the second fails: the first must not stay active with a
+        # secret PostHog never stored, and the stale hook from the previous setup must survive.
+        with scripted_network(
+            [
+                ScriptedResponse(json=[_hook("stale")]),
+                ScriptedResponse(status=201, json={"ok": True, "id": "h1"}),
+                ScriptedResponse(status=status, json={"ok": False}),
+                ScriptedResponse(status=204),
+            ]
+        ) as network:
+            result = create_webhook(_config(), WEBHOOK_URL)
+
+        assert result.success is False
+        assert not result.extra_inputs
+        assert [(r.method, r.path) for r in network.requests_log] == [
+            ("GET", "/v1/integrations"),
+            ("POST", "/v1/integrations"),
+            ("POST", "/v1/integrations"),
+            ("DELETE", "/v1/integrations/h1"),
+        ]
 
     def test_create_rejects_a_config_without_prefixes(self):
         with scripted_network([]) as network:

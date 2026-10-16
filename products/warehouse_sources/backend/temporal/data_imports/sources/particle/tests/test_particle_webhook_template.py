@@ -114,6 +114,22 @@ class TestParticleWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
         assert properties["particle_device_id"] == DEVICE_ID
         assert properties["$process_person_profile"] is False
 
+    def test_sandbox_device_data_cannot_forge_product_metadata(self):
+        # Product fields render empty for sandbox devices, so nothing overwrites them after the
+        # merge; the reserved keys must be dropped from the device data instead.
+        self.run_function(
+            self._inputs(),
+            globals=self._request(
+                '{"particle_product_id": "forged", "particle_firmware_version": "forged", "temp": 1}',
+                query=self._query(product_id="", firmware_version=""),
+            ),
+        )
+
+        properties = self.get_mock_posthog_capture_calls()[0][0]["properties"]
+        assert "particle_product_id" not in properties
+        assert "particle_firmware_version" not in properties
+        assert properties["temp"] == 1
+
     def test_sandbox_devices_omit_empty_product_fields(self):
         # Product variables render empty for devices outside a product, and an empty string
         # property would read as a real value in breakdowns.

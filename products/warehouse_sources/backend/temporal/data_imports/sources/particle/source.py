@@ -91,11 +91,11 @@ class ParticleSource(
             featureFlag="dwh-particle",
             caption="""Connect your [Particle](https://www.particle.io) devices. PostHog creates the Particle webhooks for you, and every `Particle.publish()` that matches your event name prefixes arrives as a PostHog event on that device, ready for insights, dashboards and alerts.
 
-Use an **API user** token. In the Particle console, open your product (or sandbox) → **Team** → **Add API user**, and give it these scopes:
+For **product devices**, use an **API user** token. In the Particle console, open your product → **Team** → **Add API user**, and give it these scopes:
 - `devices:list` to sync your device list
 - `integrations:list`, `integrations:create` and `integrations:remove` so PostHog can manage its webhooks
 
-Leave **Product ID** empty to use the devices you own in your sandbox.
+For **sandbox devices**, Particle has no API users, so use a personal access token for your account (`particle token create --never-expires` in the Particle CLI) and leave **Product ID** empty.
 """,
             iconPath="/static/services/particle.png",
             docsUrl="https://posthog.com/docs/cdp/sources/particle",
@@ -175,6 +175,8 @@ Leave **Product ID** empty to use the devices you own in your sandbox.
                 supports_append=False,
                 incremental_fields=[],
                 supports_webhooks=endpoint in WEBHOOK_SCHEMA_NAMES,
+                # Particle keeps no event history, so a full refresh would only delete the table.
+                webhook_only=endpoint in WEBHOOK_SCHEMA_NAMES,
             )
             for endpoint in ENDPOINTS
         ]
