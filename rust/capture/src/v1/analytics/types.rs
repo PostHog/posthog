@@ -347,17 +347,51 @@ pub struct WrappedEvent {
 }
 
 impl WrappedEvent {
-    /// Option keys that dropped this event; recomputed since only drops need it.
     pub fn failed_option_keys(&self) -> OptionKeys {
-        match self.details {
-            Some(DETAIL_INVALID_OPTIONS) => self
-                .event
-                .options
-                .validate()
-                .err()
-                .map_or_else(OptionKeys::default, OptionsError::failed_keys),
-            _ => OptionKeys::default(),
+        failed_option_keys(&self.event, self.details)
+    }
+}
+
+#[derive(Debug)]
+pub struct ValidatedEvent {
+    pub event: Event,
+    pub uuid: Uuid,
+    pub options: Options,
+    pub adjusted_timestamp: Option<DateTime<Utc>>,
+    pub result: EventResult,
+    pub details: Option<&'static str>,
+    pub force_disable_person_processing: bool,
+}
+
+impl ValidatedEvent {
+    pub fn into_wrapped(self, destination: Destination) -> WrappedEvent {
+        WrappedEvent {
+            event: self.event,
+            uuid: self.uuid,
+            options: self.options,
+            adjusted_timestamp: self.adjusted_timestamp,
+            result: self.result,
+            details: self.details,
+            destination,
+            force_disable_person_processing: self.force_disable_person_processing,
+            spread_partitions: false,
+            is_gateway_verified: false,
         }
+    }
+
+    pub fn failed_option_keys(&self) -> OptionKeys {
+        failed_option_keys(&self.event, self.details)
+    }
+}
+
+fn failed_option_keys(event: &Event, details: Option<&'static str>) -> OptionKeys {
+    match details {
+        Some(DETAIL_INVALID_OPTIONS) => event
+            .options
+            .validate()
+            .err()
+            .map_or_else(OptionKeys::default, OptionsError::failed_keys),
+        _ => OptionKeys::default(),
     }
 }
 
@@ -446,12 +480,6 @@ impl Publishable for WrappedEvent {
         buf
     }
 
-    /// Computed here rather than stamped during processing because it depends
-    /// on the final destination: `apply_restrictions` can disable person
-    /// processing while an event is still `AnalyticsMain`, and
-    /// `apply_historical_rerouting` may afterwards move it to
-    /// `AnalyticsHistorical`, whose consumers need the key. Deciding late
-    /// keeps the rule correct no matter how the stages are ordered.
     fn ordering(&self) -> OrderingGuarantee {
         if !self.destination.absorbs_hot_keys() {
             return OrderingGuarantee::PerDistinctId;

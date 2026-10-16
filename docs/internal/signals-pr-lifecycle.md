@@ -55,6 +55,27 @@ Custom HogQL aggregations are parsed before a metric or check is authored. Inval
 
 Protected research runs require analytics access before a person can resume or warm a successor. The successor’s bound sandbox can read the verified source history through authenticated log routes, but cannot modify the source run.
 
+## Inbox value summary
+
+The `signals-inbox-value-summary` flag shows project-wide counts above the web
+inbox in both layouts. It is disabled by default. The rolling seven-day window
+uses GitHub merge time and includes only PRs verified as output from Self-driving
+implementation tasks. Manual attachments and research or discussion tasks do not
+count. Personal inbox filters do not change the totals.
+
+The people count deduplicates human GitHub IDs across mergers and non-dismissed
+approvals submitted before merge. Approvals can predate the seven-day window.
+Bots do not count. A missing participant snapshot leaves the people count unknown,
+not zero. The response includes the merged PR links and the GitHub logins stored in
+the participant snapshot. GitHub reads run in a background task; opening the inbox
+only reads the database.
+
+The panel stays hidden when there are no qualifying merges. Dismissal lasts seven
+days and is stored per user and project in that browser. On return, the client
+refreshes a result older than five minutes. Before rollout, apply the migrations,
+run `backfill_inbox_summary --team-id <id>` in bounded batches, and check the counts
+against the linked GitHub PRs. The flag does not enable this backfill itself.
+
 ## Follow-up measurement timing
 
 Reopening or archiving a resolved report immediately parks its active checks and clears their measurement starts and dispatches. It resets both error and inconclusive retry streaks. Delayed resolution callbacks only arm checks while the report is still resolved. Results from an earlier measurement window or dispatch cannot update the current check.
