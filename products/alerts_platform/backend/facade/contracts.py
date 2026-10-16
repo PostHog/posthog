@@ -318,6 +318,27 @@ class PlatformOwnershipHandover:
     at: datetime
 
 
+class HandbackRefusal(StrEnum):
+    """Why the platform keeps an alert its source asked for back."""
+
+    # Firing episodes are keyed per stack, so a firing alert stays until it resolves.
+    FIRING = "firing"
+    # A platform check may be running and could record or notify after the handback.
+    CHECK_DUE = "check_due"
+    # A handback carries one alert on an interval cadence. A calendar schedule or grouped alerts stay.
+    NOT_PORTABLE = "not_portable"
+
+
+@frozen
+class PlatformHandback:
+    """The runtime state the source carries on from when the platform hands an alert back."""
+
+    state: PlatformAlertState
+    last_notified_at: datetime | None
+    consecutive_failures: int
+    next_check_at: datetime | None
+
+
 class SkipReason(StrEnum):
     """Why a check reached an outcome without a query answering it.
 

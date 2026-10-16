@@ -21,10 +21,12 @@ from products.alerts_platform.backend.facade.contracts import (
     Grouping,
     GroupingMode,
     GroupOutcome,
+    HandbackRefusal,
     InstanceCheckState,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
+    PlatformHandback,
     PlatformOwnershipHandover,
     source_condition,
 )
@@ -703,6 +705,47 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
         alert.last_notified_at = handover.last_notified_at
         alert.save(update_fields=["state", "last_notified_at"])
     return True
+
+
+def give_back_ownership(
+    *, team_id: int, legacy_configuration_id: UUID, at: datetime
+) -> PlatformHandback | HandbackRefusal:
+    """Hands a copied alert back to its source, or says why the platform keeps it.
+
+    The caller holds the source's row lock and writes the source's owner and state in the same
+    transaction. Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied,
+    and `ValueError` when the platform does not own it, because both owners change together.
+    """
+    with transaction.atomic():
+        configurations = PlatformAlertConfiguration.objects.for_team(team_id).select_for_update()
+        configuration = configurations.get(legacy_configuration_id=legacy_configuration_id)
+        if configuration.owner != PlatformAlertOwner.PLATFORM:
+            raise ValueError("the platform does not own this alert, so its owner disagrees with its source's")
+        alerts = list(PlatformAlert.objects.for_team(team_id).filter(configuration=configuration))
+        if configuration.recurrence_unit is not None or any(alert.grouping_key for alert in alerts):
+            return HandbackRefusal.NOT_PORTABLE
+        alert = alerts[0] if alerts else None
+        if alert is not None and (alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None):
+            return HandbackRefusal.FIRING
+        # The same rule discovery reads, so an alert discovery skips is never waited on. A check
+        # advances `next_check_at` when it records, so a row not due under this lock has no
+        # platform check between reading the alert and recording it.
+        if configurations.filter(pk=configuration.pk, enabled=True).filter(due_q(at)).exclude(suppressed()).exists():
+            return HandbackRefusal.CHECK_DUE
+
+        handback = PlatformHandback(
+            state=PlatformAlertState(_composed(configuration, alert).state),
+            last_notified_at=alert.last_notified_at if alert is not None else None,
+            consecutive_failures=configuration.consecutive_failures,
+            next_check_at=configuration.next_check_at,
+        )
+        configuration.owner = PlatformAlertOwner.SOURCE
+        configuration.owner_changed_at = at
+        # A check can still be running for a copy that is disabled or not due, and it records only
+        # rows still due, so this keeps it from recording and delivering after the handback.
+        configuration.next_check_at = max(configuration.next_check_at or at, at + _HANDOVER_FENCE)
+        configuration.save(update_fields=["owner", "owner_changed_at", "next_check_at"])
+        return handback
 
 
 def disable_configurations(

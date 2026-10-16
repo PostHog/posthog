@@ -10,6 +10,7 @@ rather than duplicates, and a later comparison can line the two stacks up per al
 """
 
 from collections.abc import Collection
+from datetime import datetime
 from typing import Final
 from uuid import UUID
 
@@ -20,6 +21,7 @@ from posthog.dataclasses import frozen
 from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
 from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, PlatformAlertUpsert, SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.logs.backend.alert_state_machine import AlertState
 from products.logs.backend.models import LogsAlertConfiguration
 
 logger = structlog.get_logger(__name__)
@@ -71,6 +73,31 @@ PLATFORM_HANDOVER_STATE: Final[dict[str, PlatformAlertState]] = {
     LogsAlertConfiguration.State.SNOOZED: PlatformAlertState.NOT_FIRING,
     LogsAlertConfiguration.State.ERRORED: PlatformAlertState.ERRORED,
     LogsAlertConfiguration.State.BROKEN: PlatformAlertState.BROKEN,
+}
+
+
+def logs_state_after_handback(
+    alert: LogsAlertConfiguration, platform_state: PlatformAlertState, at: datetime
+) -> AlertState:
+    """The logs state for an alert the platform hands back, the inverse of `PLATFORM_HANDOVER_STATE`.
+
+    The platform keeps a mute on `snooze_until` rather than as a state, and the logs API kept
+    writing snoozes to the logs row, so an active one stays the logs state.
+    """
+    if (
+        alert.state == LogsAlertConfiguration.State.SNOOZED
+        and alert.snooze_until is not None
+        and alert.snooze_until > at
+    ):
+        return AlertState.SNOOZED
+    return _LOGS_STATE_AFTER_HANDBACK[platform_state]
+
+
+_LOGS_STATE_AFTER_HANDBACK: Final[dict[PlatformAlertState, AlertState]] = {
+    PlatformAlertState.NOT_FIRING: AlertState.NOT_FIRING,
+    PlatformAlertState.SNOOZED: AlertState.NOT_FIRING,
+    PlatformAlertState.ERRORED: AlertState.ERRORED,
+    PlatformAlertState.BROKEN: AlertState.BROKEN,
 }
 
 
