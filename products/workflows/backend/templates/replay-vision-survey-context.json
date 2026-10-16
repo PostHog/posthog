@@ -134,7 +134,7 @@
                             "source": "events",
                             "properties": [
                                 {
-                                    "key": "toFloat(coalesce(properties.$survey_response, properties.$survey_questions[1].response)) <= 2",
+                                    "key": "toFloat(coalesce(properties[concat('$survey_response_', properties.$survey_questions[1].id)], properties.$survey_response)) <= 2",
                                     "type": "hogql",
                                     "value": null
                                 }
@@ -206,7 +206,7 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": "*{person.name}* left negative survey feedback\n\n*Rating:* {event.properties.$survey_response ?? event.properties.$survey_questions[1].response}\n\n*What happened in the session:*\n{variables.vision_summary}"
+                                    "text": "*{person.name}* left negative survey feedback\n\n*Rating:* {event.properties[concat('$survey_response_', event.properties.$survey_questions[1].id)] ?? event.properties.$survey_response}\n\n*What happened in the session:*\n{substring(variables.vision_summary, 1, 2500)}"
                                 }
                             },
                             {

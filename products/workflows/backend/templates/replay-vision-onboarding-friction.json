@@ -199,7 +199,7 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": "*{person.name}* had a rough start after signing up\n\n*Onboarding score:* {variables.vision_score} out of 5\n\n*Why:*\n{variables.vision_reasoning}"
+                                    "text": "*{person.name}* had a rough start after signing up\n\n*Onboarding score:* {variables.vision_score} out of 5\n\n*Why:*\n{substring(variables.vision_reasoning, 1, 2500)}"
                                 }
                             },
                             {
