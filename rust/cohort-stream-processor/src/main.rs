@@ -26,8 +26,9 @@ use cohort_stream_processor::observability::disk::SharedDiskUtilization;
 use cohort_stream_processor::observability::store_stats::{DiskProbe, StoreStatsSweeper};
 use cohort_stream_processor::observability::tokio_monitor::TokioRuntimeMonitor;
 use cohort_stream_processor::partitions::{
-    CohortConsumerContext, ConsumerPauser, Follower, FollowerSet, InputGroups, LiveWatermarks,
-    OffsetTracker, PartitionPauser, PartitionRouter,
+    AdmittedSplit, CohortConsumerContext, ConsumerPauser, Follower, FollowerSet, InputGroups,
+    LiveWatermarks, OffsetTracker, OwnershipAudit, PartitionPauser, PartitionRouter,
+    AUDIT_INTERVAL,
 };
 use cohort_stream_processor::producer::{
     CascadeSink, KafkaCascadeSink, KafkaMembershipSink, KafkaReconcileMarkerSink,
@@ -320,9 +321,17 @@ async fn async_main(config: Config) -> Result<()> {
         )
         .context("checking the checkpoint directory")?;
     }
-    let (store, restore) = open_store(&config, ownership, lineage, groups.clone())
+    let admitted = AdmittedSplit::admit(ownership, groups.clone()).await;
+    let (store, restore) = open_store(&config, &admitted, lineage, groups.clone())
         .await
         .context("opening RocksDB state store")?;
+    let claimed = {
+        let groups = groups.clone();
+        tokio::task::spawn_blocking(move || admitted.claim(&groups))
+            .await
+            .context("the ownership claim panicked")?
+            .context("claiming this pod's partitions")?
+    };
     let router = PartitionRouter::with_intake_cap(
         config.partition_channel_buffer,
         config.partition_intake_max_events,
@@ -474,7 +483,7 @@ async fn async_main(config: Config) -> Result<()> {
         ));
     }
     FollowerSet::new(followers)
-        .assign(&ownership)
+        .assign(&claimed)
         .context("assigning the follower consumers this pod's partitions")?;
 
     let guard = manager.monitor_background();
@@ -555,6 +564,13 @@ async fn async_main(config: Config) -> Result<()> {
         .start_monitoring(tokio_monitor_handle),
     );
 
+    tokio::spawn(run_sweep_loop(
+        OwnershipAudit::new(groups.clone(), claimed, consumer_handle.clone()),
+        AUDIT_INTERVAL,
+        "ownership_audit",
+        consumer_handle.shutdown_token(),
+    ));
+
     // Whole-DB checkpoints to the local volume and S3, from boot to the final one on a graceful stop.
     // The loop waits for boot: a capture before the events rewind would record the broker's old
     // offsets of a pending restore.
@@ -589,6 +605,7 @@ async fn async_main(config: Config) -> Result<()> {
     let merge_follower = FollowerConsumer::<MergeRoute>::new(
         merges_follower_consumer,
         config.person_merge_events_topic.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         merge_follower_handle.clone(),
         config.recv_batch_size,
@@ -604,6 +621,7 @@ async fn async_main(config: Config) -> Result<()> {
     let transfer_follower = FollowerConsumer::<TransferRoute>::new(
         transfers_follower_consumer,
         config.cohort_merge_state_transfer_topic.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         transfer_follower_handle.clone(),
         config.recv_batch_size,
@@ -622,6 +640,7 @@ async fn async_main(config: Config) -> Result<()> {
         let cascade_follower = FollowerConsumer::<CascadeRoute>::new(
             cascade_consumer,
             config.cohort_cascade_events_topic.clone(),
+            claimed.stamp(),
             dispatcher.clone(),
             cascade_handle.clone(),
             config.recv_batch_size,
@@ -641,6 +660,7 @@ async fn async_main(config: Config) -> Result<()> {
         let seed_follower = SeedFollowerConsumer::new(
             seed_consumer,
             seed_topic,
+            claimed.stamp(),
             stream_consumer.clone(),
             config.cohort_stream_events_topic.clone(),
             dispatcher.clone(),
@@ -672,7 +692,7 @@ async fn async_main(config: Config) -> Result<()> {
         config.recv_batch_size,
         config.recv_batch_timeout(),
         config.offset_commit_interval(),
-        ownership,
+        &claimed,
         // A checkpoint restore boot finishes before anything folds; `None` when the store reopened
         // or was created.
         restore,

@@ -13,7 +13,7 @@
 //!
 //! Each test deletes its topics on the way out via `with_topics_cleanup`.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use chrono_tz::UTC;
 use cohort_stream_processor::cascade::{first_cascade, CascadeMessage};
+use cohort_stream_processor::config::Config;
 use cohort_stream_processor::consumers::{
     CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, MergeRoute,
     TransferRoute,
@@ -29,8 +30,9 @@ use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
 };
 use cohort_stream_processor::partitions::{
-    merge_partition_key, partition_of, CohortConsumerContext, Follower, FollowerSet, OffsetTracker,
-    PartitionOwnership, PartitionRouter, COHORT_PARTITION_COUNT,
+    merge_partition_key, partition_of, AdmittedSplit, ClaimedSplit, CohortConsumerContext,
+    Follower, FollowerSet, InputGroups, OffsetTracker, PartitionOwnership, PartitionRouter,
+    COHORT_PARTITION_COUNT,
 };
 use cohort_stream_processor::producer::{
     CascadeSink, CohortMembershipChange, KafkaCascadeSink, KafkaMembershipSink,
@@ -44,6 +46,7 @@ use cohort_stream_processor::workers::{
     CascadeConfig, MergeWorkerDeps, TransferRetryPolicy, DEFAULT_MERGE_GC_SCAN_LIMIT,
 };
 use common_kafka::config::KafkaConfig;
+use envconfig::Envconfig;
 use futures::FutureExt;
 use lifecycle::{ComponentOptions, Handle, Manager};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
@@ -380,6 +383,36 @@ impl Groups {
             cascade: format!("cohort-stream-cascade-{suffix}"),
         }
     }
+
+    /// The processor config that reads `topics` through these groups.
+    fn config(&self, topics: &Topics) -> Config {
+        let mut config = Config::init_from_hashmap(&HashMap::new()).expect("default config");
+        config.kafka_hosts = bootstrap_servers();
+        config.cohort_stream_events_topic = topics.events.clone();
+        config.kafka_consumer_group = self.events.clone();
+        config.person_merge_events_topic = topics.merges.clone();
+        config.kafka_merge_consumer_group = self.merges.clone();
+        config.cohort_merge_state_transfer_topic = topics.transfers.clone();
+        config.kafka_merge_apply_consumer_group = self.transfers.clone();
+        config.cohort_cascade_enabled = true;
+        config.cohort_cascade_events_topic = topics.cascade.clone();
+        config.kafka_cascade_consumer_group = self.cascade.clone();
+        config
+    }
+}
+
+/// Admits and claims `ownership` through the ownership fence on the groups `config` names, as the
+/// processor does at boot.
+async fn claim(config: Config, ownership: PartitionOwnership) -> ClaimedSplit {
+    tokio::task::spawn_blocking(move || {
+        let groups = InputGroups::new(&config);
+        AdmittedSplit::try_admit(ownership, &groups)
+            .expect("the fence admits the split")
+            .claim(&groups)
+            .expect("claim the owned partitions")
+    })
+    .await
+    .expect("the claim panicked")
 }
 
 fn register_instance(manager: &mut Manager) -> [Handle; 4] {
@@ -499,13 +532,17 @@ async fn spawn_instance(
             .create()
             .expect("create cascade follower consumer"),
     );
-    let ownership = PartitionOwnership::single(NUM_PARTITIONS as u16);
+    let claimed = claim(
+        groups.config(topics),
+        PartitionOwnership::single(NUM_PARTITIONS as u16),
+    )
+    .await;
     FollowerSet::new([
         Follower::new(merges_consumer.clone(), topics.merges.clone()),
         Follower::new(transfers_consumer.clone(), topics.transfers.clone()),
         Follower::new(cascade_consumer.clone(), topics.cascade.clone()),
     ])
-    .assign(&ownership)
+    .assign(&claimed)
     .expect("assign the followers");
 
     let events_client: StreamConsumer<CohortConsumerContext> = events_client_config(&groups.events)
@@ -517,6 +554,7 @@ async fn spawn_instance(
     let merge_follower = FollowerConsumer::<MergeRoute>::new(
         merges_consumer,
         topics.merges.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         merge_handle,
         100,
@@ -528,6 +566,7 @@ async fn spawn_instance(
     let transfer_follower = FollowerConsumer::<TransferRoute>::new(
         transfers_consumer,
         topics.transfers.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         transfer_handle,
         100,
@@ -539,6 +578,7 @@ async fn spawn_instance(
     let cascade_follower = FollowerConsumer::<CascadeRoute>::new(
         cascade_consumer,
         topics.cascade.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         cascade_handle,
         100,
@@ -555,7 +595,7 @@ async fn spawn_instance(
         100,
         RECV_TIMEOUT,
         COMMIT_INTERVAL,
-        ownership,
+        &claimed,
         None,
     )
     .expect("assign cohort_stream_events");

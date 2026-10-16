@@ -21,7 +21,7 @@ use super::manifest::OffsetManifest;
 use super::metadata::CheckpointMetadata;
 use super::restore_plan::{ReplayWindow, RestorePlan};
 use crate::observability::metrics::CHECKPOINT_RESTORE_SLICES_RESET_TOTAL;
-use crate::partitions::{InputGroups, InputTopic, PartitionOwnership, ResumeOffset};
+use crate::partitions::{AdmittedSplit, InputGroups, InputTopic, ResumeOffset};
 use crate::store::{CohortStore, StoreError};
 
 /// The marker a published restore carries inside the store directory. RocksDB ignores files it
@@ -205,16 +205,19 @@ impl PendingRestore {
         &self.record.source
     }
 
-    /// Commits each follower's planned positions on the partitions `ownership` owns. The other
-    /// partitions belong to other pods, whose followers keep their own commits. Safe to repeat:
-    /// nothing consumes a follower before the restore finishes.
+    /// Commits each follower's planned positions on the partitions `admitted` owns, with its stamp.
+    /// The other partitions belong to other pods, whose followers keep their own commits. Safe to
+    /// repeat: nothing consumes a follower before the restore finishes.
     pub(crate) fn position_followers(
         &self,
         groups: &InputGroups,
-        ownership: &PartitionOwnership,
+        admitted: &AdmittedSplit,
     ) -> KafkaResult<()> {
         for follower in groups.followers() {
-            follower.commit(&self.plan.positions(follower.topic(), ownership))?;
+            follower.commit(
+                &admitted.stamp(),
+                &self.plan.positions(follower.topic(), &admitted.ownership()),
+            )?;
         }
         Ok(())
     }

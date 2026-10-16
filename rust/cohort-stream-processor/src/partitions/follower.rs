@@ -9,7 +9,7 @@ use std::sync::Arc;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::error::KafkaResult;
 
-use crate::partitions::PartitionOwnership;
+use crate::partitions::ClaimedSplit;
 
 /// One follower consumer and the topic its assignment is built against.
 pub struct Follower {
@@ -36,9 +36,10 @@ impl FollowerSet {
         }
     }
 
-    /// Assigns every follower the partitions `ownership` owns, each at its group's committed
+    /// Assigns every follower the partitions `claimed` owns, each at its group's committed
     /// offset. A follower that fails would never consume its topic, so the first failure stops.
-    pub fn assign(&self, ownership: &PartitionOwnership) -> KafkaResult<()> {
+    pub fn assign(&self, claimed: &ClaimedSplit) -> KafkaResult<()> {
+        let ownership = claimed.ownership();
         for follower in &self.followers {
             follower
                 .consumer
