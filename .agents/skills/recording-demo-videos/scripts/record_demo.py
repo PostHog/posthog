@@ -52,6 +52,12 @@ DEFAULT_MUSIC_PROMPT = (
 DEFAULT_MUSIC_VOLUME = 0.18
 # Breath between a line ending and the next step starting.
 VOICE_TAIL_SECONDS = 0.35
+# Variables named like a credential are secret even when the storyboard does not list them in `secrets`.
+SECRET_NAME = re.compile(r"(?:^|_)(?:KEY|TOKEN|SECRET|PASSWORD)$", re.IGNORECASE)
+# Shorter secret values are too common to mask safely by value. The `$NAME` placeholder still hides them.
+MIN_MASKED_LENGTH = 8
+# PostHog's secret key formats, such as a key that a response body returns. `phc_` is public.
+SECRET_TOKEN = re.compile(r"\b(ph[xshare])_[A-Za-z0-9_-]{16,}")
 STICKER_POSITIONS = {
     "bottom-right": "right:56px;bottom:120px",
     "bottom-left": "left:56px;bottom:120px",
@@ -252,11 +258,18 @@ def escape(text: str) -> str:
 
 
 class Vars:
-    """`${NAME}` substitution. Secret values are used for requests but shown as `$NAME`."""
+    """`${NAME}` substitution. Secret values are used for requests but shown as `$NAME`.
+
+    Shown text is also masked by value, so a secret that reaches it another way, such as in a
+    response body or an unlisted variable named like a key, still never appears in the video.
+    """
 
     def __init__(self, values: dict[str, str], secrets: list[str]) -> None:
         self.values = values
-        self.secrets = set(secrets)
+        self.secrets = set(secrets) | {name for name in values if SECRET_NAME.search(name)}
+        masks = [(values[name], name) for name in self.secrets if len(values.get(name, "")) >= MIN_MASKED_LENGTH]
+        # Longest first, so a secret that contains another one is masked whole.
+        self.masks = sorted(masks, key=lambda mask: -len(mask[0]))
 
     def real(self, value: Any) -> Any:
         return self._walk(value, show=False)
@@ -264,9 +277,15 @@ class Vars:
     def shown(self, value: Any) -> Any:
         return self._walk(value, show=True)
 
+    def mask(self, text: str) -> str:
+        for secret, name in self.masks:
+            text = text.replace(secret, f"${name}")
+        return SECRET_TOKEN.sub(lambda m: f"{m.group(1)}_********", text)
+
     def _walk(self, value: Any, show: bool) -> Any:
         if isinstance(value, str):
-            return re.sub(r"\$\{(\w+)\}", lambda m: self._one(m.group(1), show), value)
+            text = re.sub(r"\$\{(\w+)\}", lambda m: self._one(m.group(1), show), value)
+            return self.mask(text) if show else text
         if isinstance(value, list):
             return [self._walk(v, show) for v in value]
         if isinstance(value, dict):
@@ -501,7 +520,7 @@ class Recorder:
 
     async def http(self, page: Page, spec: dict[str, Any], key: str) -> None:
         method = spec.get("method", "POST").upper()
-        shown_url, real_url = self.vars.shown(self.url(spec["url"])), self.url(spec["url"])
+        shown_url, real_url = self.url(self.vars.shown(spec["url"])), self.url(spec["url"])
         headers = spec.get("headers", {})
         body = spec.get("json")
         lines = [f"$ curl -X {method} {shown_url} \\"]
@@ -531,6 +550,7 @@ class Recorder:
             text = json.dumps(json.loads(raw), indent=2)
         except ValueError:
             text = raw.decode(errors="replace")[:1500]
+        text = self.vars.mask(text)
         await page.evaluate(
             "([t, bad]) => { const el = document.getElementById('out'); el.textContent = t; if (bad) el.className = 'bad'; }",
             [f"HTTP {status}\n{text}", status >= 400],
@@ -627,7 +647,7 @@ class Recorder:
                 await asyncio.sleep(1.5)
                 log["duration"] = round(self.now(), 2)
             except Exception as error:
-                log["error"] = f"step {log.get('step')}: {error!r}"[:800]
+                log["error"] = self.vars.mask(f"step {log.get('step')}: {error!r}")[:800]
                 await page.screenshot(path=str(output.with_suffix(".error.png")))
             finally:
                 raw_video = Path(await page.video.path()) if page.video else None

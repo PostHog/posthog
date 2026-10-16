@@ -20,19 +20,19 @@ A storyboard is one JSON file. Paths in it are relative to the file.
 }
 ```
 
-| Key              | Meaning                                                                                                                             |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `output`         | The MP4 path. The sheet, log and error files go next to it. Default `demo.mp4`                                                      |
-| `base_url`       | The app. Relative step URLs resolve against it. Default `http://localhost:8010`                                                     |
-| `viewport`       | The video size in pixels. Default 1440×900, which suits Loom and Slack                                                              |
-| `login`          | The user the recorder logs in as before recording. Default `test@posthog.com` / `12345678` from `setup_dev`                         |
-| `vars`           | Values for `${NAME}` anywhere in the storyboard. Environment variables work too, and `vars` wins                                    |
-| `secrets`        | Names in `vars` that requests use but the video shows as `$NAME`. Put every API key here                                            |
-| `hide_text`      | Hides the smallest container that starts with this text, such as a banner. `DEBUG mode` is always hidden                            |
-| `hide_selectors` | CSS selectors to hide. The debug bar (`.tricolor`) is always hidden                                                                 |
-| `title`, `end`   | Cards before and after the steps: `heading`, `subheading`, `hog` (a slug, see [branding.md](branding.md)), `say` and `hold` seconds |
-| `voiceover`      | Optional. Narrates the video with ElevenLabs. See [Voiceover](#voiceover)                                                           |
-| `music`          | Optional. A music bed under the video. See [Music](#music)                                                                          |
+| Key              | Meaning                                                                                                                                                                                      |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `output`         | The MP4 path. The sheet, log and error files go next to it. Default `demo.mp4`                                                                                                               |
+| `base_url`       | The app. Relative step URLs resolve against it. Default `http://localhost:8010`                                                                                                              |
+| `viewport`       | The video size in pixels. Default 1440×900, which suits Loom and Slack                                                                                                                       |
+| `login`          | The user the recorder logs in as before recording. Default `test@posthog.com` / `12345678` from `setup_dev`                                                                                  |
+| `vars`           | Values for `${NAME}` anywhere in the storyboard. Environment variables work too, and `vars` wins                                                                                             |
+| `secrets`        | Names in `vars` that requests use but the video shows as `$NAME`. Names that end in `KEY`, `TOKEN`, `SECRET` or `PASSWORD` are secret without being listed. List every other credential here |
+| `hide_text`      | Hides the smallest container that starts with this text, such as a banner. `DEBUG mode` is always hidden                                                                                     |
+| `hide_selectors` | CSS selectors to hide. The debug bar (`.tricolor`) is always hidden                                                                                                                          |
+| `title`, `end`   | Cards before and after the steps: `heading`, `subheading`, `hog` (a slug, see [branding.md](branding.md)), `say` and `hold` seconds                                                          |
+| `voiceover`      | Optional. Narrates the video with ElevenLabs. See [Voiceover](#voiceover)                                                                                                                    |
+| `music`          | Optional. A music bed under the video. See [Music](#music)                                                                                                                                   |
 
 ## Steps
 
@@ -86,6 +86,8 @@ Prefer `data-attr` selectors and roles. They survive copy changes.
 ```
 
 The card types out the request as a curl command, with secrets shown as `$NAME`, then sends it and prints the status and the response body.
+The video masks secret values in all the text it shows, including the response body. It also masks PostHog secret keys, such as `phx_` and `phs_` keys.
+It cannot mask what a `type` step types into the app or what the app itself shows, so never type a secret in a demo.
 With `expect_status`, any other status fails the recording, so a broken call never ends up in a finished video.
 
 ## Voiceover
