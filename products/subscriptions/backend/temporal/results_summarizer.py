@@ -35,15 +35,29 @@ def build_results_summary(
     if not results:
         return "No results"
 
-    if query_kind in _TREND_SUMMARY_KINDS:
+    # A content snapshot can hold rows from an older query kind, because the kind comes from
+    # the insight's current query. Send rows of an unexpected shape to the generic summarizer.
+    if query_kind in _TREND_SUMMARY_KINDS and _all_dicts(results):
         text = _summarize_trends(results, _sanitize_value_format(value_format))
-    elif summarizer := _SUMMARIZERS.get(query_kind):
-        text = summarizer(results)
+    elif query_kind == "FunnelsQuery" and _all_dicts(_funnel_steps(results)):
+        text = _summarize_funnels(results)
+    elif query_kind == "RetentionQuery" and _all_dicts(results):
+        text = _summarize_retention(results)
     else:
         text = _summarize_generic(results, columns)
     if len(text) > MAX_SUMMARY_LENGTH:
         text = text[:MAX_SUMMARY_LENGTH] + "\n... (truncated)"
     return text
+
+
+def _all_dicts(rows: list[Any]) -> bool:
+    return all(isinstance(row, dict) for row in rows)
+
+
+def _funnel_steps(results: list[Any]) -> list[Any]:
+    if results and isinstance(results[0], list):
+        return results[0]
+    return results
 
 
 def _summarize_trends(results: list[dict[str, Any]], value_format: dict[str, Any] | None) -> str:
@@ -118,12 +132,7 @@ def _summarize_boxplot_trend(results: list[dict[str, Any]], value_format: dict[s
 
 def _summarize_funnels(results: list[Any]) -> str:
     lines: list[str] = []
-
-    steps = results
-    if results and isinstance(results[0], list):
-        steps = results[0]
-
-    for i, step in enumerate(steps):
+    for i, step in enumerate(_funnel_steps(results)):
         name = _safe_label(step.get("name") or step.get("custom_name"), f"Step {i + 1}")
         count = step.get("count", 0)
         conversion = step.get("conversion_rate")
@@ -325,9 +334,3 @@ def _fmt_value(value: float | int | None, value_format: dict[str, Any] | None) -
     prefix = value_format.get("prefix") or ""
     postfix = value_format.get("postfix") or ""
     return f"{prefix}{formatted}{postfix}"
-
-
-_SUMMARIZERS: dict[str, Any] = {
-    "FunnelsQuery": _summarize_funnels,
-    "RetentionQuery": _summarize_retention,
-}
