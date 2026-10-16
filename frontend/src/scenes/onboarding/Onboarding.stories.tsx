@@ -412,7 +412,8 @@ export const SimpleFlowConnectMcp: Story = {
     },
     parameters: {
         featureFlags: { [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: 'test' },
-        testOptions: { waitForSelector: '[data-attr="wizard-command-block"]' },
+        // The step shows a spinner for as long as no agent is connected, which is the state under test.
+        testOptions: { waitForSelector: '[data-attr="wizard-command-block"]', waitForLoadersToDisappear: false },
     },
 }
 
