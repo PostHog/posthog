@@ -19,7 +19,7 @@ export type GateVariantType = 'add-card' | 'contact-sales' | 'move-to-cloud' | n
 export interface payGateMiniLogicValues {
     billing: BillingType | null // billingLogic
     billingLoading: boolean // billingLogic
-    billingManagedByPartnerDisabledReason: string | null // billingLogic
+    selfServeBillingDisabledReason: string | null // billingLogic
     isCloudOrDev: boolean | undefined // preflightLogic
     availableFeature: (feature: AvailableFeature) => BillingFeatureType | null | undefined // userLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
@@ -101,10 +101,7 @@ export interface payGateMiniLogicMeta {
             isAddonProduct: boolean | undefined,
             billing: BillingType | null
         ) => boolean
-        ctaDisabledReason: (
-            isPaymentEntryFlow: boolean,
-            billingManagedByPartnerDisabledReason: string | null
-        ) => string | null
+        ctaDisabledReason: (isPaymentEntryFlow: boolean, selfServeBillingDisabledReason: string | null) => string | null
     }
 }
 
@@ -122,7 +119,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
     connect(() => ({
         values: [
             billingLogic,
-            ['billing', 'billingLoading', 'billingManagedByPartnerDisabledReason'],
+            ['billing', 'billingLoading', 'selfServeBillingDisabledReason'],
             userLogic,
             ['user', 'hasAvailableFeature', 'availableFeature'],
             preflightLogic,
@@ -304,9 +301,9 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             },
         ],
         ctaDisabledReason: [
-            (s) => [s.isPaymentEntryFlow, s.billingManagedByPartnerDisabledReason],
-            (isPaymentEntryFlow: boolean, billingManagedByPartnerDisabledReason: string | null): string | null =>
-                isPaymentEntryFlow ? billingManagedByPartnerDisabledReason : null,
+            (s) => [s.isPaymentEntryFlow, s.selfServeBillingDisabledReason],
+            (isPaymentEntryFlow: boolean, selfServeBillingDisabledReason: string | null): string | null =>
+                isPaymentEntryFlow ? selfServeBillingDisabledReason : null,
         ],
     })),
 ])

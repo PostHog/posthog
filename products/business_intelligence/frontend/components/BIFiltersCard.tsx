@@ -1,17 +1,20 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconFilter, IconPlus } from '@posthog/icons'
+import { IconFilter, IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 
-import { getBIFieldPillLabel, getBIFilterSummary } from '../biEditorTypes'
+import { getBIFilterSummary } from '../biEditorTypes'
+import { getBIFilterLabel } from '../biFilterSummary'
 import { BIConditionGroups } from './BIConditionGroups'
 import { BIFilterPill } from './BIFilterPill'
 import { BIResultFiltersCard } from './BIResultFiltersCard'
 import { BIShelfDropTarget } from './BIShelfDropTarget'
 
 export function BIFiltersCard(): JSX.Element {
+    const [resultFiltersOpen, setResultFiltersOpen] = useState(false)
     const { config } = useValues(biEditorLogic)
     const { addBlankFieldToShelf, setFilterGroup } = useActions(biEditorLogic)
 
@@ -43,16 +46,27 @@ export function BIFiltersCard(): JSX.Element {
                     group={config.rowFilterGroup}
                     options={config.filters.map((filter) => ({
                         value: filter.field.id,
-                        label: `${getBIFieldPillLabel(filter.field)}: ${getBIFilterSummary(filter)}`,
+                        label: `${getBIFilterLabel(filter)}: ${getBIFilterSummary(filter)}`,
                     }))}
                     onChange={(group) => setFilterGroup('row', group)}
                 />
             )}
             <LemonDropdown
+                visible={resultFiltersOpen}
+                onVisibilityChange={setResultFiltersOpen}
                 closeOnClickInside={false}
                 placement="bottom-end"
                 overlay={
                     <div className="w-72">
+                        <div className="flex justify-end">
+                            <LemonButton
+                                icon={<IconX />}
+                                type="tertiary"
+                                size="xsmall"
+                                aria-label="Close result filters"
+                                onClick={() => setResultFiltersOpen(false)}
+                            />
+                        </div>
                         <BIResultFiltersCard />
                     </div>
                 }

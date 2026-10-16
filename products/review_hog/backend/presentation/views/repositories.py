@@ -1,8 +1,8 @@
 import re
 from typing import Any, cast
+from uuid import UUID
 
-from django.db.models import QuerySet
-
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -10,9 +10,9 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
-from rest_framework import mixins, serializers, status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,32 +22,42 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
-from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
-from products.review_hog.backend.activity_logging import installation_account_name
-from products.review_hog.backend.automatic_review_rules import (
-    AutomaticReviewDecision,
-    AutomaticReviewReason,
-    load_people,
+from products.review_hog.backend.facade.api import (
+    add_review_repository_person,
+    create_review_installation_claim,
+    delete_review_installation_claim,
+    delete_review_repository,
+    delete_review_repository_choice,
+    get_review_installation_claim,
+    get_review_repository,
+    list_review_installation_claims,
+    list_review_repositories,
+    list_review_repository_choices,
+    remove_review_repository_person,
+    save_review_repository,
+    save_review_repository_choice,
+    update_review_installation_claim,
 )
-from products.review_hog.backend.models import (
-    AutomaticFlashFor,
-    ReviewInstallationClaim,
-    ReviewRepository,
-    ReviewRepositoryPerson,
-    ReviewUserRepositoryChoice,
-)
-from products.review_hog.backend.ownership import RepositoryRef
-from products.review_hog.backend.repository_settings import (
+from products.review_hog.backend.facade.contracts import (
     UNSET,
-    InstallationSummary,
+    AutomaticReviewDecision,
     OwnershipConflict,
+    PersonNotActiveMemberError,
     ProjectRef,
-    ProjectRepositories,
-    RepositoryChoices,
+    RepositoryNotFoundError,
     RepositorySettingsError,
+    ReviewInstallationInfo,
+    ReviewRepositorySettings,
     Unset,
+)
+from products.review_hog.backend.facade.enums import (
+    AutomaticFlashFor,
+    AutomaticReviewReason,
+    ReviewInstallationClaimScope,
+    ReviewRepositoryPersonKind,
+    ReviewUserRepositoryChoiceMode,
 )
 
 # GitHub owners and repository names use letters, digits, '-', '_' and '.'.
@@ -79,12 +89,29 @@ def bad_request_response(error: RepositorySettingsError) -> Response:
     return Response({"error": str(error), "conflicting_project": None}, status=status.HTTP_400_BAD_REQUEST)
 
 
-def check_active_member(team: Team, user_id: int) -> None:
-    is_member = OrganizationMembership.objects.filter(
-        organization_id=team.organization_id, user_id=user_id, user__is_active=True
-    ).exists()
-    if not is_member:
-        raise ValidationError({"user_id": "This user is not an active member of the organization."})
+def not_active_member_error(error: PersonNotActiveMemberError) -> ValidationError:
+    return ValidationError({"user_id": str(error)})
+
+
+def no_such_list_entry_response() -> Response:
+    return Response({"error": "No such list entry.", "conflicting_project": None}, status=status.HTTP_404_NOT_FOUND)
+
+
+def path_uuid(value: str) -> UUID:
+    """The UUID of a detail URL. Any other value names no object, so the answer is 404."""
+    try:
+        return UUID(value)
+    except ValueError:
+        raise NotFound()
+
+
+def uuid_path_parameter(object_name: str) -> OpenApiParameter:
+    return OpenApiParameter(
+        "id",
+        OpenApiTypes.UUID,
+        OpenApiParameter.PATH,
+        description=f"A UUID string identifying this {object_name}.",
+    )
 
 
 def decision_data(decision: AutomaticReviewDecision) -> dict[str, Any]:
@@ -107,25 +134,21 @@ class ReviewHogSettingsErrorSerializer(serializers.Serializer):
     )
 
 
-class ReviewRepositoryPersonSerializer(serializers.ModelSerializer):
+class ReviewRepositoryPersonSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Id of this list entry. Use it to remove the person.")
     user = UserBasicSerializer(read_only=True, help_text="The project member on the list.")
     kind = serializers.ChoiceField(
-        choices=ReviewRepositoryPerson.Kind.choices,
+        choices=ReviewRepositoryPersonKind.choices,
         read_only=True,
         help_text="Which list: 'listed' (gets automatic reviews when the rule reviews only listed people) or "
         "'excepted' (skipped when the rule reviews everyone).",
     )
 
-    class Meta:
-        model = ReviewRepositoryPerson
-        fields = ["id", "user", "kind"]
-
 
 class ReviewRepositoryPersonRequestSerializer(serializers.Serializer):
     user_id = serializers.IntegerField(help_text="Id of the project member to add. Must be an active member.")
     kind = serializers.ChoiceField(
-        choices=ReviewRepositoryPerson.Kind.choices,
+        choices=ReviewRepositoryPersonKind.choices,
         help_text="Which list to add the person to: 'listed' or 'excepted'.",
     )
 
@@ -142,7 +165,7 @@ class AutomaticReviewDecisionSerializer(serializers.Serializer):
     )
 
 
-class ReviewRepositorySerializer(serializers.ModelSerializer):
+class ReviewRepositorySerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Id of the repository entry.")
     installation_id = serializers.CharField(read_only=True, help_text="The GitHub App installation that sees it.")
     github_repo_id = serializers.IntegerField(
@@ -167,26 +190,9 @@ class ReviewRepositorySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="Who added the repository.")
     created_at = serializers.DateTimeField(read_only=True, help_text="When the repository was added.")
 
-    class Meta:
-        model = ReviewRepository
-        fields = [
-            "id",
-            "installation_id",
-            "github_repo_id",
-            "full_name",
-            "selected",
-            "flash_for",
-            "people",
-            "created_by",
-            "created_at",
-        ]
-
     @extend_schema_field(ReviewRepositoryPersonSerializer(many=True))
-    def get_people(self, instance: ReviewRepository) -> list[dict]:
-        people = self.context.get("people")
-        if people is None:
-            people = load_people(instance.team_id, [instance.id])
-        return [dict(ReviewRepositoryPersonSerializer(person).data) for person in people.get(instance.id, [])]
+    def get_people(self, instance: ReviewRepositorySettings) -> list[dict]:
+        return [dict(ReviewRepositoryPersonSerializer(person).data) for person in instance.people]
 
 
 class ReviewRepositoryWriteSerializer(serializers.Serializer):
@@ -241,7 +247,7 @@ class ReviewInstallationSerializer(serializers.Serializer):
         allow_null=True, help_text="Id of this project's claim. Null when the project reviews nothing there."
     )
     scope = serializers.ChoiceField(
-        choices=ReviewInstallationClaim.Scope.choices,
+        choices=ReviewInstallationClaimScope.choices,
         allow_null=True,
         help_text="Which repositories this project reviews: 'all' (every repository no other project selected, "
         "including future ones), 'selected' (only the selected ones), or null (none).",
@@ -252,22 +258,22 @@ class ReviewInstallationSerializer(serializers.Serializer):
     )
 
 
-def installation_data(summary: InstallationSummary) -> dict[str, Any]:
+def installation_data(installation: ReviewInstallationInfo) -> dict[str, Any]:
     return {
-        "installation_id": summary.installation_id,
-        "account_name": summary.account_name,
-        "connected_by": summary.connected_by,
-        "claim_id": summary.claim.id if summary.claim is not None else None,
-        "scope": summary.claim.scope if summary.claim is not None else None,
-        "all_taken_by_project": project_ref_data(summary.all_taken_by),
+        "installation_id": installation.installation_id,
+        "account_name": installation.account_name,
+        "connected_by": installation.connected_by,
+        "claim_id": installation.claim_id,
+        "scope": installation.scope,
+        "all_taken_by_project": project_ref_data(installation.all_taken_by),
     }
 
 
-class ReviewInstallationClaimSerializer(serializers.ModelSerializer):
+class ReviewInstallationClaimSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Id of the claim.")
     installation_id = serializers.CharField(read_only=True, help_text="The GitHub App installation id.")
     scope = serializers.ChoiceField(
-        choices=ReviewInstallationClaim.Scope.choices,
+        choices=ReviewInstallationClaimScope.choices,
         read_only=True,
         help_text="'all' (every repository no other project selected, including future ones) or 'selected'.",
     )
@@ -277,19 +283,15 @@ class ReviewInstallationClaimSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="Who made the claim.")
     created_at = serializers.DateTimeField(read_only=True, help_text="When the claim was made.")
 
-    class Meta:
-        model = ReviewInstallationClaim
-        fields = ["id", "installation_id", "scope", "account_name", "created_by", "created_at"]
-
     @extend_schema_field(serializers.CharField())
-    def get_account_name(self, instance: ReviewInstallationClaim) -> str:
-        return installation_account_name(instance.installation_id)
+    def get_account_name(self, instance: Any) -> str:
+        return instance.account_name
 
 
 class ReviewInstallationClaimCreateSerializer(serializers.Serializer):
     installation_id = serializers.CharField(max_length=64, help_text="The GitHub App installation id.")
     scope = serializers.ChoiceField(
-        choices=ReviewInstallationClaim.Scope.choices,
+        choices=ReviewInstallationClaimScope.choices,
         help_text="'all' reviews every repository of the installation that no other project selected. "
         "At most one project per installation can choose it. 'selected' reviews only selected repositories.",
     )
@@ -297,26 +299,22 @@ class ReviewInstallationClaimCreateSerializer(serializers.Serializer):
 
 class ReviewInstallationClaimUpdateSerializer(serializers.Serializer):
     scope = serializers.ChoiceField(
-        choices=ReviewInstallationClaim.Scope.choices,
+        choices=ReviewInstallationClaimScope.choices,
         help_text="'all' or 'selected'. Switching to 'selected' removes the exceptions of the repositories that "
         "leave the project.",
     )
 
 
-class ReviewRepositoryChoiceSerializer(serializers.ModelSerializer):
+class ReviewRepositoryChoiceSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Id of the choice. Use it to clear the choice.")
     installation_id = serializers.CharField(read_only=True, help_text="The GitHub App installation.")
     github_repo_id = serializers.IntegerField(read_only=True, allow_null=True, help_text="GitHub's repository id.")
     full_name = serializers.CharField(read_only=True, help_text="GitHub repository in 'owner/name' form.")
     mode = serializers.ChoiceField(
-        choices=ReviewUserRepositoryChoice.Mode.choices,
+        choices=ReviewUserRepositoryChoiceMode.choices,
         read_only=True,
         help_text="'flash' or 'off' for the user's own pull requests in this repository.",
     )
-
-    class Meta:
-        model = ReviewUserRepositoryChoice
-        fields = ["id", "installation_id", "github_repo_id", "full_name", "mode"]
 
 
 class ReviewRepositoryChoiceWriteSerializer(serializers.Serializer):
@@ -324,7 +322,7 @@ class ReviewRepositoryChoiceWriteSerializer(serializers.Serializer):
     full_name = serializers.CharField(max_length=200, help_text="GitHub repository in 'owner/name' form.")
     github_repo_id = serializers.IntegerField(required=False, min_value=1, help_text="GitHub's repository id.")
     mode = serializers.ChoiceField(
-        choices=ReviewUserRepositoryChoice.Mode.choices,
+        choices=ReviewUserRepositoryChoiceMode.choices,
         help_text="The requesting user's own automatic review for their pull requests in this repository: "
         "'flash' or 'off'. A value equal to what the user inherits clears the choice instead.",
     )
@@ -354,22 +352,22 @@ class ReviewHogProjectViewSetMixin(TeamAndOrgViewSetMixin):
         team_id = self.effective_team_id
         return self.team if self.team.id == team_id else Team.objects.get(id=team_id)
 
+    @property
+    def acting_user_id(self) -> int:
+        return cast(int, self.request.user.id)
+
     def is_effective_team_admin(self) -> bool:
         level = self.user_permissions.team(self.effective_team).effective_membership_level
         return level is not None and level >= OrganizationMembership.Level.ADMIN
 
-    def project_repositories(self) -> ProjectRepositories:
-        return ProjectRepositories(self.effective_team, cast(User, self.request.user))
 
+class EffectiveTeamMemberPermission(BasePermission):
+    """Members only, checked on the root project that holds the rows.
 
-class EffectiveTeamStrictManagementPermission(BasePermission):
-    """Members read, admins write, both checked on the root project that the writes change.
-
-    An environment URL resolves to its parent project, and a user can be admin of the environment
-    but only a member of the parent.
+    An environment URL resolves to its parent project, and the default checks cover only the URL project.
     """
 
-    message = "You don't have sufficient permissions in the project."
+    message = "You don't have access to the project."
 
     def has_permission(self, request: Request, view: Any) -> bool:
         if not isinstance(view, ReviewHogProjectViewSetMixin):
@@ -379,26 +377,32 @@ class EffectiveTeamStrictManagementPermission(BasePermission):
         scoped_teams = get_authenticator_scoped_team_ids(request.successful_authenticator)
         if scoped_teams is not None and view.effective_team_id not in scoped_teams:
             return False
-        if request.method in SAFE_METHODS:
-            return view.user_permissions.team(view.effective_team).effective_membership_level is not None
-        return view.is_effective_team_admin()
+        return view.user_permissions.team(view.effective_team).effective_membership_level is not None
 
 
-# `list` keeps the inherited method, because overriding it marks the viewset as a custom list for
-# the pagination contract check. Its schema comes from the serializer and the class docstring.
+class EffectiveTeamStrictManagementPermission(EffectiveTeamMemberPermission):
+    """Members read, admins write, both checked on the root project that the writes change.
+
+    A user can be admin of the environment but only a member of the parent.
+    """
+
+    message = "You don't have sufficient permissions in the project."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        if not super().has_permission(request, view):
+            return False
+        return request.method in SAFE_METHODS or view.is_effective_team_admin()
+
+
 @extend_schema_view(
     destroy=extend_schema(
         summary="Remove a repository's settings",
         description="Remove the repository from this project and clear its exception and lists. With an 'all "
         "repositories' claim the repository stays in the project and follows the project rule.",
+        parameters=[uuid_path_parameter("review repository")],
     ),
 )
-class ReviewRepositoryViewSet(
-    ReviewHogProjectViewSetMixin,
-    mixins.ListModelMixin,
-    mixins.DestroyModelMixin,
-    viewsets.GenericViewSet,
-):
+class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericViewSet):
     """The repositories this project has settings for: selected repositories and repository exceptions.
 
     Project members can read them. Only project admins can change them, and every change goes to the
@@ -408,27 +412,29 @@ class ReviewRepositoryViewSet(
     scope_object = "review_hog"
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
     posthog_feature_flag = "review-hog"
-    # Unscoped only to satisfy the router/introspection; `safely_get_queryset` scopes every read.
-    queryset = ReviewRepository.objects.unscoped()
     serializer_class = ReviewRepositorySerializer
     pagination_class = None
 
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return (
-            ReviewRepository.objects.for_team(self.effective_team_id, canonical=True)
-            .select_related("created_by")
-            .order_by("created_at")
-        )
+    def _repository_or_404(self) -> ReviewRepositorySettings:
+        repository_id = path_uuid(self.kwargs["pk"])
+        repository = get_review_repository(self.effective_team_id, self.acting_user_id, repository_id)
+        if repository is None:
+            raise NotFound()
+        return repository
 
-    def get_serializer_context(self) -> dict:
-        context = super().get_serializer_context()
-        team_id = self.effective_team_id
-        repository_ids = ReviewRepository.objects.for_team(team_id, canonical=True).values_list("id", flat=True)
-        context["people"] = load_people(team_id, repository_ids)
-        return context
+    def _repository_response(self, repository_id: UUID, response_status: int = status.HTTP_200_OK) -> Response:
+        repository = get_review_repository(self.effective_team_id, self.acting_user_id, repository_id)
+        return Response(ReviewRepositorySerializer(repository).data, status=response_status)
 
-    def _repository_response(self, repository: ReviewRepository, response_status: int = status.HTTP_200_OK) -> Response:
-        return Response(self.get_serializer(repository).data, status=response_status)
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        repositories = list_review_repositories(self.effective_team_id, self.acting_user_id)
+        return Response(ReviewRepositorySerializer(repositories, many=True).data)
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        repository_id = path_uuid(self.kwargs["pk"])
+        if not delete_review_repository(self.effective_team_id, self.acting_user_id, repository_id):
+            raise NotFound()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         request=ReviewRepositoryWriteSerializer,
@@ -449,27 +455,30 @@ class ReviewRepositoryViewSet(
         serializer = ReviewRepositoryWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        ref = RepositoryRef(
-            installation_id=data["installation_id"],
-            github_repo_id=data.get("github_repo_id"),
-            full_name=data["full_name"],
-        )
-        flash_for: str | None | Unset = data["flash_for"] if "flash_for" in data else UNSET
+        flash_for: AutomaticFlashFor | None | Unset = UNSET
+        if "flash_for" in data:
+            flash_for = AutomaticFlashFor(data["flash_for"]) if data["flash_for"] is not None else None
         try:
-            result = self.project_repositories().save_repository(
-                ref, selected=data.get("selected"), flash_for=flash_for
+            result = save_review_repository(
+                self.effective_team_id,
+                self.acting_user_id,
+                installation_id=data["installation_id"],
+                full_name=data["full_name"],
+                github_repo_id=data.get("github_repo_id"),
+                selected=data.get("selected"),
+                flash_for=flash_for,
             )
         except OwnershipConflict as error:
             return conflict_response(error)
         except RepositorySettingsError as error:
             return bad_request_response(error)
         response = ReviewRepositoryWriteResponseSerializer(
-            {"repository": result.repository, "taken_from_project": project_ref_data(result.taken_from)},
-            context=self.get_serializer_context(),
+            {"repository": result.repository, "taken_from_project": project_ref_data(result.taken_from)}
         )
         return Response(response.data)
 
     @extend_schema(
+        parameters=[uuid_path_parameter("review repository")],
         request=ReviewRepositoryPersonRequestSerializer,
         responses={
             200: OpenApiResponse(response=ReviewRepositorySerializer, description="The person was already on it."),
@@ -481,18 +490,28 @@ class ReviewRepositoryViewSet(
     )
     @action(detail=True, methods=["POST"], url_path="people", required_scopes=["review_hog:write"])
     def add_person(self, request: Request, **kwargs: Any) -> Response:
-        repository = self.get_object()
+        repository = self._repository_or_404()
         serializer = ReviewRepositoryPersonRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user_id: int = serializer.validated_data["user_id"]
-        check_active_member(self.team, user_id)
-        created = self.project_repositories().add_person(
-            repository, user_id=user_id, kind=serializer.validated_data["kind"]
-        )
-        return self._repository_response(repository, status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+        try:
+            created = add_review_repository_person(
+                self.effective_team_id,
+                self.acting_user_id,
+                repository.id,
+                person_user_id=serializer.validated_data["user_id"],
+                kind=ReviewRepositoryPersonKind(serializer.validated_data["kind"]),
+            )
+        except PersonNotActiveMemberError as error:
+            raise not_active_member_error(error)
+        except RepositoryNotFoundError:
+            raise NotFound()
+        return self._repository_response(repository.id, status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
     @extend_schema(
-        parameters=[OpenApiParameter("person_id", str, OpenApiParameter.PATH, description="Id of the list entry.")],
+        parameters=[
+            uuid_path_parameter("review repository"),
+            OpenApiParameter("person_id", str, OpenApiParameter.PATH, description="Id of the list entry."),
+        ],
         responses={
             200: OpenApiResponse(response=ReviewRepositorySerializer, description="The person was removed."),
             404: OpenApiResponse(response=ReviewHogSettingsErrorSerializer, description="No such list entry."),
@@ -507,25 +526,15 @@ class ReviewRepositoryViewSet(
         required_scopes=["review_hog:write"],
     )
     def remove_person(self, request: Request, person_id: str, **kwargs: Any) -> Response:
-        repository = self.get_object()
-        person = (
-            ReviewRepositoryPerson.objects.for_team(repository.team_id, canonical=True)
-            .filter(repository=repository, id=person_id)
-            .first()
-        )
-        if person is None:
-            return Response(
-                {"error": "No such list entry.", "conflicting_project": None}, status=status.HTTP_404_NOT_FOUND
-            )
-        person.delete()
-        return self._repository_response(repository)
+        repository = self._repository_or_404()
+        if not remove_review_repository_person(
+            self.effective_team_id, self.acting_user_id, repository.id, UUID(person_id)
+        ):
+            return no_such_list_entry_response()
+        return self._repository_response(repository.id)
 
 
-class ReviewInstallationClaimViewSet(
-    ReviewHogProjectViewSetMixin,
-    mixins.ListModelMixin,
-    viewsets.GenericViewSet,
-):
+class ReviewInstallationClaimViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericViewSet):
     """Which repositories of each connected GitHub installation this project reviews.
 
     Project members can read the claims. Only project admins can change them, and every change goes
@@ -536,16 +545,18 @@ class ReviewInstallationClaimViewSet(
     scope_object = "review_hog"
     permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
     posthog_feature_flag = "review-hog"
-    queryset = ReviewInstallationClaim.objects.unscoped()
     serializer_class = ReviewInstallationClaimSerializer
     pagination_class = None
 
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return (
-            ReviewInstallationClaim.objects.for_team(self.effective_team_id, canonical=True)
-            .select_related("created_by")
-            .order_by("created_at")
-        )
+    def _claim_id_or_404(self) -> UUID:
+        claim_id = path_uuid(self.kwargs["pk"])
+        if get_review_installation_claim(self.effective_team_id, self.acting_user_id, claim_id) is None:
+            raise NotFound()
+        return claim_id
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        claims = list_review_installation_claims(self.effective_team_id, self.acting_user_id)
+        return Response(ReviewInstallationClaimSerializer(claims, many=True).data)
 
     @extend_schema(
         request=ReviewInstallationClaimCreateSerializer,
@@ -564,16 +575,20 @@ class ReviewInstallationClaimViewSet(
         serializer = ReviewInstallationClaimCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            claim = self.project_repositories().create_claim(
-                serializer.validated_data["installation_id"], serializer.validated_data["scope"]
+            claim = create_review_installation_claim(
+                self.effective_team_id,
+                self.acting_user_id,
+                serializer.validated_data["installation_id"],
+                ReviewInstallationClaimScope(serializer.validated_data["scope"]),
             )
         except OwnershipConflict as error:
             return conflict_response(error)
         except RepositorySettingsError as error:
             return bad_request_response(error)
-        return Response(self.get_serializer(claim).data, status=status.HTTP_201_CREATED)
+        return Response(ReviewInstallationClaimSerializer(claim).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
+        parameters=[uuid_path_parameter("review installation claim")],
         request=ReviewInstallationClaimUpdateSerializer,
         responses={
             200: OpenApiResponse(response=ReviewInstallationClaimSerializer, description="The claim was changed."),
@@ -587,16 +602,24 @@ class ReviewInstallationClaimViewSet(
         "removes the exceptions of the repositories that leave this project. Personal choices stay.",
     )
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        claim = self.get_object()
+        claim_id = self._claim_id_or_404()
         serializer = ReviewInstallationClaimUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            claim = self.project_repositories().update_claim(claim, serializer.validated_data["scope"])
+            claim = update_review_installation_claim(
+                self.effective_team_id,
+                self.acting_user_id,
+                claim_id,
+                ReviewInstallationClaimScope(serializer.validated_data["scope"]),
+            )
         except OwnershipConflict as error:
             return conflict_response(error)
-        return Response(self.get_serializer(claim).data)
+        if claim is None:
+            raise NotFound()
+        return Response(ReviewInstallationClaimSerializer(claim).data)
 
     @extend_schema(
+        parameters=[uuid_path_parameter("review installation claim")],
         responses={
             204: OpenApiResponse(description="The claim and this project's repository settings there are gone.")
         },
@@ -605,7 +628,9 @@ class ReviewInstallationClaimViewSet(
         "repositories and exceptions there are removed too. Personal choices stay.",
     )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        self.project_repositories().delete_claim(self.get_object())
+        claim_id = path_uuid(self.kwargs["pk"])
+        if not delete_review_installation_claim(self.effective_team_id, self.acting_user_id, claim_id):
+            raise NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -613,14 +638,10 @@ class ReviewInstallationClaimViewSet(
     destroy=extend_schema(
         summary="Clear my choice for a repository",
         description="Clear the requesting user's own choice for one repository, so their default applies again.",
+        parameters=[uuid_path_parameter("review user repository choice")],
     ),
 )
-class ReviewRepositoryChoiceViewSet(
-    ReviewHogProjectViewSetMixin,
-    mixins.ListModelMixin,
-    mixins.DestroyModelMixin,
-    viewsets.GenericViewSet,
-):
+class ReviewRepositoryChoiceViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericViewSet):
     """The requesting user's own automatic review choices for repositories of this project.
 
     Any project member can manage their own choices. A choice stores only what differs from what the
@@ -628,18 +649,20 @@ class ReviewRepositoryChoiceViewSet(
     """
 
     scope_object = "review_hog"
-    permission_classes = [PostHogFeatureFlagPermission]
+    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamMemberPermission]
     posthog_feature_flag = "review-hog"
-    queryset = ReviewUserRepositoryChoice.objects.unscoped()
     serializer_class = ReviewRepositoryChoiceSerializer
     pagination_class = None
 
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return (
-            ReviewUserRepositoryChoice.objects.for_team(self.effective_team_id, canonical=True)
-            .filter(user_id=cast(User, self.request.user).id)
-            .order_by("full_name")
-        )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        choices = list_review_repository_choices(self.effective_team_id, self.acting_user_id)
+        return Response(ReviewRepositoryChoiceSerializer(choices, many=True).data)
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        choice_id = path_uuid(self.kwargs["pk"])
+        if not delete_review_repository_choice(self.effective_team_id, self.acting_user_id, choice_id):
+            raise NotFound()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         request=ReviewRepositoryChoiceWriteSerializer,
@@ -657,16 +680,18 @@ class ReviewRepositoryChoiceViewSet(
         serializer = ReviewRepositoryChoiceWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        ref = RepositoryRef(
-            installation_id=data["installation_id"],
-            github_repo_id=data.get("github_repo_id"),
-            full_name=data["full_name"],
-        )
         try:
-            choice, decision = RepositoryChoices(self.effective_team, cast(User, request.user)).save(ref, data["mode"])
+            result = save_review_repository_choice(
+                self.effective_team_id,
+                self.acting_user_id,
+                installation_id=data["installation_id"],
+                full_name=data["full_name"],
+                github_repo_id=data.get("github_repo_id"),
+                mode=ReviewUserRepositoryChoiceMode(data["mode"]),
+            )
         except RepositorySettingsError as error:
             return bad_request_response(error)
         response = ReviewRepositoryChoiceWriteResponseSerializer(
-            {"choice": choice, "my_result": decision_data(decision)}
+            {"choice": result.choice, "my_result": decision_data(result.my_result)}
         )
         return Response(response.data)

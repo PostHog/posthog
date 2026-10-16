@@ -61,7 +61,7 @@ class OneSignalSource(ResumableSource[OneSignalSourceConfig, OneSignalResumeConf
         pub=("onesignal_flutter",),
         rubygems=("onesignal", "onesignal-ruby"),
         swiftpm=("github.com/onesignal/onesignal-xcframework", "github.com/onesignal/onesignal-ios-sdk"),
-        competes_with=(ProductKey.WORKFLOWS,),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     lists_tables_without_credentials = True

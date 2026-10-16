@@ -77,7 +77,7 @@ class ClevertapSource(ResumableSource[ClevertapSourceConfig, ClevertapResumeConf
         ),
         pub=("clevertap_plugin",),
         swiftpm=("github.com/clevertap/clevertap-ios-sdk",),
-        competes_with=(ProductKey.WORKFLOWS,),
+        alternative_to=(ProductKey.WORKFLOWS,),
     )
 
     lists_tables_without_credentials = True

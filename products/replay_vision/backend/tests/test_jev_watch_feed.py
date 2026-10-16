@@ -317,11 +317,12 @@ class TestJudgeScannerWindow(SimpleTestCase):
         paid: list[int] = []
         with patch(_API) as api:
             api.decide_when_available.side_effect = _answer_every_question(0.7)
-            judge_scanner_window(1, uuid4(), rows, pace=paid.append)
+            judgment = judge_scanner_window(1, uuid4(), rows, pace=paid.append)
         # One judgment request plus one reason request (the rows are watchable), each paced.
         assert api.decide_when_available.call_count == 2
         assert len(paid) == 2
         assert all(tokens > 0 for tokens in paid)
+        assert judgment.estimated_prompt_tokens == sum(paid)
 
     def test_a_window_starts_no_chunk_past_its_stop_time(self) -> None:
         # Rows past the deadline stay unjudged and retry next sweep, charging no retry budget.
@@ -334,6 +335,7 @@ class TestJudgeScannerWindow(SimpleTestCase):
         # The cut-off is visible: no chunk counts as attempted, and the window says it stopped early.
         assert judgment.stopped_early
         assert judgment.chunks == 0
+        assert judgment.estimated_prompt_tokens == 0
 
     def test_an_empty_window_makes_no_request(self) -> None:
         with patch(_API) as api:
@@ -611,6 +613,10 @@ class TestJevWatchRankSweep(BaseTest):
         assert result.teams_enrolled == 1
         assert result.scanners_judged == 1
         assert result.observations_judged == 2
+        assert result.estimated_prompt_tokens > 0
+        assert result.pending_observations == 0
+        assert result.oldest_pending_age_seconds == 0
+        assert result.backlog_complete
         assert load_watch_ranks(self.team.id, [scanner.id]).probabilities == {str(first.id): 0.7, str(second.id): 0.7}
         # Sub-threshold scores are cached nowhere, so the judged event must carry the score sample
         # the threshold is calibrated from.
@@ -633,6 +639,8 @@ class TestJevWatchRankSweep(BaseTest):
         # Every row is judged already, so the second run keeps the cache without a Jev call.
         api.decide_when_available.assert_not_called()
         assert result.scanners_skipped_unchanged == 1
+        assert result.estimated_prompt_tokens == 0
+        assert result.backlog_complete
         assert load_watch_ranks(self.team.id, [scanner.id]).probabilities == {str(first.id): 0.7, str(second.id): 0.7}
 
         third = self._succeeded_observation(scanner, "s3", "The user deleted the whole workspace.")
@@ -684,8 +692,47 @@ class TestJevWatchRankSweep(BaseTest):
             result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
         api.decide_when_available.assert_not_called()
         assert result.cache_errors == 1
+        assert not result.backlog_complete
         assert result.scanners_judged == 0
         assert load_watch_ranks(self.team.id, [scanner.id]).probabilities == {"judged-earlier": 0.9}
+
+    @parameterized.expand([(2, False), (3, True)])
+    def test_pending_work_includes_rows_beyond_the_judging_limit(self, window_cap: int, complete: bool) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="example",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "Example workflow", "length": "short"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+        older = self._succeeded_observation(scanner, "old", "An example user opens a menu.")
+        newer = self._succeeded_observation(scanner, "new", "An example user closes a menu.")
+        now = timezone.now()
+        ReplayObservation.objects.filter(id=older.id).update(created_at=now - timedelta(hours=2))
+        ReplayObservation.objects.filter(id=newer.id).update(created_at=now - timedelta(minutes=30))
+        activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
+        with (
+            patch(f"{activities}.watch_feed_ranker", side_effect=self._flag_arm("jev-shadow")),
+            patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
+            patch(f"{activities}.MAX_JUDGED_PER_SCANNER", 1),
+            patch(f"{activities}.WINDOW_SCAN_CAP", window_cap),
+            patch(f"{activities}.datetime") as clock,
+            patch("posthog.metrics.push_to_gateway") as push,
+            self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway.example.com"),
+            patch(_API) as api,
+        ):
+            clock.now.return_value = now
+            api.decide_when_available.side_effect = _answer_every_question(0.1)
+            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+        assert result.observations_judged == 1
+        assert result.pending_observations == 1
+        assert result.oldest_pending_age_seconds == 7200
+        assert result.backlog_complete == complete
+        registry = push.call_args.kwargs["registry"]
+        assert registry.get_sample_value("replay_vision_jev_watch_rank_sweep_pending_observations") == 1
+        assert registry.get_sample_value("replay_vision_jev_watch_rank_sweep_backlog_complete") == int(complete)
 
     def test_scanners_are_judged_concurrently(self) -> None:
         # One scanner at a time cannot cover a half rollout inside the time budget. The barrier only
@@ -769,10 +816,13 @@ class TestJevWatchRankSweep(BaseTest):
         if gives_up:
             assert RATE_LIMIT_GIVE_UP_AFTER <= result.scanners_rate_limited < scanner_count
             assert result.scanners_backed_off == scanner_count - result.scanners_rate_limited
+            assert not result.backlog_complete
         else:
             assert result.scanners_rate_limited >= 3
             assert result.scanners_backed_off == 0
             assert result.scanners_judged == scanner_count
+            assert result.backlog_complete
+        assert result.pending_observations == result.scanners_rate_limited
 
     def test_a_rate_limited_turn_delays_the_next_request(self) -> None:
         # The pause is what gives the shared capacity back, so the request after a 429 must wait it out.

@@ -19,12 +19,13 @@ export function localFieldError(definition: BILocalFieldDefinition): string | un
         !definition.groups.length ||
         definition.groups.length > 100 ||
         typeof definition.other !== 'string' ||
-        !definition.other.trim()
+        (!definition.preserveUngrouped && !definition.other.trim()) ||
+        (definition.preserveUngrouped !== undefined && typeof definition.preserveUngrouped !== 'boolean')
     ) {
         return 'Add at least one group and a label for other values'
     }
     const used = new Set<string>()
-    const names = new Set<string>([definition.other])
+    const names = new Set<string>(definition.preserveUngrouped ? [] : [definition.other])
     for (const group of definition.groups) {
         if (
             !group ||
@@ -60,9 +61,12 @@ export function localFieldExpression(definition: BILocalFieldDefinition): string
     const expression = `(${definition.expression})`
     const cases = definition.groups.flatMap((group) => [
         `toString(${expression}) IN (${group.values.map(escapeHogQLString).join(', ')})`,
-        escapeHogQLString(group.name),
+        escapeHogQLString(definition.preserveUngrouped ? JSON.stringify(['group', group.name]) : group.name),
     ])
-    return `if(${expression} IS NULL, NULL, multiIf(${[...cases, escapeHogQLString(definition.other)].join(', ')}))`
+    const fallback = definition.preserveUngrouped
+        ? `toJSONString(tuple('value', toString(${expression})))`
+        : escapeHogQLString(definition.other)
+    return `if(${expression} IS NULL, NULL, multiIf(${[...cases, fallback].join(', ')}))`
 }
 
 export function upsertBILocalField(config: BIConfig, field: BIField): BIConfig {

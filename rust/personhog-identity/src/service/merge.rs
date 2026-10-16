@@ -21,7 +21,7 @@ use personhog_proto::personhog::identity::v1::{
 use personhog_proto::personhog::types::v1::{Person as ProtoPerson, UpdatePersonPropertiesRequest};
 
 use crate::leader::{PersonStateReader, PropertyWriter};
-use crate::lifecycle::engine::OpRow;
+use crate::lifecycle::engine::{OpRow, STEP_COMPLETED};
 use crate::lifecycle::merge::{
     record_conflict, record_outcome_count, MergeOpExecutor, MergeOutcome, MergeRequest,
     MergeSourceEntry, MergeSourceRecord, OP_TYPE_MERGE, OUTCOME_ERROR, OUTCOME_MERGED,
@@ -39,6 +39,127 @@ const OUTCOME_ATTACHED: &str = "attached";
 
 const MERGE_SOURCES_PER_CALL: &str = "personhog_identity_merge_sources_per_call";
 const MERGE_PHASE_DURATION: &str = "personhog_identity_merge_phase_duration_ms";
+const MERGE_CALLS_TOTAL: &str = "personhog_identity_merge_calls_total";
+const MERGE_CALL_DURATION: &str = "personhog_identity_merge_call_duration_ms";
+
+const PATH_UNCLASSIFIED: &str = "unclassified";
+const PATH_INLINE: &str = "inline";
+const PATH_SAGA: &str = "saga";
+const PATH_RESUMED: &str = "resumed";
+const RESULT_SETTLED: &str = "settled";
+const RESULT_COMPLETED: &str = "completed";
+const RESULT_ABORTED: &str = "aborted";
+const RESULT_ABORTED_CLAIM: &str = "aborted_claim";
+const RESULT_ERROR: &str = "error";
+const RESULT_CANCELLED: &str = "cancelled";
+
+/// `Adopted`: establishment attached the target distinct id to a source's person.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TargetOrigin {
+    Existing,
+    Born,
+    Adopted,
+}
+
+impl TargetOrigin {
+    fn as_str(self) -> &'static str {
+        match self {
+            TargetOrigin::Existing => "existing",
+            TargetOrigin::Born => "born",
+            TargetOrigin::Adopted => "adopted",
+        }
+    }
+}
+
+/// Labels of the per-call merge metrics; the values are a dashboard contract.
+struct MergeShape {
+    path: &'static str,
+    target: &'static str,
+    sources: &'static str,
+    mode: &'static str,
+    result: &'static str,
+}
+
+/// Records the call once, on `finish` or on drop. A caller deadline or
+/// disconnect drops the handler future mid-call, and those calls are the
+/// slow ones, so they are recorded as `cancelled` rather than lost.
+struct MergeCall {
+    shape: MergeShape,
+    start: Instant,
+    recorded: bool,
+}
+
+impl MergeCall {
+    fn start(request: &MergePersonsRequest) -> Self {
+        Self {
+            shape: MergeShape {
+                path: PATH_UNCLASSIFIED,
+                target: "unresolved",
+                sources: if request.sources.len() > 1 {
+                    "multi"
+                } else {
+                    "single"
+                },
+                mode: if request.allow_identified_sources {
+                    "dangerous"
+                } else {
+                    "identify"
+                },
+                result: RESULT_ERROR,
+            },
+            start: Instant::now(),
+            recorded: false,
+        }
+    }
+
+    fn finish(mut self, ok: bool) {
+        if !ok {
+            self.shape.result = RESULT_ERROR;
+        }
+        self.record();
+    }
+
+    fn record(&mut self) {
+        if self.recorded {
+            return;
+        }
+        self.recorded = true;
+        let shape = &self.shape;
+        let labels = [
+            ("path", shape.path),
+            ("target", shape.target),
+            ("sources", shape.sources),
+            ("mode", shape.mode),
+            ("result", shape.result),
+        ]
+        .map(|(key, value)| (key.to_string(), value.to_string()));
+        common_metrics::inc(MERGE_CALLS_TOTAL, &labels, 1);
+        common_metrics::histogram(
+            MERGE_CALL_DURATION,
+            &labels,
+            self.start.elapsed().as_secs_f64() * 1000.0,
+        );
+    }
+}
+
+impl Drop for MergeCall {
+    fn drop(&mut self) {
+        if !self.recorded {
+            self.shape.result = RESULT_CANCELLED;
+            self.record();
+        }
+    }
+}
+
+fn saga_result(row: &OpRow) -> &'static str {
+    if row.step == STEP_COMPLETED {
+        RESULT_COMPLETED
+    } else if MergeOpExecutor::is_claim_abort(row) {
+        RESULT_ABORTED_CLAIM
+    } else {
+        RESULT_ABORTED
+    }
+}
 const ESTABLISH_IDENTIFIED_READS_TOTAL: &str =
     "personhog_identity_merge_establish_identified_reads_total";
 
@@ -81,6 +202,19 @@ impl MergeEntrance {
     pub async fn handle(
         &self,
         request: MergePersonsRequest,
+    ) -> Result<MergePersonsResponse, Status> {
+        let mut call = MergeCall::start(&request);
+        let response = self.run(request, &mut call.shape).await;
+        call.finish(response.is_ok());
+        response
+    }
+
+    // See `handle` for why result_large_err is allowed.
+    #[allow(clippy::result_large_err)]
+    async fn run(
+        &self,
+        request: MergePersonsRequest,
+        shape: &mut MergeShape,
     ) -> Result<MergePersonsResponse, Status> {
         let (op_id, move_limit) = validate_merge_persons(&request)?;
         common_metrics::histogram(MERGE_SOURCES_PER_CALL, &[], request.sources.len() as f64);
@@ -134,10 +268,24 @@ impl MergeEntrance {
                     "op_id_reused",
                 ));
             }
+            shape.path = PATH_RESUMED;
+            // The frozen request records a birth but not an adoption, so an
+            // adopted target reports as existing on this path.
+            shape.target = if row
+                .request
+                .get("target_born")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                TargetOrigin::Born.as_str()
+            } else {
+                TargetOrigin::Existing.as_str()
+            };
             let frozen = row.request.clone();
             let start = Instant::now();
             let row = self.ops.execute(op_id, row.team_id, &frozen).await?;
             record_phase("saga", start);
+            shape.result = saga_result(&row);
             let start = Instant::now();
             let delivered = self.deliver_aborted_writes(&request, &row).await?;
             record_phase("deliver", start);
@@ -173,8 +321,8 @@ impl MergeEntrance {
         record_phase("resolve", start);
 
         let target_key = (request.team_id, request.target_distinct_id.clone());
-        let (target_person, target_was_born) = match resolved.get(&target_key) {
-            Some(target) => (target.clone(), false),
+        let (target_person, target_origin) = match resolved.get(&target_key) {
+            Some(target) => (target.clone(), TargetOrigin::Existing),
             None => {
                 let start = Instant::now();
                 let established = self.establish_target(&request, &resolved).await?;
@@ -182,6 +330,8 @@ impl MergeEntrance {
                 established
             }
         };
+        shape.target = target_origin.as_str();
+        let target_was_born = target_origin == TargetOrigin::Born;
 
         let mut attach: Vec<String> = Vec::new();
         let mut saga_sources: Vec<MergeSourceEntry> = Vec::new();
@@ -250,10 +400,12 @@ impl MergeEntrance {
             *inline_counts.entry(outcome.as_str()).or_default() += 1;
         }
         for (outcome, count) in inline_counts {
-            record_outcome_count(outcome, count);
+            record_outcome_count(PATH_INLINE, outcome, count);
         }
 
         if saga_sources.is_empty() {
+            shape.path = PATH_INLINE;
+            shape.result = RESULT_SETTLED;
             // Nothing to destroy, so no op row. Inline settlement is
             // idempotent: a retry re-executes against the current world,
             // the same at-least-once semantics as event redelivery — and
@@ -319,9 +471,11 @@ impl MergeEntrance {
         frozen["inline_results"] = serde_json::to_value(&inline_results)
             .map_err(|e| Status::internal(format!("failed to freeze inline results: {e}")))?;
 
+        shape.path = PATH_SAGA;
         let start = Instant::now();
         let row = self.ops.execute(op_id, request.team_id, &frozen).await?;
         record_phase("saga", start);
+        shape.result = saga_result(&row);
         let start = Instant::now();
         let delivered = self.deliver_aborted_writes(&request, &row).await?;
         record_phase("deliver", start);
@@ -440,7 +594,7 @@ impl MergeEntrance {
         &self,
         request: &MergePersonsRequest,
         resolved: &HashMap<(i64, String), Person>,
-    ) -> Result<(Person, bool), Status> {
+    ) -> Result<(Person, TargetOrigin), Status> {
         let target_did = &request.target_distinct_id;
 
         // Sources decide in request order, as one-at-a-time identifies would:
@@ -482,12 +636,15 @@ impl MergeEntrance {
                 .await
                 .map_err(|e| Status::internal(format!("target attach failed: {e}")))?;
             return match attached.get(target_did) {
-                Some(AttachOutcome::Attached { .. }) => Ok((survivor.clone(), false)),
+                Some(AttachOutcome::Attached { .. }) => {
+                    Ok((survivor.clone(), TargetOrigin::Adopted))
+                }
                 // The target distinct id got mapped concurrently; that
                 // mapping wins and its person is the survivor.
-                Some(AttachOutcome::AlreadyMapped { .. }) => {
-                    Ok((self.resolve_target_after_race(request).await?, false))
-                }
+                Some(AttachOutcome::AlreadyMapped { .. }) => Ok((
+                    self.resolve_target_after_race(request).await?,
+                    TargetOrigin::Existing,
+                )),
                 // The survivor row vanished under the attach (a racing
                 // lifecycle op committed). Nothing durable happened for
                 // this op, so the retry re-classifies against the settled
@@ -525,11 +682,19 @@ impl MergeEntrance {
             .map_err(|e| Status::internal(format!("target creation failed: {e}")))?;
         match outcomes.into_iter().next() {
             // A rival's insert winning the row makes this call not the creator.
-            Some(StubOutcome::Committed { person, created }) => Ok((person, created)),
-            // The race winner's person keeps its own establishment's creator.
-            Some(StubOutcome::LostRace) | None => {
-                Ok((self.resolve_target_after_race(request).await?, false))
+            Some(StubOutcome::Committed { person, created }) => {
+                let origin = if created {
+                    TargetOrigin::Born
+                } else {
+                    TargetOrigin::Existing
+                };
+                Ok((person, origin))
             }
+            // The race winner's person keeps its own establishment's creator.
+            Some(StubOutcome::LostRace) | None => Ok((
+                self.resolve_target_after_race(request).await?,
+                TargetOrigin::Existing,
+            )),
         }
     }
 

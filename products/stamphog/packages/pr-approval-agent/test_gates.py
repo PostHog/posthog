@@ -17,7 +17,7 @@ from gates import (
     is_size_exempt,
     substantive_size,
 )
-from policy import OwnershipSource, load_policy, repo_root
+from policy import OwnershipSource, bundled_defaults_dir, load_policy, merge_policy, repo_root
 
 # ── False positives that should NOT trigger ──────────────────────
 
@@ -336,7 +336,10 @@ def test_title_scrutiny_flags(subject: str, expected_flags: list[str]) -> None:
 
 @pytest.fixture
 def deny_exceptions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    raw = yaml.safe_load((repo_root() / ".stamphog" / "policy.yml").read_text())
+    raw = merge_policy(
+        yaml.safe_load((bundled_defaults_dir() / "policy.yml").read_text()),
+        yaml.safe_load((repo_root() / ".stamphog" / "policy.yml").read_text()),
+    )
     raw["deny"]["billing"]["match"]["any"][0] = "Billing"
     raw["deny_exceptions"] = {
         "billing": [
@@ -398,12 +401,8 @@ def test_deny_exceptions_are_per_pattern_and_per_file(deny_exceptions, files: li
     assert detect_deny_categories(files) == expected
 
 
-def test_disabling_deny_exceptions_preserves_legacy_exemptions_and_ignored_files(deny_exceptions) -> None:
-    files = [
-        "apps/billing/values.yaml",
-        "products/warehouse_sources/backend/temporal/data_imports/sources/stripe/auth.py",
-        "posthog/migrations/0999_add_column.py",
-    ]
+def test_disabling_deny_exceptions_keeps_ignored_files(deny_exceptions) -> None:
+    files = ["apps/billing/values.yaml", "posthog/migrations/0999_add_column.py"]
     ignored = {"posthog/migrations/0999_add_column.py"}
 
     assert detect_deny_categories(files, ignored_files=ignored) == []
@@ -510,6 +509,18 @@ def test_dwh_source_mixed_still_denies() -> None:
         pytest.param("services/mcp/src/api/generated_helpers.ts", False, id="generated-underscore-counted"),
         pytest.param("frontend/src/queries/schema/schema-general.ts", True, id="queries-schema"),
         pytest.param("frontend/src/types.gen.ts", True, id="dot-gen-suffix"),
+        pytest.param(
+            "products/desktop/packages/workspace-server/src/db/migrations/meta/0009_snapshot.json",
+            True,
+            id="drizzle-snapshot",
+        ),
+        pytest.param(
+            "products/desktop/packages/workspace-server/src/db/migrations/meta/_journal.json",
+            False,
+            id="drizzle-journal-counted",
+        ),
+        pytest.param("frontend/src/meta/0001_snapshot.ts", False, id="snapshot-named-code-counted"),
+        pytest.param("config/meta/0001_snapshot.json", False, id="snapshot-outside-migrations-counted"),
         pytest.param("pnpm-lock.yaml", False, id="lockfile-yaml-counted"),
         pytest.param("uv.lock", True, id="lockfile-lock-ext"),
         pytest.param("posthog/api/insight.py", False, id="python-code"),

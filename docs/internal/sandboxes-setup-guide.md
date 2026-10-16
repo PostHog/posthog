@@ -139,6 +139,59 @@ Codex's sessions and shell snapshots into that directory before starting a sessi
 Authentication and platform configuration stay outside these mappings. Pi restores
 its session history through the task-session API.
 
+The agent stores completed prompt acknowledgements in its persistent state directory,
+so a resumed server skips completed prompts even when clearing their API state failed.
+Creating a resume snapshot preserves pending user messages until delivery handles
+them. If capture exceeds the file limit, it reports failure and retains the previous
+checkpoint without pruning the live workspace. Directory names such as `.cache` or
+`.venv` do not establish that their contents can be rebuilt. The legacy
+`allow_pruning` activity field remains readable but no longer enables deletion.
+
+`TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED` defaults to `false` during rollout.
+Deploy generation-aware token issuers and ingest handlers everywhere before enabling it.
+Leave rotation off until old workers drain; otherwise a resumed sandbox can receive
+an old-format token that the new ingest handlers reject. Already rotated streams
+keep their generation if rotation is disabled again.
+Stream completion is bound to the workflow's stream generation. A resume replaces
+that generation atomically with the stream reset, so late cleanup cannot close it.
+Dispatch saves the generation on the run and workflow input before context loading.
+Cancellation can tear down the sandbox without Redis and retains that generation across completion retries.
+Sandbox ingest tokens carry the same generation. Django and agent-proxy check it
+atomically when accepting events or completion, rejecting stale senders with HTTP 403
+and `stream_generation_mismatch`. The sender discards its buffer and stops on this code.
+Tokens issued before generation tracking remain valid only until the stream resets.
+
+`TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED` enables an experimental Modal layout
+for default, autoresearch, and VM task templates. Task processes see `/tmp`, `/var/tmp`, and `/root` backed by
+`/tmp/workspace/.posthog/task-filesystem`, so ordinary files at those paths enter
+directory snapshots. Modal control processes keep their original filesystem view.
+Agentsh, the setup wizard, dev-stack bootstrap, and preview services enter the task view; Docker must
+start there so bind mounts resolve the same paths. Fresh credential files remain
+outside the saved directories. Claude's pinned session settings resolve to a private
+runtime directory, and the one-use Codex token is staged under `/run`.
+Base images seed the persistent home outside the workspace during build, preserving
+ownership. Custom images and dev-stack bakes refresh that seed after warming their
+caches. Activation moves the seed into the workspace without copying it; disabled
+tasks leave it out of directory snapshots, and versioned restores keep their saved
+home. Fresh tasks using older images without a home seed keep the provider view
+until those images are rebuilt. Image-bake sandboxes keep the provider view, and wizard output
+lives under `/tmp/workspace/.posthog/wizard-cloud-run`.
+Namespace entry preserves the caller's working directory. Health and capability
+checks run in the provider view, while bundled-skill cleanup runs in the task view.
+Cleanup uses a fixed system PATH and absolute system binaries. Helper uploads
+use the caller's execution timeout.
+Automatic dev-stack bootstrap uses a fresh Docker config directory under `/run`.
+Launch preparation uses a fixed system PATH and the image's absolute agentsh path.
+
+Snapshots carry a layout version. Restoring that version initializes the task view
+even when the setting is disabled, while legacy workspace snapshots stay readable.
+Unversioned restores keep their original layout even when enabled, so existing
+files remain accessible without copying a home at startup.
+Missing namespaces and unknown versions fail startup. This layout covers files;
+processes, runtime sockets, system package changes, and service data outside these
+directories still need their own recovery. Keep it disabled until the checkpoint
+handoff and required service recovery are validated together.
+
 ## Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what
@@ -286,6 +339,11 @@ Automatic Flash uses your existing severity threshold and never resolves comment
 
 The switch sets your `default_review_mode` preference to `flash` or `follow` through `PATCH /api/projects/<project_id>/review_hog/settings/`.
 Project admins choose which repositories the project reviews, and who gets automatic Flash there, through the `review_hog/project_settings`, `review_hog/installation_claims`, and `review_hog/repositories` endpoints.
+
+The Code review settings page calls automatic reviews **Standard** and requested reviews **Deep**.
+Project defaults appear beside personal preferences. Personal repository choices take priority over personal defaults and project rules.
+**Commit fixes to my pull requests** allows Deep reviews to push fixes only with the author's own opt-in.
+The control's help explains when fixes are paused. Review skill descriptions summarize each check; editing skill text changes it for the whole project.
 
 To run Flash locally, use `run_review --review-mode flash` from the repository root:
 

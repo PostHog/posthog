@@ -4,6 +4,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.hogql.database.database import Database
@@ -30,8 +32,7 @@ from products.data_modeling.backend.models.node import NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
-@pytest.mark.django_db
-class TestGetDagId(BaseTest):
+class TestGetDagId(SimpleTestCase):
     def test_get_dag_id_returns_expected_format(self):
         self.assertEqual(get_dag_id(123), "posthog_123")
         self.assertEqual(get_dag_id(1), "posthog_1")
