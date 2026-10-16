@@ -40,6 +40,7 @@ Before any infrastructure boots, a preflight validates that the required variabl
 Required credentials depend on each selected suite's engine and kind.
 The default `braintrust` engine requires `BRAINTRUST_API_KEY`; modules declaring `EVAL_ENGINE = "posthog"` require `POSTHOG_OFFLINE_EVAL_API_KEY` instead.
 A run selecting both engines requires both keys.
+Modules can add suite-specific credentials with `EVAL_REQUIRED_ENV`, a tuple of `EnvVarSpec` values checked before infrastructure starts.
 Sandboxed suites add `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`; one-shot suites add `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
 
 Selectors are substrings matched against a suite id of the form `<domain>/<module>::<fn>`, for example `experiments`, `sql`, or `eval_lifecycle_skills`.
@@ -403,7 +404,7 @@ Both notebook suites report exclusively to PostHog's offline experiment API:
 - `notebooks/eval_notebook_analysis::eval_notebook_analysis`: three churn-analysis cases with execution checks, planted-cohort recall, and an LLM approach judge.
 
 Set `POSTHOG_OFFLINE_EVAL_API_KEY` with `offline_evaluation_ingestion:write` access to project `2`.
-The analysis judge also needs `OPENAI_API_KEY`; it uses OpenAI directly by default and honors `OPENAI_BASE_URL`.
+Preflight also checks `OPENAI_API_KEY` for the analysis judge; it uses OpenAI directly by default and honors `OPENAI_BASE_URL`.
 Neither suite requires `BRAINTRUST_API_KEY`. The existing agent and sandbox credentials still apply.
 Run with Docker because the Python and DuckDB cases need notebook kernel sandboxes:
 

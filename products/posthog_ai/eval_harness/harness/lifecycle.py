@@ -191,12 +191,12 @@ class SandboxedEvalHarness:
         with asyncio.Runner() as runner:
             try:
                 reporter.setup_started("check configuration")
-                engine_env = {
+                required_env = {
                     requirement.name: requirement
                     for suite in suites
-                    for requirement in resolve_engine(suite.engine_name).required_env()
+                    for requirement in (*resolve_engine(suite.engine_name).required_env(), *suite.required_env)
                 }
-                validate_eval_env(self.options.agent_runtime, kinds=kinds, engine_env=tuple(engine_env.values()))
+                validate_eval_env(self.options.agent_runtime, kinds=kinds, engine_env=tuple(required_env.values()))
                 if Infra.SANDBOX in required:
                     self.provider = build_provider(
                         self.options.provider,

@@ -39,10 +39,12 @@ from products.notebooks.evals.scorers import (
 from products.notebooks.evals.seeders import seed_churn_signal
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
+from products.posthog_ai.eval_harness.engines.types import EnvVarSpec
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
 
 EVAL_ENGINE = "posthog"
+EVAL_REQUIRED_ENV = (EnvVarSpec("OPENAI_API_KEY", "runs the notebook analysis approach judge"),)
 
 # Both lanes must complete: the SQL cell pulls the behavioural signals, the Python cell does the
 # churn analysis over them. Naming both is what separates "wrote a python cell" from "the kernel

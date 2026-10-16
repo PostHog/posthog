@@ -51,7 +51,8 @@ Checks that do not apply to a case remain skipped, rather than becoming zeroes.
 Run `hogli evals notebooks --provider docker` with the usual agent and sandbox credentials and `POSTHOG_OFFLINE_EVAL_API_KEY`.
 The key needs `offline_evaluation_ingestion:write` access to project `2`; `POSTHOG_OFFLINE_EVAL_HOST` defaults to `https://us.posthog.com`.
 Notebook-only runs fail preflight if the reporting key is missing and never require `BRAINTRUST_API_KEY`.
-The analysis judge needs `OPENAI_API_KEY` and calls OpenAI directly by default, including when trace capture is disabled.
+Preflight checks `OPENAI_API_KEY` for the analysis judge before starting any services.
+The judge calls OpenAI directly by default, including when trace capture is disabled.
 `OPENAI_BASE_URL` can select another OpenAI-compatible endpoint.
 Runs selecting other suites using the default engine still need their Braintrust credentials.
 

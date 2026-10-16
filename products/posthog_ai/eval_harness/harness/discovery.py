@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from posthog.dataclasses import frozen
 
 from ..engines.registry import DEFAULT_ENGINE, resolve_engine
+from ..engines.types import EnvVarSpec
 from .requirements import SuiteKind
 
 if TYPE_CHECKING:
@@ -53,6 +54,7 @@ class EvalSuite:
     """How the suite's cases execute, from the module-level ``SUITE_KIND``."""
 
     engine_name: str = DEFAULT_ENGINE
+    required_env: tuple[EnvVarSpec, ...] = ()
 
     @property
     def id(self) -> str:
@@ -122,6 +124,9 @@ def _collect_suites(module: ModuleType, domain: str, module_name: str, dotted: s
         resolve_engine(engine_name)
     except ValueError as error:
         raise SuiteDiscoveryError(f"{dotted}.EVAL_ENGINE: {error}") from error
+    required_env = getattr(module, "EVAL_REQUIRED_ENV", ())
+    if not isinstance(required_env, tuple) or not all(isinstance(value, EnvVarSpec) for value in required_env):
+        raise SuiteDiscoveryError(f"{dotted}.EVAL_REQUIRED_ENV must be a tuple of EnvVarSpec values")
     multi_turn = bool(getattr(module, MULTI_TURN_MODULE_MARKER, False))
     collected: list[EvalSuite] = []
     for fn_name, fn in vars(module).items():
@@ -136,7 +141,13 @@ def _collect_suites(module: ModuleType, domain: str, module_name: str, dotted: s
             setattr(fn, MULTI_TURN_MODULE_MARKER, True)
         collected.append(
             EvalSuite(
-                domain=domain, module_name=module_name, fn_name=fn_name, fn=fn, kind=kind, engine_name=engine_name
+                domain=domain,
+                module_name=module_name,
+                fn_name=fn_name,
+                fn=fn,
+                kind=kind,
+                engine_name=engine_name,
+                required_env=required_env,
             )
         )
     return collected

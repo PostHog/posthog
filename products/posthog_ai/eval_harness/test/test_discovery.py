@@ -9,10 +9,12 @@ from products.posthog_ai.eval_harness.harness.discovery import SuiteDiscoveryErr
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 
 _ONE_SHOT_MODULE = """
+from products.posthog_ai.eval_harness.engines.types import EnvVarSpec
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 EVAL_ENGINE = "posthog"
+EVAL_REQUIRED_ENV = (EnvVarSpec("OPENAI_API_KEY", "runs the judge"),)
 
 
 async def eval_alpha(ctx) -> None:
@@ -64,6 +66,7 @@ def _discover(product_roots: tuple[Path, Path]) -> dict[str, SuiteKind]:
 def test_product_suites_discovered_with_product_scoped_ids(product_roots: tuple[Path, Path]) -> None:
     products_root, builtin_root = product_roots
     suites = discover_suites(builtin_root=builtin_root, products_root=products_root)
+    assert [spec.name for suite in suites for spec in suite.required_env] == ["OPENAI_API_KEY"]
     assert {suite.id: suite.engine_name for suite in suites} == {
         "analytics/eval_one::eval_alpha": "posthog",
         "core/eval_two::eval_beta": "braintrust",
@@ -100,12 +103,20 @@ def test_unmatched_selector_raises(product_roots: tuple[Path, Path]) -> None:
         discover_suites(["nonexistent"], builtin_root=builtin_root, products_root=products_root)
 
 
-@pytest.mark.parametrize("engine_name", [None, "unknown-engine"])
-def test_invalid_engine_fails_during_discovery(
-    product_roots: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, engine_name: str | None
+@pytest.mark.parametrize(
+    "marker,value",
+    [
+        ("EVAL_ENGINE", None),
+        ("EVAL_ENGINE", "unknown-engine"),
+        ("EVAL_REQUIRED_ENV", None),
+        ("EVAL_REQUIRED_ENV", ("OPENAI_API_KEY",)),
+    ],
+)
+def test_invalid_configuration_fails_during_discovery(
+    product_roots: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, marker: str, value: object
 ) -> None:
     module = importlib.import_module("fakeproducts.analytics.evals.eval_one")
-    monkeypatch.setattr(module, "EVAL_ENGINE", engine_name)
+    monkeypatch.setattr(module, marker, value)
     products_root, builtin_root = product_roots
-    with pytest.raises(SuiteDiscoveryError, match="EVAL_ENGINE"):
+    with pytest.raises(SuiteDiscoveryError, match=marker):
         discover_suites(builtin_root=builtin_root, products_root=products_root)
