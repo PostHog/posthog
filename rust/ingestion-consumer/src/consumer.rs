@@ -234,15 +234,20 @@ struct RevokedPartition {
 fn revoke_hook(
     revoker: Revoker,
     ledger: Arc<TopicOffsetLedger>,
+    pacer: Arc<CommitPacer>,
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
 ) -> RevokeHook {
     Box::new(move |partitions| {
         revoker.purge_revoked(partitions);
+        let topic_partitions: Vec<TopicPartition> = partitions
+            .iter()
+            .map(|(topic, partition)| TopicPartition::new(topic, *partition))
+            .collect();
+        pacer.forget_partitions(&topic_partitions);
         revoked_partitions
             .lock()
             .unwrap()
-            .extend(partitions.iter().map(|(topic, partition)| {
-                let topic_partition = TopicPartition::new(topic, *partition);
+            .extend(topic_partitions.into_iter().map(|topic_partition| {
                 let generation = ledger.generation(&topic_partition);
                 RevokedPartition {
                     topic_partition,
@@ -393,6 +398,7 @@ pub struct IngestionConsumerOptions {
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
     pub completion_granularity: CompletionGranularity,
+    pub commit_interval: Duration,
 }
 
 /// The main consumer loop: reads from Kafka, demuxes each poll into groups,
@@ -411,7 +417,6 @@ pub struct IngestionConsumer {
     max_in_flight_batches: usize,
     handle: Handle,
     group_id: String,
-    commit_pacer: Arc<CommitPacer>,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
     /// The per-partition offset ledger the commit path reads its frontiers
@@ -439,22 +444,21 @@ impl IngestionConsumer {
         // Share the context's ledger and sentinel so rebalance callbacks
         // forget partitions on the same ones the commit path uses.
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
-        let commit_pacer = consumer.context().commit_pacer();
+        let settlement = settlement::for_granularity(
+            options.completion_granularity,
+            Arc::clone(&topic_offset_ledger),
+            options.commit_interval,
+        );
         let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
             Arc::new(Mutex::new(Vec::new()));
         consumer.context().set_revoke_hook(revoke_hook(
             batcher.revoker(),
             Arc::clone(&topic_offset_ledger),
+            Arc::clone(settlement.pacer()),
             Arc::clone(&revoked_partitions),
         ));
         let consumer = Arc::new(consumer);
-        let settlement = settlement::for_granularity(
-            options.completion_granularity,
-            Arc::clone(&topic_offset_ledger),
-            Arc::clone(&commit_pacer),
-        );
         Self {
-            commit_pacer,
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
             revoked_partitions,
@@ -500,22 +504,23 @@ impl IngestionConsumer {
             config.consumer_batch_size,
             config.consumer_batch_size_kb,
         );
-        let commit_pacer = Arc::new(CommitPacer::for_granularity(
-            config.consumer_completion_granularity,
-            Duration::from_millis(config.consumer_commit_interval_ms),
-        ));
         batcher
             .key_order_sentinel()
             .set_enabled(config.consumer_order_sentinel_enabled);
         let topic_offset_ledger = Arc::new(TopicOffsetLedger::new());
-        let mut context =
-            SentinelContext::new(Arc::clone(&commit_pacer), Arc::clone(&topic_offset_ledger));
+        let settlement = settlement::for_granularity(
+            config.consumer_completion_granularity,
+            Arc::clone(&topic_offset_ledger),
+            Duration::from_millis(config.consumer_commit_interval_ms),
+        );
+        let mut context = SentinelContext::new(Arc::clone(&topic_offset_ledger));
         context.set_assignment_epoch(transport.assignment_epoch());
         let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
             Arc::new(Mutex::new(Vec::new()));
         context.set_revoke_hook(revoke_hook(
             batcher.revoker(),
             Arc::clone(&topic_offset_ledger),
+            Arc::clone(settlement.pacer()),
             Arc::clone(&revoked_partitions),
         ));
         let consumer: StreamConsumer<SentinelContext> =
@@ -532,14 +537,8 @@ impl IngestionConsumer {
             completion_granularity = ?config.consumer_completion_granularity,
             "Kafka consumer subscribed"
         );
-        let settlement = settlement::for_granularity(
-            config.consumer_completion_granularity,
-            Arc::clone(&topic_offset_ledger),
-            Arc::clone(&commit_pacer),
-        );
 
         Ok(Self {
-            commit_pacer,
             consumer,
             debug_recorder,
             topic_offset_ledger,
@@ -844,14 +843,14 @@ impl IngestionConsumer {
     }
 
     fn commit_due(&self) -> anyhow::Result<()> {
-        match self.commit_pacer.take_due(Instant::now()) {
+        match self.settlement.pacer().take_due(Instant::now()) {
             Some(offsets) => self.commit_offsets(&offsets),
             None => Ok(()),
         }
     }
 
     fn commit_all(&self) -> anyhow::Result<()> {
-        match self.commit_pacer.take_all() {
+        match self.settlement.pacer().take_all() {
             Some(offsets) => self.commit_offsets(&offsets),
             None => Ok(()),
         }
@@ -1567,8 +1566,8 @@ mod tests {
     #[test]
     fn a_covered_head_is_popped_before_a_redelivered_offset_is_matched() {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        let pacer = Arc::new(CommitPacer::immediate());
-        let settlement = GroupSettlement::new(Arc::clone(&ledger), Arc::clone(&pacer));
+        let settlement = GroupSettlement::new(Arc::clone(&ledger), Duration::ZERO);
+        let pacer = settlement.pacer();
         let partition = TopicPartition::new("test", 0);
         ledger.forget_partitions([("test", 0)]);
         charge_offsets(&ledger, &partition, 1, &[0, 1]);

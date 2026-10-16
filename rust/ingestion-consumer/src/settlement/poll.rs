@@ -14,8 +14,11 @@ pub(crate) struct PollSettlement {
 }
 
 impl PollSettlement {
-    pub(crate) fn new(ledger: Arc<TopicOffsetLedger>, pacer: Arc<CommitPacer>) -> Self {
-        Self { ledger, pacer }
+    pub(crate) fn new(ledger: Arc<TopicOffsetLedger>) -> Self {
+        Self {
+            ledger,
+            pacer: Arc::new(CommitPacer::immediate()),
+        }
     }
 }
 
@@ -49,6 +52,10 @@ impl Settlement for PollSettlement {
                 "No ledger frontier available for completed offsets; skipping commit"
             );
         }
+    }
+
+    fn pacer(&self) -> &Arc<CommitPacer> {
+        &self.pacer
     }
 }
 
@@ -113,8 +120,8 @@ mod tests {
 
     fn settlement() -> (Arc<TopicOffsetLedger>, Arc<CommitPacer>, PollSettlement) {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        let pacer = Arc::new(CommitPacer::immediate());
-        let settlement = PollSettlement::new(Arc::clone(&ledger), Arc::clone(&pacer));
+        let settlement = PollSettlement::new(Arc::clone(&ledger));
+        let pacer = Arc::clone(settlement.pacer());
         (ledger, pacer, settlement)
     }
 

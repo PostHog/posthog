@@ -29,9 +29,8 @@ use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, Statistics, TopicPartitionList};
 use tracing::{info, warn};
 
-use crate::commit_pacer::CommitPacer;
 use crate::types::SerializedKafkaMessage;
-use common_kafka_consumer::{AssignmentEpoch, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{AssignmentEpoch, TopicOffsetLedger};
 
 /// The first and last Kafka offsets a batch holds for one topic-partition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -404,7 +403,6 @@ pub fn ack_mark(
 }
 
 pub struct SentinelContext {
-    commit_pacer: Arc<CommitPacer>,
     /// The offset ledger the commit path settles against. Owned here so the
     /// rebalance callbacks forget partitions on the same ledger.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
@@ -421,12 +419,8 @@ pub struct SentinelContext {
 pub type RevokeHook = Box<dyn Fn(&[(String, i32)]) + Send + Sync>;
 
 impl SentinelContext {
-    pub fn new(
-        commit_pacer: Arc<CommitPacer>,
-        topic_offset_ledger: Arc<TopicOffsetLedger>,
-    ) -> Self {
+    pub fn new(topic_offset_ledger: Arc<TopicOffsetLedger>) -> Self {
         Self {
-            commit_pacer,
             topic_offset_ledger,
             assignment_epoch: None,
             revoke_hook: OnceLock::new(),
@@ -445,12 +439,8 @@ impl SentinelContext {
         self.assignment_epoch = Some(epoch);
     }
 
-    pub fn detached(commit_pacer: CommitPacer) -> Self {
-        Self::new(Arc::new(commit_pacer), Arc::new(TopicOffsetLedger::new()))
-    }
-
-    pub fn commit_pacer(&self) -> Arc<CommitPacer> {
-        Arc::clone(&self.commit_pacer)
+    pub fn detached() -> Self {
+        Self::new(Arc::new(TopicOffsetLedger::new()))
     }
 
     pub fn topic_offset_ledger(&self) -> Arc<TopicOffsetLedger> {
@@ -458,16 +448,11 @@ impl SentinelContext {
     }
 
     /// Start a new ledger generation for every partition in `tpl`, dropping
-    /// its window and any frontier it had ready to commit.
+    /// its window.
     fn forget_ledger_partitions(&self, tpl: &TopicPartitionList) {
         let elements = tpl.elements();
         self.topic_offset_ledger
             .forget_partitions(elements.iter().map(|e| (e.topic(), e.partition())));
-        let topic_partitions: Vec<TopicPartition> = elements
-            .iter()
-            .map(|e| TopicPartition::new(e.topic(), e.partition()))
-            .collect();
-        self.commit_pacer.forget_partitions(&topic_partitions);
     }
 }
 

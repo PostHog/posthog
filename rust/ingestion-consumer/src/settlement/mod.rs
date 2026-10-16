@@ -4,6 +4,7 @@ mod group;
 mod poll;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use common_kafka_consumer::{Charge, Offset, TopicOffsetLedger, TopicPartition};
 use tracing::warn;
@@ -28,16 +29,18 @@ pub(crate) trait Settlement: Send + Sync {
 
     /// The oldest poll retired with every message accepted.
     fn settle_poll(&self, slices: &[ChargedSlice<'_>]);
+
+    fn pacer(&self) -> &Arc<CommitPacer>;
 }
 
 pub(crate) fn for_granularity(
     granularity: CompletionGranularity,
     ledger: Arc<TopicOffsetLedger>,
-    pacer: Arc<CommitPacer>,
+    commit_interval: Duration,
 ) -> Arc<dyn Settlement> {
     match granularity {
-        CompletionGranularity::Poll => Arc::new(PollSettlement::new(ledger, pacer)),
-        CompletionGranularity::Group => Arc::new(GroupSettlement::new(ledger, pacer)),
+        CompletionGranularity::Poll => Arc::new(PollSettlement::new(ledger)),
+        CompletionGranularity::Group => Arc::new(GroupSettlement::new(ledger, commit_interval)),
     }
 }
 
