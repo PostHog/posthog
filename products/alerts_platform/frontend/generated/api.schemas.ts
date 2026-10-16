@@ -660,6 +660,7 @@ export interface LogsPlatformAlertConditionApi {
     /**
      * Number of matching log entries in the window that breaches the threshold. Use 0 with the above operator to fire on any matching log.
      * @minimum 0
+     * @maximum 2147483647
      */
     threshold_count: number
     /** Whether the alert fires when the count is above or below the threshold. */
