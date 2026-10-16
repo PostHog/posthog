@@ -1225,7 +1225,7 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
     )
     stale_runs = list(
         SignalScoutRun.objects.unscoped()
-        .filter(id__in=recent_run_ids, task_run__created_at__lt=cutoff)
+        .filter(team_id=team_id, id__in=recent_run_ids, task_run__created_at__lt=cutoff)
         .filter(Q(task_run__status__in=active_statuses) | closed_by_inactivity)
         .exclude(metadata__has_key=SCOUT_RUN_REAPED_METADATA_KEY)
         .select_related("task_run")

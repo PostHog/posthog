@@ -149,15 +149,11 @@ def lane_has_live_run(lane_runs: QuerySet[SignalScoutRun]) -> bool:
     recent_run_ids = list(lane_runs.filter(created_at__gte=live_cutoff).values_list("id", flat=True))
     if not recent_run_ids:
         return False
-    return (
-        SignalScoutRun.objects.unscoped()
-        .filter(
-            id__in=recent_run_ids,
-            task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
-            task_run__created_at__gte=live_cutoff,
-        )
-        .exists()
-    )
+    return lane_runs.filter(
+        id__in=recent_run_ids,
+        task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
+        task_run__created_at__gte=live_cutoff,
+    ).exists()
 
 
 def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | None:
