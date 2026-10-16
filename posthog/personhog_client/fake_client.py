@@ -1069,6 +1069,66 @@ class FakePersonHogClient:
             response.results.add(person_uuid=floor.person_uuid, outcome=outcome, version=version)
         return response
 
+    def restore_persons(
+        self, request: person_pb2.RestorePersonsRequest, timeout: float | None = None
+    ) -> person_pb2.RestorePersonsResponse:
+        self.calls.append(_Call("restore_persons", request))
+        self._check_repair_batch(
+            [p.person_uuid for p in request.persons], [p.version for p in request.persons], uuid_keys=True
+        )
+        parsed_properties = [json.loads(p.properties) for p in request.persons]
+        if not all(isinstance(props, dict) for props in parsed_properties):
+            raise ValueError("properties must be a JSON object")
+        listed = [d for p in request.persons for d in p.distinct_ids]
+        if len({d.distinct_id for d in listed}) != len(listed) or any(
+            not d.distinct_id or d.version < 0 for d in listed
+        ):
+            raise ValueError("distinct_ids must be unique, non-empty and at non-negative versions")
+        response = person_pb2.RestorePersonsResponse()
+        for restored, properties in zip(request.persons, parsed_properties):
+            existing = self._persons_by_uuid.get((request.team_id, restored.person_uuid))
+            if existing is not None:
+                outcome = (
+                    person_pb2.RESTORE_OUTCOME_EXISTS_TOMBSTONED
+                    if existing.is_deleted
+                    else person_pb2.RESTORE_OUTCOME_EXISTS_LIVE
+                )
+                response.results.add(
+                    person_uuid=restored.person_uuid, outcome=outcome, person_id=existing.id, version=existing.version
+                )
+                continue
+            free = [
+                d
+                for d in restored.distinct_ids
+                if (request.team_id, d.distinct_id) not in self._persons_by_distinct_id
+                and (request.team_id, d.distinct_id) not in self._tombstoned_distinct_ids
+            ]
+            if restored.distinct_ids and not free:
+                response.results.add(
+                    person_uuid=restored.person_uuid, outcome=person_pb2.RESTORE_OUTCOME_NO_DISTINCT_ID
+                )
+                continue
+            self._next_split_person_id += 1
+            person = self.add_person(
+                team_id=request.team_id,
+                person_id=self._next_split_person_id,
+                uuid=restored.person_uuid,
+                properties=properties,
+                created_at=restored.created_at_ms,
+                version=restored.version,
+                is_identified=restored.is_identified,
+                distinct_ids=[d.distinct_id for d in free],
+                distinct_id_versions={d.distinct_id: d.version for d in free},
+            )
+            response.results.add(
+                person_uuid=restored.person_uuid,
+                outcome=person_pb2.RESTORE_OUTCOME_INSERTED,
+                person_id=person.id,
+                version=person.version,
+                restored_distinct_ids=[d.distinct_id for d in free],
+            )
+        return response
+
     # ── Assertion helpers ────────────────────────────────────────────
 
     def assert_called(self, method: str, *, times: int | None = None) -> list[_Call]:

@@ -115,5 +115,9 @@ from personhog.types.v1.person_pb2 import (
     ListPersonsForTeamResponse,
     RaisePersonVersionFloorsRequest,
     RaisePersonVersionFloorsResponse,
+    RestorePersonsRequest,
+    RestorePersonsResponse,
+    RestoredDistinctId,
+    RESTORE_OUTCOME_NO_DISTINCT_ID,
     PersonVersionFloorResult,
 )

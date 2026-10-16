@@ -3,7 +3,7 @@ mod common;
 use common::TestContext;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use personhog_replica::storage::postgres::ConsistencyLevel;
-use personhog_replica::storage::types::RaiseOutcome;
+use personhog_replica::storage::types::{RaiseOutcome, RestoreOutcome, RestoredPerson};
 use personhog_replica::storage::{
     GroupKey, PersonVersionFloorResult, StorageError, TimeoutKind, TombstoneTarget,
     TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
@@ -4949,6 +4949,174 @@ async fn test_raise_person_version_floors_raises_only_live_persons() {
         .unwrap()
         .expect("live");
     assert_eq!(raised.version, Some(10));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_restore_persons_inserts_only_absent_uuids() {
+    let ctx = TestContext::new().await;
+    let live = ctx
+        .insert_person("restore_live", Some(serde_json::json!({"kept": true})))
+        .await
+        .unwrap();
+    let tombstoned = ctx.insert_person("restore_tombstoned", None).await.unwrap();
+    ctx.tombstone_person(tombstoned.id, None).await.unwrap();
+    let created_at = chrono::DateTime::parse_from_rfc3339("2021-02-03T04:05:06Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let restored = |uuid: Uuid| RestoredPerson {
+        uuid,
+        properties: serde_json::json!({"email": "restored@example.com"}),
+        created_at,
+        is_identified: true,
+        version: 7,
+        distinct_ids: Vec::new(),
+    };
+    let absent = Uuid::new_v4();
+
+    let results = ctx
+        .storage
+        .restore_persons(
+            ctx.team_id,
+            &[
+                restored(absent),
+                restored(live.uuid),
+                restored(tombstoned.uuid),
+            ],
+        )
+        .await
+        .expect("restore");
+
+    let outcomes: Vec<(Uuid, RestoreOutcome)> =
+        results.iter().map(|r| (r.uuid, r.outcome)).collect();
+    assert_eq!(
+        outcomes,
+        vec![
+            (absent, RestoreOutcome::Inserted),
+            (live.uuid, RestoreOutcome::ExistsLive),
+            (tombstoned.uuid, RestoreOutcome::ExistsTombstoned),
+        ]
+    );
+    assert_eq!((results[1].person_id, results[1].version), (live.id, 0));
+    assert_eq!(
+        (results[2].person_id, results[2].version),
+        (tombstoned.id, 1)
+    );
+
+    let inserted = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, absent)
+        .await
+        .unwrap()
+        .expect("restored person reads as live");
+    assert_eq!(inserted.id, results[0].person_id);
+    assert_eq!(inserted.version, Some(7));
+    assert!(inserted.is_identified);
+    assert_eq!(inserted.created_at, created_at);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(inserted.properties.as_deref().unwrap()).unwrap(),
+        serde_json::json!({"email": "restored@example.com"})
+    );
+    let untouched = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, live.uuid)
+        .await
+        .unwrap()
+        .expect("live");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(untouched.properties.as_deref().unwrap())
+            .unwrap(),
+        serde_json::json!({"kept": true})
+    );
+    let (still_deleted, _, _, _) = tombstone_state(&ctx.pool, ctx.team_id, tombstoned.id).await;
+    assert!(still_deleted);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_restore_persons_inserts_the_listed_distinct_ids_or_not_the_person() {
+    let ctx = TestContext::new().await;
+    let holder = ctx.insert_person("rd_holder", None).await.unwrap();
+    for distinct_id in ["rdx_taken", "rdx_only_taken"] {
+        ctx.add_distinct_id_to_person(holder.id, distinct_id)
+            .await
+            .unwrap();
+    }
+    let live = ctx.insert_person("rd_live", None).await.unwrap();
+    let restored = |uuid: Uuid, ids: &[&str]| RestoredPerson {
+        uuid,
+        properties: serde_json::json!({}),
+        created_at: chrono::Utc::now(),
+        is_identified: false,
+        version: 4,
+        distinct_ids: ids.iter().map(|d| (d.to_string(), 6)).collect(),
+    };
+    let (partly, unreachable, without_ids) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+
+    let results = ctx
+        .storage
+        .restore_persons(
+            ctx.team_id,
+            &[
+                restored(partly, &["rdx_new", "rdx_taken"]),
+                restored(unreachable, &["rdx_only_taken"]),
+                restored(without_ids, &[]),
+                restored(live.uuid, &["rdx_for_live"]),
+            ],
+        )
+        .await
+        .expect("restore");
+
+    let summary: Vec<(Uuid, RestoreOutcome, Vec<String>)> = results
+        .iter()
+        .map(|r| (r.uuid, r.outcome, r.restored_distinct_ids.clone()))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            (
+                partly,
+                RestoreOutcome::Inserted,
+                vec!["rdx_new".to_string()]
+            ),
+            (unreachable, RestoreOutcome::NoDistinctId, vec![]),
+            (without_ids, RestoreOutcome::Inserted, vec![]),
+            (live.uuid, RestoreOutcome::ExistsLive, vec![]),
+        ]
+    );
+    let owners: Vec<(String, Uuid, i64)> = sqlx::query_as(
+        "SELECT d.distinct_id, p.uuid, d.version FROM posthog_persondistinctid d
+         JOIN posthog_person p ON p.id = d.person_id
+         WHERE d.team_id = $1 AND d.distinct_id LIKE 'rdx\\_%' ORDER BY d.distinct_id",
+    )
+    .bind(ctx.team_id)
+    .fetch_all(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        owners,
+        vec![
+            ("rdx_new".to_string(), partly, 6),
+            ("rdx_only_taken".to_string(), holder.uuid, 0),
+            ("rdx_taken".to_string(), holder.uuid, 0),
+        ]
+    );
+    assert!(ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, unreachable)
+        .await
+        .unwrap()
+        .is_none());
+    let absent_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM posthog_person WHERE team_id = $1 AND uuid = $2")
+            .bind(ctx.team_id)
+            .bind(unreachable)
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(absent_rows, 0);
 
     ctx.cleanup().await.ok();
 }

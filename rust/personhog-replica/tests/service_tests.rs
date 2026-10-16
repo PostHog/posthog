@@ -14,7 +14,8 @@ use personhog_proto::personhog::types::v1::{
     GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
     GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey,
     ListPersonsForTeamRequest, PersonVersionFloor, PersonVersionFloorResult, RaiseOutcome,
-    RaisePersonVersionFloorsRequest, ReadOptions, SetPersonDistinctIdVersionFloorRequest,
+    RaisePersonVersionFloorsRequest, ReadOptions, RestoreOutcome, RestorePersonsRequest,
+    RestoredDistinctId, RestoredPerson, SetPersonDistinctIdVersionFloorRequest,
     SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
     UpsertHashKeyOverridesRequest, VersionBoundedPerson, VersionFloorOutcome,
 };
@@ -2001,6 +2002,34 @@ async fn test_repair_writes_round_trip_through_the_service() {
         (RaiseOutcome::Raised as i32, 5)
     );
 
+    let absent = Uuid::new_v4();
+    let restored = ctx
+        .service
+        .restore_persons(Request::new(RestorePersonsRequest {
+            team_id: ctx.team_id,
+            persons: vec![RestoredPerson {
+                person_uuid: absent.to_string(),
+                properties: br#"{"plan": "free"}"#.to_vec(),
+                created_at_ms: 1_600_000_000_000,
+                is_identified: false,
+                version: 4,
+                distinct_ids: vec![RestoredDistinctId {
+                    distinct_id: "svc_repair_restored".to_string(),
+                    version: 3,
+                }],
+            }],
+        }))
+        .await
+        .expect("restore")
+        .into_inner()
+        .results;
+    assert_eq!(restored[0].outcome, RestoreOutcome::Inserted as i32);
+    assert_eq!(restored[0].version, 4);
+    assert_eq!(
+        restored[0].restored_distinct_ids,
+        vec!["svc_repair_restored"]
+    );
+
     ctx.cleanup().await.ok();
 }
 
@@ -2008,11 +2037,17 @@ async fn test_repair_writes_round_trip_through_the_service() {
 enum BadRepairRequest {
     TooManyFloors,
     DuplicateFloorUuid,
+    PropertiesNotJson,
+    PropertiesNotAnObject,
+    DuplicateRestoredDistinctId,
 }
 
 #[rstest]
 #[case::too_many_floors(BadRepairRequest::TooManyFloors)]
 #[case::duplicate_floor_uuid(BadRepairRequest::DuplicateFloorUuid)]
+#[case::properties_not_json(BadRepairRequest::PropertiesNotJson)]
+#[case::properties_not_an_object(BadRepairRequest::PropertiesNotAnObject)]
+#[case::duplicate_restored_distinct_id(BadRepairRequest::DuplicateRestoredDistinctId)]
 #[tokio::test]
 async fn test_repair_writes_reject_bad_requests(#[case] bad: BadRepairRequest) {
     let ctx = ServiceTestContext::new().await;
@@ -2020,6 +2055,17 @@ async fn test_repair_writes_reject_bad_requests(#[case] bad: BadRepairRequest) {
     let floor = |u: String| PersonVersionFloor {
         person_uuid: u,
         min_version: 1,
+    };
+    let restore = |properties: &[u8]| RestorePersonsRequest {
+        team_id: ctx.team_id,
+        persons: vec![RestoredPerson {
+            person_uuid: uuid.clone(),
+            properties: properties.to_vec(),
+            created_at_ms: 0,
+            is_identified: false,
+            version: 1,
+            distinct_ids: vec![],
+        }],
     };
     let status = match bad {
         BadRepairRequest::TooManyFloors => ctx
@@ -2040,6 +2086,28 @@ async fn test_repair_writes_reject_bad_requests(#[case] bad: BadRepairRequest) {
             }))
             .await
             .map(|_| ()),
+        BadRepairRequest::PropertiesNotJson => ctx
+            .service
+            .restore_persons(Request::new(restore(b"not json")))
+            .await
+            .map(|_| ()),
+        BadRepairRequest::PropertiesNotAnObject => ctx
+            .service
+            .restore_persons(Request::new(restore(b"[1, 2]")))
+            .await
+            .map(|_| ()),
+        BadRepairRequest::DuplicateRestoredDistinctId => {
+            let mut request = restore(b"{}");
+            let id = || RestoredDistinctId {
+                distinct_id: "svc_dup".to_string(),
+                version: 0,
+            };
+            request.persons[0].distinct_ids = vec![id(), id()];
+            ctx.service
+                .restore_persons(Request::new(request))
+                .await
+                .map(|_| ())
+        }
     }
     .expect_err("rejected");
     assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status:?}");

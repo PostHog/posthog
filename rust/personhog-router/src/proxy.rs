@@ -75,6 +75,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "RaisePersonVersionFloors",
     "ReleaseFence",
     "ReleaseFences",
+    "RestorePersons",
     "SetPersonDistinctIdVersionFloor",
     "SetPersonVersionFloor",
     "SplitPerson",
