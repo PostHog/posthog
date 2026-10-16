@@ -128,6 +128,16 @@ function canDedupeByEmail(hogFlow: { actions?: unknown }): boolean {
 export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps
 
+function parseRealtimeCohort(value: unknown): BatchResolverState['realtimeCohort'] {
+    if (typeof value !== 'object' || value === null) {
+        return undefined
+    }
+    const { id, team_id } = value as { id?: unknown; team_id?: unknown }
+    return Number.isInteger(id) && Number.isInteger(team_id)
+        ? { id: id as number, teamId: team_id as number }
+        : undefined
+}
+
 export class CdpApi {
     private hogExecutorAsync: HogExecutorAsyncService
     private hogInputsService: HogInputsService
@@ -1435,6 +1445,7 @@ export class CdpApi {
                 // dedupe than dedupe wrongly. Also skip when the flow has no email action at all.
                 // Account audiences carry no person (and external ids are already unique), so never dedupe.
                 dedupeKey: audienceType !== 'accounts' && canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
+                realtimeCohort: parseRealtimeCohort(req.body.realtime_cohort),
                 maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
                 cursor: null,
                 totalEnqueued: 0,

@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
+    ExperimentFunnelsQuery,
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
@@ -480,5 +481,14 @@ describe('eventUsageLogic', () => {
                 created_by_system: created_by === null,
             })
         })
+    })
+
+    it('reports only the kind for a legacy metric', () => {
+        const metric = {
+            kind: NodeKind.ExperimentFunnelsQuery,
+            funnels_query: { series: [{ kind: NodeKind.EventsNode }] },
+        } as ExperimentFunnelsQuery
+
+        expect(getEventPropertiesForMetric(metric)).toEqual({ kind: NodeKind.ExperimentFunnelsQuery })
     })
 })
