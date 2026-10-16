@@ -112,10 +112,17 @@ describe('messageTemplateLogic', () => {
                 toast: 'Failed to save template. Please try again.',
                 withButton: false,
             },
-        ])('$description', async ({ status, toast, withButton }) => {
+            {
+                description: 'a code-managed template shows why the server refused the edit',
+                status: 403,
+                code: 'immutable',
+                toast: 'nope',
+                withButton: false,
+            },
+        ])('$description', async ({ status, code, toast, withButton }) => {
             useMocks({
                 patch: {
-                    '/api/environments/:team_id/messaging_templates/:id/': () => [status, { detail: 'nope' }],
+                    '/api/environments/:team_id/messaging_templates/:id/': () => [status, { code, detail: 'nope' }],
                 },
             })
 
@@ -328,6 +335,83 @@ describe('messageTemplateLogic', () => {
             router.actions.push(NEW_PATH, { mode: 'editor' }, {})
 
             await expectLogic(logic).toMatchValues({ templatePickerOpen: true })
+        })
+    })
+
+    describe('code-managed source', () => {
+        const CODE_MANAGED = {
+            id: 'existing-id',
+            name: 'Welcome',
+            key: 'welcome',
+            managed_by: 'code',
+            source_repository: 'github.com/example/app',
+            source_path: 'emails/welcome.html',
+            source_ref: '3f2c1ab9d4e5f60718293a4b5c6d7e8f90a1b2c3',
+        }
+
+        it.each([
+            {
+                description: 'a template made in PostHog has no source',
+                served: { id: 'existing-id', name: 'Existing', managed_by: null },
+                isCodeManaged: false,
+                templateSource: null,
+            },
+            {
+                description: 'a keyed template that PostHog still manages has no source',
+                served: { ...CODE_MANAGED, managed_by: 'gui' },
+                isCodeManaged: false,
+                templateSource: null,
+            },
+            {
+                description: 'a known host links the file, the repository and the shortened commit',
+                served: CODE_MANAGED,
+                isCodeManaged: true,
+                templateSource: {
+                    path: 'emails/welcome.html',
+                    fileUrl:
+                        'https://github.com/example/app/blob/3f2c1ab9d4e5f60718293a4b5c6d7e8f90a1b2c3/emails/welcome.html',
+                    repository: 'github.com/example/app',
+                    repositoryUrl: 'https://github.com/example/app',
+                    ref: '3f2c1ab',
+                    refUrl: 'https://github.com/example/app/commit/3f2c1ab9d4e5f60718293a4b5c6d7e8f90a1b2c3',
+                },
+            },
+            {
+                description: 'a branch links to the branch',
+                served: { ...CODE_MANAGED, source_ref: 'main' },
+                isCodeManaged: true,
+                templateSource: expect.objectContaining({
+                    ref: 'main',
+                    refUrl: 'https://github.com/example/app/tree/main',
+                }),
+            },
+            {
+                description: 'an unknown host stays plain text',
+                served: { ...CODE_MANAGED, source_repository: 'git.example.com/team/app' },
+                isCodeManaged: true,
+                templateSource: {
+                    path: 'emails/welcome.html',
+                    fileUrl: undefined,
+                    repository: 'git.example.com/team/app',
+                    repositoryUrl: undefined,
+                    ref: '3f2c1ab',
+                    refUrl: undefined,
+                },
+            },
+            {
+                description: 'an upload without a source shows none',
+                served: { ...CODE_MANAGED, source_repository: null, source_path: null, source_ref: null },
+                isCodeManaged: true,
+                templateSource: null,
+            },
+        ])('$description', async ({ served, isCodeManaged, templateSource }) => {
+            useMocks({ get: { '/api/environments/:team_id/messaging_templates/:id/': served } })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadTemplateSuccess'])
+                .toMatchValues({ isCodeManaged, templateSource })
         })
     })
 

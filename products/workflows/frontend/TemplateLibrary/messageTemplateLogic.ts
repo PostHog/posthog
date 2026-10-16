@@ -18,6 +18,7 @@ import { resourceEditedLogic } from 'products/notifications/frontend/resourceEdi
 import type { EmailTemplate } from '../../../../frontend/src/scenes/hog-functions/email-templater/types'
 import type { HogFunctionType, ResourceEditedEvent, UserBasicType } from '../../../../frontend/src/types'
 import { workflowLogic } from '../Workflows/workflowLogic'
+import { TemplateSource, isCodeManagedTemplate, templateSource } from './codeManagedTemplate'
 import { NEW_TEMPLATE } from './constants'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { MessageTemplate } from './types'
@@ -35,6 +36,7 @@ export interface messageTemplateLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     deferredExternalEdit: ResourceEditedEvent | null
     externallyEdited: boolean
+    isCodeManaged: boolean
     isMakingTransactional: boolean
     isSyncingExternalEdit: boolean
     isTemplateSubmitting: boolean
@@ -85,6 +87,7 @@ export interface messageTemplateLogicValues {
         },
         ValidationErrorType
     >
+    templateSource: TemplateSource | null
     transactionalHogFlowId: string | null
     transactionalTab: TransactionalTemplateTab
 }
@@ -324,6 +327,8 @@ export interface messageTemplateLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: MessageTemplateLogicProps) => MessageTemplateLogicProps
+        isCodeManaged: (originalTemplate: MessageTemplate) => boolean
+        templateSource: (originalTemplate: MessageTemplate) => TemplateSource | null
         transactionalHogFlowId: (originalTemplate: MessageTemplate) => string | null
     }
 }
@@ -448,6 +453,14 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         transactionalHogFlowId: [
             (s) => [s.originalTemplate],
             (originalTemplate: MessageTemplate): string | null => originalTemplate.transactional_hog_flow_id ?? null,
+        ],
+        isCodeManaged: [
+            (s) => [s.originalTemplate],
+            (originalTemplate: MessageTemplate): boolean => isCodeManagedTemplate(originalTemplate),
+        ],
+        templateSource: [
+            (s) => [s.originalTemplate],
+            (originalTemplate: MessageTemplate): TemplateSource | null => templateSource(originalTemplate),
         ],
     }),
     loaders(({ props }) => ({
@@ -577,6 +590,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                         action: () => router.actions.push(urls.workflows('library')),
                     },
                 })
+                return
+            }
+            if (errorObject?.code === 'immutable') {
+                lemonToast.error(errorObject.detail)
                 return
             }
             lemonToast.error('Failed to save template. Please try again.')

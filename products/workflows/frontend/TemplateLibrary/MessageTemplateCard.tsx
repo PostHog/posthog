@@ -4,6 +4,7 @@ import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCo
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
+import { CodeManagedTag } from './CodeManagedTag'
 import { MessageTemplate } from './types'
 
 export function MessageTemplateCard({
@@ -48,6 +49,7 @@ export function MessageTemplateCard({
                                 Transactional
                             </LemonTag>
                         )}
+                        <CodeManagedTag template={template} size="small" />
                     </div>
                     {template.description && (
                         <p className="text-secondary text-xs line-clamp-1 mb-1">{template.description}</p>
