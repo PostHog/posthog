@@ -5,10 +5,6 @@ Loaded on first use through `load_logs_source_config`, never from `ready()`, bec
 on `posthog.schema`.
 """
 
-from uuid import UUID
-
-from django.utils import timezone
-
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import LogsAlertFilters
@@ -21,6 +17,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.logs.backend.alert_group_columns import grouping_problem
 from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.platform_ownership import mirror_platform_edit
 from products.logs.backend.platform_source_config import WindowMinutes, has_any_filter
 
 
@@ -63,49 +60,6 @@ def validate_logs_edit(edit: PlatformAlertConfigurationEdit) -> None:
         raise InvalidPlatformAlertEdit("grouping", problem)
 
 
-class _LogsEditMirror:
-    """Writes an edit made through the platform API onto the logs row, so the logs page, the shadow
-    evaluation and a rollback all read what the platform runs."""
-
-    def lock(self, legacy_configuration_id: UUID) -> None:
-        LogsAlertConfiguration.objects.select_for_update().filter(id=legacy_configuration_id).exists()
-
-    def write(self, legacy_configuration_id: UUID, edit: PlatformAlertConfigurationEdit) -> None:
-        _write_logs_row(LogsAlertConfiguration.objects.get(id=legacy_configuration_id), edit)
-
-
-def _write_logs_row(alert: LogsAlertConfiguration, edit: PlatformAlertConfigurationEdit) -> None:
-    condition = edit.source_config["condition"]
-    if edit.enabled and alert.first_enabled_at is None:
-        alert.first_enabled_at = timezone.now()
-    alert.name = edit.name
-    alert.enabled = edit.enabled
-    alert.filters = edit.source_config["filters"]
-    alert.threshold_count = condition["threshold_count"]
-    alert.threshold_operator = condition["threshold_operator"]
-    alert.window_minutes = condition["window_minutes"]
-    alert.evaluation_periods = edit.evaluation_periods
-    alert.datapoints_to_alarm = edit.datapoints_to_alarm
-    alert.cooldown_minutes = edit.cooldown_minutes
-    alert.schedule_restriction = edit.schedule_restriction
-    alert.save(
-        update_fields=[
-            "first_enabled_at",
-            "name",
-            "enabled",
-            "filters",
-            "threshold_count",
-            "threshold_operator",
-            "window_minutes",
-            "evaluation_periods",
-            "datapoints_to_alarm",
-            "cooldown_minutes",
-            "schedule_restriction",
-            "updated_at",
-        ]
-    )
-
-
 LOGS_SOURCE_CONFIG = SourceConfigSpec(
-    model=LogsPlatformAlertSourceConfig, validate=validate_logs_edit, mirror=_LogsEditMirror()
+    model=LogsPlatformAlertSourceConfig, validate=validate_logs_edit, mirror=mirror_platform_edit
 )

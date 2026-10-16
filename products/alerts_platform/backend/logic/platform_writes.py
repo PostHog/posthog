@@ -108,14 +108,15 @@ def update_configuration(
         source_kind, legacy_configuration_id = found
         spec = source_configs.spec(SourceKind(source_kind))
         mirror = spec.mirror if spec is not None else None
-        if mirror is not None and legacy_configuration_id is not None:
-            mirror.lock(legacy_configuration_id)
+        write_source = (
+            mirror(legacy_configuration_id) if mirror is not None and legacy_configuration_id is not None else None
+        )
         configuration = readable.select_for_update().first()
         if configuration is None:
             return None
         edit = _apply(configuration, change)
-        if mirror is not None and legacy_configuration_id is not None:
-            mirror.write(legacy_configuration_id, edit)
+        if write_source is not None:
+            write_source(edit)
 
     return platform_reads.get_configuration(
         team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id
@@ -127,23 +128,20 @@ def update_owned_copy(
     team_id: int,
     legacy_configuration_id: UUID,
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
+    snooze_until: datetime | None,
+    snooze_changed: bool,
 ) -> None:
     """Applies an edit the source made to its own row onto the platform's copy. Nothing is mirrored
-    back, because the source already wrote its row."""
-    with transaction.atomic():
-        configuration = _locked_owned_copy(team_id, legacy_configuration_id)
-        if configuration is not None:
-            _apply(configuration, change)
-
-
-def mute_owned_copy(*, team_id: int, legacy_configuration_id: UUID, snooze_until: datetime | None) -> None:
-    """Sets or clears the mute of a copy the platform owns, from the source's own API."""
+    back, because the source already wrote its row. A snooze the edit set or cleared becomes the
+    copy's mute."""
     with transaction.atomic():
         configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         if configuration is None:
             return
-        configuration.snooze_until = snooze_until
-        configuration.save(update_fields=["snooze_until", "updated_at"])
+        _apply(configuration, change)
+        if snooze_changed:
+            configuration.snooze_until = snooze_until
+            configuration.save(update_fields=["snooze_until", "updated_at"])
 
 
 def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:

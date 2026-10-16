@@ -9,8 +9,7 @@ logs on the platform.
 rather than duplicates, and a later comparison can line the two stacks up per alert.
 """
 
-from collections.abc import Callable, Collection
-from dataclasses import replace
+from collections.abc import Collection
 from datetime import datetime
 from typing import Final
 from uuid import UUID
@@ -20,11 +19,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
-from products.alerts_platform.backend.facade.contracts import (
-    PlatformAlertConfigurationEdit,
-    PlatformAlertUpsert,
-    SourceKind,
-)
+from products.alerts_platform.backend.facade.contracts import PlatformAlertUpsert, SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.logs.backend.alert_state_machine import AlertState
 from products.logs.backend.models import LogsAlertConfiguration
@@ -41,6 +36,20 @@ class BackfillCounts:
     failed: int
 
 
+# The settings a logs alert shares with its platform copy. The schedule stays the platform's own once
+# the copy exists, and `enabled` follows its own rules on each side.
+SETTINGS_FIELDS: Final = (
+    "name",
+    "source_config",
+    "evaluation_periods",
+    "datapoints_to_alarm",
+    "cooldown_minutes",
+    "schedule_restriction",
+)
+# The logs alert's columns that make up `source_config["condition"]` on the copy.
+CONDITION_FIELDS: Final = ("threshold_count", "threshold_operator", "window_minutes")
+
+
 def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
     """The platform copy of a logs alert, which the backfill writes and every check reads again.
 
@@ -53,14 +62,7 @@ def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
         name=alert.name,
         enabled=alert.enabled,
         source_kind=SourceKind.LOGS,
-        source_config=logs_source_config(
-            alert.filters,
-            {
-                "threshold_count": alert.threshold_count,
-                "threshold_operator": alert.threshold_operator,
-                "window_minutes": alert.window_minutes,
-            },
-        ),
+        source_config=logs_source_config(alert.filters, {field: getattr(alert, field) for field in CONDITION_FIELDS}),
         check_interval_minutes=alert.check_interval_minutes,
         evaluation_periods=alert.evaluation_periods,
         datapoints_to_alarm=alert.datapoints_to_alarm,
@@ -69,31 +71,6 @@ def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
         next_check_at=alert.next_check_at,
         snooze_until=alert.snooze_until,
     )
-
-
-def platform_change_of(
-    alert: LogsAlertConfiguration,
-) -> Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit]:
-    """An edit made in the logs API, as a change to the platform's copy of the alert.
-
-    Only the settings a logs alert has. The platform's own settings, such as grouping, keep what the
-    copy stores, so an edit through the logs API never resets them.
-    """
-    upsert = platform_upsert_of(alert)
-
-    def change(stored: PlatformAlertConfigurationEdit) -> PlatformAlertConfigurationEdit:
-        return replace(
-            stored,
-            name=upsert.name,
-            enabled=upsert.enabled,
-            source_config=upsert.source_config,
-            schedule_restriction=upsert.schedule_restriction,
-            evaluation_periods=upsert.evaluation_periods,
-            datapoints_to_alarm=upsert.datapoints_to_alarm,
-            cooldown_minutes=upsert.cooldown_minutes,
-        )
-
-    return change
 
 
 # A muted logs alert is a state of its own. On the platform a mute only silences notifications,
