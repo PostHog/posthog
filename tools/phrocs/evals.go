@@ -24,7 +24,7 @@ func runEvals(streamFD int) int {
 		fmt.Fprintf(os.Stderr, "phrocs: evals: file descriptor %d is not open\n", streamFD)
 		return 2
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	// The harness owns cancellation. A stray SIGINT must not close the view
 	// while the harness still cleans up sandboxes.

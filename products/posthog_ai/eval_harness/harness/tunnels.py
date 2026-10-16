@@ -7,8 +7,8 @@ import shutil
 import socket
 import logging
 import subprocess
+import http.client
 import urllib.parse
-import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -24,7 +24,7 @@ callbacks; each requested service is assigned one in the order the caller lists
 them."""
 
 
-PUBLIC_DNS_URL = "https://cloudflare-dns.com/dns-query"
+PUBLIC_DNS_HOST = "cloudflare-dns.com"
 FUNNEL_READY_TIMEOUT_SECONDS = 300
 FUNNEL_READY_ROUNDS = 3
 """Consecutive rounds in which every relay must answer every service. A relay switches cleanly
@@ -138,9 +138,15 @@ def _public_ips(host: str) -> list[str]:
     a Modal sandbox connects to, so the readiness probe has to ask a public resolver.
     """
     query = urllib.parse.urlencode({"name": host, "type": "A"})
-    request = urllib.request.Request(f"{PUBLIC_DNS_URL}?{query}", headers={"accept": "application/dns-json"})
-    with urllib.request.urlopen(request, timeout=FUNNEL_PROBE_TIMEOUT_SECONDS) as response:
+    connection = http.client.HTTPSConnection(PUBLIC_DNS_HOST, timeout=FUNNEL_PROBE_TIMEOUT_SECONDS)
+    try:
+        connection.request("GET", f"/dns-query?{query}", headers={"accept": "application/dns-json"})
+        response = connection.getresponse()
+        if response.status != 200:
+            raise OSError(f"public DNS returned HTTP {response.status}")
         payload = json.load(response)
+    finally:
+        connection.close()
     return sorted({answer["data"] for answer in payload.get("Answer", []) if answer.get("type") == 1})
 
 

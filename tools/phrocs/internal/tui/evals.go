@@ -349,9 +349,10 @@ func (m EvalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseWheelMsg:
 		if msg.X < m.sidebarWidth() {
-			if msg.Button == tea.MouseWheelDown {
+			switch msg.Button {
+			case tea.MouseWheelDown:
 				m.moveCursor(1)
-			} else if msg.Button == tea.MouseWheelUp {
+			case tea.MouseWheelUp:
 				m.moveCursor(-1)
 			}
 		} else {
@@ -943,7 +944,7 @@ func readEvalFile(path string, lastSize int64, lastMod time.Time) evalFileMsg {
 	if err != nil {
 		return missing
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	start := max(info.Size()-evalTailBytes, 0)
 	if _, err := f.Seek(start, io.SeekStart); err != nil {
 		return missing
@@ -1056,7 +1057,7 @@ func (m EvalModel) renderOverview() string {
 				finished++
 			}
 		}
-		b.WriteString(fmt.Sprintf("  %s  %d/%d\n", name, finished, m.totals[name]))
+		fmt.Fprintf(&b, "  %s  %d/%d\n", name, finished, m.totals[name])
 	}
 
 	if len(m.diagnostics) > 0 {
@@ -1075,7 +1076,7 @@ func (m EvalModel) renderOverview() string {
 func (m EvalModel) renderTrial(t *evalTrial) string {
 	var b strings.Builder
 	b.WriteString(evalTitleStyle.Render(fmt.Sprintf("%s :: %s [trial %d]", t.experiment, t.name, t.index+1)) + "\n")
-	b.WriteString(fmt.Sprintf("Phase: %s | Setup retries: %d\n", t.phase, t.retries))
+	fmt.Fprintf(&b, "Phase: %s | Setup retries: %d\n", t.phase, t.retries)
 	failed := t.phase == "error" || t.phase == "timeout"
 	if t.detail != "" && failed {
 		b.WriteString("\n" + lipgloss.NewStyle().Bold(true).Foreground(colorRed).Render("Error") + "\n")
