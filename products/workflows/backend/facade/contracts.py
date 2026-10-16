@@ -443,6 +443,20 @@ class TeamUtmDefaults:
 
 
 @frozen
+class FlowUtmUpdate:
+    actions: list[dict[str, Any]] | None
+    draft_actions: list[dict[str, Any]] | None
+    emails_updated: int
+    emails_turned_on: int
+
+
+@frozen
+class UtmDefaultsWriteResult:
+    write: "WorkflowWriteResult"
+    plan: FlowUtmUpdate
+
+
+@frozen
 class MessageAsset:
     invocation_id: str
     action_id: str

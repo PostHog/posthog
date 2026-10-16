@@ -1,8 +1,10 @@
 """The workflow write path: live saves, staged drafts, surgical edits, publish and discard, each under
 the workflow's row lock with its staleness fences, revision bump and post-commit follow-ups."""
 
+from products.workflows.backend.models.hog_flow.hog_flow import defer_hog_flow_reloads
 from products.workflows.backend.services.hog_flow_writes import (
     DRAFT_CONTENT_FIELDS,
+    apply_email_utm_defaults,
     create_workflow,
     destroy_workflow,
     discard_draft,
@@ -17,8 +19,10 @@ from products.workflows.backend.services.publish_impact import build_publish_imp
 
 __all__ = [
     "DRAFT_CONTENT_FIELDS",
+    "apply_email_utm_defaults",
     "build_publish_impact",
     "create_workflow",
+    "defer_hog_flow_reloads",
     "discard_draft",
     "destroy_workflow",
     "edit_workflow_content",
