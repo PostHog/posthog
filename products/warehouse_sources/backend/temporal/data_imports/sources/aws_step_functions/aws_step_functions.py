@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_f
     MACHINE_CHILD_ENDPOINTS,
     MAP_RUN_ENDPOINTS,
     PAGE_SIZE,
+    PROBE_PARENT_LIMIT,
     TARGET_PREFIXES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -144,6 +145,15 @@ class AwsStepFunctionsClient:
             payload["nextToken"] = token
         return self.request(ENDPOINTS[endpoint].operation, payload)
 
+    def describe(self, operation: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        # A resource listed earlier in the walk can be deleted before its describe call.
+        try:
+            return self.request(operation, payload)
+        except AwsStepFunctionsError as error:
+            if error.code == "ResourceNotFound":
+                return None
+            raise
+
     def close(self) -> None:
         self.session.close()
 
@@ -193,8 +203,8 @@ def get_rows(
         elif endpoint in MACHINE_CHILD_ENDPOINTS:
             machine_arn = state.machine_arns[0]
             if state.alias_arns:
-                alias = client.request("DescribeStateMachineAlias", {"stateMachineAliasArn": state.alias_arns[0]})
-                rows = [normalize_row({**alias, "stateMachineArn": machine_arn})]
+                alias = client.describe("DescribeStateMachineAlias", {"stateMachineAliasArn": state.alias_arns[0]})
+                rows = [normalize_row({**alias, "stateMachineArn": machine_arn})] if alias else []
                 state = replace(state, alias_arns=state.alias_arns[1:])
             elif state.children_done:
                 state = replace(state, machine_arns=state.machine_arns[1:], child_token=None, children_done=False)
@@ -210,8 +220,8 @@ def get_rows(
             if state.map_run_arns:
                 map_run_arn = state.map_run_arns[0]
                 if endpoint == "map_runs":
-                    map_run = client.request("DescribeMapRun", {"mapRunArn": map_run_arn})
-                    rows = [normalize_row({**map_run, "stateMachineArn": state.machine_arns[0]})]
+                    map_run = client.describe("DescribeMapRun", {"mapRunArn": map_run_arn})
+                    rows = [normalize_row({**map_run, "stateMachineArn": state.machine_arns[0]})] if map_run else []
                     state = replace(state, map_run_arns=state.map_run_arns[1:])
                 else:
                     page = client.page("map_run_executions", state.map_run_execution_token, mapRunArn=map_run_arn)
@@ -291,24 +301,28 @@ def aws_step_functions_source(
     )
 
 
-def probe_machine_children(client: AwsStepFunctionsClient, schema_name: str, machine_arn: str) -> None:
+def probe_machine_children(client: AwsStepFunctionsClient, schema_name: str, machine_arn: str) -> bool:
     page = client.request(ENDPOINTS[schema_name].operation, {"stateMachineArn": machine_arn, "maxResults": 1})
-    if schema_name == "state_machine_aliases" and page["stateMachineAliases"]:
-        client.request(
-            "DescribeStateMachineAlias",
-            {"stateMachineAliasArn": page["stateMachineAliases"][0]["stateMachineAliasArn"]},
-        )
+    if schema_name == "state_machine_versions":
+        return True
+    if not page["stateMachineAliases"]:
+        return False
+    client.describe(
+        "DescribeStateMachineAlias", {"stateMachineAliasArn": page["stateMachineAliases"][0]["stateMachineAliasArn"]}
+    )
+    return True
 
 
-def probe_map_runs(client: AwsStepFunctionsClient, schema_name: str, execution_arn: str) -> None:
+def probe_map_runs(client: AwsStepFunctionsClient, schema_name: str, execution_arn: str) -> bool:
     page = client.request("ListMapRuns", {"executionArn": execution_arn, "maxResults": 1})
     if not page["mapRuns"]:
-        return
+        return False
     map_run_arn = page["mapRuns"][0]["mapRunArn"]
     if schema_name == "map_runs":
-        client.request("DescribeMapRun", {"mapRunArn": map_run_arn})
+        client.describe("DescribeMapRun", {"mapRunArn": map_run_arn})
     else:
         client.request("ListExecutions", {"mapRunArn": map_run_arn, "maxResults": 1})
+    return True
 
 
 def probe(client: AwsStepFunctionsClient, schema_name: str | None) -> None:
@@ -318,11 +332,17 @@ def probe(client: AwsStepFunctionsClient, schema_name: str | None) -> None:
     page = client.request("ListStateMachines", {"maxResults": 1})
     if schema_name is None or schema_name == "state_machines":
         return
+    parents_checked = 0
     while True:
         for machine in page["stateMachines"]:
             if schema_name in MACHINE_CHILD_ENDPOINTS:
-                probe_machine_children(client, schema_name, machine["stateMachineArn"])
-                return
+                parents_checked += 1
+                if (
+                    probe_machine_children(client, schema_name, machine["stateMachineArn"])
+                    or parents_checked >= PROBE_PARENT_LIMIT
+                ):
+                    return
+                continue
             if machine["type"] != "STANDARD":
                 continue
             executions = client.request(
@@ -334,18 +354,20 @@ def probe(client: AwsStepFunctionsClient, schema_name: str | None) -> None:
                 if executions["executions"]:
                     execution_arn = executions["executions"][0]["executionArn"]
                     if schema_name in MAP_RUN_ENDPOINTS:
-                        probe_map_runs(client, schema_name, execution_arn)
+                        parents_checked += 1
+                        if probe_map_runs(client, schema_name, execution_arn) or parents_checked >= PROBE_PARENT_LIMIT:
+                            return
+                    else:
+                        client.request(
+                            "GetExecutionHistory",
+                            {
+                                "executionArn": execution_arn,
+                                "maxResults": 1,
+                                "includeExecutionData": False,
+                                "reverseOrder": False,
+                            },
+                        )
                         return
-                    client.request(
-                        "GetExecutionHistory",
-                        {
-                            "executionArn": execution_arn,
-                            "maxResults": 1,
-                            "includeExecutionData": False,
-                            "reverseOrder": False,
-                        },
-                    )
-                    return
                 if not executions.get("nextToken"):
                     break
                 executions = client.request(

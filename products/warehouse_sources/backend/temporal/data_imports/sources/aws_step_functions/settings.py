@@ -4,6 +4,8 @@ API_VERSION = "2016-11-23"
 TARGET_PREFIXES = {API_VERSION: "AWSStepFunctions"}
 CONTENT_TYPE = "application/x-amz-json-1.0"
 PAGE_SIZE = 100
+# Parents a permission probe checks for a child before it accepts the credentials.
+PROBE_PARENT_LIMIT = 20
 
 
 @frozen

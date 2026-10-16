@@ -37,6 +37,8 @@ EXPRESS = "arn:aws:states:us-east-1:123456789012:stateMachine:example-express"
 EXECUTIONS = [f"arn:aws:states:us-east-1:123456789012:execution:example-one:run-{i}" for i in range(4)]
 ALIASES = [f"{SM1}:alias-{i}" for i in range(2)] + [f"{SM2}:alias-0"]
 MAP_RUNS = [f"arn:aws:states:us-east-1:123456789012:mapRun:example-one/map:run-{i}" for i in range(2)]
+DELETED_ALIAS = f"{SM2}:alias-deleted"
+DELETED_MAP_RUN = "arn:aws:states:us-east-1:123456789012:mapRun:example-two/map:run-deleted"
 
 
 @pytest.fixture
@@ -140,11 +142,18 @@ def install_pages(session: MagicMock) -> None:
                 (EXPRESS, None): {"stateMachineAliases": []},
                 (SM1, None): {"stateMachineAliases": [{"stateMachineAliasArn": ALIASES[0]}], "nextToken": "l2"},
                 (SM1, "l2"): {"stateMachineAliases": [{"stateMachineAliasArn": ALIASES[1]}]},
-                (SM2, None): {"stateMachineAliases": [{"stateMachineAliasArn": ALIASES[2]}]},
+                (SM2, None): {
+                    "stateMachineAliases": [
+                        {"stateMachineAliasArn": DELETED_ALIAS},
+                        {"stateMachineAliasArn": ALIASES[2]},
+                    ]
+                },
             }
             return response(200, alias_pages[(payload["stateMachineArn"], token)])
         if operation == "DescribeStateMachineAlias":
             alias_arn = payload["stateMachineAliasArn"]
+            if alias_arn == DELETED_ALIAS:
+                return response(400, {"__type": "ResourceNotFound", "message": "Example missing alias"})
             return response(
                 200,
                 {
@@ -158,9 +167,12 @@ def install_pages(session: MagicMock) -> None:
                 (EXECUTIONS[0], None): {"mapRuns": [{"mapRunArn": MAP_RUNS[0]}], "nextToken": "r2"},
                 (EXECUTIONS[0], "r2"): {"mapRuns": []},
                 (EXECUTIONS[2], None): {"mapRuns": [{"mapRunArn": MAP_RUNS[1]}]},
+                (EXECUTIONS[3], None): {"mapRuns": [{"mapRunArn": DELETED_MAP_RUN}]},
             }
             return response(200, map_run_pages.get((payload["executionArn"], token), {"mapRuns": []}))
         if operation == "DescribeMapRun":
+            if payload["mapRunArn"] == DELETED_MAP_RUN:
+                return response(400, {"__type": "ResourceNotFound", "message": "Example missing map run"})
             return response(
                 200,
                 {
@@ -179,6 +191,7 @@ def install_pages(session: MagicMock) -> None:
                 },
                 (MAP_RUNS[0], "c2"): {"executions": [{"executionArn": f"{MAP_RUNS[0]}:child-2"}]},
                 (MAP_RUNS[1], None): {"executions": []},
+                (DELETED_MAP_RUN, None): {"executions": []},
             }
             return response(200, child_pages[(payload["mapRunArn"], token)])
         if operation == "ListExecutions":
@@ -399,13 +412,19 @@ def test_invalid_config_does_not_send_credentials(
         ),
         (
             "state_machine_aliases",
-            [{"stateMachineAliases": [{"stateMachineAliasArn": ALIASES[0]}]}, {"stateMachineAliasArn": ALIASES[0]}],
+            [
+                {"stateMachineAliases": []},
+                {"stateMachineAliases": [{"stateMachineAliasArn": ALIASES[0]}]},
+                {"stateMachineAliasArn": ALIASES[0]},
+            ],
             ("DescribeStateMachineAlias", {"stateMachineAliasArn": ALIASES[0]}),
         ),
         (
             "map_runs",
             [
-                {"executions": [{"executionArn": EXECUTIONS[0]}]},
+                {"executions": [{"executionArn": EXECUTIONS[0]}], "nextToken": "e2"},
+                {"mapRuns": []},
+                {"executions": [{"executionArn": EXECUTIONS[1]}]},
                 {"mapRuns": [{"mapRunArn": MAP_RUNS[0]}]},
                 {"mapRunArn": MAP_RUNS[0]},
             ],
@@ -422,8 +441,8 @@ def test_invalid_config_does_not_send_credentials(
         ),
         (
             "map_run_executions",
-            [{"executions": [{"executionArn": EXECUTIONS[0]}]}, {"mapRuns": []}],
-            ("ListMapRuns", {"executionArn": EXECUTIONS[0], "maxResults": 1}),
+            [{"executions": [{"executionArn": EXECUTIONS[0]}]}, {"mapRuns": []}, {"stateMachines": []}],
+            ("ListStateMachines", {"maxResults": 1, "nextToken": "m2"}),
         ),
     ],
 )
