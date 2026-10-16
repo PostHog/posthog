@@ -493,6 +493,8 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                 if (cache.authorizationInFlight) {
                     return
                 }
+                const flow = values.paymentFlow
+                const disposables = cache.disposables
                 cache.authorizationInFlight = true
                 actions.setClientSecret(null)
                 actions.setLoading(true)
@@ -514,6 +516,14 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                     )
                 } finally {
                     cache.authorizationInFlight = false
+                    if (
+                        !disposables.isDisposed &&
+                        values.paymentEntryModalOpen &&
+                        values.paymentFlow &&
+                        values.paymentFlow !== flow
+                    ) {
+                        await asyncActions.initiateAuthorization()
+                    }
                 }
             },
             confirmPayment: async ({ stripe, elements }) => {
