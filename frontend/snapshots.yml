@@ -16074,6 +16074,10 @@ snapshots:
         hash: v1.k794b7964.fc2fef442f4345ba422e637eb3dc0d68fef7e72f6b358f16e51134c20c1008a1.2ES51rrTuzudNi0LmAifk-2KK743-SFCkP1Wvu2Ckeg
     web-analytics-marketing-cross-sell--connected--light:
         hash: v1.k794b7964.8a8a90308f0be2d1bd80c4c5347bcd8d3aea9dc22013ed298b79c0526d48b02b.Z4HEZQF-xdUni5ICr1obsxhv22HjJRfbCGNx84vhLec
+    web-analytics-marketing-cross-sell--filter-hint--dark:
+        hash: v1.k794b7964.c106c21382fe0cf6b7418c0254d83af74cc45eaa820e4c8b07c0f471541c4791.UBPbbXbhko_LqR0omySHdobR3oCIN9smgzwfH0N1dWo
+    web-analytics-marketing-cross-sell--filter-hint--light:
+        hash: v1.k794b7964.4ecb22392b645de323e23552da00ad3e4cba7935046847dd14e17bb24b0ef818.xlQ8-P5D_FaH4yZ465X9ohvHLj5yVCErw0EwsR2MGHI
     web-analytics-marketing-cross-sell--flag-off--dark:
         hash: v1.k794b7964.1e9feff8b1812f020d1371412628be1177fb72a3ae4e410e7cd2f54e091bd4dd.dAcvucDrtO-cCd3rYhv3_vSKHNBuM0YPossfojLBU20
     web-analytics-marketing-cross-sell--flag-off--light:
@@ -16082,6 +16086,14 @@ snapshots:
         hash: v1.k794b7964.b9a83798a5b1a438484e5b441f44f609a0b6ae1e40fff93feff341fc948c836a.hb52n0c-0XxcqJONb02W5525mxB13P9ytjDgn826F_8
     web-analytics-marketing-cross-sell--narrow--light:
         hash: v1.k794b7964.094424f9b76df8b38ee9b51f81fb179306770369853350d3b678861b4a590c31.QkoIIdNsD89us_lyi5EQ-eAXOva9kVWpcDfMpky7qNY
+    web-analytics-marketing-cross-sell--paid-traffic-card--dark:
+        hash: v1.k794b7964.b2ba43310f0d63ff742d0c9af71563a227c1ec84022f39c6ab74f9324115abbf.u2Ukgxmy2HHnGF9-svp_jfO6Gb4ujwxKfaYJEV7bbuY
+    web-analytics-marketing-cross-sell--paid-traffic-card--light:
+        hash: v1.k794b7964.26cf3116a2fd366736d67085e439d6fbae10ff2ff7365d9418d4701fe716e777.lCZiYBL9IFUDyQyBoPuOxPga794C5KyPYIYBhjVKhXo
+    web-analytics-marketing-cross-sell--paid-traffic-card-narrow--dark:
+        hash: v1.k794b7964.18f3ed040554e3262e4fb0401dde54709e076d65f32aaa65c69cc5aa7fd92b0e.A0ARlKPBOAHC9CUbDQasvMICfkFThhmBZtr5vm_HTSI
+    web-analytics-marketing-cross-sell--paid-traffic-card-narrow--light:
+        hash: v1.k794b7964.16a2495399a5f1b9577179d4ae9dff7eb0992e7c8b71738b70103b57a24f1f41.KK4CerelQKSJ0sijmIfCtf668mCzFyd2B_Clh7FOoNk
     web-analytics-marketing-cross-sell--source--dark:
         hash: v1.k794b7964.83d29ddaa67d14337789881b7bf81a197f55860fb090a4a720642639bc12fa1a.a2wl_GXLua_s1sEa95lvieBxxe2CrDqxHugdIYS58QA
     web-analytics-marketing-cross-sell--source--light:
