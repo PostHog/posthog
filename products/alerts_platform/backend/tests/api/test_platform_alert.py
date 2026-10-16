@@ -16,7 +16,9 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
+
+CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
 
 
 class TestPlatformAlertAPI(APIBaseTest):
@@ -26,15 +28,17 @@ class TestPlatformAlertAPI(APIBaseTest):
         name: str,
         legacy_configuration_id: UUID | None = None,
         source_kind: str = PlatformAlertConfiguration.SourceKind.LOGS,
+        owner: str = PlatformAlertConfiguration.Owner.SOURCE,
     ) -> PlatformAlertConfiguration:
         with team_scope(team.id):
             return PlatformAlertConfiguration.objects.create(
                 team=team,
                 name=name,
                 source_kind=source_kind,
-                source_config={"service": "api"},
+                source_config={"filters": {"serviceNames": ["api"]}, "condition": CONDITION},
                 check_interval_minutes=10,
                 legacy_configuration_id=legacy_configuration_id,
+                owner=owner,
             )
 
     def _set_flag(self, enabled: bool) -> None:
@@ -214,3 +218,110 @@ class TestPlatformAlertAPI(APIBaseTest):
         with CaptureQueriesContext(connection) as captured:
             self.client.get(url)
         return len(captured)
+
+    def _edit_url(self, configuration: PlatformAlertConfiguration) -> str:
+        return f"/api/projects/{self.team.id}/platform_alerts/{configuration.id}/"
+
+    def test_changing_the_grouping_keys_drops_the_old_instances_and_their_threads(self) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        with team_scope(self.team.id):
+            PlatformAlert.objects.create(team=self.team, configuration=configuration, state=PlatformAlert.State.FIRING)
+            PlatformAlertThread.objects.create(
+                team=self.team,
+                configuration=configuration,
+                provider="slack",
+                channel_target="C1",
+                episode_started_at=datetime(2026, 10, 1, tzinfo=UTC),
+            )
+
+        response = self.client.patch(
+            self._edit_url(configuration),
+            {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["grouping"] == {
+            "mode": "by_result_labels",
+            "keys": ["service_name"],
+            "max_instances": 100,
+            "on_overflow": "degrade_visible",
+        }
+        assert (body["name"], body["alerts"]) == ("API errors", [])
+        with team_scope(self.team.id):
+            assert not PlatformAlertThread.objects.filter(configuration=configuration).exists()
+
+    def test_an_alert_its_source_owns_is_not_edited_here(self) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors")
+
+        response = self.client.patch(self._edit_url(configuration), {"name": "Renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        configuration.refresh_from_db()
+        assert configuration.name == "API errors"
+
+    @parameterized.expand(
+        [
+            (
+                "grouped_below",
+                {
+                    "grouping": {"mode": "by_result_labels", "keys": ["service_name"]},
+                    "source_config": {
+                        "filters": {"serviceNames": ["api"]},
+                        "condition": {**CONDITION, "threshold_operator": "below"},
+                    },
+                },
+                "grouping",
+            ),
+            (
+                "unknown_window",
+                {
+                    "source_config": {
+                        "filters": {"serviceNames": ["api"]},
+                        "condition": {**CONDITION, "window_minutes": 7},
+                    }
+                },
+                "source_config",
+            ),
+            (
+                "more_datapoints_than_periods",
+                {"evaluation_periods": 2, "datapoints_to_alarm": 3},
+                "datapoints_to_alarm",
+            ),
+            ("source_kind_changed", {"source_kind": "insight"}, "source_kind"),
+            ("enabled_without_filters", {"source_config": {"filters": {}, "condition": CONDITION}}, "source_config"),
+            ("grouped_by_an_attribute", {"grouping": {"mode": "by_result_labels", "keys": ["http.route"]}}, "grouping"),
+        ]
+    )
+    def test_an_invalid_edit_names_the_field_and_changes_nothing(self, _name: str, body: dict, field: str) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+
+        response = self.client.patch(self._edit_url(configuration), body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == field
+        configuration.refresh_from_db()
+        assert (configuration.source_config["condition"], configuration.grouping["mode"]) == (CONDITION, "single")
+
+    @parameterized.expand(
+        [
+            ("alert_scope_only", ["alert:write"], status.HTTP_404_NOT_FOUND),
+            ("logs_read_only", ["alert:write", "logs:read"], status.HTTP_403_FORBIDDEN),
+            ("alert_and_logs_write", ["alert:write", "logs:write"], status.HTTP_200_OK),
+        ]
+    )
+    def test_an_edit_needs_write_access_to_the_source_product(
+        self, _name: str, key_scopes: list[str], expected: int
+    ) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(key_scopes)}")
+
+        response = self.client.patch(self._edit_url(configuration), {"name": "Renamed"}, format="json")
+
+        assert response.status_code == expected, response.json()
