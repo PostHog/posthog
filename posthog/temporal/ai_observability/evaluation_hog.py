@@ -115,30 +115,68 @@ def _extract_hog_output_text(output: Any) -> str:
     return _extract_hog_message_text(messages)
 
 
-# Content block types that hold the reply's text. Everything else, such as reasoning, tool calls,
-# images, or audio, is left out of `reply_text`.
+# The reply-only text below follows one rule: take the text out of known provider message shapes,
+# drop the SDK items that are known not to be the reply, and keep anything else whole, because a
+# structured output is the reply itself. Captured output is user data, so a `type` or `role` can be
+# any JSON value, and only plain strings count as discriminators.
 _TEXT_BLOCK_TYPES = frozenset({"text", "output_text"})
-# Roles of OTel follow-up messages that carry reasoning or tool results, not the reply.
+# OTel follow-up messages that carry reasoning or tool results.
 _NON_REPLY_ROLES = frozenset({"thinking", "tool"})
+_MESSAGE_KEYS = ("content", "refusal", "text", "tool_calls")
+
+
+def _str_value(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _is_non_reply_item(item: dict[str, Any]) -> bool:
+    """A Responses or SDK item that holds reasoning or a tool call rather than reply text."""
+    item_type = _str_value(item.get("type"))
+    return item_type is not None and (item_type == "reasoning" or item_type.endswith("_call"))
+
+
+def _is_message(choice: dict[str, Any]) -> bool:
+    """Whether a dict is a provider message envelope rather than a structured-output payload."""
+    if _str_value(choice.get("role")) is not None:
+        return True
+    # A role-less legacy choice such as `{"text": ...}` or `{"content": ...}`. A dict with its own
+    # string `type` and no role, such as `{"type": "invoice", ...}`, is a payload instead.
+    return any(key in choice for key in _MESSAGE_KEYS) and _str_value(choice.get("type")) is None
+
+
+def _scalar_text(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return str(value)
+    return None
+
+
+def _block_text(block: Any) -> str | None:
+    """The reply text in one content block, or None for a block that is not reply text."""
+    text = _scalar_text(block)
+    if text is not None or not isinstance(block, dict):
+        return text
+    block_type = block.get("type", "text")
+    if not isinstance(block_type, str):
+        return json.dumps(block, default=str)
+    # Gemini marks its reasoning as a text part with `thought` set.
+    if block_type not in _TEXT_BLOCK_TYPES or block.get("thought"):
+        return None
+    return _scalar_text(block.get("text", block.get("content")))
 
 
 def _reply_text_from_content(content: Any) -> str:
-    if isinstance(content, str):
-        return content
+    text = _scalar_text(content)
+    if text is not None:
+        return text
     if isinstance(content, dict):
-        content = [content]
-    if not isinstance(content, list):
-        return ""
-    texts: list[str] = []
-    for block in content:
-        if isinstance(block, str):
-            texts.append(block)
-        # Gemini marks its reasoning as a text part with `thought` set.
-        elif isinstance(block, dict) and block.get("type", "text") in _TEXT_BLOCK_TYPES and not block.get("thought"):
-            text = block.get("text", block.get("content"))
-            if isinstance(text, str):
-                texts.append(text)
-    return " ".join(text for text in texts if text)
+        text = _block_text(content)
+        # A content dict that is not a text block, such as a parsed object, is the reply itself.
+        return text if text is not None else json.dumps(content, default=str)
+    if isinstance(content, list):
+        return " ".join(text for text in (_block_text(block) for block in content) if text)
+    return ""
 
 
 def _extract_hog_reply_text(output: Any) -> str:
@@ -152,32 +190,30 @@ def _extract_hog_reply_text(output: Any) -> str:
 
     replies: list[str] = []
     for choice in output if isinstance(output, list) else [output]:
-        if isinstance(choice, str):
-            replies.append(choice)
-            continue
         if not isinstance(choice, dict):
-            replies.append(coerce_hog_io_value(choice))
+            text = _scalar_text(choice)
+            replies.append(text if text is not None else coerce_hog_io_value(choice))
             continue
         message = choice.get("message")
         if isinstance(message, dict):
             choice = message
-        if choice.get("role") in _NON_REPLY_ROLES:
+        if _str_value(choice.get("role")) in _NON_REPLY_ROLES or _is_non_reply_item(choice):
             continue
-        if isinstance(choice.get("parts"), list):
+        if not _is_message(choice):
+            replies.append(json.dumps(choice, default=str))
+        elif isinstance(choice.get("parts"), list):
             # OTel keeps text parts next to reasoning and tool-call parts, with the text under `content`.
             replies.append(
                 " ".join(
-                    part["content"]
+                    text
                     for part in choice["parts"]
-                    if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("content"), str)
+                    if isinstance(part, dict) and part.get("type") == "text"
+                    for text in [_scalar_text(part.get("content"))]
+                    if text
                 )
             )
-        elif any(key in choice for key in ("content", "refusal", "text", "role")):
+        else:
             replies.append(_reply_text_from_content(_get_hog_output_choice_content(choice)))
-        elif "type" not in choice:
-            # A structured-output payload such as `{"entities": [...]}` is the reply itself.
-            replies.append(json.dumps(choice, default=str))
-        # Any other typed item, such as a Responses `reasoning` or `function_call`, is not reply text.
     return "\n".join(reply for reply in replies if reply.strip())
 
 

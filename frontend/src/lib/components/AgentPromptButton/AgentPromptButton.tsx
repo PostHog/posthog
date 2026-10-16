@@ -356,7 +356,12 @@ export function AgentPromptButton({
     if (appearance === 'lemon') {
         return (
             // Focus and key events bubble up from the side action, which takes no handlers of its own.
-            <div className="contents" onFocus={lemonKeyboard.onTriggerFocus} onKeyDown={lemonKeyboard.onTriggerKeyDown}>
+            // React also bubbles them up from the portaled menu, so only events from inside this subtree count.
+            <div
+                className="contents"
+                onFocus={(e) => e.currentTarget.contains(e.target) && lemonKeyboard.onTriggerFocus(e)}
+                onKeyDown={(e) => e.currentTarget.contains(e.target as Node) && lemonKeyboard.onTriggerKeyDown(e)}
+            >
                 <LemonButton
                     type="secondary"
                     size="small"
