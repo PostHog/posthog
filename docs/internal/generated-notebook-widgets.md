@@ -129,7 +129,8 @@ New widgets default to Claude Sonnet 5. An explicitly selected model stays selec
 Widget IDs are saved when their settings, title, or panel visibility change, so editing a widget keeps its generation history attached.
 
 New SQL cells receive a unique name beginning with `sql_df_`; Python cells receive one beginning with `df_`.
-You can rename a dataframe in its result panel.
+You can rename a dataframe below its results while its edit, filters, or query panel is also open. Results-only views hide the name controls.
+In Jupyter mode, dataframe names use smaller text. Code cells keep the name below their output alongside their visible source editor.
 The SQL and insight dataframe name rows are visible when either `revamped-py-notebooks` or `notebook-generated-widgets` is enabled.
 The widget flag enables HogQL dataframe preparation. Python, kernel-backed SQL, and direct connections require `revamped-py-notebooks`.
 Insights that expose SQL have the same dataframe name field below their results, starting with `insight_df` (with a numeric suffix when needed).

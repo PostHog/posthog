@@ -1,7 +1,16 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { IconFastForward, IconKeyboard, IconPlayFilled, IconPlus, IconRefresh, IconStopFilled } from '@posthog/icons'
+import {
+    IconChevronDown,
+    IconFastForward,
+    IconKeyboard,
+    IconPlayFilled,
+    IconPlus,
+    IconRefresh,
+    IconStopFilled,
+} from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
 
 import { useNotebookJupyterCommands, useNotebookJupyterStoreValue } from 'lib/components/MarkdownNotebook/jupyterMode'
@@ -15,6 +24,7 @@ import { notebookRunLogic } from './notebookRunLogic'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 export function NotebookJupyterToolbar(): JSX.Element | null {
+    const [isExpanded, setIsExpanded] = useState(false)
     const jupyter = useNotebookJupyterCommands()
     const { shortId, isShared } = useValues(notebookLogic)
     const { statusInfo, isStarting } = useValues(notebookKernelInfoLogic({ shortId, isShared }))
@@ -60,36 +70,14 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
     return (
         <>
             <div
-                className="NotebookJupyterToolbar sticky top-0 z-10 flex flex-wrap items-center gap-0.5 py-1 mb-2 border rounded-xs bg-(--jupyter-paper-background)"
+                className={clsx(
+                    'NotebookJupyterToolbar sticky top-0 z-10 flex max-w-full flex-wrap items-center gap-0.5 py-1 mb-2 border rounded-xs bg-(--jupyter-paper-background)',
+                    !isExpanded && 'w-fit'
+                )}
                 // Keeps focus, and with it command mode, on the selected cell while a button is clicked.
                 onMouseDown={(event) => event.preventDefault()}
                 data-attr="notebook-jupyter-toolbar"
             >
-                <LemonButton
-                    size="small"
-                    icon={<IconPlus />}
-                    tooltip="Insert a cell below (B)"
-                    aria-label="Insert a cell below"
-                    onClick={() => jupyter.insertCell(activeCellId, 'below', { edit: true })}
-                    data-attr="notebook-jupyter-insert-cell"
-                />
-                <LemonButton
-                    size="small"
-                    icon={<IconArrowUp />}
-                    tooltip="Move the selected cell up"
-                    aria-label="Move the selected cell up"
-                    disabledReason={activeCellKind ? undefined : noCellReason}
-                    onClick={() => jupyter.executeCommand('move-up', activeCellId)}
-                />
-                <LemonButton
-                    size="small"
-                    icon={<IconArrowDown />}
-                    tooltip="Move the selected cell down"
-                    aria-label="Move the selected cell down"
-                    disabledReason={activeCellKind ? undefined : noCellReason}
-                    onClick={() => jupyter.executeCommand('move-down', activeCellId)}
-                />
-                <LemonDivider vertical className="mx-1 h-5" />
                 <LemonButton
                     size="small"
                     icon={<IconPlayFilled />}
@@ -122,68 +110,112 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
                     disabledReason={isRestartingKernel ? 'The kernel is restarting' : undefined}
                     onClick={() => requestKernelRestart()}
                 />
-                <LemonButton
-                    size="small"
-                    icon={<IconFastForward />}
-                    tooltip="Restart the kernel and run all cells"
-                    aria-label="Restart the kernel and run all cells"
-                    disabledReason={
-                        isRestartingKernel
-                            ? 'The kernel is restarting'
-                            : isRunAllRunning
-                              ? 'All cells are already running'
-                              : undefined
-                    }
-                    onClick={() => requestKernelRestart(true)}
-                />
-                <LemonDivider vertical className="mx-1 h-5" />
-                <LemonSelect
-                    size="small"
-                    value={activeCellKind === 'code' ? 'code' : activeCellKind === 'markdown' ? 'markdown' : null}
-                    placeholder="-"
-                    options={[
-                        { value: 'code', label: 'Code' },
-                        { value: 'markdown', label: 'Markdown' },
-                    ]}
-                    disabledReason={
-                        activeCellKind === 'code' || activeCellKind === 'markdown'
-                            ? undefined
-                            : 'Select a code or markdown cell to change its type'
-                    }
-                    onChange={(value) => {
-                        if (value && value !== activeCellKind) {
-                            jupyter.executeCommand(value === 'markdown' ? 'to-markdown' : 'to-code', activeCellId)
-                        }
-                    }}
-                    data-attr="notebook-jupyter-cell-type"
-                />
-                <div className="flex-1" />
-                <LemonButton
-                    size="small"
-                    icon={<IconKeyboard />}
-                    tooltip="Keyboard shortcuts (H)"
-                    aria-label="Keyboard shortcuts"
-                    onClick={() => jupyter.store.setShortcutsOpen(true)}
-                    data-attr="notebook-jupyter-shortcuts"
-                />
-                <LemonButton
-                    size="small"
-                    tooltip={`Kernel status: ${kernelStatus}. Click to ${showKernelInfo ? 'hide' : 'show'} kernel details.`}
-                    active={showKernelInfo}
-                    onClick={() => setShowKernelInfo(!showKernelInfo)}
-                    data-attr="notebook-jupyter-kernel-status"
-                >
-                    <span className="flex items-center gap-2 text-xs text-secondary font-normal whitespace-nowrap">
-                        <span>Python 3 (sandbox)</span>
-                        <span
-                            aria-label={`Kernel ${kernelStatus.toLowerCase()}`}
-                            className={clsx(
-                                'inline-block size-3 rounded-full border-2 border-current',
-                                isBusy && 'bg-current'
-                            )}
+                {isExpanded && (
+                    <>
+                        <LemonDivider vertical className="mx-1 h-5" />
+                        <LemonButton
+                            size="small"
+                            icon={<IconPlus />}
+                            tooltip="Insert a cell below (B)"
+                            aria-label="Insert a cell below"
+                            onClick={() => jupyter.insertCell(activeCellId, 'below', { edit: true })}
+                            data-attr="notebook-jupyter-insert-cell"
                         />
-                    </span>
-                </LemonButton>
+                        <LemonButton
+                            size="small"
+                            icon={<IconArrowUp />}
+                            tooltip="Move the selected cell up"
+                            aria-label="Move the selected cell up"
+                            disabledReason={activeCellKind ? undefined : noCellReason}
+                            onClick={() => jupyter.executeCommand('move-up', activeCellId)}
+                        />
+                        <LemonButton
+                            size="small"
+                            icon={<IconArrowDown />}
+                            tooltip="Move the selected cell down"
+                            aria-label="Move the selected cell down"
+                            disabledReason={activeCellKind ? undefined : noCellReason}
+                            onClick={() => jupyter.executeCommand('move-down', activeCellId)}
+                        />
+                        <LemonDivider vertical className="mx-1 h-5" />
+                        <LemonButton
+                            size="small"
+                            icon={<IconFastForward />}
+                            tooltip="Restart the kernel and run all cells"
+                            aria-label="Restart the kernel and run all cells"
+                            disabledReason={
+                                isRestartingKernel
+                                    ? 'The kernel is restarting'
+                                    : isRunAllRunning
+                                      ? 'All cells are already running'
+                                      : undefined
+                            }
+                            onClick={() => requestKernelRestart(true)}
+                        />
+                        <LemonDivider vertical className="mx-1 h-5" />
+                        <LemonSelect
+                            size="small"
+                            value={
+                                activeCellKind === 'code' ? 'code' : activeCellKind === 'markdown' ? 'markdown' : null
+                            }
+                            placeholder="-"
+                            options={[
+                                { value: 'code', label: 'Code' },
+                                { value: 'markdown', label: 'Markdown' },
+                            ]}
+                            disabledReason={
+                                activeCellKind === 'code' || activeCellKind === 'markdown'
+                                    ? undefined
+                                    : 'Select a code or markdown cell to change its type'
+                            }
+                            onChange={(value) => {
+                                if (value && value !== activeCellKind) {
+                                    jupyter.executeCommand(
+                                        value === 'markdown' ? 'to-markdown' : 'to-code',
+                                        activeCellId
+                                    )
+                                }
+                            }}
+                            data-attr="notebook-jupyter-cell-type"
+                        />
+                        <div className="flex-1" />
+                        <LemonButton
+                            size="small"
+                            icon={<IconKeyboard />}
+                            tooltip="Keyboard shortcuts (H)"
+                            aria-label="Keyboard shortcuts"
+                            onClick={() => jupyter.store.setShortcutsOpen(true)}
+                            data-attr="notebook-jupyter-shortcuts"
+                        />
+                        <LemonButton
+                            size="small"
+                            tooltip={`Kernel status: ${kernelStatus}. Click to ${showKernelInfo ? 'hide' : 'show'} kernel details.`}
+                            active={showKernelInfo}
+                            onClick={() => setShowKernelInfo(!showKernelInfo)}
+                            data-attr="notebook-jupyter-kernel-status"
+                        >
+                            <span className="flex items-center gap-2 text-xs text-secondary font-normal whitespace-nowrap">
+                                <span>Python 3 (sandbox)</span>
+                                <span
+                                    aria-label={`Kernel ${kernelStatus.toLowerCase()}`}
+                                    className={clsx(
+                                        'inline-block size-3 rounded-full border-2 border-current',
+                                        isBusy && 'bg-current'
+                                    )}
+                                />
+                            </span>
+                        </LemonButton>
+                    </>
+                )}
+                <LemonButton
+                    size="small"
+                    icon={<IconChevronDown className={isExpanded ? 'rotate-180' : undefined} />}
+                    tooltip={isExpanded ? 'Show fewer notebook controls' : 'Show more notebook controls'}
+                    aria-label={isExpanded ? 'Show fewer notebook controls' : 'Show more notebook controls'}
+                    aria-expanded={isExpanded}
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    data-attr="notebook-jupyter-toggle-toolbar"
+                />
             </div>
             <NotebookJupyterShortcutsModal />
         </>
