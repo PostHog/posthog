@@ -113,31 +113,6 @@ pub fn wrapped_event(event_name: &str, distinct_id: &str) -> WrappedEvent {
     }
 }
 
-pub fn wrapped_event_at(timestamp: DateTime<Utc>) -> WrappedEvent {
-    let uuid = Uuid::new_v4();
-    WrappedEvent {
-        event: Event {
-            event: "$pageview".to_string(),
-            uuid: uuid.to_string(),
-            distinct_id: "user-1".to_string(),
-            timestamp: timestamp.to_rfc3339(),
-            session_id: None,
-            window_id: None,
-            options: RawOptions::default(),
-            properties: raw_obj("{}"),
-        },
-        uuid,
-        options: Options::default(),
-        adjusted_timestamp: Some(timestamp),
-        result: EventResult::Ok,
-        details: None,
-        destination: Destination::default(),
-        force_disable_person_processing: false,
-        spread_partitions: false,
-        is_gateway_verified: false,
-    }
-}
-
 pub fn malformed_wrapped_event() -> WrappedEvent {
     let uuid = Uuid::new_v4();
     WrappedEvent {

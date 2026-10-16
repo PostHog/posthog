@@ -867,7 +867,7 @@ def test_pr_merged_is_a_merge_from_birth_rather_than_a_merge_given_a_pr():
 
 def test_reports_missing_birth_snapshot_counts_only_the_ones_a_partition_gap_costs(monkeypatch):
     gap = D0 + datetime.timedelta(days=1)
-    dates = [D0 + datetime.timedelta(days=offset) for offset in range(6)]
+    dates = [D0 + datetime.timedelta(days=offset) for offset in range(3 + HEADS_BY_NAME["open"].horizon_days)]
     ids = ["born_in_the_gap", "older", "utc_start", "utc_end", "label_only"]
     created = [
         pd.Timestamp(gap, tz="UTC") + pd.Timedelta(hours=9),
@@ -1513,7 +1513,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         ["a"], model_version=["2026-08-25"], score=[0.8], label_at_scoring=[True], classification_threshold=[0.3]
     )
     graded = graded_rows(scores, _labels(["a"], open_count=[1]), HEADS_BY_NAME["open"], pool=POOL_NAME)
-    grades = head_grades(graded, HEADS_BY_NAME["open"], pool=POOL_NAME, scoring_partition="2026-08-22")
+    grades = head_grades(graded, HEADS_BY_NAME["open"], pool=POOL_NAME, scoring_partition="2026-08-18")
     events = [
         *candidate_events(metadata),
         *examples_events(
@@ -1568,7 +1568,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         ),
         *unseen_report_graded_events(
             run_id="run-1",
-            rows=report_grade_rows({"open": graded}, pool=POOL_NAME, horizon_days=3, scoring_partition="2026-08-22"),
+            rows=report_grade_rows({"open": graded}, pool=POOL_NAME, horizon_days=7, scoring_partition="2026-08-18"),
         ),
     ]
     client = _patch_capture(monkeypatch, cloud=True, debug=False)
@@ -1631,9 +1631,9 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
     assert {
         "head": "open",
         "model_role": CANDIDATE_ROLE,
-        "scoring_partition": "2026-08-22",
+        "scoring_partition": "2026-08-18",
         "pool": POOL_NAME,
-        "horizon_days": 3,
+        "horizon_days": 7,
         "rows": 1,
         "positives": 1,
         "birth_day_positives": 1,
@@ -1650,7 +1650,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
     calibration_props = by_event["inbox_ranking_unseen_calibration"][0]["properties"]
     assert {
         "head": "open",
-        "scoring_partition": "2026-08-22",
+        "scoring_partition": "2026-08-18",
         "pool": POOL_NAME,
         "bucket": 1,
         "rows": 1,
@@ -1670,9 +1670,9 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
     assert {
         "report_id": "a",
         "model_role": CANDIDATE_ROLE,
-        "scoring_partition": "2026-08-22",
+        "scoring_partition": "2026-08-18",
         "pool": POOL_NAME,
-        "horizon_days": 3,
+        "horizon_days": 7,
         "in_cohort_open": True,
         "outcome_open": True,
         "p_open": 0.8,
@@ -2184,7 +2184,7 @@ def test_candidate_metadata_declares_the_set_it_was_fit_on(family):
 def test_build_examples_carries_the_columns_of_the_set_it_is_given():
     # The examples Parquet is per feature set, so a second set's object holds its own features.
     ids = ["a"]
-    later = D0 + datetime.timedelta(days=3)
+    later = D0 + datetime.timedelta(days=HEADS_BY_NAME["open"].horizon_days)
     snapshots = {
         D0: Snapshot(date=D0, state=_state(ids), labels=_labels(ids)),
         later: Snapshot(date=later, state=_state(ids), labels=_labels(ids, open_count=[2])),
@@ -2789,6 +2789,7 @@ class _AppObjectStore:
         self.objects = dict(existing or {})
         self.fail_on = fail_on
         self.written: list[str] = []
+        self.extras: dict[str, dict[str, str] | None] = {}
 
     def head_object(self, bucket: str, file_key: str) -> dict[str, int] | None:
         return {"ContentLength": len(self.objects[file_key])} if file_key in self.objects else None
@@ -2798,6 +2799,7 @@ class _AppObjectStore:
             raise RuntimeError("object store write failed")
         self.objects[key] = content if isinstance(content, bytes) else content.encode()
         self.written.append(key)
+        self.extras[key] = extras
 
 
 def _serving_dataset_s3(
@@ -2884,9 +2886,12 @@ def test_publishing_copies_every_model_the_manifest_names_and_writes_the_manifes
         assert f"{entry.prefix}/{METADATA_FILE}" in store.objects
         assert f"{entry.prefix}/{model_file}" in store.objects
     assert store.written[-1] == serving_manifest_key(prefix)
+    assert all("ACL" not in (extras or {}) for extras in store.extras.values())
     if mirror is not None:
         assert mirror.objects == store.objects
         assert mirror.written[-1] == serving_manifest_key(prefix)
+        # The mirror bucket is in another account, and its policy refuses a write without this ACL.
+        assert all((extras or {}).get("ACL") == "bucket-owner-full-control" for extras in mirror.extras.values())
     assert _manifest_event(capture).get("mirror_published") is (True if mirrored else None)
 
 

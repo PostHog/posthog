@@ -8,3 +8,7 @@ When emitting metrics via the `metrics` crate (`histogram!`, `counter!`, `gauge!
 - `current_client_name()` already returns `Arc<str>`, so use `.clone()` directly. Never call `.to_string()` on it.
 - When passing a dynamic label through multiple functions, pass `Arc<str>` by value, not `&str` — the downstream function will need to clone it into macros anyway.
 - Static label values (`"ok"`, `"error"`, `"unavailable"`) can be passed as `&'static str` literals directly.
+
+## personhog
+
+- **A change to the publish outbox contract between `personhog-identity` and `personhog-publisher` lands in the publisher first, in its own PR, and in identity in a later PR.** The two are separate deployments with no ordering between them. The contract (the outbox row shapes, the `lifecycle_op_person.moved` entries, the pointer cursor, the GC guard) is listed under "Publish outbox contract" in [personhog-identity/README.md](personhog-identity/README.md). Read it before you change `rust/personhog-identity/src/publish/`, the outbox writers in `src/lifecycle/` and `src/storage/`, or a persons migration that touches the outbox or `lifecycle_op_person`.

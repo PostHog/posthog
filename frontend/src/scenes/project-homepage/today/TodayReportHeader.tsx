@@ -16,12 +16,12 @@ import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { hasOpenImplementationPr } from 'products/signals/frontend/inbox/utils/reportActions'
 
 import { TodayActionButton } from './TodayActionButton'
-import { itemStateLabel } from './todayBriefingItems'
 import { TodayEvidenceAge } from './TodayEvidenceAge'
 import { TodayMarkedText } from './TodayMarkedText'
 import { resolveDisabledReason } from './todayNextStep'
 import { priorityTone } from './todayPriority'
 import { todayReportLogic } from './todayReportLogic'
+import { reportStateLabel } from './todayReportState'
 import { reportIcon } from './todayRowIcons'
 import { SAMPLE_REPORT_REASON } from './todaySampleReports'
 import { reportSourceLine, reportTitle } from './todaySignalReports'
@@ -107,7 +107,7 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
         todayReportLogic({ reportId: report.id })
     )
     const sampleReason = isSample ? SAMPLE_REPORT_REASON : null
-    const stateLabel = itemStateLabel({ state: reportState })
+    const stateLabel = reportStateLabel(reportState)
     const stateBadge = stateLabel ? (
         <Badge variant={reportState === 'done' ? 'completed' : 'default'}>{stateLabel}</Badge>
     ) : null

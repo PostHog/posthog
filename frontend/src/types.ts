@@ -82,7 +82,6 @@ import type {
     RevenueAnalyticsConfig,
     SharingConfigurationSettings,
     TileFilters,
-    UserProductListItem,
     UserUIConfiguration,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -945,6 +944,8 @@ export interface WorkflowsConfig {
     // Null uses the product default.
     workflow_task_rate_limit_per_day?: number | null
     workflow_task_team_rate_limit_per_day?: number | null
+    replay_vision_scan_rate_limit_per_day?: number | null
+    replay_vision_scan_team_rate_limit_per_day?: number | null
     default_email_integration_id?: number | null
     // Null on either disables the marketing frequency cap.
     marketing_frequency_cap_max_messages?: number | null
@@ -5376,7 +5377,6 @@ export interface AppContext {
     frontend_apps?: Record<number, FrontendAppConfig>
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
-    custom_products: UserProductListItem[]
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
@@ -7405,6 +7405,7 @@ export type CyclotronJobInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'replay_vision_scan'
         | 'task_skills'
     key: string
     label: string

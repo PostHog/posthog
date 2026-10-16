@@ -194,6 +194,43 @@ GITEA_ENDPOINTS: dict[str, GiteaEndpointConfig] = {
             "Syncing workflow runs needs Gitea 1.25 or later with Actions enabled on the repository."
         ),
     ),
+    "workflow_jobs": GiteaEndpointConfig(
+        name="workflow_jobs",
+        # Gitea Actions jobs across all runs. No time filter: full refresh only. A re-run
+        # resets the job in place, so `created_at` stays stable while `started_at` moves.
+        path="/repos/{repository}/actions/jobs",
+        pagination="total_count",
+        data_selector="jobs",
+        partition_key="created_at",
+        incremental_fields=[],
+        not_found_error=(
+            "Gitea Actions jobs are unavailable for this repository. "
+            "Syncing workflow jobs needs Gitea 1.25 or later with Actions enabled on the repository."
+        ),
+    ),
+    "branches": GiteaEndpointConfig(
+        name="branches",
+        # Branch names are unique within the single synced repository. No stable timestamp.
+        path="/repos/{repository}/branches",
+        primary_key="name",
+        incremental_fields=[],
+    ),
+    "tags": GiteaEndpointConfig(
+        name="tags",
+        # No Link header, only X-Total-Count. Tags arrive newest first by creation date.
+        path="/repos/{repository}/tags",
+        primary_key="name",
+        pagination="total_count",
+        sort_mode="desc",
+        incremental_fields=[],
+    ),
+    "collaborators": GiteaEndpointConfig(
+        name="collaborators",
+        # No Link header, only X-Total-Count. Rows are user objects keyed by user id.
+        path="/repos/{repository}/collaborators",
+        pagination="total_count",
+        incremental_fields=[],
+    ),
 }
 
 ENDPOINTS = tuple(GITEA_ENDPOINTS.keys())
