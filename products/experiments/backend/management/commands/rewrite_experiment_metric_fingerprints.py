@@ -2,7 +2,8 @@
 to the current calculation key.
 
 Run it once after a deploy that changes the calculation key version, when every web pod and experiments worker runs
-the new code, first as a dry run. Without the rewrite, the first save of each experiment after the deploy changes
+the new code and the backfills and daily workflows that started before the deploy have finished, first as a dry run.
+That earlier work still writes rows under the earlier key. Without the rewrite, the first save of each experiment after the deploy changes
 every fingerprint, and the activity log describes every metric as changed. Until the result rows are converted, a
 settings edit can still reuse a result of the earlier settings. `metric_calculation/stored_fingerprints.py` says
 what it writes.

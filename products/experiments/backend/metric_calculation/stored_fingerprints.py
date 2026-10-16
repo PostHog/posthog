@@ -105,7 +105,11 @@ def rewrite_stored_fingerprints(
         experiments = Experiment.objects.filter(deleted=False, id__gt=last_id)
         if team_ids:
             experiments = experiments.filter(team_id__in=team_ids)
-        batch = list(experiments.select_related("team", "feature_flag").order_by("id")[:batch_size])
+        batch = list(
+            experiments.select_related("team", "feature_flag")
+            .prefetch_related("experimenttosavedmetric_set__saved_metric")
+            .order_by("id")[:batch_size]
+        )
         if not batch:
             break
         last_id = batch[-1].id
