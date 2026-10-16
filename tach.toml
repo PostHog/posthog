@@ -10,9 +10,11 @@ exclude = [
     # lint:tach` (what CI runs) excludes test code from the dependency pass only.
     # Eval trees are dev/CI-only tooling: the harness orchestrates many products by
     # design, and product-owned suites under products/*/evals import the harness
-    # contracts, so neither fits the production dependency graph.
+    # contracts, so neither fits the production dependency graph. Signals keeps its suite
+    # under eval/ rather than evals/, so it is listed by path.
     "products/posthog_ai/eval_harness",
     "products/*/evals",
+    "products/signals/eval",
 ]
 source_roots = [
     ".",
