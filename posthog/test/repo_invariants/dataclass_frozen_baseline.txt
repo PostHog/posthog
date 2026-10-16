@@ -1086,7 +1086,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/spot_io/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/spot_io/spot_io.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/spotlercrm/spotlercrm.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/sprig/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/sprig/sprig.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/squadcast/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/squadcast/squadcast.py
