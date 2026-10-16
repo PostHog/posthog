@@ -9,7 +9,7 @@ from django.test import SimpleTestCase
 from products.customer_analytics.backend.facade.contracts import KeyMetric
 from products.today.backend.logic.highlight_registry import load_sources
 from products.today.backend.logic.highlight_sources import key_metrics
-from products.today.backend.logic.highlight_types import Context
+from products.today.backend.logic.highlight_types import Context, DailyValueNotReady
 
 TODAY = date(2026, 10, 13)
 
@@ -41,15 +41,11 @@ class TestKeyMetrics(SimpleTestCase):
                 team=SimpleNamespace(id=1),
                 user=SimpleNamespace(id=2),
                 today=TODAY,
-                daily=lambda _name, compute: compute(),
             ),
         )
         registered = next(s for s in load_sources() if s.name == "key_metrics")
 
-        with (
-            patch.object(key_metrics, "get_key_metrics", return_value=metrics),
-            patch.object(key_metrics, "get_key_metrics_fingerprint", return_value="config"),
-        ):
+        with patch.object(key_metrics, "get_key_metrics", return_value=metrics):
             found = registered.find(context)
 
         self.assertEqual(
@@ -62,3 +58,10 @@ class TestKeyMetrics(SimpleTestCase):
                 [("‘Signup event’ decreased by 50% yesterday", "500 yesterday · 1,000 on an average Monday", "risk")],
             ),
         )
+
+    def test_a_pending_calculation_asks_for_a_quick_retry(self) -> None:
+        context = cast(Context, SimpleNamespace(team=SimpleNamespace(id=1), user=SimpleNamespace(id=2), today=TODAY))
+        registered = next(s for s in load_sources() if s.name == "key_metrics")
+
+        with patch.object(key_metrics, "get_key_metrics", return_value=None), self.assertRaises(DailyValueNotReady):
+            registered.find(context)
