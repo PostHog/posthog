@@ -980,6 +980,7 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.cdp",
     "products.conversations",
     "products.data_modeling",
@@ -1646,10 +1647,13 @@ depends_on = [
     "products.access_control",
     "products.alerts",
     "products.conversations",
+    "products.customer_analytics",
     "products.dashboards",
+    "products.error_tracking",
     "products.product_analytics",
     "products.signals",
     "products.tasks",
+    "products.web_analytics",
 ]
 layer = "modules"
 
