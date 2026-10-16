@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use personhog_identity::publish::claim::claim_sql;
 use personhog_identity::publish::messages::DistinctIdRow;
-use personhog_identity::publish::DrainError;
+use personhog_identity::publish::{DrainError, PassReport};
 
 impl TestContext {
     async fn insert_completed_op(&self, op_type: &str) -> Uuid {
@@ -432,6 +432,60 @@ async fn a_large_pointer_drains_in_cursor_chunks_without_a_gap_or_a_repeat() {
         .iter()
         .map(|(d, v)| ctx.row(victim_a, d, *v, 1))
         .chain(b_entries.iter().map(|(d, v)| ctx.row(victim_b, d, *v, 1)))
+        .collect();
+    assert_eq!(sink.rows_for_team(ctx.team_id), expected);
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn the_row_budget_spans_claimed_rows_and_the_rest_wait_for_the_next_pass() {
+    let ctx = TestContext::new().await;
+    let _drain_lock = ctx.hold_drain_lock().await;
+    // Three rows under a budget of 10: a merge of 6 ids takes 6, a second
+    // merge of 6 gets the other 4 and advances, and the mapping row behind
+    // them is left alone, attempts included, until the next pass.
+    let (target_a, target_b) = (Uuid::now_v7(), Uuid::now_v7());
+    let a_entries: Vec<(String, i64)> = (1..=6).map(|i| (format!("a-{i}"), i)).collect();
+    let b_entries: Vec<(String, i64)> = (1..=6).map(|i| (format!("b-{i}"), 10 + i)).collect();
+    ctx.insert_merge_pointer(target_a, Some(moved(&as_refs(&a_entries))), true)
+        .await;
+    let (_, pointer_b) = ctx
+        .insert_merge_pointer(target_b, Some(moved(&as_refs(&b_entries))), true)
+        .await;
+    let late = Uuid::now_v7();
+    let mapping = ctx.insert_mapping_row(late, "late", 0).await;
+
+    let sink = RecordingSink::default();
+    let publisher = ctx.publisher(sink.clone(), 10);
+
+    let report = publisher.drain_once().await.expect("first pass");
+    assert_eq!(
+        report,
+        PassReport {
+            claimed: 3,
+            finished: 1,
+            advanced: 1,
+            deferred: 0,
+            unprocessed: 1,
+            messages: 10,
+        }
+    );
+    let left: Vec<(i64, i64, i32)> = ctx
+        .outbox_rows()
+        .await
+        .into_iter()
+        .map(|r| (r.id, r.cursor_mapping_ordinal, r.attempts))
+        .collect();
+    assert_eq!(left, vec![(pointer_b, 4, 1), (mapping, 0, 0)]);
+
+    publisher.drain_once().await.expect("second pass");
+    assert!(ctx.outbox_rows().await.is_empty());
+    let expected: Vec<DistinctIdRow> = a_entries
+        .iter()
+        .map(|(d, v)| ctx.row(target_a, d, *v, 0))
+        .chain(b_entries.iter().map(|(d, v)| ctx.row(target_b, d, *v, 0)))
+        .chain([ctx.row(late, "late", 0, 0)])
         .collect();
     assert_eq!(sink.rows_for_team(ctx.team_id), expected);
 
