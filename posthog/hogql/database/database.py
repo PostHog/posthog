@@ -781,7 +781,7 @@ def _compute_system_table_access_decision(
     for name, table in scoped_tables.items():
         result = authz.list_objects(
             resource=Resource(type=ResourceType(cast(str, table.access_scope)), project_id=team.id),
-            action=Action.VIEW,
+            action=Action.QUERY,
             subject=Subject(user_id=user.pk),
             user_access_control=user_access_control,
         )

@@ -289,8 +289,9 @@ Create the flag with these variant keys before testing a rollout.
 - `check` supports a single action or an ordered batch of requests.
 - `permissions` uses the same routed checks to return the supported actions the user can take.
 - `list_objects` returns a project-scoped filter for objects satisfying the requested action.
-  Both ordinary API lists and HogQL system-table rows request `Action.VIEW`; listing is not a separate permission.
-  `Action.QUERY` is reserved for querying warehouse data through the model's `can_query` permission.
+  Ordinary API lists request `Action.VIEW`; listing is not a separate permission.
+  HogQL system-table rows request `Action.QUERY`, which resolves to view permission for dashboards and insights.
+  Warehouse data queries use the model's `can_query` permission.
   For reads, `excluded=False` includes only the returned IDs; `excluded=True` excludes those IDs.
   A permitted `creator_exempt` adds creator-owned rows within the existing tenant scope.
   Incomplete filters deny every row. Read filters default to a 1,000-ID cap; `limit` overrides it.

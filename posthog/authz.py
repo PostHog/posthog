@@ -33,7 +33,7 @@ def resource_list_cache_key(access: UserAccessControl, scopes: set[str] | None) 
             continue
         result = api.list_objects(
             resource=Resource(type=resource_type, project_id=access.team.id),
-            action=Action.VIEW,
+            action=Action.QUERY,
             subject=Subject(user_id=access.user.pk),
             creator_exempt=True,
             user_access_control=access,

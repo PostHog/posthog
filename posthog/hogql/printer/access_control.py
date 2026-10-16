@@ -67,7 +67,7 @@ def build_access_control_guard(
     creator_field = table.access_control_creator_id
     result = authz.list_objects(
         resource=Resource(type=ResourceType(resource), project_id=context.team_id),
-        action=Action.VIEW,
+        action=Action.QUERY,
         subject=Subject(user_id=user_id),
         creator_exempt=creator_field is not None and creator_field in table.fields,
         user_access_control=user_access_control,

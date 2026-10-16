@@ -282,7 +282,13 @@ def _read_object_filter(
     org_id = organization_id(resource)
     type_name = resource.type.value
     prefix = f"{type_name}:{org_id}/{resource.project_id}/"
-    relation = action_relation(f"{prefix}0", action)
+    # Querying dashboard/insight system rows uses their view permission; warehouse data has can_query.
+    permission = (
+        Action.VIEW
+        if action == Action.QUERY and resource.type in (ResourceType.DASHBOARD, ResourceType.INSIGHT)
+        else action
+    )
+    relation = action_relation(f"{prefix}0", permission)
     category_key = object_key(resource, org_id=org_id)
     user = actor_key(subject)
     capped = ObjectIds(ids=frozenset(), complete=False)
@@ -298,7 +304,7 @@ def _read_object_filter(
         if client.get_store_id() is None:
             raise RuntimeError("Bootstrap the OpenFGA store before listing authorized resources")
         reader = _Reader(client, user, type_name, prefix, cap, consistency)
-        if action == Action.VIEW and reader.allowed(category_key, "can_view"):
+        if permission == Action.VIEW and reader.allowed(category_key, "can_view"):
             with_rule = reader.list_ids("has_rule")
             if with_rule is None:
                 return capped

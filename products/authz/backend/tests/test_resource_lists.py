@@ -37,14 +37,15 @@ class TestOpenFgaResourceLists(SimpleTestCase):
         self.fga_client.streamed_list_objects.return_value = stream
         return stream
 
-    def test_default_allow_excludes_denied_overrides(self) -> None:
+    @parameterized.expand([(Action.VIEW,), (Action.QUERY,)])
+    def test_default_allow_excludes_denied_overrides(self, action: Action) -> None:
         self.fga_client.check.return_value.allowed = True
         self.stream([self.prefix + "1", self.prefix + "2", f"dashboard:{self.org_id}/2/3"])
         self.fga_client.client_batch_check.return_value = [
             SimpleNamespace(allowed=False, error=None),
             SimpleNamespace(allowed=True, error=None),
         ]
-        result = api.list_objects(resource=self.resource, action=Action.VIEW, subject=self.subject)
+        result = api.list_objects(resource=self.resource, action=action, subject=self.subject)
         assert result.complete and result.excluded
         assert not result.allows("1")
         assert result.allows("2") and result.allows("3")
