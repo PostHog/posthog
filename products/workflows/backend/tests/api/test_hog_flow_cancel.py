@@ -149,6 +149,19 @@ class TestHogFlowCancelBatchJob(APIBaseTest):
         batch_job.refresh_from_db()
         assert batch_job.status == "cancelled"
 
+    def test_cancel_waiting_batch_job_marks_cancelled_without_the_worker(self):
+        # A run that waits for its realtime cohort was never dispatched, so the worker has nothing to stop.
+        batch_job = self._create_batch_job("waiting")
+
+        with patch(CANCEL_BATCH_PROXY) as mock_cancel:
+            response = self._cancel(batch_job.id)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["status"] == "cancelled"
+        mock_cancel.assert_not_called()
+        batch_job.refresh_from_db()
+        assert batch_job.status == "cancelled"
+
     @parameterized.expand([("completed",), ("cancelled",), ("failed",)])
     def test_cancel_terminal_batch_job_is_a_no_op(self, terminal_status):
         batch_job = self._create_batch_job(terminal_status)

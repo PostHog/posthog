@@ -4,7 +4,11 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.redis import get_client as get_redis_client
+
+from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key
 from products.feature_flags.backend.user_blast_radius import PERSON_BATCH_SIZE, get_user_blast_radius_persons
 from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
 from products.workflows.backend.services.blast_radius import get_audience_size
@@ -82,38 +86,65 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         assert audience_page_size(None) == 7
         assert audience_page_size(0) == PERSON_BATCH_SIZE
 
-    def test_realtime_cohort_audience_size_estimates_from_the_cohort_count(self):
+    @parameterized.expand(
+        [
+            ("build_queued", "behavioral", "all", True, "building"),
+            ("nothing_building", "behavioral", "all", False, "needs_attention"),
+            # The pipeline doesn't run for the team, so the cohort never finishes calculating.
+            ("team_off_realtime_allowlist", "behavioral", "none", True, "needs_attention"),
+            # The cohorts product reports this one as person_properties, which the response doesn't declare.
+            ("person_property_cohort_on_a_behavioral_cohort", "person_on_behavioral", "all", False, "building"),
+        ]
+    )
+    def test_realtime_cohort_audience_size_estimates_from_the_cohort_count(
+        self, _name, shape, allowlist, build_queued, expected_state
+    ):
         # The send reads realtime membership from a Postgres database Django can't reach, so the
         # preview estimates from the cohort's periodic count and reports no email dedupe.
         self._create_audience(["a@x.com", "a@x.com", "b@x.com"])
+        behavioral_leaf = {
+            "key": "$pageview",
+            "event_type": "events",
+            "time_value": 30,
+            "time_interval": "day",
+            "value": "performed_event",
+            "type": "behavioral",
+        }
+        leaves: list[dict] = [behavioral_leaf]
+        if shape == "person_on_behavioral":
+            inner = Cohort.objects.create(
+                team=self.team,
+                name="inner",
+                cohort_type=CohortType.REALTIME,
+                filters={"properties": {"type": "AND", "values": [behavioral_leaf]}},
+            )
+            leaves = [
+                {"key": "email", "type": "person", "value": "x.com", "operator": "icontains"},
+                {"key": "id", "type": "cohort", "value": inner.pk},
+            ]
         cohort = Cohort.objects.create(
             team=self.team,
             name="c",
             cohort_type=CohortType.REALTIME,
             count=2,
-            filters={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 30,
-                            "time_interval": "day",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
-            },
+            filters={"properties": {"type": "AND", "values": leaves}},
         )
+        if build_queued:
+            get_redis_client().set(
+                cohort_backfill_pending_key(cohort.pk, CohortBackfillKind.BEHAVIORAL),
+                CohortBackfillTrigger.COHORT_CREATED,
+                ex=300,
+            )
 
-        size = get_audience_size(
-            team_id=self.team.pk,
-            filters={"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]},
-            group_type_index=None,
-            dedupe_key="email",
-            sends_email=True,
-        )
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=allowlist):
+            size = get_audience_size(
+                team_id=self.team.pk,
+                filters={"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]},
+                group_type_index=None,
+                dedupe_key="email",
+                sends_email=True,
+            )
 
         assert (size.affected, size.total, size.dedupe_key) == (2, 3, None)
+        assert size.realtime_cohort is not None
+        assert (size.realtime_cohort.id, size.realtime_cohort.state) == (cohort.pk, expected_state)

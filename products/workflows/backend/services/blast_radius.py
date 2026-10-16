@@ -15,7 +15,7 @@ from products.workflows.backend.services.account_audience import (
 )
 from products.workflows.backend.services.audience_v2 import get_dedupe_audience_count_v2, get_person_audience_count_v2
 from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
-from products.workflows.backend.services.batch_audience_cohorts import realtime_audience_cohort
+from products.workflows.backend.services.batch_audience_cohorts import realtime_audience_cohort, realtime_cohort_status
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 
 
@@ -44,6 +44,7 @@ def get_audience_size(
             total=everyone.total,
             limit=get_hogflow_batch_trigger_limit(team_id, sends_email=sends_email),
             dedupe_key=None,
+            realtime_cohort=realtime_cohort_status(realtime_cohort),
         )
     if group_type_index is not None:
         blast_radius = get_user_blast_radius(team, filters, group_type_index)

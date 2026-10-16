@@ -1,11 +1,13 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from unittest.mock import patch
 
 from django.db.models.signals import post_save
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
+from requests import HTTPError, Response
 
 from posthog.models.user import User
 
@@ -13,8 +15,13 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import handle_hog_flow_batch_job_created
+from products.workflows.backend.services.batch_jobs import (
+    REALTIME_COHORT_WAIT_LIMIT,
+    dispatch_batch_jobs_waiting_for_cohorts,
+)
 
 
+@override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
 class TestHogFlowBatchJob(TestCase):
     def setUp(self):
         super().setUp()
@@ -70,7 +77,6 @@ class TestHogFlowBatchJob(TestCase):
             ("non_realtime_cohort", "not_realtime", None, False),
         ]
     )
-    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
@@ -113,27 +119,12 @@ class TestHogFlowBatchJob(TestCase):
         expected = {"id": cohort.pk, "team_id": self.team.pk} if expect_realtime else None
         assert mock_create_invocation.call_args.kwargs["realtime_cohort"] == expected
 
-    @parameterized.expand(
-        [
-            # An edit after the save clears the cohort's readiness; its membership is partial until it recalculates.
-            ("stamps_cleared", False, "all"),
-            # The stamps stay set, but the pipeline stops updating the membership.
-            ("team_left_the_realtime_allowlist", True, "none"),
-        ]
-    )
-    @patch(
-        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
-    )
-    def test_hog_flow_batch_job_fails_when_its_realtime_cohort_is_no_longer_ready(
-        self, _name, backfilled, allowlist, mock_create_invocation
-    ):
-        backfill_stamp = datetime(2026, 1, 1, tzinfo=UTC) if backfilled else None
-        cohort = Cohort.objects.create(
+    def _realtime_cohort(self, *, ready: bool) -> Cohort:
+        stamp = datetime(2026, 1, 1, tzinfo=UTC) if ready else None
+        return Cohort.objects.create(
             team=self.team,
             name="c",
             cohort_type=CohortType.REALTIME,
-            last_backfill_events_at=backfill_stamp,
-            last_backfill_person_properties_at=backfill_stamp,
             filters={
                 "properties": {
                     "type": "AND",
@@ -149,18 +140,89 @@ class TestHogFlowBatchJob(TestCase):
                     ],
                 }
             },
+            last_backfill_events_at=stamp,
+            last_backfill_person_properties_at=stamp,
         )
 
-        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=allowlist):
-            job = HogFlowBatchJob.objects.create(
-                team=self.team,
-                hog_flow=self.hog_flow,
-                filters={"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]},
-            )
+    def _realtime_audience(self, cohort: Cohort) -> dict:
+        return {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]}
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_hog_flow_batch_job_waits_for_a_realtime_cohort_that_is_still_calculating(self, mock_create_invocation):
+        cohort = self._realtime_cohort(ready=False)
+
+        job = HogFlowBatchJob.objects.create(
+            team=self.team, hog_flow=self.hog_flow, filters=self._realtime_audience(cohort)
+        )
 
         mock_create_invocation.assert_not_called()
         job.refresh_from_db()
-        assert job.status == HogFlowBatchJob.State.FAILED
+        assert job.status == HogFlowBatchJob.State.WAITING
+
+    @parameterized.expand(
+        [
+            ("cohort_ready", "ready", False, True, None, "queued", True),
+            ("cohort_still_calculating", "calculating", False, True, None, "waiting", False),
+            # The stamps are set, but the pipeline doesn't keep the membership current for this team.
+            ("team_off_realtime_allowlist", "off_allowlist", False, True, None, "waiting", False),
+            ("waited_too_long", "calculating", True, True, None, "failed", False),
+            ("workflow_no_longer_active", "ready", False, False, None, "cancelled", False),
+            # The CDP API may have enqueued the resolver before the error, so a retry could send twice.
+            ("dispatch_raised", "ready", False, True, "raises", "failed", True),
+            ("dispatch_http_error", "ready", False, True, "http_500", "failed", True),
+        ]
+    )
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_waiting_batch_jobs_start_once_their_cohort_is_ready(
+        self,
+        _name,
+        cohort_state,
+        old,
+        flow_active,
+        dispatch_failure,
+        expected_status,
+        expect_dispatch,
+        mock_create_invocation,
+    ):
+        cohort = self._realtime_cohort(ready=False)
+        job = HogFlowBatchJob.objects.create(
+            team=self.team, hog_flow=self.hog_flow, filters=self._realtime_audience(cohort)
+        )
+        assert job.status == HogFlowBatchJob.State.WAITING
+        if cohort_state != "calculating":
+            Cohort.objects.filter(pk=cohort.pk).update(
+                last_backfill_events_at=datetime(2026, 1, 1, tzinfo=UTC),
+                last_backfill_person_properties_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+        if old:
+            HogFlowBatchJob.objects.filter(pk=job.pk).update(
+                created_at=timezone.now() - REALTIME_COHORT_WAIT_LIMIT - timedelta(minutes=1)
+            )
+        self.hog_flow.status = HogFlow.State.ACTIVE if flow_active else HogFlow.State.ARCHIVED
+        self.hog_flow.save(update_fields=["status"])
+        if dispatch_failure == "raises":
+            mock_create_invocation.side_effect = RuntimeError("cdp unreachable")
+        if dispatch_failure == "http_500":
+            mock_create_invocation.return_value.raise_for_status.side_effect = HTTPError(
+                "500 Server Error", response=Response()
+            )
+
+        allowlist = "none" if cohort_state == "off_allowlist" else "all"
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=allowlist):
+            dispatch_batch_jobs_waiting_for_cohorts()
+
+        job.refresh_from_db()
+        assert job.status == expected_status
+        assert mock_create_invocation.called == expect_dispatch
+        if expect_dispatch:
+            assert mock_create_invocation.call_args.kwargs["realtime_cohort"] == {
+                "id": cohort.pk,
+                "team_id": self.team.pk,
+            }
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"

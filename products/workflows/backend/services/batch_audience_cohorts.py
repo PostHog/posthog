@@ -1,6 +1,8 @@
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
+from products.cohorts.backend.realtime_state import CohortRealtimeState, resolve_realtime_readiness
 from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
+from products.workflows.backend.facade.contracts import RealtimeCohortStatus
 
 
 def find_behavioral_cohort_name(project_id: int, cohort_ids: list[int | str]) -> str | None:
@@ -77,3 +79,28 @@ def realtime_cohort_is_ready(cohort: Cohort) -> bool:
     stops updating the membership, so the team has to be on the allowlist too.
     """
     return cohort.is_flag_compatible and is_realtime_cohort_team(cohort.team_id)
+
+
+# The states the size response declares. Any other state of a cohort that isn't ready yet is building.
+_REPORTED_PENDING_STATES = {CohortRealtimeState.REBUILDING, CohortRealtimeState.NEEDS_ATTENTION}
+
+
+def realtime_cohort_status(cohort: Cohort) -> RealtimeCohortStatus:
+    """Whether a realtime cohort audience can send now, and how far its calculation has come."""
+    readiness = resolve_realtime_readiness([cohort]).get(cohort.pk)
+    if realtime_cohort_is_ready(cohort):
+        state: str = CohortRealtimeState.READY
+    elif not is_realtime_cohort_team(cohort.team_id):
+        # The pipeline doesn't run for this team, so the cohort never finishes calculating.
+        state = CohortRealtimeState.NEEDS_ATTENTION
+    elif readiness is not None and readiness.state in _REPORTED_PENDING_STATES:
+        state = readiness.state
+    else:
+        state = CohortRealtimeState.BUILDING
+    build = readiness.build if readiness is not None else None
+    return RealtimeCohortStatus(
+        id=cohort.pk,
+        name=str(cohort.name),
+        state=state,
+        percent_complete=build.percent_complete if build is not None and state != CohortRealtimeState.READY else None,
+    )

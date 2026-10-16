@@ -4122,9 +4122,8 @@ class TestHogFlowAPI(APIBaseTest):
             ("ready_alone", "batch", "ready", None, True, 201, None),
             # A schedule trigger starts one run with no person, so it never fans out to the members.
             ("schedule_trigger", "schedule", "ready", None, True, 400, "can't evaluate"),
-            ("not_ready", "batch", "not_ready", None, True, 400, "isn't ready yet"),
-            # The backfill stamps outlive the team's place on the realtime allowlist; the membership doesn't.
-            ("team_off_realtime_allowlist", "batch", "ready_off_allowlist", None, True, 400, "isn't ready yet"),
+            # A batch run waits for a cohort that is still calculating.
+            ("not_ready", "batch", "not_ready", None, True, 201, None),
             # The send pages the cohort's members from Postgres, which holds no person properties.
             ("with_another_condition", "batch", "ready", "with_property", True, 400, "only be the people in it"),
             ("not_in", "batch", "ready", "not_in", True, 400, "only be the people in it"),
@@ -4134,6 +4133,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("behavioral_not_realtime", "batch", "not_realtime", None, True, 400, "can't evaluate"),
         ]
     )
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false")
     def test_hog_flow_audience_realtime_cohort(
         self, _name, trigger_type, cohort_kind, shape, flag_on, expected_status, expected_detail, mock_flag
@@ -4142,7 +4142,7 @@ class TestHogFlowAPI(APIBaseTest):
         if cohort_kind == "not_realtime":
             cohort = self._make_cohort(behavioral=True)
         else:
-            cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=cohort_kind != "not_ready")
+            cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=cohort_kind == "ready")
         condition: dict[str, Any] = {"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}
         if shape == "not_in":
             condition["operator"] = "not_in"
@@ -4167,9 +4167,7 @@ class TestHogFlowAPI(APIBaseTest):
             ],
         }
 
-        allowlist = "none" if cohort_kind == "ready_off_allowlist" else "all"
-        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=allowlist):
-            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
 
         assert response.status_code == expected_status, response.json()
         if expected_detail:
@@ -5005,6 +5003,19 @@ class TestHogFlowAPI(APIBaseTest):
         mock_create_invocation.assert_called_once()
         # The per-team audience cap must ride on the invocation so the consumer enforces the team's limit.
         assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 5000
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_post_hog_flow_batch_jobs_rejects_a_caller_supplied_waiting_status(self, mock_create_invocation):
+        flow_id = self._create_active_hog_flow()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs", {"status": "waiting"}
+        )
+
+        assert response.status_code == 400, response.json()
+        mock_create_invocation.assert_not_called()
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"

@@ -154,6 +154,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
+    dispatch_batch_jobs_waiting_for_realtime_cohorts,
     poll_ses_account_enforcement,
     poll_ses_reputation_findings,
     recompute_workflows_email_sending_tiers,
@@ -345,6 +346,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="30"),
         reconcile_ses_tenant_states.s(),
         name="ses tenant reputation reconciliation",
+    )
+
+    # Workflow batch runs that wait for a realtime cohort to finish calculating start within a minute of it.
+    sender.add_periodic_task(
+        60,
+        dispatch_batch_jobs_waiting_for_realtime_cohorts.s(),
+        name="dispatch workflow batch runs waiting for realtime cohorts",
     )
 
     # Workflow email trust tiers - daily at 7:15 AM UTC, after the tenant reconciliation above.
