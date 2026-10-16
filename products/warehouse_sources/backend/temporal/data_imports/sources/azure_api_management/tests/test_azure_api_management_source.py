@@ -19,10 +19,6 @@ QUERY_PATH = f"/v1/workspaces/{WORKSPACE}/query"
 CONFIG = AzureApiManagementSourceConfig(
     tenant_id=TENANT, client_id="client", client_secret="secret", workspace_id=WORKSPACE
 )
-FUZZY_UNION = (
-    "union isfuzzy=true ApiManagementGatewayLogs, ApiManagementGatewayLlmLog, "
-    "ApiManagementWebSocketConnectionLogs | take 0"
-)
 
 
 def _token() -> ScriptedResponse:
@@ -45,27 +41,59 @@ def _unresolved(table: str) -> ScriptedResponse:
     )
 
 
+def _empty() -> ScriptedResponse:
+    return ScriptedResponse(json={"tables": [{"name": "PrimaryResult", "columns": [], "rows": []}]})
+
+
+def _basic_plan() -> ScriptedResponse:
+    return ScriptedResponse(
+        status=400,
+        json={"error": {"code": "BadArgumentError", "message": "The query can't run on a table with the Basic plan."}},
+    )
+
+
 @pytest.mark.parametrize(
-    ("schema_name", "expected_query", "expected_fragment"),
+    ("gateway", "llm", "websocket", "expected_ok"),
     [
-        (None, FUZZY_UNION, "This workspace has no API Management logs"),
         (
-            "ApiManagementGatewayLlmLog",
-            "ApiManagementGatewayLlmLog | take 0",
-            "no ApiManagementGatewayLlmLog logs yet. Turn on its log category",
+            _unresolved("ApiManagementGatewayLogs"),
+            _unresolved("ApiManagementGatewayLlmLog"),
+            _unresolved("ApiManagementWebSocketConnectionLogs"),
+            False,
         ),
+        (_basic_plan(), _empty(), _unresolved("ApiManagementWebSocketConnectionLogs"), True),
     ],
 )
-def test_a_workspace_without_api_management_logs_points_at_the_diagnostic_setting(
-    schema_name: str | None, expected_query: str, expected_fragment: str
+def test_creation_fails_only_when_the_workspace_has_none_of_the_tables(
+    gateway: ScriptedResponse, llm: ScriptedResponse, websocket: ScriptedResponse, expected_ok: bool
 ) -> None:
-    table = schema_name or "ApiManagementGatewayLogs"
-    with scripted_network(route({TOKEN_PATH: [_token()], QUERY_PATH: [_unresolved(table)]})) as network:
-        ok, message = AzureApiManagementSource().validate_credentials(CONFIG, team_id=1, schema_name=schema_name)
+    with scripted_network(
+        route({TOKEN_PATH: [_token(), _token()], QUERY_PATH: [_empty(), gateway, llm, websocket]})
+    ) as network:
+        ok, message = AzureApiManagementSource().validate_credentials(CONFIG, team_id=1)
+
+    assert ok is expected_ok
+    if expected_ok:
+        assert message is None
+    else:
+        assert message is not None and "This workspace has no API Management logs" in message
+    queries = [request.json()["query"] for request in network.requests_log if request.path == QUERY_PATH]
+    assert queries[0] == "print ok = 1"
+    assert [query.split(" ")[0] for query in queries[1:]] == [
+        "ApiManagementGatewayLogs",
+        "ApiManagementGatewayLlmLog",
+        "ApiManagementWebSocketConnectionLogs",
+    ]
+
+
+def test_a_missing_named_table_points_at_its_log_category() -> None:
+    with scripted_network(route({TOKEN_PATH: [_token()], QUERY_PATH: [_unresolved("ApiManagementGatewayLlmLog")]})):
+        ok, message = AzureApiManagementSource().validate_credentials(
+            CONFIG, team_id=1, schema_name="ApiManagementGatewayLlmLog"
+        )
 
     assert ok is False
-    assert message is not None and expected_fragment in message
-    assert network.requests_log[-1].json()["query"] == expected_query
+    assert message is not None and "no ApiManagementGatewayLlmLog logs yet. Turn on its log category" in message
 
 
 def test_the_schema_picker_names_the_log_category_for_a_missing_table() -> None:
@@ -73,10 +101,7 @@ def test_the_schema_picker_names_the_log_category_for_a_missing_table() -> None:
         route(
             {
                 TOKEN_PATH: [_token()],
-                QUERY_PATH: [
-                    ScriptedResponse(json={"tables": [{"name": "PrimaryResult", "columns": [], "rows": []}]}),
-                    _unresolved("ApiManagementGatewayLlmLog"),
-                ],
+                QUERY_PATH: [_empty(), _unresolved("ApiManagementGatewayLlmLog")],
             }
         )
     ):

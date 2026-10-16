@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.facade.source_config import (
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_log_analytics.azure_log_analytics import (
     WorkspaceCredentials,
+    probe_tables,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_log_analytics.source import (
     WORKSPACE_FIELDS,
@@ -92,7 +93,18 @@ Register an app in Microsoft Entra ID, create a client secret for it, and give i
     def table_names(self, config: AzureApiManagementSourceConfig) -> list[str]:
         return API_MANAGEMENT_TABLES
 
-    def workspace_probe_query(self, config: AzureApiManagementSourceConfig) -> str:
-        # Fuzzy union succeeds when at least one table exists, so this fails only when none does:
-        # the wrong workspace, or logs going to AzureDiagnostics.
-        return f"union isfuzzy=true {', '.join(API_MANAGEMENT_TABLES)} | take 0"
+    def validate_credentials(
+        self,
+        config: AzureApiManagementSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        valid, message = super().validate_credentials(config, team_id, schema_name, api_version)
+        if not valid or schema_name is not None:
+            return valid, message
+        # One query per table: a Basic plan table fails any query that names it, and must not block the rest.
+        reasons = probe_tables(self.credentials(config), API_MANAGEMENT_TABLES, self.missing_table_reason)
+        if all(reason == self.missing_table_reason for reason in reasons.values()):
+            return False, self.no_tables_message
+        return True, None
