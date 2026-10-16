@@ -5141,12 +5141,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         url = f"/api/projects/{self.team.id}/feature_flags/{flag.id}/"
 
-        if mode == "restore_disabled":
-            response = self.client.patch(url, {"deleted": False}, format="json")
-        elif mode == "unarchive":
+        if mode == "unarchive":
             response = self.client.post(f"{url}unarchive/", {}, format="json")
         else:
-            response = turn_flag_on(self.client, url, mode)
+            response = turn_flag_on(self.client, url, "restore" if mode == "restore_disabled" else mode)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertLessEqual(

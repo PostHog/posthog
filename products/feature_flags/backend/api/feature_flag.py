@@ -1182,7 +1182,7 @@ def _iter_flag_filter_properties(groups: Any) -> Iterator[_FlagFilterProperty]:
                 )
 
 
-def validate_cohort_reference(cohort_id: Any, project_id: int) -> Cohort:
+def _validate_cohort_reference(cohort_id: Any, project_id: int) -> Cohort:
     """Return the cohort a release condition targets, or raise if the flag cannot evaluate it.
 
     The flag evaluator loads only non-deleted cohorts. A condition on a deleted cohort
@@ -1212,7 +1212,7 @@ def validate_stored_cohort_references(flag: FeatureFlag) -> None:
         return
     for located in _iter_flag_filter_properties(flag.conditions):
         if located.prop.get("type") == "cohort":
-            validate_cohort_reference(located.prop.get("value"), flag.team.project_id)
+            _validate_cohort_reference(located.prop.get("value"), flag.team.project_id)
 
 
 class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
@@ -1513,8 +1513,9 @@ class FeatureFlagSerializer(
         """Check stored references when a write turns the flag on or brings it back.
 
         Turning the flag on, including restoring a flag that comes back active, checks its flag
-        dependencies and cohorts. Restoring a disabled flag or unarchiving a flag checks its cohorts. Empty filters retain stored targeting and bypass the reference checks
-        in _validate_filters_inner, so treat them as omitted.
+        dependencies and cohorts. Restoring a disabled flag or unarchiving a flag checks its cohorts.
+        Empty filters retain stored targeting and bypass the reference checks in _validate_filters_inner,
+        so treat them as omitted.
         """
         # A v2 document cannot be walked as v1; enabling one validates the stored document
         # strictly under the lock instead, and that validator admits no flag or cohort reference.
@@ -1522,9 +1523,6 @@ class FeatureFlagSerializer(
             return
 
         enabling = attrs.get("active") is True and not self.instance.active
-        restoring_active = (
-            attrs.get("deleted") is False and self.instance.deleted and attrs.get("active", self.instance.active)
-        )
         # The cohort delete guard skips deleted and archived flags. Once a flag is neither, a writer
         # that skips this serializer can enable it. Survey resume is one such writer.
         returning = (self.instance.deleted or self.instance.archived) and not (
@@ -1534,7 +1532,7 @@ class FeatureFlagSerializer(
             return
 
         try:
-            if enabling or restoring_active:
+            if attrs.get("active", self.instance.active):
                 self._validate_dependency_formats(self.instance.filters or {}, traverse=True)
             validate_stored_cohort_references(self.instance)
         except serializers.ValidationError as exc:
@@ -2333,7 +2331,7 @@ class FeatureFlagSerializer(
                     raise serializers.ValidationError(f"{located.path}.value: invalid regex pattern")
 
             if located.prop.get("type") == "cohort":
-                initial_cohort = validate_cohort_reference(located.prop.get("value"), self.context["project_id"])
+                initial_cohort = _validate_cohort_reference(located.prop.get("value"), self.context["project_id"])
                 # Static cohorts (including one-time snapshots) hold a
                 # materialised person list.  The populating criteria may
                 # still be stored on the record, but they are inert – the
