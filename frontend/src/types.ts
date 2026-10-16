@@ -1317,6 +1317,8 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     /** @default 'in' */
     operator: PropertyOperator
     cohort_name?: string
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean
 }
 
 export interface GroupPropertyFilter extends BasePropertyFilter {

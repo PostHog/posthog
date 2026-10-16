@@ -239,6 +239,12 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                     value: zod
                                         .unknown()
                                         .describe('Cohort comparison value (single or list, depending on usage).'),
+                                    cohort_deleted: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                        ),
                                 }),
                                 zod.object({
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -518,6 +524,12 @@ export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod
                                     value: zod
                                         .unknown()
                                         .describe('Cohort comparison value (single or list, depending on usage).'),
+                                    cohort_deleted: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                        ),
                                 }),
                                 zod.object({
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -798,6 +810,12 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                     value: zod
                                         .unknown()
                                         .describe('Cohort comparison value (single or list, depending on usage).'),
+                                    cohort_deleted: zod
+                                        .boolean()
+                                        .optional()
+                                        .describe(
+                                            'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                        ),
                                 }),
                                 zod.object({
                                     key: zod.string().describe('Property key used in this feature flag condition.'),

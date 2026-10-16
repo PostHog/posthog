@@ -11,6 +11,8 @@ import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/O
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
 import {
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
+    cohortFilterName,
+    isCohortPropertyFilter,
     isGroupPropertyFilter,
     isPropertyGroupFilterLike,
     propertyFilterTypeToTaxonomicFilterType,
@@ -271,7 +273,11 @@ export function TaxonomicPropertyFilter({
     // The button truncates its label, so its tooltip is how a long cohort name is read in full. The
     // wrapper below cannot do that job: it clips rather than wraps, and it would nest the tag's own
     // tooltip inside the button's. So the tooltip gets the plain string.
-    const cohortLabel = filter?.type === 'cohort' ? cohortName || `Cohort #${filter?.value}` : undefined
+    const cohortLabel = isCohortPropertyFilter(filter)
+        ? filter.cohort_deleted
+            ? cohortFilterName(filter, cohort?.name)
+            : cohortName || `Cohort #${filter.value}`
+        : undefined
 
     const nestedGroupLabel = nestedGroup ? propertyGroupSummary(nestedGroup, cohortsById) : undefined
 

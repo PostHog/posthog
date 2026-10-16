@@ -324,6 +324,8 @@ export interface FeatureFlagFilterPropertyCohortInSchemaApi {
     operator: FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi
     /** Cohort comparison value (single or list, depending on usage). */
     value: unknown
+    /** Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write. */
+    cohort_deleted?: boolean
 }
 
 /**
@@ -1116,6 +1118,8 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null

@@ -15,6 +15,7 @@ import { featureFlagLogic } from './featureFlagLogic'
 const STALE_FLAG_ID = 1498
 const RULES_V2_FLAG_ID = 1802
 const DELETED_FLAG_ID = 1526
+const DELETED_COHORT_FLAG_ID = 1803
 
 const meta: Meta = {
     component: App,
@@ -258,6 +259,12 @@ export const StaleFeatureFlagWithAiAssessment: Story = {
 export const DeletedFeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlag(DELETED_FLAG_ID),
+    },
+}
+
+export const FeatureFlagTargetingDeletedCohort: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(DELETED_COHORT_FLAG_ID),
     },
 }
 

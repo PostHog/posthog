@@ -7351,6 +7351,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_feature_flag_includes_cohort_names(self, endpoint: str):
         groups = [{"properties": [{"key": "email", "value": "@posthog.com", "type": "person"}]}]
         cohort = Cohort.objects.create(team=self.team, name="test_cohort", groups=groups)
+        deleted_cohort = Cohort.objects.create(team=self.team, name="deleted_cohort", groups=groups, deleted=True)
         other_project_team = Team.objects.create(organization=self.organization, name="Other project")
         other_project_cohort = Cohort.objects.create(team=other_project_team, name="other_cohort", groups=groups)
         flag = FeatureFlag.objects.create(
@@ -7360,34 +7361,62 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             filters={
                 "groups": [
                     {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]},
-                    {"properties": [{"key": "id", "type": "cohort", "value": str(cohort.pk)}]},
+                    {"properties": [{"key": "id", "type": "cohort", "value": str(cohort.pk), "cohort_deleted": True}]},
+                    {"properties": [{"key": "id", "type": "cohort", "value": deleted_cohort.pk}]},
                     {"properties": [{"key": "id", "type": "cohort", "value": other_project_cohort.pk}]},
                 ]
             },
         )
-        FeatureFlag.objects.create(
+        malformed_flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
             key="legacy-malformed-cohort-value",
             filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": "not-a-cohort-id"}]}]},
         )
+        unsupported_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="unsupported-config-version",
+            filters={"version": 3, "groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]}]},
+        )
 
-        if endpoint == "list":
-            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
+        def get_filters(flag_id: int) -> dict[str, Any]:
+            if endpoint == "list":
+                response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                return next(result for result in response.json()["results"] if result["id"] == flag_id)["filters"]
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            filters = next(result for result in response.json()["results"] if result["id"] == flag.id)["filters"]
-        else:
-            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            filters = response.json()["filters"]
+            return response.json()["filters"]
 
         self.assertEqual(
-            [group["properties"][0] for group in filters["groups"]],
+            [group["properties"][0] for group in get_filters(flag.id)["groups"]],
             [
                 {"key": "id", "type": "cohort", "value": cohort.pk, "cohort_name": "test_cohort"},
                 {"key": "id", "type": "cohort", "value": str(cohort.pk), "cohort_name": "test_cohort"},
-                {"key": "id", "type": "cohort", "value": other_project_cohort.pk, "cohort_name": None},
+                {
+                    "key": "id",
+                    "type": "cohort",
+                    "value": deleted_cohort.pk,
+                    "cohort_name": "deleted_cohort",
+                    "cohort_deleted": True,
+                },
+                {
+                    "key": "id",
+                    "type": "cohort",
+                    "value": other_project_cohort.pk,
+                    "cohort_name": None,
+                    "cohort_deleted": True,
+                },
             ],
+        )
+        self.assertEqual(
+            get_filters(malformed_flag.id)["groups"][0]["properties"][0],
+            {"key": "id", "type": "cohort", "value": "not-a-cohort-id", "cohort_name": None, "cohort_deleted": True},
+        )
+        self.assertEqual(
+            get_filters(unsupported_flag.id)["groups"][0]["properties"][0],
+            {"key": "id", "type": "cohort", "value": cohort.pk},
         )
 
     def test_feature_flag_includes_group_key_names(self):

@@ -17810,6 +17810,10 @@
             "additionalProperties": false,
             "description": "Sync with nodejs/src/types.ts",
             "properties": {
+                "cohort_deleted": {
+                    "description": "Set by the feature flag API when the cohort is deleted or does not exist.",
+                    "type": "boolean"
+                },
                 "cohort_name": {
                     "type": "string"
                 },

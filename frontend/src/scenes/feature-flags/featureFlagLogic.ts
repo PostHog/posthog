@@ -62,6 +62,7 @@ import {
     ActivityScope,
     AvailableFeature,
     Breadcrumb,
+    CohortPropertyFilter,
     CohortType,
     EarlyAccessFeatureType,
     FeatureFlagBucketingIdentifier,
@@ -90,6 +91,7 @@ import {
 } from '~/types'
 
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+import { deletedCohortFilters } from 'products/feature_flags/frontend/deletedCohortFilters'
 import {
     FeatureFlagConfigFormat,
     featureFlagConfigFormat,
@@ -975,6 +977,7 @@ export interface featureFlagLogicValues {
     customPairDisableCronPreview: string | null
     customPairEnableCron: string
     customPairEnableCronPreview: string | null
+    deletedCohortFilters: CohortPropertyFilter[]
     dependentFlags: DependentFlag[]
     dependentFlagsLoading: boolean
     disableCopiedFlag: boolean
@@ -2255,6 +2258,7 @@ export interface featureFlagLogicMeta {
         hasEncryptedPayloadBeenSaved: (featureFlag: FeatureFlagType, props: any) => boolean | undefined
         hasExperiment: (featureFlag: FeatureFlagType) => boolean | null
         showStaleFlagBanner: (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null) => boolean
+        deletedCohortFilters: (featureFlag: FeatureFlagType) => CohortPropertyFilter[]
         isDraftExperiment: (experiment: any) => boolean
         properties: (featureFlag: FeatureFlagType) => AnyPropertyFilter[]
         savedVariantKeys: (originalFeatureFlag: FeatureFlagType | null) => string[]
@@ -4538,6 +4542,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             actions.loadRelatedInsights()
             actions.loadDependentFlags()
+            if (featureFlag?.id && values.deletedCohortFilters.length > 0) {
+                posthog.capture('feature flag with deleted cohort loaded', {
+                    active: featureFlag.active,
+                    archived: featureFlag.archived,
+                    deleted: featureFlag.deleted,
+                    deleted_cohort_count: values.deletedCohortFilters.length,
+                })
+            }
             // Experiment is now loaded inline during loadFeatureFlag, not here
 
             // Auto-apply template from URL param on first load
@@ -5255,6 +5267,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     !featureFlag.is_remote_configuration
                 )
             },
+        ],
+        deletedCohortFilters: [
+            (s) => [s.featureFlag],
+            (featureFlag: FeatureFlagType): CohortPropertyFilter[] => deletedCohortFilters(featureFlag.filters),
         ],
         isDraftExperiment: [
             (s) => [s.experiment],

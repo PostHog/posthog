@@ -56,6 +56,7 @@ import {
     FeatureFlagType,
 } from '~/types'
 
+import { deletedCohortFilters } from 'products/feature_flags/frontend/deletedCohortFilters'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import {
     ARCHIVE_UNAVAILABLE_DISABLED_REASON,
@@ -112,7 +113,7 @@ function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }
     const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
 
     return (
-        <div className="flex justify-start gap-1">
+        <div className="flex flex-wrap justify-start gap-1">
             {isUpdating ? (
                 <LemonTag type="muted" className="uppercase">
                     <span className="inline-flex items-center gap-1">
@@ -137,27 +138,41 @@ function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }
                     Disabled
                 </LemonTag>
             )}
+            {deletedCohortFilters(featureFlag.filters).length > 0 && (
+                <WarningStatusTag
+                    label="Deleted cohort"
+                    heading="A release condition targets a deleted cohort"
+                    detail="The flag can't evaluate that condition. Open the flag to update its release conditions."
+                />
+            )}
             {featureFlag.status === 'STALE' && (
-                <Tooltip
-                    title={
-                        <>
-                            <div className="text-sm">This flag is likely safe to remove</div>
-                            <div className="text-xs">
-                                Not called in 30+ days or fully rolled out. Make sure to remove any references in your
-                                code before deleting it.
-                            </div>
-                        </>
-                    }
-                    placement="left"
-                >
-                    <span>
-                        <LemonTag type="warning" className="uppercase cursor-default">
-                            Stale
-                        </LemonTag>
-                    </span>
-                </Tooltip>
+                <WarningStatusTag
+                    label="Stale"
+                    heading="This flag is likely safe to remove"
+                    detail="Not called in 30+ days or fully rolled out. Make sure to remove any references in your code before deleting it."
+                />
             )}
         </div>
+    )
+}
+
+function WarningStatusTag({ label, heading, detail }: { label: string; heading: string; detail: string }): JSX.Element {
+    return (
+        <Tooltip
+            title={
+                <>
+                    <div className="text-sm">{heading}</div>
+                    <div className="text-xs">{detail}</div>
+                </>
+            }
+            placement="left"
+        >
+            <span>
+                <LemonTag type="warning" className="uppercase cursor-default">
+                    {label}
+                </LemonTag>
+            </span>
+        </Tooltip>
     )
 }
 

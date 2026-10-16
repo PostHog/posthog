@@ -513,6 +513,11 @@ class FeatureFlagFilterPropertyCohortInSchemaSerializer(_FeatureFlagFilterProper
         required=True,
         help_text="Cohort comparison value (single or list, depending on usage).",
     )
+    cohort_deleted = serializers.BooleanField(
+        required=False,
+        help_text="Set to true in responses when the cohort is deleted or does not exist. "
+        "The flag cannot evaluate this condition. Ignored on write.",
+    )
 
 
 class FeatureFlagFilterPropertyFlagEvaluatesSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):

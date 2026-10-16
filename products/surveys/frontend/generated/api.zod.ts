@@ -388,6 +388,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                                                 .describe(
                                                     'Cohort comparison value (single or list, depending on usage).'
                                                 ),
+                                            cohort_deleted: zod
+                                                .boolean()
+                                                .optional()
+                                                .describe(
+                                                    'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                                ),
                                         }),
                                         zod.object({
                                             key: zod
@@ -1316,6 +1322,12 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod.object({
                                                 .unknown()
                                                 .describe(
                                                     'Cohort comparison value (single or list, depending on usage).'
+                                                ),
+                                            cohort_deleted: zod
+                                                .boolean()
+                                                .optional()
+                                                .describe(
+                                                    'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
                                                 ),
                                         }),
                                         zod.object({
@@ -2247,6 +2259,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 .unknown()
                                                 .describe(
                                                     'Cohort comparison value (single or list, depending on usage).'
+                                                ),
+                                            cohort_deleted: zod
+                                                .boolean()
+                                                .optional()
+                                                .describe(
+                                                    'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
                                                 ),
                                         }),
                                         zod.object({

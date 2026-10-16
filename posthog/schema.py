@@ -5388,6 +5388,10 @@ class CohortPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    cohort_deleted: bool | None = Field(
+        default=None,
+        description=("Set by the feature flag API when the cohort is deleted or does not exist."),
+    )
     cohort_name: str | None = None
     key: Literal["id"] = "id"
     label: str | None = None

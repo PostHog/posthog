@@ -86,6 +86,7 @@ import {
     featureFlagConfigFormatLabel,
     isRulesV2EditableConfig,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { FeatureFlagDeletedCohortBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedCohortBanner'
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -556,6 +557,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             experiments and surveys keep their data.
                         </LemonBanner>
                     )}
+                    {isV1Config && <FeatureFlagDeletedCohortBanner />}
                     {isV1Config && <FeatureFlagStaleBanner />}
                     {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
                         <LemonBanner type="info">

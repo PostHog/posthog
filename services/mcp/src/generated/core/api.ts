@@ -1150,6 +1150,12 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -1787,6 +1793,12 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -2427,6 +2439,12 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -3922,6 +3940,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -4559,6 +4583,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -5199,6 +5229,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
