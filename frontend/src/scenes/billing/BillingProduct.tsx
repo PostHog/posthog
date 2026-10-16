@@ -27,6 +27,7 @@ import {
     isUsageAtOrOverLimit,
     isProductVariantPrimary,
 } from './billing-utils'
+import { BillingCompanionSection } from './BillingCompanionSection'
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
@@ -587,6 +588,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <BillingLimit product={product} />
                     </div>
                 )}
+
+                <BillingCompanionSection
+                    product={product}
+                    cardShowsBillingLimit={!isTemporaryFreeProduct}
+                    // Same branches as the header: the variants' combined amounts or the usage-priced (tiered) layout.
+                    cardShowsProjection={isProductWithVariants || (!isTemporaryFreeProduct && product.tiered)}
+                />
 
                 {/* Feature flag usage notice */}
                 <FeatureFlagUsageNotice product={product} />

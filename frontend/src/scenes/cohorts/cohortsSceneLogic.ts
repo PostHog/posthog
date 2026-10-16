@@ -302,6 +302,8 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                         }
                     }
                 },
+                // The reducer already removed the row, so reload to show the cohort the server kept.
+                onError: () => actions.loadCohorts(),
             })
         },
         exportCohortPersons: async ({ id, columns }) => {
