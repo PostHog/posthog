@@ -381,9 +381,8 @@ it is conventional.
 Explicitly set `soak_hours` and explain the chosen window in the check's rationale. Keep the query
 window and comparison consistent with that duration. Shortening only the wait does not shorten a
 longer measurement query. For existing whole-window execution, the query window must fit entirely
-after the fix; do not include pre-fix data. Monitoring target reference periods and baseline
-periods keep their separate meanings. This guidance changes check authoring, not execution or
-final-outcome rules. Preserve still-valid existing checks unless new evidence warrants revision.
+after the fix; do not include pre-fix data. This guidance changes check authoring, not execution
+or final-outcome rules. Preserve still-valid existing checks unless new evidence warrants revision.
 
 Missing data, absent traffic, or a failed query must not count as evidence of recovery. Prefer a
 rate with a verified denominator when available. If a metric check cannot distinguish improvement
@@ -1098,7 +1097,6 @@ def build_initial_research_prompt(
     previous_finding: SignalFinding | None = None,
     has_business_knowledge: bool = False,
     metric_checks_enabled: bool = False,
-    monitoring_enabled: bool = False,
     resolved_report_title: str | None = None,
     resolved_report_summary: str | None = None,
     linked_reports: list[LinkedReportContext] | None = None,
@@ -1131,7 +1129,7 @@ def build_initial_research_prompt(
         "described below."
     )
 
-    checks_block = f"\n{_METRIC_FIRST_RESEARCH_GUIDANCE}\n" if metric_checks_enabled and monitoring_enabled else ""
+    checks_block = f"\n{_METRIC_FIRST_RESEARCH_GUIDANCE}\n" if metric_checks_enabled else ""
     bk_block = f"\n{_BUSINESS_KNOWLEDGE_BLOCK}\n" if has_business_knowledge else ""
     # Rendered by `report_steering.load_research_steering`, which reads the notes the team left the
     # scout fleet. Empty for a team that left none, so a quiet project pays nothing for the section.
@@ -1299,7 +1297,6 @@ def build_report_presentation_prompt(
     previous_metrics: list[ReportMetric] | None = None,
     previous_checks: list[dict] | None = None,
     metrics_enabled: bool = False,
-    monitoring_enabled: bool = False,
     suggestable_products: Sequence[SuggestedSourceProduct] = (),
     reviewer_selection_enabled: bool = False,
 ) -> str:
@@ -1348,8 +1345,7 @@ Do not edit report reviewers or GitHub assignments through tools. Return your de
 """)
     if metrics_enabled:
         visual_sections.append(_REPORT_METRICS_GUIDANCE)
-        if monitoring_enabled:
-            visual_sections.append(_METRIC_FIRST_PRESENTATION_GUIDANCE)
+        visual_sections.append(_METRIC_FIRST_PRESENTATION_GUIDANCE)
         previous_metrics_context = _render_previous_metrics_context(previous_metrics or [])
         if previous_metrics_context:
             visual_sections.append(previous_metrics_context)
@@ -1396,7 +1392,7 @@ def build_fix_verification_prompt(
     can run it, because nothing would ever run a check with no scout behind it. With neither, the turn writes prose only and the
     `checks` field never reaches the schema, so the model is not offered a channel it cannot use.
     """
-    prefer_metric_checks = metric_checks_enabled and monitoring_enabled
+    prefer_metric_checks = metric_checks_enabled
     metric_selection = (
         'Prefer `kind: "metric_threshold"` whenever a supported query provides reasonably direct evidence of '
         "meaningful improvement. Prefer a narrowly scoped metric over a broad metric requiring interpretation."
@@ -1624,7 +1620,6 @@ async def run_multi_turn_research(
         previous_finding=first_previous,
         has_business_knowledge=has_business_knowledge,
         metric_checks_enabled=metrics_enabled,
-        monitoring_enabled=monitoring_enabled,
         resolved_report_title=resolved_report_title,
         resolved_report_summary=resolved_report_summary,
         linked_reports=linked_reports,
@@ -1767,7 +1762,6 @@ async def run_multi_turn_research(
             previous_charts=previous_report_research.charts if previous_report_research else None,
             previous_metrics=previous_report_research.metrics if previous_report_research else None,
             metrics_enabled=metrics_enabled,
-            monitoring_enabled=monitoring_enabled,
             previous_checks=previous_checks,
             suggestable_products=suggestable_products,
             reviewer_selection_enabled=reviewer_selection_enabled,

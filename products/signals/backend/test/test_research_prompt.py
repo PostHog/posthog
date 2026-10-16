@@ -102,17 +102,13 @@ class TestRenderSignalForResearch:
 
 class TestBuildInitialResearchPrompt:
     @pytest.mark.parametrize("metric_checks_enabled", [False, True])
-    @pytest.mark.parametrize("monitoring_enabled", [False, True])
-    def test_short_window_baseline_research_requires_both_rollouts(
-        self, metric_checks_enabled: bool, monitoring_enabled: bool
-    ) -> None:
+    def test_short_window_baseline_research_requires_metrics(self, metric_checks_enabled: bool) -> None:
         prompt = build_initial_research_prompt(
             _make_signal({}),
             1,
             metric_checks_enabled=metric_checks_enabled,
-            monitoring_enabled=monitoring_enabled,
         )
-        assert ("## Prepare metric-based follow-up checks" in prompt) is (metric_checks_enabled and monitoring_enabled)
+        assert ("## Prepare metric-based follow-up checks" in prompt) is metric_checks_enabled
 
     @pytest.mark.parametrize(
         "has_bk, expected_present, extra_checks",
@@ -302,9 +298,9 @@ class TestBuildFixVerificationPrompt:
             monitoring_enabled=monitoring_enabled,
             agent_checks_enabled=agent_checks_enabled,
         )
-        preferred = metric_checks_enabled and monitoring_enabled
+        preferred = metric_checks_enabled
         for field in ("reference_period_minutes", "threshold_scaling", "baseline_period_minutes"):
-            assert (field in prompt) is preferred
+            assert (field in prompt) is (metric_checks_enabled and monitoring_enabled)
         assert ("70-80% confidence" in prompt) is preferred
         assert ('Prefer `kind: "metric_threshold"`' in prompt) is preferred
         assert ("1-6 hours" in prompt) is preferred
@@ -475,14 +471,9 @@ def _make_chart() -> ReportChart:
 
 class TestBuildReportPresentationPrompt:
     @pytest.mark.parametrize("metrics_enabled", [False, True])
-    @pytest.mark.parametrize("monitoring_enabled", [False, True])
-    def test_short_followup_query_guidance_requires_both_rollouts(
-        self, metrics_enabled: bool, monitoring_enabled: bool
-    ) -> None:
-        prompt = build_report_presentation_prompt(
-            1, metrics_enabled=metrics_enabled, monitoring_enabled=monitoring_enabled
-        )
-        assert ("## Metrics for follow-up checks" in prompt) is (metrics_enabled and monitoring_enabled)
+    def test_short_followup_query_guidance_requires_metrics(self, metrics_enabled: bool) -> None:
+        prompt = build_report_presentation_prompt(1, metrics_enabled=metrics_enabled)
+        assert ("## Metrics for follow-up checks" in prompt) is metrics_enabled
 
     def test_observation_prompt_never_authors_goal_fields(self):
         prompt = build_report_presentation_prompt(2, metrics_enabled=True)

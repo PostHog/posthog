@@ -1677,7 +1677,7 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
             else:
                 assert result.verification_note is None
 
-    preferred = _name == "revised_metric_summary"
+    preferred = _name in ("malformed_optional_checks", "revised_metric_summary")
     assert ("## Prepare metric-based follow-up checks" in start_session.call_args.kwargs["prompt"]) is preferred
     prompts = {call.kwargs["label"]: call.args[0] for call in session.send_followup.await_args_list}
     assert ("## Metrics for follow-up checks" in prompts["presentation"]) is preferred
