@@ -1,3 +1,4 @@
+import type { JSONRPCRequest } from '@modelcontextprotocol/sdk/types.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
@@ -46,6 +47,7 @@ export interface InterviewRecruitmentDiagnostics {
     reason:
         | InterviewRecruitmentUnavailableReason
         | 'legacy_protocol'
+        | 'eligible'
         | 'continuation'
         | 'request_state_present'
         | 'configuration_unavailable'
@@ -98,6 +100,28 @@ const PENDING_SECONDS = 10 * 60
 const COOLDOWN_SECONDS = 7 * 24 * 60 * 60
 const CONVERSATION_IDLE_SECONDS = 24 * 60 * 60
 
+type InterviewInvitation = {
+    resultType: 'input_required'
+    requestState: string
+    inputRequests: Record<
+        typeof INPUT_ID,
+        {
+            method: 'elicitation/create'
+            params: { mode: 'url'; elicitationId: string; message: string; url: string }
+        }
+    >
+}
+
+function isCompletedToolCall(result: unknown): boolean {
+    return (
+        !!result &&
+        typeof result === 'object' &&
+        'content' in result &&
+        Array.isArray(result.content) &&
+        !('isError' in result && result.isError === true)
+    )
+}
+
 // The counter and deduplication fields expire together; retries cannot increment after losing their deduplication record.
 const OBSERVE_CONVERSATION = `
 redis.call('HSETNX', KEYS[1], 'started_at', ARGV[1])
@@ -139,6 +163,7 @@ const bookingLinkSchema = z.object({
 
 const pendingInvitationSchema = z.object({
     fingerprint: z.string(),
+    delivery: z.enum(['stateless', 'legacy']).default('stateless'),
     campaign_id: campaignIdSchema,
     organization_id: z.string().min(1),
     project_id: z.string().min(1),
@@ -146,6 +171,12 @@ const pendingInvitationSchema = z.object({
 })
 
 const responseSchema = z.object({ action: z.enum(['accept', 'decline', 'cancel']) })
+const legacyResponseSchema = z.object({
+    jsonrpc: z.literal('2.0'),
+    id: z.string().regex(/^mcp-interview:[0-9a-f-]{36}$/),
+    method: z.never().optional(),
+    result: responseSchema,
+})
 
 export class InterviewRequestError extends Error {}
 
@@ -229,6 +260,15 @@ export class InterviewRecruitment {
             .digest('hex')
     }
 
+    private supportsUrl(params: Record<string, unknown>, state: ResolvedState): boolean {
+        if (parseRequestProtocolMeta(params).protocolVersion !== STATELESS_PROTOCOL_VERSION) {
+            return state.sessionContext?.mcpElicitationUrlSupported === true
+        }
+        return z
+            .object({ elicitation: z.object({ url: z.object({}) }) })
+            .safeParse((params._meta as Record<string, unknown> | undefined)?.[META_CLIENT_CAPABILITIES]).success
+    }
+
     private isProductCall(params: Record<string, unknown>, state: ResolvedState): boolean {
         const args = params.arguments as Record<string, unknown> | undefined
         const name =
@@ -248,9 +288,10 @@ export class InterviewRecruitment {
 
     private eligibleConversation(
         params: Record<string, unknown>,
-        state: ResolvedState
+        state: ResolvedState,
+        allowLegacy = false
     ): { config: InterviewRecruitmentConfig; key: string } | { reason: InterviewRecruitmentDiagnostics['reason'] } {
-        if (parseRequestProtocolMeta(params).protocolVersion !== STATELESS_PROTOCOL_VERSION) {
+        if (!allowLegacy && parseRequestProtocolMeta(params).protocolVersion !== STATELESS_PROTOCOL_VERSION) {
             return { reason: 'legacy_protocol' }
         }
         if (params.requestState !== undefined) {
@@ -263,11 +304,7 @@ export class InterviewRecruitment {
         if (state.isImpersonated || state.suppressAnalytics) {
             return { reason: 'suppressed' }
         }
-        if (
-            !z
-                .object({ elicitation: z.object({ url: z.object({}) }) })
-                .safeParse((params._meta as Record<string, unknown> | undefined)?.[META_CLIENT_CAPABILITIES]).success
-        ) {
+        if (!this.supportsUrl(params, state)) {
             return { reason: 'url_unsupported' }
         }
         if (!this.isProductCall(params, state)) {
@@ -288,18 +325,13 @@ export class InterviewRecruitment {
         params: Record<string, unknown>,
         state: ResolvedState,
         result: unknown,
-        requestId: string | number
+        requestId: string | number,
+        allowLegacy = false
     ): Promise<void> {
-        if (
-            !result ||
-            typeof result !== 'object' ||
-            !('content' in result) ||
-            !Array.isArray(result.content) ||
-            ('isError' in result && result.isError === true)
-        ) {
+        if (!isCompletedToolCall(result)) {
             return
         }
-        const conversation = this.eligibleConversation(params, state)
+        const conversation = this.eligibleConversation(params, state, allowLegacy)
         if ('reason' in conversation) {
             return
         }
@@ -320,7 +352,60 @@ export class InterviewRecruitment {
         }
     }
 
-    private async resume(params: Record<string, unknown>, state: ResolvedState, userHash: string): Promise<void> {
+    async afterLegacyToolCall(
+        params: Record<string, unknown>,
+        state: ResolvedState,
+        result: unknown,
+        requestId: string | number,
+        userHash: string,
+        requestOrigin: string
+    ): Promise<JSONRPCRequest | undefined> {
+        if (params.requestState !== undefined || !isCompletedToolCall(result)) {
+            return undefined
+        }
+        const invitation = await this.beforeToolCall(params, state, userHash, requestOrigin, 'legacy')
+        await this.afterToolCall(params, state, result, requestId, true)
+        if (!invitation) {
+            return undefined
+        }
+        const input = invitation.inputRequests[INPUT_ID]
+        return {
+            jsonrpc: '2.0',
+            id: invitation.requestState,
+            method: 'elicitation/create',
+            params: input.params,
+        }
+    }
+
+    isLegacyResponse(message: unknown): boolean {
+        return legacyResponseSchema.safeParse(message).success
+    }
+
+    async receiveLegacyResponse(message: unknown, state: ResolvedState, userHash: string): Promise<void> {
+        const response = legacyResponseSchema.safeParse(message)
+        if (!response.success) {
+            return
+        }
+        try {
+            await this.resume(
+                { requestState: response.data.id, inputResponses: { [INPUT_ID]: response.data.result } },
+                state,
+                userHash,
+                'legacy'
+            )
+        } catch (error) {
+            if (!(error instanceof InterviewRequestError)) {
+                throw error
+            }
+        }
+    }
+
+    private async resume(
+        params: Record<string, unknown>,
+        state: ResolvedState,
+        userHash: string,
+        delivery: 'stateless' | 'legacy' = 'stateless'
+    ): Promise<void> {
         const requestState = params.requestState as string
         if (!/^mcp-interview:[0-9a-f-]{36}$/.test(requestState)) {
             throw new InterviewRequestError('Invalid interview invitation state.')
@@ -341,7 +426,11 @@ export class InterviewRecruitment {
         const pendingKey = `${preferenceKey}:${requestState}`
         const rawPending = (await this.redis.get(pendingKey)) ?? ''
         const pending = pendingInvitationSchema.safeParse(rawPending ? JSON.parse(rawPending) : undefined)
-        if (!pending.success || pending.data.fingerprint !== this.requestFingerprint(params, userHash)) {
+        if (
+            !pending.success ||
+            pending.data.delivery !== delivery ||
+            pending.data.fingerprint !== this.requestFingerprint(delivery === 'legacy' ? {} : params, userHash)
+        ) {
             throw new InterviewRequestError(
                 'Interview invitation expired, changed, or is unavailable. Check whether the original tool completed before retrying; do not automatically repeat a write.'
             )
@@ -351,14 +440,16 @@ export class InterviewRecruitment {
                 'This interview response was already consumed. The original tool may have run. Check its outcome before retrying; do not automatically repeat a write.'
             )
         }
-        const [organizationId, projectId] = await Promise.all([
-            state.context.stateManager.getOrgID(),
-            state.context.stateManager.getProjectId(),
-        ])
-        if (pending.data.organization_id !== organizationId || pending.data.project_id !== projectId) {
-            throw new InterviewRequestError(
-                'The active project or organization changed while the invitation was open. Restore the original context before retrying this continuation.'
-            )
+        if (delivery === 'stateless') {
+            const [organizationId, projectId] = await Promise.all([
+                state.context.stateManager.getOrgID(),
+                state.context.stateManager.getProjectId(),
+            ])
+            if (pending.data.organization_id !== organizationId || pending.data.project_id !== projectId) {
+                throw new InterviewRequestError(
+                    'The active project or organization changed while the invitation was open. Restore the original context before retrying this continuation.'
+                )
+            }
         }
         const saved = await this.redis.eval(
             SAVE_RESPONSE,
@@ -396,15 +487,17 @@ export class InterviewRecruitment {
         params: Record<string, unknown>,
         state: ResolvedState,
         userHash: string,
-        requestOrigin: string
-    ): Promise<Record<string, unknown> | undefined> {
+        requestOrigin: string,
+        delivery: 'stateless' | 'legacy' = 'stateless',
+        observeOnly = false
+    ): Promise<InterviewInvitation | undefined> {
         const capabilities = (params._meta as Record<string, unknown> | undefined)?.[META_CLIENT_CAPABILITIES]
         const capabilitiesAvailable = z.record(z.string(), z.unknown()).safeParse(capabilities).success
         const diagnostics: InterviewRecruitmentDiagnostics = {
             reason: 'continuation',
             urlSupported: capabilitiesAvailable
                 ? z.object({ elicitation: z.object({ url: z.object({}) }) }).safeParse(capabilities).success
-                : null,
+                : (state.sessionContext?.mcpElicitationUrlSupported ?? null),
             formSupported: capabilitiesAvailable
                 ? z
                       .object({
@@ -424,7 +517,7 @@ export class InterviewRecruitment {
             await this.resume(params, state, userHash)
             return undefined
         }
-        const conversation = this.eligibleConversation(params, state)
+        const conversation = this.eligibleConversation(params, state, delivery === 'legacy')
         if ('reason' in conversation) {
             diagnostics.reason = conversation.reason
             return undefined
@@ -456,6 +549,10 @@ export class InterviewRecruitment {
                 diagnostics.reason = 'session_too_young'
                 return undefined
             }
+            if (observeOnly) {
+                diagnostics.reason = 'eligible'
+                return undefined
+            }
             const [organizationId, projectId] = await Promise.all([
                 state.context.stateManager.getOrgID(),
                 state.context.stateManager.getProjectId(),
@@ -482,7 +579,8 @@ export class InterviewRecruitment {
                     asked_at: new Date().toISOString(),
                 }),
                 JSON.stringify({
-                    fingerprint: this.requestFingerprint(params, userHash),
+                    fingerprint: this.requestFingerprint(delivery === 'legacy' ? {} : params, userHash),
+                    delivery,
                     campaign_id: config.campaign_id,
                     organization_id: organizationId,
                     project_id: projectId,
@@ -519,6 +617,7 @@ export class InterviewRecruitment {
                     method: 'elicitation/create',
                     params: {
                         mode: 'url',
+                        elicitationId: invitationId,
                         message: config.message,
                         url: bookingLink,
                     },
