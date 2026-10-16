@@ -18,6 +18,7 @@ import {
     newestByName,
     sortRecentItems,
 } from './todayRecentOrder'
+import { libraryRecentKey, pickRecentKey, touchRecentKey } from './todayRecentProducts'
 import {
     activeCloudRunId,
     analysisRunId,
@@ -180,7 +181,40 @@ describe('todayWorkItems', () => {
     it('keeps the newest recently viewed rows and lists them by name', () => {
         const newestFirst = ['Pricing', 'apps', 'Zebra', 'Funnels', 'Billing', 'Alerts']
 
-        expect(newestByName(newestFirst, (name) => name, 5)).toEqual(['apps', 'Billing', 'Funnels', 'Pricing', 'Zebra'])
+        expect(
+            newestByName(
+                newestFirst,
+                (name) => name,
+                (name) => name,
+                5
+            )
+        ).toEqual(['apps', 'Billing', 'Funnels', 'Pricing', 'Zebra'])
+    })
+
+    it.each([
+        ['a', 'b'],
+        ['b', 'a'],
+    ])('keeps rows with the same name in key order when %s was viewed last', (newest, older) => {
+        const rows = [
+            { key: newest, name: 'Untitled' },
+            { key: older, name: 'untitled' },
+        ]
+
+        expect(
+            newestByName(
+                rows,
+                (row) => row.name,
+                (row) => row.key,
+                5
+            ).map((row) => row.key)
+        ).toEqual(['a', 'b'])
+    })
+
+    it.each([
+        ['a picked row replaces the older row for its page', pickRecentKey, libraryRecentKey('survey')],
+        ['a page visit keeps the row last picked for that page', touchRecentKey, '/surveys'],
+    ])('%s', (_, update, expectedFirst) => {
+        expect(update(['/sql', '/surveys'], libraryRecentKey('survey'), 5)).toEqual([expectedFirst, '/sql'])
     })
 
     it.each([

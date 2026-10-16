@@ -15,6 +15,7 @@ interface TodayPaneRowProps {
     /** A control that sits on the row's right edge and shows on hover, outside the row's own link. */
     action?: JSX.Element | null
     dataAttr?: string
+    onClick?: () => void
 }
 
 export function TodayPaneRow({
@@ -28,6 +29,7 @@ export function TodayPaneRow({
     variant,
     action,
     dataAttr,
+    onClick,
 }: TodayPaneRowProps): JSX.Element {
     return (
         <div className="group/row relative flex min-w-0 items-center">
@@ -38,6 +40,7 @@ export function TodayPaneRow({
                 variant={variant}
                 title={label}
                 data-attr={dataAttr}
+                onClick={onClick}
                 className={cn(action && 'pr-8')}
             >
                 {icon && (

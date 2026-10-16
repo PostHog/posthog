@@ -18,7 +18,8 @@ import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayRail } from './TodayRail'
 import { TODAY_PANES } from './todayRailItems'
-import { todayRecentsLogic } from './todayRecentsLogic'
+import { todayRecentProductsLogic } from './todayRecentProductsLogic'
+import { todayRecentViewsLogic } from './todayRecentViewsLogic'
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
 import { TodaySidebarCollapseButton } from './TodaySidebarCollapseButton'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
@@ -44,7 +45,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
     // Records the tools and sessions visited while other panes are open, so each pane's Recent group is ready.
-    useMountedLogic(todayRecentsLogic)
+    useMountedLogic(todayRecentProductsLogic)
+    useMountedLogic(todayRecentViewsLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     useShortcut({
         name: 'ToggleLeftNav',

@@ -5,12 +5,13 @@ import api, { ApiConfig } from 'lib/api'
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
 
-type FileSystemLogViewType =
+export type FileSystemLogViewType =
     | 'experiment'
     | 'feature_flag'
     | 'insight'
     | 'dashboard'
     | 'scene'
+    | 'canvas'
     | 'action'
     | 'cohort'
     | 'survey'
@@ -38,10 +39,13 @@ export function trackFileSystemLogView({ type, ref, enabled = true }: TrackFileS
         return
     }
 
-    recentItemsModel.findMounted()?.actions.recordView(type, String(ref))
-    // Fire-and-forget view tracking: nothing renders off it, so a failure must not surface as an
-    // unhandled rejection.
-    api.fileSystemLogView.create({ type, ref: String(ref) }).catch(() => {})
+    const model = recentItemsModel.findMounted()
+    model?.actions.recordView(type, String(ref))
+    // Fire-and-forget view tracking: a failure must not surface as an unhandled rejection.
+    api.fileSystemLogView
+        .create({ type, ref: String(ref) })
+        .then(() => model?.actions.viewLogged(type, String(ref)))
+        .catch(() => {})
 }
 
 export function useFileSystemLogView({ type, ref, enabled = true }: TrackFileSystemLogViewOptions): void {

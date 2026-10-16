@@ -11,8 +11,7 @@ import { urls } from 'scenes/urls'
 import { VIEW_TYPE_INFO } from 'scenes/views/viewsUtils'
 import { ViewTypeIcon } from 'scenes/views/ViewTypeIcon'
 
-import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { ProductIconWrapper } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 import { TodayPaneRow } from './TodayPaneRow'
@@ -94,10 +93,14 @@ export function TodayViewsSidebar(): JSX.Element {
                         <TodayPaneGroupLabel first>Recently viewed</TodayPaneGroupLabel>
                         {recents.map((recent) => (
                             <TodayPaneRow
-                                key={recent.entry.id}
-                                value={`recent:${recent.entry.id}`}
+                                key={recent.key}
+                                value={`recent:${recent.key}`}
                                 label={recent.name}
-                                icon={iconForType(recent.entry.type as FileSystemIconType)}
+                                icon={
+                                    <ProductIconWrapper colorOverride={[VIEW_TYPE_INFO[recent.type].color]}>
+                                        <ViewTypeIcon type={recent.type} />
+                                    </ProductIconWrapper>
+                                }
                                 to={recent.href}
                                 active={path === removeProjectIdIfPresent(recent.href)}
                                 dataAttr="today-views-recently-viewed"
