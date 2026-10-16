@@ -81,7 +81,8 @@ const fieldTypesFromOutputVariables = (
     const variableTypes = new Map((variables ?? []).map((variable) => [variable.key, variable.type]))
     const types = new Map<string, FieldType>()
     for (const mapping of mappings) {
-        if (mapping.result_path != null && typeof mapping.result_path !== 'string') {
+        const resultPathIsNotAName = mapping.result_path != null && typeof mapping.result_path !== 'string'
+        if (resultPathIsNotAName || mapping.spread) {
             throw new Error(`Set the result path of ${mapping.key} to the name of a field`)
         }
         const type = variableTypes.get(mapping.key)

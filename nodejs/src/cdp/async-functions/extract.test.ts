@@ -95,13 +95,13 @@ describe('postHogExtract', () => {
         expect(parseJSON(fetchSpy.mock.calls[0][1].body)).toMatchObject({ context: null, task_run_id: TASK_RUN_ID })
     })
 
-    it('fails rather than guess the type of a result path that is not a field name', async () => {
-        const arrayPath = {
-            ...hogFlow,
-            actions: [{ id: 'extract_1', output_variable: [{ key: 'changed', result_path: ['files_changed'] }] }],
-        }
+    it.each([
+        ['a result path that is a list', { key: 'changed', result_path: ['files_changed'] }],
+        ['a spread into prefixed variables', { key: 'changed', result_path: null, spread: true }],
+    ])('fails rather than guess the type of %s', async (_name, mapping) => {
+        const unnamedField = { ...hogFlow, actions: [{ id: 'extract_1', output_variable: [mapping] }] }
 
-        await expect(invokeLive(payload, arrayPath as unknown as typeof hogFlow)).rejects.toThrow(
+        await expect(invokeLive(payload, unnamedField as unknown as typeof hogFlow)).rejects.toThrow(
             /result path of changed/
         )
         expect(fetchSpy).not.toHaveBeenCalled()

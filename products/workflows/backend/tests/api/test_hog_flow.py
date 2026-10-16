@@ -7533,11 +7533,15 @@ class TestExtractActionValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    def test_rejects_a_result_path_that_is_not_a_field_name(self):
+    @parameterized.expand(
+        [
+            ("result_path_that_is_a_list", [{"key": "pr_url", "result_path": ["pr_url"]}]),
+            ("spread_into_prefixed_variables", [{"key": "pr", "result_path": None, "spread": True}]),
+        ]
+    )
+    def test_rejects_a_mapping_that_does_not_name_a_field(self, _name, mappings):
         response = self._post_flow(
-            {"pr_url": "The URL of the pull request"},
-            [{"key": "pr_url", "type": "number"}],
-            [{"key": "pr_url", "result_path": ["pr_url"]}],
+            {"pr_url": "The URL of the pull request"}, [{"key": "pr_url", "type": "number"}], mappings
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

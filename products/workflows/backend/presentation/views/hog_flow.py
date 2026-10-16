@@ -606,7 +606,10 @@ def _extract_fields_in_unfillable_variables(actions: list[dict], variables: list
         if (step.get("config") or {}).get("template_id") != _EXTRACT_TEMPLATE_ID:
             continue
         for mapping in _output_mappings(step):
-            if mapping.get("result_path") is not None and not isinstance(mapping["result_path"], str):
+            result_path_is_not_a_name = mapping.get("result_path") is not None and not isinstance(
+                mapping["result_path"], str
+            )
+            if result_path_is_not_a_name or mapping.get("spread"):
                 unfillable.append(f"{mapping['key']} (set its result path to the name of a field)")
         for field, field_variables in _extract_field_variables(step, variable_types).items():
             types = set(field_variables.values())
