@@ -98,12 +98,6 @@ _KEY_FLOAT_DIGITS = 12
 # ships to every team, treat the switch as an engine change and bump CALCULATION_KEY_VERSION.
 _DEFAULT_EXPOSURE_EVENT_IN_KEY = "$default_exposure_event"
 
-# Metric types whose query does not read the team's time zone, so a time zone change keeps their key. A retention
-# metric truncates its window to days or hours in that time zone, and a metric type outside this set, or a legacy
-# metric without one, keeps the time zone in its key. A HogQL expression inside a metric can also read the time
-# zone, and the key does not detect that case.
-_TIMEZONE_FREE_METRIC_TYPES = frozenset({"mean", "funnel", "ratio"})
-
 # Fields of a stored metric definition that do not describe what the metric computes: its identity, its
 # display name, the stored key itself, and an experiment-level setting that some stored definitions carry.
 _NON_ANALYTICAL_METRIC_FIELDS = frozenset({"uuid", "name", "kind", "fingerprint", "only_count_matured_users"})
@@ -273,7 +267,7 @@ class ExperimentCalculationSettings:
     # The CUPED setting of the experiment. The query builders apply it only to metrics that support CUPED.
     cuped: CupedQueryConfig
     only_count_matured_users: bool
-    # Retention metrics bucket their windows into days or hours in this time zone.
+    # Date property filters, the CUPED lookback and retention windows read this time zone.
     timezone: str
     # The exposure criteria as stored. Key version 1 hashes this form, so settings that resolve to the
     # same `exposure` can still have different keys when their stored JSON differs.
@@ -404,8 +398,8 @@ class MetricCalculationConfig:
 
         It hashes the metric and each settings field that equality compares, except the team, together
         with CALCULATION_KEY_VERSION. Nested settings enter through explicit field lists. The time zone enters
-        only for a metric type that reads it (`_TIMEZONE_FREE_METRIC_TYPES`). Result rows in
-        ExperimentMetricResult and the stored `fingerprint` of each inline metric hold this key. A change to the
+        for every metric type, because date property filters, the CUPED lookback and retention windows all read
+        it. Result rows in ExperimentMetricResult and the stored `fingerprint` of each inline metric hold this key. A change to the
         hashed payload makes every stored result unreachable for reuse, so it goes with a bump of
         CALCULATION_KEY_VERSION.
         """
@@ -424,9 +418,8 @@ class MetricCalculationConfig:
             "stats": _statistics_key_input(settings.stats),
             "cuped": _cuped_key_input(settings.cuped),
             "only_count_matured_users": settings.only_count_matured_users,
+            "timezone": settings.timezone,
         }
-        if self.metric.get("metric_type") not in _TIMEZONE_FREE_METRIC_TYPES:
-            payload["timezone"] = settings.timezone
         return _sha256(payload)
 
     def legacy_key(self) -> str:

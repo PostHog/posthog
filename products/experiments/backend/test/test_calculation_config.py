@@ -538,7 +538,7 @@ _KEY_INPUT_CASES: list[tuple[str, ExperimentCalculationSettings, ExperimentCalcu
             _SETTINGS,
             dataclasses.replace(_SETTINGS, timezone="Asia/Kolkata"),
             definition,
-            True,
+            False,
         )
         for kind, definition in (("mean", _MEAN), ("funnel", DEFINITIONS["funnel"]), ("ratio", DEFINITIONS["ratio"]))
     ],
@@ -683,7 +683,7 @@ def test_every_field_that_can_change_the_key_has_a_case() -> None:
 @pytest.mark.parametrize(
     "settings,definition,key",
     [
-        (_SETTINGS, _MEAN, "0ece714ef02b5e32a6201b72fccc0e2c908c3dd477b082d56f8d504c4b088a40"),
+        (_SETTINGS, _MEAN, "e456819bf18b5561c706a037769cb017fb4a7bd8e620c30a23ce1b9cc39cfe50"),
         (
             dataclasses.replace(
                 _with_exposure(_DEFAULT_EVENT_WITH_PROPERTIES),
@@ -693,7 +693,7 @@ def test_every_field_that_can_change_the_key_has_a_case() -> None:
                 cuped=CupedQueryConfig(enabled=True, lookback_days=7),
             ),
             _MEAN,
-            "d197595521eb7283bcd4afa83f37afa8db49731eb52e70a3494f28b961f8900b",
+            "70e81cb7ae1b2572557d20f5875391d61c119d5a2aa9b075cd3ef69c43ae750e",
         ),
         (
             dataclasses.replace(_with_exposure(_ACTION_ACTIVATION), stats=_SEQUENTIAL, timezone="Europe/Berlin"),
