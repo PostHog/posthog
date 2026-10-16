@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { expect } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import { SearchConsoleSource } from './SearchConsoleSource'
 import { SourceSetupPanel } from './SourceSetupPanel'
@@ -155,4 +155,58 @@ export const PausedImport: Story = {
         expect(await canvas.findByText('Some connections need attention')).toBeVisible()
         expect(canvas.getByRole('link', { name: /Manage source/ })).toBeVisible()
     },
+}
+
+export const GroupedConnectionErrors: Story = {
+    args: {
+        state: 'waiting',
+        compact: true,
+        connections: [
+            {
+                id: 'example-google-one',
+                name: 'Example campaigns',
+                sourceType: 'GoogleAds',
+                status: 'Needs attention',
+                detail: 'campaign: import disabled. Enable this table in the source’s Schemas tab. campaign_overview_stats: sync failed. Review the error in the source’s Schemas tab.',
+            },
+            {
+                id: 'example-google-two',
+                name: 'Example search',
+                sourceType: 'GoogleAds',
+                status: 'Needs attention',
+                detail: 'campaign_overview_stats: sync failed. Review the error in the source’s Schemas tab.',
+            },
+            {
+                id: 'example-tiktok',
+                name: 'Example video',
+                sourceType: 'TikTokAds',
+                status: 'Needs attention',
+                detail: 'campaign_report: import disabled. Enable this table in the source’s Schemas tab.',
+            },
+        ],
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        expect(await canvas.findByText('Example campaigns')).toBeVisible()
+        expect(canvas.getByText('Example search')).toBeVisible()
+        expect(canvas.getByText(/campaign: import disabled.*campaign_overview_stats: sync failed/)).toBeVisible()
+        expect(canvas.getByText('2 connections')).toBeVisible()
+        expect(canvas.getAllByRole('link', { name: /Manage source/ })[0]).toHaveAttribute(
+            'href',
+            expect.stringContaining('managed-example-google-one')
+        )
+        await userEvent.click(canvas.getByRole('button', { name: /TikTok Ads/ }))
+        expect(await canvas.findByText('Example video')).toBeVisible()
+    },
+}
+
+export const NarrowConnectionErrors: Story = {
+    ...GroupedConnectionErrors,
+    decorators: [
+        (Story) => (
+            <div className="w-full max-w-lg">
+                <Story />
+            </div>
+        ),
+    ],
 }
