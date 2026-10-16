@@ -166,7 +166,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                         metric.metric_uuid,
                         recalculation_id,
                         query_to,
-                        metric.metric_type,
+                        metric.role,
                     ],
                     start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
                     schedule_to_close_timeout=timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS),
@@ -237,7 +237,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                         recalculation_id=recalculation_id,
                         experiment_id=metric.experiment_id,
                         metric_uuid=metric.metric_uuid,
-                        metric_type=metric.metric_type,
+                        role=metric.role,
                     ),
                     start_to_close_timeout=timedelta(seconds=METRIC_FAILURE_BACKSTOP_ACTIVITY_TIMEOUT_SECONDS),
                     schedule_to_close_timeout=timedelta(
