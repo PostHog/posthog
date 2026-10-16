@@ -11,6 +11,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.plugins.plugin_server_api import cancel_hog_flow_batch_job
 
 from products.workflows.backend.facade.contracts import WorkflowBatchJob, WorkflowBatchJobNotFound
 from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus
@@ -195,8 +196,21 @@ def _dispatch_waiting_batch_job(job: HogFlowBatchJob, realtime_cohort: "Cohort |
             status = HogFlowBatchJobState.QUEUED
         except Exception as error:
             # The CDP API may have enqueued the resolver before the error, so a retry could send
-            # twice. The run fails instead, and the sender can start it again.
+            # twice. The run fails only once the CDP API confirms nothing of it runs. Otherwise it
+            # stays queued, where a stop still reaches the resolver.
             logger.exception("waiting_batch_job_dispatch_failed", batch_job_id=str(job.id))
             capture_exception(error)
-            status = HogFlowBatchJobState.FAILED
+            status = HogFlowBatchJobState.FAILED if _stop_resolver(job) else HogFlowBatchJobState.QUEUED
         HogFlowBatchJob.objects.filter(pk=job.pk).update(status=status, updated_at=timezone.now())
+
+
+def _stop_resolver(job: HogFlowBatchJob) -> bool:
+    """Whether the CDP API confirmed that no resolver or run of this batch is left to stop."""
+    try:
+        response = cancel_hog_flow_batch_job(
+            team_id=job.team_id, hog_flow_id=str(job.hog_flow_id), batch_job_id=str(job.id)
+        )
+        return response.status_code == 200 and bool(response.json().get("done"))
+    except Exception as error:
+        capture_exception(error)
+        return False

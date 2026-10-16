@@ -10,6 +10,7 @@ from parameterized import parameterized
 from requests import HTTPError, Response
 
 from posthog.models.user import User
+from posthog.redis import get_client as get_redis_client
 
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -18,6 +19,10 @@ from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job imp
 from products.workflows.backend.services.batch_jobs import (
     REALTIME_COHORT_WAIT_LIMIT,
     dispatch_batch_jobs_waiting_for_cohorts,
+)
+from products.workflows.backend.tasks.batch_jobs import (
+    WAITING_BATCH_JOBS_SWEEP_LOCK,
+    dispatch_batch_jobs_waiting_for_realtime_cohorts,
 )
 
 
@@ -170,10 +175,14 @@ class TestHogFlowBatchJob(TestCase):
             ("waited_too_long", "calculating", True, True, None, "failed", False),
             ("workflow_no_longer_active", "ready", False, False, None, "cancelled", False),
             # The CDP API may have enqueued the resolver before the error, so a retry could send twice.
+            # The run fails once the CDP API confirms nothing of it runs.
             ("dispatch_raised", "ready", False, True, "raises", "failed", True),
             ("dispatch_http_error", "ready", False, True, "http_500", "failed", True),
+            # Without that confirmation it stays queued, where a stop still reaches the resolver.
+            ("dispatch_raised_and_cancel_unconfirmed", "ready", False, True, "raises_cancel_fails", "queued", True),
         ]
     )
+    @patch("products.workflows.backend.services.batch_jobs.cancel_hog_flow_batch_job")
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
@@ -187,6 +196,7 @@ class TestHogFlowBatchJob(TestCase):
         expected_status,
         expect_dispatch,
         mock_create_invocation,
+        mock_cancel,
     ):
         cohort = self._realtime_cohort(ready=False)
         job = HogFlowBatchJob.objects.create(
@@ -204,8 +214,12 @@ class TestHogFlowBatchJob(TestCase):
             )
         self.hog_flow.status = HogFlow.State.ACTIVE if flow_active else HogFlow.State.ARCHIVED
         self.hog_flow.save(update_fields=["status"])
-        if dispatch_failure == "raises":
+        mock_cancel.return_value.status_code = 200
+        mock_cancel.return_value.json.return_value = {"marked": 0, "remaining": 0, "done": True}
+        if dispatch_failure in ("raises", "raises_cancel_fails"):
             mock_create_invocation.side_effect = RuntimeError("cdp unreachable")
+        if dispatch_failure == "raises_cancel_fails":
+            mock_cancel.side_effect = RuntimeError("cdp unreachable")
         if dispatch_failure == "http_500":
             mock_create_invocation.return_value.raise_for_status.side_effect = HTTPError(
                 "500 Server Error", response=Response()
@@ -223,6 +237,20 @@ class TestHogFlowBatchJob(TestCase):
                 "id": cohort.pk,
                 "team_id": self.team.pk,
             }
+
+    @parameterized.expand([("another_pass_running", True), ("no_pass_running", False)])
+    @patch("products.workflows.backend.tasks.batch_jobs.dispatch_batch_jobs_waiting_for_cohorts")
+    def test_waiting_batch_jobs_sweep_skips_while_another_pass_runs(self, _name, lock_held, mock_sweep):
+        held = get_redis_client().lock(WAITING_BATCH_JOBS_SWEEP_LOCK, timeout=60)
+        if lock_held:
+            assert held.acquire(blocking=False)
+        try:
+            dispatch_batch_jobs_waiting_for_realtime_cohorts()
+        finally:
+            if lock_held:
+                held.release()
+
+        assert mock_sweep.called is not lock_held
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"

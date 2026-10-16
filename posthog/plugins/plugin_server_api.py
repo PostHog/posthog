@@ -332,6 +332,8 @@ def create_batch_hog_flow_job_invocation(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
         json={"max_audience_size": max_audience_size, "filters": filters, "realtime_cohort": realtime_cohort},
         headers=get_internal_api_headers(),
+        # The waiting-run sweep dispatches while it holds the run's row lock, which a stop waits on.
+        timeout=30,
     )
 
 
