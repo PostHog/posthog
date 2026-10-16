@@ -51,6 +51,7 @@ export namespace Schemas {
         | "in"
         | "not_in"
         | "is_cleaned_path_exact"
+        | "is_cleaned_path_not_exact"
         | "flag_evaluates_to"
         | "semver_eq"
         | "semver_neq"
