@@ -53,7 +53,7 @@ use crate::observability::metrics::{
     CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS, CHECKPOINT_SIZE_BYTES,
     CHECKPOINT_UPLOADED_BYTES_TOTAL, CHECKPOINT_UPLOADS_TOTAL,
 };
-use crate::partitions::InputGroups;
+use crate::partitions::{ClaimedSplit, InputGroups, PositionsError};
 use crate::store::{CohortStore, DbIdentity};
 use crate::sweep::{run_sweep_loop, Sweeper};
 
@@ -229,6 +229,7 @@ pub struct CheckpointSweeper {
     store: CohortStore,
     dispatcher: Arc<EventDispatcher>,
     groups: Arc<InputGroups>,
+    claimed: ClaimedSplit,
     lineage: CheckpointLineage,
     config: DurabilityConfig,
     /// Built on the first upload, so an S3 outage never stops a pod that has its store.
@@ -244,10 +245,12 @@ pub struct CheckpointSweeper {
 impl CheckpointSweeper {
     /// The first baseline is the lineage's `uploaded.json` when it went to the configured bucket.
     /// [`upload_kind`] uses it only for the same DB.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         store: CohortStore,
         dispatcher: Arc<EventDispatcher>,
         groups: Arc<InputGroups>,
+        claimed: ClaimedSplit,
         lineage: CheckpointLineage,
         config: DurabilityConfig,
         upload_every_n: u64,
@@ -266,6 +269,7 @@ impl CheckpointSweeper {
             store,
             dispatcher,
             groups,
+            claimed,
             lineage,
             config,
             exporter: OnceCell::new(),
@@ -320,9 +324,7 @@ impl CheckpointSweeper {
             }
         }
 
-        // 2. The slices to capture. A revoke after this point leaves a slice the manifest names but
-        //    the checkpoint lacks, which a restore resumes as empty; an assign leaves one the
-        //    checkpoint holds but the manifest lacks, which a restore resets. Both are safe.
+        // 2. The slices to capture.
         let owned = trigger.owned(|| self.dispatcher.owned_partitions());
         if owned.is_empty() {
             info!(
@@ -332,18 +334,24 @@ impl CheckpointSweeper {
             return;
         }
 
-        // 3. Every input's resume positions, from its consumer group on the broker.
+        // 3. Every input's resume positions, from its consumer group on the broker. A position
+        //    another split committed lies past what this store holds, so the tick skips.
         let groups = self.groups.clone();
+        let claimed = self.claimed.clone();
         let partitions = owned.clone();
         let positions = match tokio::task::spawn_blocking(move || {
-            groups.resume_positions(&partitions)
+            groups.owned_positions(&claimed, &partitions)
         })
         .await
         {
             Ok(Ok(positions)) => positions,
             Ok(Err(e)) => {
+                let reason = match e {
+                    PositionsError::Foreign { .. } => "foreign",
+                    PositionsError::Kafka(_) | PositionsError::Negative(_) => "positions",
+                };
                 warn!(error = %e, "checkpoint tick: reading input positions failed; skipping tick");
-                metrics::counter!(CHECKPOINT_CAPTURE_FAILURES_TOTAL, "reason" => "positions")
+                metrics::counter!(CHECKPOINT_CAPTURE_FAILURES_TOTAL, "reason" => reason)
                     .increment(1);
                 return;
             }
@@ -356,7 +364,7 @@ impl CheckpointSweeper {
         };
 
         // 4. The manifest refuses a slice that lacks a position on any input.
-        let manifest = match OffsetManifest::capture(self.lineage.ordinal(), &owned, positions) {
+        let manifest = match OffsetManifest::capture(&owned, positions) {
             Ok(manifest) => manifest,
             Err(e) => {
                 warn!(error = %e, "checkpoint tick: incomplete manifest; skipping tick");

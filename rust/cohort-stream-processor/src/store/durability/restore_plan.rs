@@ -165,7 +165,7 @@ mod tests {
     use super::*;
     use std::num::NonZeroU16;
 
-    use crate::partitions::InputPositions;
+    use crate::partitions::{InputPositions, OwnedPositions};
     use crate::store::durability::lineage::PodOrdinal;
 
     const EVENTS: &str = "cohort_stream_events";
@@ -227,7 +227,11 @@ mod tests {
                 )
             })
             .collect();
-        OffsetManifest::capture(PodOrdinal::STANDALONE, &owned, positions).unwrap()
+        OffsetManifest::capture(
+            &owned,
+            OwnedPositions::for_test(PartitionOwnership::single(8), positions),
+        )
+        .unwrap()
     }
 
     type Bounds = ((&'static str, u16), (i64, i64));

@@ -579,6 +579,7 @@ async fn async_main(config: Config) -> Result<()> {
             store_for_checkpoint,
             dispatcher.clone(),
             groups,
+            claimed.clone(),
             lineage,
             config.durability_config(),
             upload_cadence(

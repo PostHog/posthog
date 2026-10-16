@@ -945,11 +945,17 @@ async fn delete_s3_prefix(config: &Config) {
 
 /// Runs one checkpoint tick against the running dispatcher, with positions read from the broker,
 /// and uploads it: `upload_every_n` is 1.
-async fn checkpoint_to_s3(instance: &Instance, config: &Config, groups: &Arc<InputGroups>) {
+async fn checkpoint_to_s3(
+    instance: &Instance,
+    config: &Config,
+    groups: &Arc<InputGroups>,
+    claimed: ClaimedSplit,
+) {
     let sweeper = CheckpointSweeper::new(
         instance.store.clone(),
         instance.dispatcher.clone(),
         groups.clone(),
+        claimed,
         config.checkpoint_lineage().expect("ordinal pod name"),
         config.durability_config(),
         1,
@@ -1132,7 +1138,7 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
             NUM_PARTITIONS as usize,
             "the dispatcher must still own all 64 partitions at checkpoint time",
         );
-        checkpoint_to_s3(&instance, &config, &input_groups).await;
+        checkpoint_to_s3(&instance, &config, &input_groups, claimed).await;
 
         shutdown.request_shutdown();
         instance.join().await;
