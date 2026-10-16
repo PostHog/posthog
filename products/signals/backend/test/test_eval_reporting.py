@@ -5,14 +5,13 @@ from functools import partial
 from typing import Literal
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import httpx
 from parameterized import parameterized
 
 from products.posthog_ai.eval_harness.test.offline_api import OfflineServer
-from products.signals.eval.capture import EvalMetric
-from products.signals.eval.offline import SignalsEvalRecorder
+from products.signals.eval.offline import EvalMetric, SignalsEvalRecorder
 from products.signals.eval.offline_config import GROUPING_SUITE, SCOUT_SAFETY_SUITE
 
 
@@ -126,21 +125,6 @@ def test_disabled_reporting_never_attempts_network(_name: str, disabled: bool, a
             metrics=[EvalMetric(name="correct_classification", score=1)],
         )
         assert asyncio.run(recorder.publish()) is None
-
-
-def test_online_capture_remains_separate_from_offline_uploads() -> None:
-    client = Mock()
-    with patch.dict(os.environ, {"POSTHOG_OFFLINE_EVAL_API_KEY": "invalid token"}):
-        recorder = SignalsEvalRecorder(SCOUT_SAFETY_SUITE, online_client=client)
-        recorder.record(
-            eval_name="scout-safety-filter",
-            item_name="case",
-            metrics=[EvalMetric(name="correct_classification", score=1)],
-        )
-        assert asyncio.run(recorder.publish()) is None
-    properties = client.capture.call_args.kwargs["properties"]
-    assert properties["$ai_evaluation_type"] == "online"
-    assert properties["$ai_score"] == 1
 
 
 def test_upload_failure_is_reported_without_hiding_completed_scores(capsys: pytest.CaptureFixture[str]) -> None:

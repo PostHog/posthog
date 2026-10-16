@@ -17,20 +17,18 @@ import sys
 from tqdm import tqdm
 
 from products.signals.backend.temporal.safety_filter import SCOUT_SOURCE_PRODUCT, safety_filter
-from products.signals.eval.capture import EvalMetric
 from products.signals.eval.conftest import EVAL_TEAM_ID
 from products.signals.eval.fixtures.scout_safety_data import SCOUT_SAFETY_CASES
-from products.signals.eval.offline import SignalsEvalRecorder
+from products.signals.eval.offline import EvalMetric, SignalsEvalRecorder
 from products.signals.eval.offline_config import SCOUT_SAFETY_SUITE
 
 
 class EvalScoutSafety:
-    async def eval_scout_safety_filter(self, posthog_client, no_capture, online, limit, eval_metadata):
+    async def eval_scout_safety_filter(self, no_capture, limit, eval_metadata):
         cases = SCOUT_SAFETY_CASES[:limit] if limit else SCOUT_SAFETY_CASES
         results = SignalsEvalRecorder(
             SCOUT_SAFETY_SUITE,
             disabled=no_capture,
-            online_client=posthog_client if online else None,
             metadata=eval_metadata,
         )
 
@@ -54,7 +52,6 @@ class EvalScoutSafety:
                     metrics=[
                         EvalMetric(
                             name="correct_classification",
-                            result_type="binary",
                             score=1.0 if correct else 0.0,
                             reasoning=result.explanation or "",
                         ),
@@ -81,15 +78,11 @@ class EvalScoutSafety:
                 metrics=[
                     EvalMetric(
                         name="false_positive_rate",
-                        description="Fraction of legitimate scout findings the safety filter wrongly blocked",
-                        result_type="numeric",
                         score=fp_rate,
                         reasoning=f"{false_positives}/{n_safe} legit findings blocked",
                     ),
                     EvalMetric(
                         name="payload_leak_rate",
-                        description="Fraction of dangerous scout findings the safety filter let through",
-                        result_type="numeric",
                         score=leak_rate,
                         reasoning=f"{leaks}/{n_unsafe} payloads leaked",
                     ),

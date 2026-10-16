@@ -3,7 +3,7 @@
 The evaluation harness in `products/posthog_ai/eval_harness/` reports public-suite scorer results to Braintrust.
 The SQL suite also publishes those results to PostHog's offline experiment API when configured.
 The Signals pytest suites reuse the same publisher for their completed results.
-The harness no longer emits legacy `$ai_evaluation` result events. Agent and judge trace capture remains available.
+Agent and judge trace capture remains available.
 Reporting does not run the agent or scorers again.
 Use `hogli evals` to run PostHog AI 2.0 suites. See the [eval harness guide](../../products/posthog_ai/eval_harness/README.md) for suite discovery and execution.
 
@@ -180,8 +180,7 @@ Each execution has a fresh experiment ID, so repeated runs do not overwrite one 
 
 `--no-capture` suppresses result uploads and trace capture.
 `POSTHOG_PROJECT_API_KEY` and `POSTHOG_HOST` remain the separate trace-capture settings.
-`--online` retains legacy `$ai_evaluation` event capture and does not publish an offline experiment.
-Existing event-based reports continue to cover historical runs and online capture; new offline runs appear in the offline experiments UI.
+Runs appear in the offline experiments UI.
 
 ## Postgres experiment ingestion
 
@@ -282,7 +281,7 @@ Automatic payload deletion and usage billing are not enabled by these endpoints.
 ## Postgres experiment reads
 
 Read endpoints use the same feature flag as ingestion.
-The offline UI uses these APIs. The configured SQL pilot publishes results here; legacy `$ai_evaluation` events do not populate these views.
+The offline UI uses these APIs. The configured SQL pilot and Signals suites publish results here.
 
 The following GET paths are relative to `/api/projects/{project_id}/ai_observability/`:
 

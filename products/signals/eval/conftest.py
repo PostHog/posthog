@@ -13,7 +13,6 @@ from posthoganalytics import Posthog
 from posthoganalytics.ai.openai import AsyncOpenAI
 
 from posthog.llm.gateway_client import get_async_anthropic_gateway_client
-from posthog.models import Organization, Team
 
 # This eval runs via bare pytest (no hogli), so the conftest owns loading repo-root .env.
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
@@ -44,7 +43,6 @@ EVAL_TEAM_ID = int(os.environ.get("SIGNALS_EVAL_TEAM_ID", "1"))
 def pytest_addoption(parser):
     parser.addoption("--limit", default=None, type=int, help="Limit number of items to process (e.g. --limit 3)")
     parser.addoption("--no-capture", action="store_true", default=False, help="Skip eval uploads and trace capture")
-    parser.addoption("--online", action="store_true", default=False, help="Capture as online eval")
     parser.addoption("--strategy", default="example_strategy", help="Strategy module name (default: example_strategy)")
     parser.addoption(
         "--safe", action="store_true", default=False, help="Filter to safe signals only, skip safety_filter step"
@@ -62,24 +60,8 @@ def no_capture(request):
 
 
 @pytest.fixture
-def online(request):
-    return request.config.getoption("--online")
-
-
-@pytest.fixture
-def posthog_client(no_capture, online, request):
+def posthog_client(no_capture):
     api_key = os.environ.get("POSTHOG_PROJECT_API_KEY", "")
-    if online and not no_capture and not api_key:
-        request.getfixturevalue("db")
-        last_team = Team.objects.order_by("-pk").first()
-        if last_team:
-            api_key = last_team.api_token
-        elif not no_capture:
-            org = Organization.objects.create(name="Eval Org", is_ai_data_processing_approved=True)
-            team = Team.objects.create(organization=org, name="Eval Team")
-            api_key = team.api_token
-    if online and not api_key and not no_capture:
-        raise ValueError("POSTHOG_PROJECT_API_KEY needs to be set (or pass --no-capture).")
     host = os.environ.get("POSTHOG_HOST", "http://localhost:8010")
     client = Posthog(
         api_key or "phx_unused",

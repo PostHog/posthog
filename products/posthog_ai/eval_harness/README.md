@@ -395,7 +395,7 @@ See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-r
 
 The `sql/eval_sql::eval_sql` suite can also send its seven scorer results to PostHog's offline experiment API.
 It publishes the same completed case results through the Python SDK and keeps sending to Braintrust.
-The harness no longer emits legacy `$ai_evaluation` result events. Other public suites report scores to Braintrust until they opt into offline publishing.
+Other public suites report scores to Braintrust until they opt into offline publishing.
 Agent and judge trace capture remains available, and `no_send_logs=True` suppresses offline result uploads.
 
 Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal or project secret key with `offline_evaluation_ingestion:write` and access to project `2`.

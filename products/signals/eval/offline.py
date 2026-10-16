@@ -3,10 +3,12 @@ from __future__ import annotations
 import sys
 import asyncio
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
 from tqdm import tqdm
+
+from posthog.dataclasses import frozen
 
 from products.posthog_ai.eval_harness.engines.types import CaseResult, EvalSummary, ExperimentResult, ScorerResult
 from products.posthog_ai.eval_harness.offline_results import (
@@ -14,13 +16,19 @@ from products.posthog_ai.eval_harness.offline_results import (
     OfflineEvalSettings,
     OfflineUploadError,
 )
-from products.signals.eval.capture import capture_evaluation, deterministic_uuid
 
 if TYPE_CHECKING:
-    from posthoganalytics import Posthog
-
     from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite
-    from products.signals.eval.capture import EvalMetric
+
+
+@frozen
+class EvalMetric:
+    name: str
+    score: float | None = None
+    reasoning: str | None = None
+    status: Literal["ok", "error", "skipped", "not_applicable"] = "ok"
+    error_code: str | None = None
+    error_message: str | None = None
 
 
 class SignalsEvalRecorder:
@@ -29,18 +37,16 @@ class SignalsEvalRecorder:
         suite: OfflineEvalSuite,
         *,
         disabled: bool = False,
-        online_client: Posthog | None = None,
         metadata: dict[str, object] | None = None,
     ) -> None:
         self.suite = suite
         self.disabled = disabled
-        self.online_client = online_client
         self.metadata = metadata or {}
         self.experiment_id = str(uuid4())
         self.started_at = datetime.now(UTC)
         self.cases: list[CaseResult] = []
         self.publisher: OfflineEvalPublisher | None = None
-        if disabled or online_client is not None:
+        if disabled:
             return
         try:
             settings = OfflineEvalSettings.from_env(suite)
@@ -80,21 +86,6 @@ class SignalsEvalRecorder:
         passed: bool = True,
     ) -> None:
         if self.disabled:
-            return
-        if self.online_client is not None:
-            capture_evaluation(
-                client=self.online_client,
-                experiment_id=deterministic_uuid(eval_name),
-                experiment_name=eval_name,
-                item_id=deterministic_uuid(f"{self.experiment_id}:{eval_name}:{item_name}"),
-                item_name=item_name,
-                metrics=metrics,
-                input=input,
-                output=output,
-                expected=expected,
-                passed=passed,
-                eval_type="online",
-            )
             return
         if self.publisher is None:
             return

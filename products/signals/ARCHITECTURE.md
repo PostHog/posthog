@@ -1738,7 +1738,6 @@ products/signals/
 │   │   └── commands/
 │   │       ├── analyze_report.py
 │   │       ├── cleanup_signals.py
-│   │       ├── clear_eval_data.py
 │   │       ├── delete_all_signal_reports_for_team.py
 │   │       ├── enable_signals_autonomy.py  # Sets team default priority + opts in users by email
 │   │       ├── export_session_video.py
