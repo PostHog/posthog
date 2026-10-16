@@ -19,20 +19,22 @@ const SOURCE_LABELS: Record<MetricsDashboardVariable['source'], string> = {
 export function MetricVariablesModal({
     dashboardId,
     variables,
+    options,
     onClose,
     onSave,
 }: {
     dashboardId: number | string
     variables: MetricsDashboardVariable[]
+    options: Record<string, string[]>
     onClose: () => void
     onSave: (variables: MetricsDashboardVariable[]) => void
 }): JSX.Element {
-    const logic = metricVariableEditorLogic({ dashboardId, variables })
+    const logic = metricVariableEditorLogic({ dashboardId, variables, options })
     const { draft, selectedIndex, selectedVariable, shownErrors } = useValues(logic)
     const { addVariable, selectVariable, apply } = useActions(logic)
 
     return (
-        <BindLogic logic={metricVariableEditorLogic} props={{ dashboardId, variables }}>
+        <BindLogic logic={metricVariableEditorLogic} props={{ dashboardId, variables, options }}>
             <LemonModal
                 isOpen
                 onClose={onClose}

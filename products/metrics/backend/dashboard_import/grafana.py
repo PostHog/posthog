@@ -519,7 +519,8 @@ class GrafanaDashboardParser:
                 notes.append(f"Query {ref_id} is too long to import.")
                 continue
             language = self._language(datasource, target, expression, grafana_type)
-            substituted, unresolved = self._variables.substitute(expression)
+            substitution = self._variables.substitute(expression)
+            substituted, unresolved = substitution.text, list(substitution.unresolved)
             templated = self._variables.template(expression) if language == "promql" else None
             if language == "promql":
                 rewrite = strip_grafana_ranges(substituted)

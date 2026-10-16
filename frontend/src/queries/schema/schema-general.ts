@@ -4891,9 +4891,18 @@ export interface MetricsQueryFilter {
 export type MetricsDashboardVariableSource = 'custom' | 'promql' | 'sql' | 'textbox'
 
 export interface MetricsDashboardVariableSelection {
-    /** The selected values. When `all` is true, these are the options that were loaded when All was selected. */
+    /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
     values: string[]
     all?: boolean
+}
+
+/** The value of one variable in a metrics query, set from the dashboard that shows the query. */
+export interface MetricsVariableValue {
+    values: string[]
+    /** True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the
+     * filter, and SQL gets `values`, which the dashboard fills with every option of the variable. */
+    all?: boolean
+    allValue?: string | null
 }
 
 /** A Grafana-style dashboard variable. Metrics tiles refer to it as `$name`, `${name}` or `${name:format}`. */
@@ -4979,6 +4988,8 @@ export interface MetricsHistogramQuery extends DataNode<MetricsHistogramQueryRes
     interval?: string
     /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
     unit?: string
+    /** Values of the dashboard variables that the filters refer to as `$name`. */
+    variables?: Record<string, MetricsVariableValue>
 }
 
 export interface MetricsHistogramQueryResponse extends AnalyticsQueryResponseBase {
@@ -5080,6 +5091,8 @@ export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     formula?: string
     /** Chart presentation. A node without it renders as a line chart. */
     display?: MetricsDisplaySettings
+    /** Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`. */
+    variables?: Record<string, MetricsVariableValue>
 }
 
 export interface SessionEventsItem {

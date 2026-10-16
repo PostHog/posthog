@@ -3335,7 +3335,7 @@ export namespace Schemas {
 
     export interface MetricsDashboardVariableSelection {
       all?: boolean | null;
-      /** The selected values. When `all` is true, these are the options that were loaded when All was selected. */
+      /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
       values: string[];
     }
 
@@ -57716,6 +57716,18 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    export interface MetricsVariableValue {
+      /** True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the filter, and SQL gets `values`, which the dashboard fills with every option of the variable. */
+      all?: boolean | null;
+      allValue?: string | null;
+      values: string[];
+    }
+
+    /**
+     * Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`.
+     */
+    export type MetricsQueryVariables = {[key: string]: MetricsVariableValue} | null;
+
     export interface MetricsQuery {
       /** Empty when `language` is `promql` or `sql`. */
       clauses: MetricsQueryClause[];
@@ -57738,6 +57750,8 @@ export namespace Schemas {
       /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}` are filled in from the date range and interval. */
       sql?: string | null;
       tags?: QueryLogTags | null;
+      /** Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`. */
+      variables?: MetricsQueryVariables;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -57770,6 +57784,11 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    /**
+     * Values of the dashboard variables that the filters refer to as `$name`.
+     */
+    export type MetricsHistogramQueryVariables = {[key: string]: MetricsVariableValue} | null;
+
     export interface MetricsHistogramQuery {
       /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
       dateRange?: DateRange | null;
@@ -57786,6 +57805,8 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
       unit?: string | null;
+      /** Values of the dashboard variables that the filters refer to as `$name`. */
+      variables?: MetricsHistogramQueryVariables;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }

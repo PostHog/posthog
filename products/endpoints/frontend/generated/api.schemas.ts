@@ -678,7 +678,7 @@ export interface MetricsQueryFilterApi {
 
 export interface MetricsDashboardVariableSelectionApi {
     all?: boolean | null
-    /** The selected values. When `all` is true, these are the options that were loaded when All was selected. */
+    /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
     values: string[]
 }
 

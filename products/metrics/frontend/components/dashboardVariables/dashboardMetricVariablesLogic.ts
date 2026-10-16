@@ -22,9 +22,9 @@ import { metricsVariableOptionsCreate } from 'products/metrics/frontend/generate
 
 import {
     applyVariableRegex,
-    orderVariables,
     reconcileSelection,
     selectionsForRequest,
+    variableLevels,
     variablesToReload,
 } from './metricVariables'
 
@@ -79,6 +79,9 @@ export interface dashboardMetricVariablesLogicActions {
     setReconciledVariables: (variables: MetricsDashboardVariable[]) => {
         variables: MetricsDashboardVariable[]
     }
+    retry: (name: string) => {
+        name: string
+    }
 }
 
 export type dashboardMetricVariablesLogicType = MakeLogicType<
@@ -105,6 +108,7 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
         setError: (name: string, error: string | null) => ({ name, error }),
         setLoading: (name: string, loading: boolean) => ({ name, loading }),
         setReconciledVariables: (variables: MetricsDashboardVariable[]) => ({ variables }),
+        retry: (name: string) => ({ name }),
     }),
     reducers({
         options: [
@@ -132,57 +136,75 @@ export const dashboardMetricVariablesLogic = kea<dashboardMetricVariablesLogicTy
             { setReconciledVariables: (_, { variables }) => variables },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
-        loadOptions: async ({ names, reconcile }) => {
-            const { order } = orderVariables(props.variables)
+    listeners(({ actions, values, props, cache }) => ({
+        loadOptions: async ({ names, reconcile }, breakpoint) => {
+            // A newer load cancels this one at its next breakpoint, so its unfinished names move to the newer load.
+            const pending: Set<string> | null =
+                names === null || cache.pending === null
+                    ? null
+                    : new Set([...((cache.pending as Set<string> | undefined) ?? []), ...names])
+            const shouldReconcile = reconcile || !!cache.pendingReconcile
+            cache.pending = pending
+            cache.pendingReconcile = shouldReconcile
             let variables = props.variables
-            for (const name of order) {
-                if (names && !names.includes(name)) {
-                    continue
-                }
-                const variable = variables.find((other) => other.name === name)
-                if (!variable || variable.source === 'textbox') {
-                    continue
-                }
-                let options: string[] = []
-                let failed = false
-                if (variable.source === 'custom') {
-                    options = [...new Set((variable.customValues ?? []).filter(Boolean))]
+            for (const level of variableLevels(props.variables)) {
+                const load = level
+                    .filter((name) => pending === null || pending.has(name))
+                    .map((name) => variables.find((variable) => variable.name === name)!)
+                    .filter((variable) => variable.source !== 'textbox')
+                const queried = load.filter((variable) => variable.source !== 'custom')
+                queried.forEach((variable) => actions.setLoading(variable.name, true))
+                const snapshot = variables
+                const results = await Promise.all(
+                    load.map(async (variable) => {
+                        if (variable.source === 'custom') {
+                            return { variable, options: [...new Set((variable.customValues ?? []).filter(Boolean))] }
+                        }
+                        try {
+                            const response = await metricsVariableOptionsCreate(String(values.currentTeamId), {
+                                source: variable.source,
+                                query: variable.query ?? null,
+                                variables: selectionsForRequest(
+                                    snapshot.filter((other) => other.name !== variable.name),
+                                    values.options
+                                ),
+                                dateFrom: dateStringToDayJs(props.dateFrom ?? null)?.toISOString() ?? null,
+                                dateTo: dateStringToDayJs(props.dateTo ?? null)?.toISOString() ?? null,
+                            })
+                            return { variable, options: applyVariableRegex(response.results, variable.regex) }
+                        } catch (error) {
+                            return { variable, error: errorMessage(error) }
+                        }
+                    })
+                )
+                breakpoint()
+                for (const result of results) {
+                    const { name } = result.variable
+                    actions.setLoading(name, false)
+                    pending?.delete(name)
+                    if ('error' in result) {
+                        // Keep the options and the selection: they are unknown now, not empty.
+                        actions.setError(name, result.error ?? null)
+                        continue
+                    }
                     actions.setError(name, null)
-                } else {
-                    actions.setLoading(name, true)
-                    try {
-                        const response = await metricsVariableOptionsCreate(String(values.currentTeamId), {
-                            source: variable.source,
-                            query: variable.query ?? null,
-                            variables: selectionsForRequest(variables.filter((other) => other.name !== name)),
-                            dateFrom: dateStringToDayJs(props.dateFrom ?? null)?.toISOString() ?? null,
-                            dateTo: dateStringToDayJs(props.dateTo ?? null)?.toISOString() ?? null,
-                        })
-                        options = applyVariableRegex(response.results, variable.regex)
-                        actions.setError(name, null)
-                    } catch (error) {
-                        failed = true
-                        actions.setError(name, errorMessage(error))
-                    } finally {
-                        actions.setLoading(name, false)
+                    actions.setOptions(name, result.options)
+                    const current = reconcileSelection(result.variable, result.options)
+                    if (!objectsEqual(current, result.variable.current ?? null)) {
+                        variables = variables.map((other) => (other.name === name ? { ...other, current } : other))
                     }
                 }
-                actions.setOptions(name, options)
-                if (failed) {
-                    // Keep the selection: the options are unknown, not empty.
-                    continue
-                }
-                const current = reconcileSelection(variable, options)
-                if (!objectsEqual(current, variable.current ?? null)) {
-                    variables = variables.map((other) => (other.name === name ? { ...other, current } : other))
-                }
             }
+            cache.pending = undefined
+            cache.pendingReconcile = false
             // The first load only shows options. A saved selection changes only after the user changes something.
-            if (reconcile && variables !== props.variables) {
+            if (shouldReconcile && variables !== props.variables) {
                 actions.setReconciledVariables(variables)
                 props.onSelectionsChange(variables)
             }
+        },
+        retry: ({ name }) => {
+            actions.loadOptions([name], true)
         },
     })),
     propsChanged(({ actions, values, props }, oldProps) => {

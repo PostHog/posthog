@@ -14,6 +14,7 @@ the bucket interval.
 
 import math
 import datetime as dt
+from collections.abc import Mapping
 from typing import Any
 
 from posthog.hogql import ast
@@ -113,13 +114,19 @@ def _assert_reads_only_metrics_tables(team: Team, query: ast.SelectQuery | ast.S
         )
 
 
-def build_metrics_sql_query(
-    team: Team, sql: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
-) -> ast.SelectQuery:
-    """Parse the insight's SQL with the date placeholders filled in, wrapped in the row limit."""
+def _parse_metrics_sql(
+    team: Team,
+    sql: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    interval: str | None,
+    variables: Mapping[str, ast.Expr] | None,
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Parse the SQL with the date and variable placeholders filled in, and check that it reads only metrics tables."""
     resolved = _resolve_interval(date_from, date_to, interval)
     step = _interval_step(resolved)
     placeholders: dict[str, ast.Expr] = {
+        **(variables or {}),
         "date_from": ast.Constant(value=_align_to_interval(date_from, resolved, tzinfo=team.timezone_info)),
         "date_to": ast.Constant(value=date_to),
         "interval": _interval_expr(resolved),
@@ -127,6 +134,19 @@ def build_metrics_sql_query(
     }
     inner = parse_select(sql, placeholders=placeholders)
     _assert_reads_only_metrics_tables(team, inner)
+    return inner
+
+
+def build_metrics_sql_query(
+    team: Team,
+    sql: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    interval: str | None,
+    variables: Mapping[str, ast.Expr] | None = None,
+) -> ast.SelectQuery:
+    """Parse the insight's SQL with the date and variable placeholders filled in, wrapped in the row limit."""
+    inner = _parse_metrics_sql(team, sql, date_from, date_to, interval, variables)
     wrapped = parse_select(
         "SELECT * FROM {inner} LIMIT {row_limit}",
         placeholders={"inner": inner, "row_limit": ast.Constant(value=_SQL_ROW_LIMIT)},
@@ -170,9 +190,14 @@ def _on_interval_starts(times: list[Any], interval: str, team: Team) -> bool:
 
 
 def run_metrics_sql(
-    team: Team, sql: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
+    team: Team,
+    sql: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    interval: str | None,
+    variables: Mapping[str, ast.Expr] | None = None,
 ) -> list[MetricSeries]:
-    query = build_metrics_sql_query(team, sql, date_from, date_to, interval)
+    query = build_metrics_sql_query(team, sql, date_from, date_to, interval, variables)
     response = execute_hogql_query(
         query_type="MetricsSQLQuery",
         query=query,
@@ -217,9 +242,63 @@ def run_metrics_sql(
     )
 
 
-def run_metrics_sql_values(team: Team, sql: str, date_from: dt.datetime, date_to: dt.datetime, limit: int) -> list[str]:
-    """The distinct values of the first column, for the options of a dashboard variable."""
-    query = build_metrics_sql_query(team, sql, date_from, date_to, None)
+_VARIABLE_VALUE_COLUMN = "__variable_value"
+
+
+def _leftmost_select(query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
+    while isinstance(query, ast.SelectSetQuery):
+        query = query.initial_select_query
+    return query
+
+
+def _first_column_name(query: ast.SelectQuery | ast.SelectSetQuery) -> str:
+    select = _leftmost_select(query).select
+    if not select:
+        raise ExposedHogQLError("A SQL variable query must select the values in its first column.")
+    first = select[0]
+    if isinstance(first, ast.Field) and first.chain[-1] == "*":
+        raise ExposedHogQLError("A SQL variable query must name its first column. SELECT * is not supported.")
+    # An alias keeps its name, so an ORDER BY that refers to it still works.
+    return first.alias if isinstance(first, ast.Alias) else _VARIABLE_VALUE_COLUMN
+
+
+def _keep_first_column(query: ast.SelectQuery | ast.SelectSetQuery, name: str) -> None:
+    """Keep only the first column of each part of the query, under one name."""
+    if isinstance(query, ast.SelectSetQuery):
+        _keep_first_column(query.initial_select_query, name)
+        for node in query.subsequent_select_queries:
+            _keep_first_column(node.select_query, name)
+        return
+    first = query.select[0]
+    if isinstance(first, ast.Alias):
+        query.select = [first if first.alias == name else ast.Alias(alias=name, expr=first.expr)]
+    else:
+        query.select = [ast.Alias(alias=name, expr=first)]
+
+
+def run_metrics_sql_values(
+    team: Team,
+    sql: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    limit: int,
+    variables: Mapping[str, ast.Expr] | None = None,
+) -> list[str]:
+    """The distinct values of the first column, for the options of a dashboard variable.
+
+    Only the first column is read, and ClickHouse removes duplicates and stops at the limit.
+    """
+    inner = _parse_metrics_sql(team, sql, date_from, date_to, None, variables)
+    name = _first_column_name(inner)
+    _keep_first_column(inner, name)
+    query = parse_select(
+        "SELECT DISTINCT {value} FROM {inner} LIMIT {limit}",
+        placeholders={
+            "value": ast.Field(chain=[name]),
+            "inner": inner,
+            "limit": ast.Constant(value=limit),
+        },
+    )
     response = execute_hogql_query(
         query_type="MetricsSQLVariableQuery",
         query=query,
@@ -227,5 +306,4 @@ def run_metrics_sql_values(team: Team, sql: str, date_from: dt.datetime, date_to
         workload=Workload.LOGS,
         settings=_QUERY_SETTINGS,
     )
-    values = (str(row[0]) for row in response.results or [] if row and row[0] is not None)
-    return list(dict.fromkeys(values))[:limit]
+    return [str(row[0]) for row in response.results or [] if row and row[0] is not None]

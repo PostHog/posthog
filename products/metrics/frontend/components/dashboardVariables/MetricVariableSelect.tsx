@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
-import { LemonInput, LemonInputSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { objectsEqual } from 'lib/utils/objects'
@@ -17,20 +17,27 @@ export function MetricVariableSelect({
     loading,
     error,
     onChange,
+    onRetry,
 }: {
     variable: MetricsDashboardVariable
     options: string[]
     loading: boolean
     error: string | null
     onChange: (selection: MetricsDashboardVariableSelection | null) => void
+    onRetry: () => void
 }): JSX.Element {
     const label = (
         <span className="flex items-center gap-1">
             {variable.label || variable.name}
             {error && (
-                <Tooltip title={error}>
-                    <IconWarning className="text-warning" />
-                </Tooltip>
+                <LemonButton
+                    size="xsmall"
+                    noPadding
+                    icon={<IconWarning className="text-warning" />}
+                    tooltip={`${error} Click to load the values again.`}
+                    onClick={onRetry}
+                    data-attr="dashboard-metric-variable-retry"
+                />
             )}
         </span>
     )
@@ -47,6 +54,7 @@ export function MetricVariableSelect({
                         loading={loading}
                         error={error}
                         onChange={onChange}
+                        onRetry={onRetry}
                     />
                 )}
             </LemonField.Pure>
@@ -90,12 +98,14 @@ function MetricVariableOptionsSelect({
     loading,
     error,
     onChange,
+    onRetry,
 }: {
     variable: MetricsDashboardVariable
     options: string[]
     loading: boolean
     error: string | null
     onChange: (selection: MetricsDashboardVariableSelection | null) => void
+    onRetry: () => void
 }): JSX.Element {
     const isAll = !!(variable.current?.all && variable.includeAll)
     const savedValues = isAll ? (variable.multi ? options : [ALL_OPTION]) : (variable.current?.values ?? [])
@@ -124,9 +134,16 @@ function MetricVariableOptionsSelect({
                 ...options.map((option) => ({ key: option, label: option })),
             ]}
             emptyStateComponent={
-                <p className="text-secondary italic p-1 max-w-80">
-                    {error ?? 'No values. Check the variable query in the variable settings, or the date range.'}
-                </p>
+                <div className="flex flex-col items-start gap-1 p-1 max-w-80">
+                    <p className="text-secondary italic m-0">
+                        {error ?? 'No values. Check the variable query in the variable settings, or the date range.'}
+                    </p>
+                    {error && (
+                        <LemonButton size="small" type="secondary" onClick={onRetry}>
+                            Try again
+                        </LemonButton>
+                    )}
+                </div>
             }
             onChange={(values) => (variable.multi ? setPending(values) : commit(values))}
             onBlur={() => pending && commit(pending)}

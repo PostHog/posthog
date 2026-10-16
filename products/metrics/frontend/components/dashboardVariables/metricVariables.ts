@@ -1,3 +1,5 @@
+import { RE2JS } from 're2js'
+
 import { objectsEqual } from 'lib/utils/objects'
 
 import type { MetricsDashboardVariable, MetricsDashboardVariableSelection } from '~/queries/schema/schema-general'
@@ -18,13 +20,13 @@ export function referencedNames(text: string | null | undefined): string[] {
     return [...names]
 }
 
-/** The other variables that a variable's options query refers to. */
+/** The variables that a variable's options query refers to. A query that refers to its own variable is a loop. */
 export function variableParents(variable: MetricsDashboardVariable, variables: MetricsDashboardVariable[]): string[] {
     if (variable.source !== 'promql' && variable.source !== 'sql') {
         return []
     }
     const names = new Set(variables.map((other) => other.name))
-    return referencedNames(variable.query).filter((name) => name !== variable.name && names.has(name))
+    return referencedNames(variable.query).filter((name) => names.has(name))
 }
 
 /** The variable names in an order where each variable comes after the variables its query refers to. */
@@ -44,6 +46,23 @@ export function orderVariables(variables: MetricsDashboardVariable[]): { order: 
         }
     }
     return { order, cycle: variables.map((variable) => variable.name).filter((name) => !placed.has(name)) }
+}
+
+/** The variable names in groups: each group depends only on the groups before it, so a group can load at once. */
+export function variableLevels(variables: MetricsDashboardVariable[]): string[][] {
+    const parents = new Map(variables.map((variable) => [variable.name, variableParents(variable, variables)]))
+    const levels: string[][] = []
+    const placed = new Set<string>()
+    for (;;) {
+        const level = variables
+            .map((variable) => variable.name)
+            .filter((name) => !placed.has(name) && parents.get(name)!.every((parent) => placed.has(parent)))
+        if (!level.length) {
+            return levels
+        }
+        levels.push(level)
+        level.forEach((name) => placed.add(name))
+    }
 }
 
 /** The variables whose options depend on any of `names`, directly or through other variables. */
@@ -84,30 +103,40 @@ export function variablesToReload(previous: MetricsDashboardVariable[], next: Me
     return [...new Set([...redefined, ...dependentsOf(next, [...redefined, ...changed])])]
 }
 
-/** Keeps the options that match the variable's regex. With a capture group, the option is the first group. */
+/** Keeps the options that match the variable's regex. With a capture group, the option is the first group.
+
+RE2 runs the pattern in linear time, so a saved pattern cannot freeze the dashboard. A pattern that RE2 cannot read keeps every option. */
 export function applyVariableRegex(options: string[], regex: string | null | undefined): string[] {
     if (!regex) {
         return options
     }
     // Grafana writes the pattern as /pattern/flags.
     const slashed = /^\/(.*)\/([a-z]*)$/s.exec(regex)
-    let pattern: RegExp
+    const flags = slashed?.[2] ?? ''
+    let pattern: RE2JS
     try {
-        pattern = slashed ? new RegExp(slashed[1], slashed[2].replace('g', '')) : new RegExp(regex)
+        pattern = RE2JS.compile(
+            slashed ? slashed[1] : regex,
+            (flags.includes('i') ? RE2JS.CASE_INSENSITIVE : 0) |
+                (flags.includes('m') ? RE2JS.MULTILINE : 0) |
+                (flags.includes('s') ? RE2JS.DOTALL : 0)
+        )
     } catch {
         return options
     }
     const matched: string[] = []
     for (const option of options) {
-        const match = pattern.exec(option)
-        if (match) {
-            matched.push(match[1] ?? option)
+        const matcher = pattern.matcher(option)
+        if (matcher.find()) {
+            matched.push(matcher.groupCount() > 0 ? (matcher.group(1) ?? option) : option)
         }
     }
     return [...new Set(matched)]
 }
 
-/** The selection after the options change: All follows the options, and a value that is gone is replaced. */
+/** The selection after the options change: a value that is gone is replaced.
+
+All keeps no values, so a high-cardinality variable does not make the dashboard URL too long. */
 export function reconcileSelection(
     variable: MetricsDashboardVariable,
     options: string[]
@@ -116,7 +145,7 @@ export function reconcileSelection(
         return variable.current ?? null
     }
     if (variable.current?.all && variable.includeAll) {
-        return { values: options, all: true }
+        return { values: [], all: true }
     }
     const kept = (variable.current?.values ?? []).filter((value) => options.includes(value))
     if (kept.length) {
@@ -134,20 +163,27 @@ export function selectionFromValues(
     if (variable.includeAll) {
         const everyOption = variable.multi && options.length > 0 && options.every((option) => values.includes(option))
         if (values.includes(ALL_OPTION) || everyOption) {
-            return { values: options, all: true }
+            return { values: [], all: true }
         }
     }
     const picked = values.filter((value) => value !== ALL_OPTION)
     return picked.length ? { values: picked } : null
 }
 
-export function selectionsForRequest(variables: MetricsDashboardVariable[]): _MetricVariableSelectionApi[] {
+/** The selections that a variable options request sends. All sends the loaded options, which a SQL query needs. */
+export function selectionsForRequest(
+    variables: MetricsDashboardVariable[],
+    options: Record<string, string[]>
+): _MetricVariableSelectionApi[] {
     return variables
         .filter((variable) => variable.current && (variable.current.values.length || variable.current.all))
-        .map((variable) => ({
-            name: variable.name,
-            values: variable.current!.values,
-            all: !!(variable.current!.all && variable.includeAll),
-            allValue: variable.allValue ?? null,
-        }))
+        .map((variable) => {
+            const all = !!(variable.current!.all && variable.includeAll)
+            return {
+                name: variable.name,
+                values: all ? (options[variable.name] ?? []) : variable.current!.values,
+                all,
+                allValue: variable.allValue ?? null,
+            }
+        })
 }

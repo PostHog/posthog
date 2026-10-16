@@ -461,7 +461,26 @@ def test_all_without_an_all_value_uses_every_option(expr: str, expected: str) ->
             }
         ]
     )
-    assert variables.substitute(expr) == (expected, [])
+    substitution = variables.substitute(expr)
+    assert (substitution.text, substitution.unresolved) == (expected, ())
+
+
+def test_live_variable_queries_get_the_saved_values_of_other_variables() -> None:
+    variables = TemplateVariables.from_templating(
+        [
+            {"name": "window", "type": "interval", "current": {"value": "5m"}},
+            {"name": "env", "type": "custom", "query": "prod,dev", "current": {"value": "prod"}},
+            {
+                "name": "job",
+                "type": "query",
+                "query": 'query_result(rate(up{env="$env"}[$window]))',
+                "current": {"value": "api"},
+            },
+        ]
+    )
+
+    queries = {definition.name: definition.query for definition in variables.definitions()}
+    assert queries["job"] == 'query_result(rate(up{env="$env"}[5m]))'
 
 
 @pytest.mark.parametrize(

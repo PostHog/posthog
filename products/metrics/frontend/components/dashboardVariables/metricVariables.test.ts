@@ -6,6 +6,8 @@ import {
     orderVariables,
     reconcileSelection,
     selectionFromValues,
+    selectionsForRequest,
+    variableLevels,
     variablesToReload,
 } from './metricVariables'
 
@@ -28,6 +30,20 @@ describe('metricVariables', () => {
             'x',
             'y',
         ])
+        expect(orderVariables([promql('job', 'label_values(up{job="$job"}, job)')]).cycle).toEqual(['job'])
+    })
+
+    it('groups variables that can load at once', () => {
+        const zone = custom('zone', ['a'])
+        expect(variableLevels([instance, job, cluster, zone])).toEqual([['cluster', 'zone'], ['job'], ['instance']])
+    })
+
+    it('sends the loaded options of a variable set to All', () => {
+        const all = { ...custom('zone', []), includeAll: true, current: { values: [], all: true } }
+        expect(selectionsForRequest([all, cluster], { zone: ['a', 'b'] })).toEqual([
+            { name: 'zone', values: ['a', 'b'], all: true, allValue: null },
+            { name: 'cluster', values: ['a'], all: false, allValue: null },
+        ])
     })
 
     it.each([
@@ -48,14 +64,14 @@ describe('metricVariables', () => {
     it.each([
         ['keeps a value that is still an option', { values: ['b'] }, ['a', 'b'], { values: ['b'] }],
         ['replaces a value that is gone with the first option', { values: ['x'] }, ['a', 'b'], { values: ['a'] }],
-        ['makes All follow the options', { values: ['x'], all: true }, ['a', 'b'], { values: ['a', 'b'], all: true }],
+        ['keeps All without values', { values: ['x'], all: true }, ['a', 'b'], { values: [], all: true }],
     ])('%s', (_name, current, options, expected) => {
         expect(reconcileSelection({ ...custom('v', []), includeAll: true, current }, options)).toEqual(expected)
     })
 
     it.each([
-        ['picking every option means All', true, ['a', 'b'], { values: ['a', 'b'], all: true }],
-        ['picking the All option means All', false, [ALL_OPTION], { values: ['a', 'b'], all: true }],
+        ['picking every option means All', true, ['a', 'b'], { values: [], all: true }],
+        ['picking the All option means All', false, [ALL_OPTION], { values: [], all: true }],
         ['picking some options keeps them', true, ['b'], { values: ['b'] }],
         ['picking nothing clears the selection', true, [], null],
     ])('%s', (_name, multi, values, expected) => {
@@ -68,6 +84,8 @@ describe('metricVariables', () => {
         ['^api', ['api-1', 'web-1'], ['api-1']],
         ['/api-(.*)/', ['api-1', 'api-2', 'web-1'], ['1', '2']],
         ['(', ['a'], ['a']],
+        ['/API-(.*)/i', ['api-1', 'web-1'], ['1']],
+        ['^(a+)+$', ['a'.repeat(40) + 'b', 'aa'], ['aa']],
     ])('applies the regex %s', (regex, options, expected) => {
         expect(applyVariableRegex(options, regex)).toEqual(expected)
     })

@@ -490,7 +490,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                                             values: zod
                                                 .array(zod.string())
                                                 .describe(
-                                                    'The selected values. When `all` is true, these are the options that were loaded when All was selected.'
+                                                    'The selected values. Empty when `all` is true: All stands for every option of the variable.'
                                                 ),
                                         }),
                                         zod.null(),

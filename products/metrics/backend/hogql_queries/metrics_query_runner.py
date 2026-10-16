@@ -50,12 +50,16 @@ from products.metrics.backend.facade.enums import (
 )
 from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.sql_mode import run_metrics_sql
+from products.metrics.backend.variable_options import fill_all_values
 from products.metrics.backend.variables import (
+    filter_referenced_names,
     from_dashboard,
+    from_query,
     referenced_names,
     substitute_filters,
     substitute_promql,
     substitute_sql,
+    to_query,
     unresolved_message,
 )
 
@@ -190,24 +194,35 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
 
     def _run(self) -> list[MetricSeries]:
         language = self.query.language or MetricsQueryLanguage.BUILDER
+        variables = from_query(self.query.variables)
         if language == MetricsQueryLanguage.BUILDER:
-            unresolved = [
-                name
-                for clause in self.query.clauses
-                for metric_filter in clause.filters or []
-                for name in referenced_names(metric_filter.value)
-            ]
-            if unresolved:
-                raise ValueError(unresolved_message(dict.fromkeys(unresolved)))
+            clauses = []
+            for clause in self.query.clauses:
+                substitution = substitute_filters(clause.filters, variables)
+                if substitution.unresolved:
+                    raise ValueError(unresolved_message(substitution.unresolved))
+                clauses.append(
+                    clause.model_copy(update={"filters": substitution.filters}) if clause.filters else clause
+                )
+            self.query.clauses = clauses
             return run_metric_query(team=self.team, request=self._to_request())
         date_range = metrics_query_date_range(self.team, self.query.dateRange)
-        text = (self.query.promql if language == MetricsQueryLanguage.PROMQL else self.query.sql) or ""
-        if not text.strip():
-            raise ValueError(f"Write a {'PromQL' if language == MetricsQueryLanguage.PROMQL else 'SQL'} query first.")
-        if language == MetricsQueryLanguage.PROMQL and (unresolved := referenced_names(text)):
-            raise ValueError(unresolved_message(unresolved))
-        run = run_promql_range if language == MetricsQueryLanguage.PROMQL else run_metrics_sql
-        return run(self.team, text, date_range.date_from(), date_range.date_to(), self.query.interval)
+        date_from, date_to = date_range.date_from(), date_range.date_to()
+        if language == MetricsQueryLanguage.PROMQL:
+            if not (self.query.promql or "").strip():
+                raise ValueError("Write a PromQL query first.")
+            promql = substitute_promql(self.query.promql or "", variables)
+            if promql.unresolved:
+                raise ValueError(unresolved_message(promql.unresolved))
+            # A variable set to All writes `label=~".*"`, which matches every series.
+            text = drop_match_all_matchers(promql.text) if promql.text != self.query.promql else promql.text
+            return run_promql_range(self.team, text, date_from, date_to, self.query.interval)
+        if not (self.query.sql or "").strip():
+            raise ValueError("Write a SQL query first.")
+        sql = substitute_sql(self.query.sql or "", variables)
+        if sql.unresolved:
+            raise ValueError(unresolved_message(sql.unresolved))
+        return run_metrics_sql(self.team, sql.sql, date_from, date_to, self.query.interval, sql.placeholders)
 
     def _calculate(self) -> MetricsQueryResponse:
         self._enforce_alpha_gates_without_a_request_user()
@@ -250,17 +265,24 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             ]
 
     def _apply_variables(self, dashboard_filter: DashboardFilter) -> None:
-        # The variable values change the query itself, so each selection has its own cache entry.
+        # The values go into the query, so each selection has its own cache entry and reaches the async worker.
+        sql_names = referenced_names(self.query.sql)
+        names = dict.fromkeys(
+            [
+                *referenced_names(self.query.promql),
+                *sql_names,
+                *(name for clause in self.query.clauses for name in filter_referenced_names(clause.filters)),
+            ]
+        )
         variables = from_dashboard(dashboard_filter.metricVariables)
-        if self.query.promql:
-            promql, _ = substitute_promql(self.query.promql, variables)
-            # A variable set to All writes `label=~".*"`, which matches every series.
-            self.query.promql = drop_match_all_matchers(promql) if promql != self.query.promql else promql
-        if self.query.sql:
-            self.query.sql = substitute_sql(self.query.sql, variables)
-        self.query.clauses = [
-            clause.model_copy(update={"filters": substitute_filters(clause.filters, variables)[0]})
-            if clause.filters
-            else clause
-            for clause in self.query.clauses
-        ]
+        if (self.query.language or MetricsQueryLanguage.BUILDER) == MetricsQueryLanguage.SQL and sql_names:
+            date_range = metrics_query_date_range(self.team, self.query.dateRange)
+            variables = fill_all_values(
+                team=self.team,
+                names=sql_names,
+                variables=variables,
+                definitions={definition.name: definition for definition in dashboard_filter.metricVariables or []},
+                date_from=date_range.date_from(),
+                date_to=date_range.date_to(),
+            )
+        self.query.variables = to_query(variables, names) or None

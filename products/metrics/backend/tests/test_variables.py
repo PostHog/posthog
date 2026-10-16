@@ -10,6 +10,8 @@ from posthog.schema import (
     MetricsQueryFilter,
 )
 
+from posthog.hogql import ast
+
 from products.metrics.backend.variables import (
     Variable,
     from_dashboard,
@@ -22,12 +24,15 @@ ONE = Variable(values=('pro"d',), is_all=False, all_value=None, options=())
 MANY = Variable(values=("a.b", "c"), is_all=False, all_value=None, options=())
 ALL = Variable(values=("x", "y"), is_all=True, all_value=None, options=())
 ALL_WITH_VALUE = Variable(values=(), is_all=True, all_value="api-.*", options=())
+DOTTED = Variable(values=("10.0.0.1",), is_all=False, all_value=None, options=())
+INJECTED = Variable(values=("' OR 1=1 --",), is_all=False, all_value=None, options=())
 
 
 @parameterized.expand(
     [
         ("one_value_is_escaped", 'up{env="$env"}', ONE, 'up{env="pro\\"d"}'),
         ("many_values_are_a_regex", 'up{env=~"$env"}', MANY, 'up{env=~"(a\\\\.b|c)"}'),
+        ("one_value_in_a_regex_matcher_is_escaped", 'up{env=~"$env"}', DOTTED, 'up{env=~"10\\\\.0\\\\.0\\\\.1"}'),
         ("csv_format", 'up{env=~"${env:csv}"}', MANY, 'up{env=~"a.b,c"}'),
         ("all_matches_everything", 'up{env=~"$env"}', ALL, 'up{env=~".*"}'),
         ("all_value", 'up{env=~"[[env]]"}', ALL_WITH_VALUE, 'up{env=~"api-.*"}'),
@@ -40,34 +45,72 @@ ALL_WITH_VALUE = Variable(values=(), is_all=True, all_value="api-.*", options=()
     ]
 )
 def test_substitutes_promql(_name: str, expr: str, variable: Variable, expected: str) -> None:
-    assert substitute_promql(expr, {"env": variable}) == (expected, [])
+    substitution = substitute_promql(expr, {"env": variable})
+    assert (substitution.text, substitution.unresolved) == (expected, ())
 
 
-def test_promql_reports_unresolved_variables() -> None:
-    assert substitute_promql('up{env="$env", job="$job"}', {"env": ONE}) == ('up{env="pro\\"d", job="$job"}', ["job"])
+def test_promql_reports_unresolved_variables_and_keeps_the_named_ones() -> None:
+    substitution = substitute_promql('up{env="$env", job="$job", zone="$zone"}', {"env": ONE}, keep={"zone"})
+    assert (substitution.text, substitution.unresolved) == ('up{env="pro\\"d", job="$job", zone="$zone"}', ("job",))
 
 
 @parameterized.expand(
     [
-        ("one_value_is_a_literal", "SELECT 1 WHERE env = $env", ONE, "SELECT 1 WHERE env = 'pro\"d'"),
-        ("quoted_reference_is_one_literal", "SELECT 1 WHERE env = '$env'", ONE, "SELECT 1 WHERE env = 'pro\"d'"),
-        ("many_values_are_a_tuple", "SELECT 1 WHERE env IN ${env}", MANY, "SELECT 1 WHERE env IN ('a.b', 'c')"),
-        ("all_is_the_loaded_options", "SELECT 1 WHERE env IN $env", ALL, "SELECT 1 WHERE env IN ('x', 'y')"),
-        ("field_names_stay", "SELECT properties.$env, $environment", ONE, "SELECT properties.$env, $environment"),
+        ("one_value_is_a_constant", "SELECT 1 WHERE env = $env", ONE, ast.Constant(value='pro"d')),
+        ("quoted_reference_is_one_constant", "SELECT 1 WHERE env = '$env'", ONE, ast.Constant(value='pro"d')),
+        (
+            "injected_value_stays_a_constant",
+            "SELECT 1 WHERE env = '${env}'",
+            INJECTED,
+            ast.Constant(value="' OR 1=1 --"),
+        ),
+        (
+            "many_values_are_a_tuple",
+            "SELECT 1 WHERE env IN ${env}",
+            MANY,
+            ast.Tuple(exprs=[ast.Constant(value="a.b"), ast.Constant(value="c")]),
+        ),
+        (
+            "all_is_its_values",
+            "SELECT 1 WHERE env IN $env",
+            ALL,
+            ast.Tuple(exprs=[ast.Constant(value="x"), ast.Constant(value="y")]),
+        ),
     ]
 )
-def test_substitutes_sql_values_as_literals(_name: str, sql: str, variable: Variable, expected: str) -> None:
-    assert substitute_sql(sql, {"env": variable}) == expected
+def test_sql_references_become_placeholders(_name: str, sql: str, variable: Variable, expected: ast.Expr) -> None:
+    substitution = substitute_sql(sql, {"env": variable})
+    assert substitution.sql.endswith("{metric_variable_env}")
+    assert substitution.placeholders == {"metric_variable_env": expected}
 
 
-def test_sql_value_cannot_break_out_of_its_literal() -> None:
-    injected = Variable(values=("x' OR 1=1 --",), is_all=False, all_value=None, options=())
-    assert substitute_sql("SELECT 1 WHERE env = $env", {"env": injected}) == ("SELECT 1 WHERE env = 'x\\' OR 1=1 --'")
+@parameterized.expand(
+    [
+        ("field_names", "SELECT properties.$env, $environment FROM t"),
+        ("comments", "SELECT 1 -- $env\n/* $env */"),
+        ("other_strings", "SELECT '$1', \"$env\""),
+    ]
+)
+def test_sql_text_that_is_not_a_reference_stays(_name: str, sql: str) -> None:
+    substitution = substitute_sql(sql, {"env": ONE})
+    assert (substitution.sql, substitution.placeholders) == (sql, {})
+
+
+def test_sql_reference_inside_a_longer_string_is_rejected() -> None:
+    with pytest.raises(ValueError, match=r"\$env is inside a string"):
+        substitute_sql("SELECT 1 WHERE env = 'prefix-$env'", {"env": INJECTED})
 
 
 @parameterized.expand(
     [
         ("one_value", MetricsFilterOp.EQ, "$env", ONE, (MetricsFilterOp.EQ, 'pro"d')),
+        (
+            "one_value_in_a_regex_filter",
+            MetricsFilterOp.REGEX,
+            "$env",
+            DOTTED,
+            (MetricsFilterOp.REGEX, "^(?:10\\.0\\.0\\.1)$"),
+        ),
         (
             "many_values_become_an_anchored_regex",
             MetricsFilterOp.EQ,
@@ -90,9 +133,10 @@ def test_substitutes_builder_filters(
     variable: Variable,
     expected: tuple[MetricsFilterOp, str] | None,
 ) -> None:
-    substituted, unresolved = substitute_filter(MetricsQueryFilter(key="env", op=op, value=value), {"env": variable})
-    assert unresolved == []
-    assert (None if substituted is None else (substituted.op, substituted.value)) == expected
+    substitution = substitute_filter(MetricsQueryFilter(key="env", op=op, value=value), {"env": variable})
+    assert substitution.unresolved == ()
+    result = substitution.filter
+    assert (None if result is None else (result.op, result.value)) == expected
 
 
 @pytest.mark.parametrize("include_all", [True, False])

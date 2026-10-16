@@ -25,6 +25,7 @@ from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSel
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.models import User
@@ -709,7 +710,7 @@ class _MetricVariableSelectionSerializer(serializers.Serializer):
         help_text="Variable name. Queries refer to it as `$name`.",
     )
     values = serializers.ListField(
-        child=serializers.CharField(max_length=1024, allow_blank=True),
+        child=serializers.CharField(max_length=1024, allow_blank=True, trim_whitespace=False),
         max_length=1000,
         help_text="The selected values. When `all` is true, the options that All stands for.",
     )
@@ -720,6 +721,7 @@ class _MetricVariableSelectionSerializer(serializers.Serializer):
         allow_blank=True,
         default=None,
         max_length=1024,
+        trim_whitespace=False,
         help_text="The text that All puts in a PromQL query. `.*` when it is empty.",
     )
 
@@ -742,7 +744,7 @@ class _MetricVariableOptionsRequestSerializer(serializers.Serializer):
         ),
     )
     customValues = serializers.ListField(
-        child=serializers.CharField(max_length=1024, allow_blank=True),
+        child=serializers.CharField(max_length=1024, allow_blank=True, trim_whitespace=False),
         required=False,
         allow_null=True,
         default=None,
@@ -1112,6 +1114,14 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         date_from: dt.datetime = data["dateFrom"] or date_to - dt.timedelta(days=1)
         if date_from >= date_to:
             raise ParseError("The start of the window must be before its end.")
+        # PromQL goes to Snuffle, which has its own gate, as the PromQL insights and the Prometheus API do.
+        if data["source"] == MetricVariableSource.PROMQL and not posthog_feature_flag_enabled(
+            SNUFFLE_API_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise PermissionDenied("PromQL variable queries are not enabled for this project.")
         variables = [
             MetricsDashboardVariable(
                 name=selection["name"],

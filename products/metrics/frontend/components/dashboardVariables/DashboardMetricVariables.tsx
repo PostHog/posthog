@@ -36,6 +36,7 @@ export function DashboardMetricVariables(): JSX.Element | null {
         onSelectionsChange: change,
     })
     const { options, loadingNames, errors } = useValues(logic)
+    const { retry } = useActions(logic)
 
     if (!dashboard) {
         return null
@@ -50,6 +51,7 @@ export function DashboardMetricVariables(): JSX.Element | null {
                     options={options[variable.name] ?? []}
                     loading={loadingNames.includes(variable.name)}
                     error={errors[variable.name] ?? null}
+                    onRetry={() => retry(variable.name)}
                     onChange={(current) =>
                         change(variables.map((other) => (other.name === variable.name ? { ...other, current } : other)))
                     }
@@ -69,6 +71,7 @@ export function DashboardMetricVariables(): JSX.Element | null {
                 <MetricVariablesModal
                     dashboardId={dashboard.id}
                     variables={variables}
+                    options={options}
                     onClose={() => setEditorOpen(false)}
                     onSave={(next) => {
                         setEditorOpen(false)

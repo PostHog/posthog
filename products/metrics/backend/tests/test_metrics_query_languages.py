@@ -131,6 +131,46 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
         query = MetricsQuery(dateRange=DATE_RANGE, interval="minute_5", **fields)
         return MetricsQueryRunner(query=query, team=self.team).calculate().results
 
+    @parameterized.expand(
+        [
+            ("one_value", MetricsDashboardVariableSelection(values=["api"]), {"api"}),
+            (
+                "all_loads_the_values_of_the_variable",
+                MetricsDashboardVariableSelection(values=[], all=True),
+                {"api", "worker"},
+            ),
+            ("injected_value_is_a_constant", MetricsDashboardVariableSelection(values=["api' OR 1=1 --"]), set()),
+        ]
+    )
+    def test_dashboard_variables_filter_a_sql_query(
+        self, _name: str, selection: MetricsDashboardVariableSelection, expected: set[str]
+    ) -> None:
+        self._seed()
+        sql = (
+            "SELECT toStartOfInterval(timestamp, {interval}) AS time, service_name, count() AS value "
+            "FROM posthog.metrics WHERE service_name IN $service AND timestamp >= {date_from} "
+            "AND timestamp < {date_to} GROUP BY time, service_name"
+        )
+        runner = MetricsQueryRunner(
+            query=MetricsQuery(dateRange=DATE_RANGE, interval="minute_5", clauses=[], language="sql", sql=sql),
+            team=self.team,
+        )
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="service",
+                        source="custom",
+                        customValues=["api", "worker"],
+                        includeAll=True,
+                        current=selection,
+                    )
+                ]
+            )
+        )
+
+        assert {series.labels["service_name"] for series in runner.calculate().results} == expected
+
     def test_generated_sql_matches_the_builder_engine(self) -> None:
         self._seed()
         for name, fixture in FIXTURES.items():

@@ -7,7 +7,13 @@ from typing import Any
 
 from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSelection, MetricsDashboardVariableSource
 
-from products.metrics.backend.variables import REFERENCE, VARIABLE_NAME, Variable, reference_name, substitute_promql
+from products.metrics.backend.variables import (
+    VARIABLE_NAME,
+    Substitution,
+    Variable,
+    referenced_names,
+    substitute_promql,
+)
 
 _SKIPPED_TYPES = frozenset({"datasource", "adhoc", "groupby"})
 ALL_VALUE = "$__all"
@@ -130,10 +136,21 @@ class TemplateVariables:
         }
 
     def definitions(self) -> list[MetricsDashboardVariable]:
-        """The variables that the imported dashboard keeps live, in the Grafana order."""
-        return list(self._live.values())
+        """The variables that the imported dashboard keeps live, in the Grafana order.
 
-    def substitute(self, expr: str) -> tuple[str, list[str]]:
+        A variable query keeps its references to live variables. The others, such as an interval,
+        get their saved values, because the dashboard does not define them.
+        """
+        return [
+            definition.model_copy(
+                update={"query": substitute_promql(definition.query, self._variables, keep=self._live).text}
+            )
+            if definition.query
+            else definition
+            for definition in self._live.values()
+        ]
+
+    def substitute(self, expr: str) -> Substitution:
         """Replace variable references with their saved values. Also returns the names it could not resolve."""
         return substitute_promql(expr, self._variables)
 
@@ -142,18 +159,7 @@ class TemplateVariables:
 
         None when the expression refers to no live variable, or to a variable that has no saved value.
         """
-        uses_live = False
-        unresolved = False
-
-        def replace(match: re.Match[str]) -> str:
-            nonlocal uses_live, unresolved
-            name = reference_name(match)
-            if name in self._live:
-                uses_live = True
-                return match.group(0)
-            substituted, missing = substitute_promql(match.group(0), self._variables)
-            unresolved = unresolved or bool(missing)
-            return substituted
-
-        templated = REFERENCE.sub(replace, expr)
-        return templated if uses_live and not unresolved else None
+        if not any(name in self._live for name in referenced_names(expr)):
+            return None
+        substitution = substitute_promql(expr, self._variables, keep=self._live)
+        return None if substitution.unresolved else substitution.text

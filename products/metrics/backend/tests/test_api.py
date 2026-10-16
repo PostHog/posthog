@@ -67,6 +67,38 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("label_values", "label_values(up, job)", "/api/v1/label/job/values", ["up"]),
+            ("metrics_regex", "metrics(^http_)", "/api/v1/label/__name__/values", ['{__name__=~".*(?:^http_).*"}']),
+        ]
+    )
+    def test_promql_queries_match_and_limit_on_snuffle(
+        self, _name: str, query: str, path: str, match: list[str]
+    ) -> None:
+        upstream = MagicMock(spec=requests.Response, status_code=200, headers={})
+        upstream.json.return_value = {"status": "success", "data": ["a"]}
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=upstream) as request:
+            response = self._post({"source": "promql", "query": query})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert request.call_args.args[1] == f"http://snuffle.test:9091{path}"
+        params = request.call_args.kwargs["params"]
+        assert (params["match[]"], params["limit"]) == (match, ["1000"])
+
+    def test_promql_queries_need_the_snuffle_flag(self) -> None:
+        def flag_enabled(flag: str, *args: Any, **kwargs: Any) -> bool:
+            return flag != "logs-metrics-snuffle-api"
+
+        with (
+            patch("posthoganalytics.feature_enabled", side_effect=flag_enabled),
+            patch("posthog.api.snuffle_proxy.internal_requests.request") as request,
+        ):
+            response = self._post({"source": "promql", "query": "query_result(up)"})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        request.assert_not_called()
+
+    @parameterized.expand(
+        [
             ("parent_without_value", {"source": "promql", "query": 'label_values(up{job="$job"}, instance)'}, "$job"),
             ("unknown_function", {"source": "promql", "query": "sum(up)"}, "label_values"),
             ("bad_label", {"source": "promql", "query": "label_values(up, 1abc)"}, "not a label name"),

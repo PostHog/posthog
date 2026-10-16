@@ -2722,9 +2722,7 @@ class MetricsDashboardVariableSelection(BaseModel):
     all: bool | None = None
     values: list[str] = Field(
         ...,
-        description=(
-            "The selected values. When `all` is true, these are the options that were loaded when All was selected."
-        ),
+        description=("The selected values. Empty when `all` is true: All stands for every option of the variable."),
     )
 
 
@@ -2793,6 +2791,22 @@ class MetricsThreshold(BaseModel):
         ...,
         description=("Lower bound of this band. The lowest step is the base color below every other step."),
     )
+
+
+class MetricsVariableValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    all: bool | None = Field(
+        default=None,
+        description=(
+            "True when the variable is set to All. PromQL gets `allValue` or `.*`,"
+            " builder filters drop the filter, and SQL gets `values`, which the"
+            " dashboard fills with every option of the variable."
+        ),
+    )
+    allValue: str | None = None
+    values: list[str]
 
 
 class MetricsYAxisSettings(BaseModel):
@@ -29422,6 +29436,10 @@ class MetricsHistogramQuery(BaseModel):
         default=None,
         description=('UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only.'),
     )
+    variables: dict[str, MetricsVariableValue] | None = Field(
+        default=None,
+        description=("Values of the dashboard variables that the filters refer to as `$name`."),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -29470,6 +29488,10 @@ class MetricsQuery(BaseModel):
         ),
     )
     tags: QueryLogTags | None = None
+    variables: dict[str, MetricsVariableValue] | None = Field(
+        default=None,
+        description=("Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`."),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
