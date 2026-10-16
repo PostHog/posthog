@@ -21,6 +21,7 @@ export type RequestProperties = {
     mcpConsumer?: string | undefined
     mcpClientName?: string | undefined
     mcpClientVersion?: string | undefined
+    mcpElicitationUrlSupported?: boolean | undefined
     mcpProtocolVersion?: string | undefined
     mcpVendorClient?: string | undefined
     readOnly?: boolean | undefined
@@ -49,6 +50,7 @@ export type ClientInfo = {
     clientName?: string | undefined
     clientVersion?: string | undefined
     protocolVersion?: string | undefined
+    elicitationUrlSupported?: boolean | undefined
 }
 
 function header(request: Request, name: string): string | undefined {
@@ -115,6 +117,7 @@ export function parseRequestProperties(
         mcpClientName: resolveEffectiveClientName(clientInfo.clientName, vendorClient),
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
+        mcpElicitationUrlSupported: clientInfo.elicitationUrlSupported,
         mcpVendorClient: vendorClient,
         mode: parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
         taskId: sanitizeHeaderValue(header(request, 'x-posthog-task-id')),

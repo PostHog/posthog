@@ -265,7 +265,7 @@
                 "$type": "integer"
             },
             "orderBy": {
-                "$enum": ["first_seen", "last_seen", "occurrences", "sessions", "users"]
+                "$enum": ["first_seen", "last_seen", "occurrences", "sessions", "severity", "users"]
             },
             "orderDirection": {
                 "$enum": ["ASC", "DESC"]

@@ -116,6 +116,18 @@ class TestSuggestReplies(SimpleTestCase):
             build.return_value.with_options.return_value.chat.completions.create.side_effect = TimeoutError()
             assert suggest_replies("Should I open a PR?", ReplySuggestionAttribution()) == []
 
+    def test_the_person_message_reaches_the_model_apart_from_the_answer(self) -> None:
+        with patch("products.slack_app.backend.logic.reply_suggestions.build_openai_client") as build:
+            create = build.return_value.with_options.return_value.chat.completions.create
+            create.return_value = _completion(json.dumps({"suggestions": []}))
+            suggest_replies("Should I open a PR?", ReplySuggestionAttribution(), "Why does the retry never stop?")
+
+        content = create.call_args.kwargs["messages"][1]["content"]
+        assert content == (
+            "<person_message>\nWhy does the retry never stop?\n</person_message>\n\n"
+            "<agent_answer>\nShould I open a PR?\n</agent_answer>"
+        )
+
 
 @override_settings(DEBUG=True)
 @patch("products.slack_app.backend.api.SlackIntegration")
@@ -268,14 +280,16 @@ class TestReplySuggestionPlacement(SimpleTestCase):
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_plain_answer_gets_the_buttons_under_its_text(
-        self, mock_get_client, mock_get_integration, *_mocks: MagicMock
+        self, mock_get_client, mock_get_integration, _mock_enabled, mock_suggest, _mock_capture
     ) -> None:
         mock_client = MagicMock()
         mock_client.chat_postMessage.return_value = {"ts": "2.0"}
         mock_get_client.return_value = mock_client
         mock_get_integration.return_value = Integration(id=7, config={}, integration_id="T1")
         handler = SlackThreadHandler(
-            SlackThreadContext(integration_id=7, channel="C001", thread_ts="1.0"), RunFooter(model="claude-opus-5")
+            SlackThreadContext(integration_id=7, channel="C001", thread_ts="1.0"),
+            RunFooter(model="claude-opus-5"),
+            turn_person_message="why does the retry never stop?",
         )
 
         handler.post_thread_message("Should I open a pull request?", with_footer=True, markdown=True)
@@ -288,6 +302,7 @@ class TestReplySuggestionPlacement(SimpleTestCase):
         assert update["blocks"][0] == posted[0]
         assert update["blocks"][1]["block_id"] == REPLY_SUGGESTIONS_BLOCK_ID
         assert update["blocks"][2:] == posted[1:]
+        assert mock_suggest.call_args.args[2] == "why does the retry never stop?"
 
 
 class TestClearOpenSuggestions(SimpleTestCase):
