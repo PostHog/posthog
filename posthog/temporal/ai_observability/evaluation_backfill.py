@@ -6,6 +6,7 @@ own and continues as new after each batch, however long the window takes to drai
 
 import asyncio
 import hashlib
+import contextlib
 from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -22,7 +23,7 @@ import structlog
 import temporalio
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError, is_cancelled_exception
+from temporalio.exceptions import ChildWorkflowError, WorkflowAlreadyStartedError, is_cancelled_exception
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.dataclasses import frozen
@@ -260,7 +261,9 @@ class _BackfillPacing:
                     pause = BACKFILL_FAILURE_PAUSES[self.pauses]
                     self.pauses += 1
                     self.failures = 0
-                    await temporalio.workflow.sleep(pause)
+                    # A run that stops the backfill mid-pause ends the pause too.
+                    with contextlib.suppress(TimeoutError):
+                        await temporalio.workflow.wait_condition(lambda: self.stopped, timeout=pause)
         return not self.stopped
 
     def record(self, result: BackfillChildOutcome) -> None:
@@ -491,6 +494,9 @@ async def find_evaluation_backfill_candidates_activity(inputs: FindCandidatesInp
     return await database_sync_to_async(_find_backfill_candidates, thread_sensitive=False)(inputs)
 
 
+_TERMINAL_FIELDS = ("status", "status_reason", "finished_at", "remaining_count")
+
+
 def _advance_backfill_cursor(inputs: AdvanceCursorInputs) -> AdvanceCursorOutput:
     updates: dict[str, Any] = {
         "dispatched_count": F("dispatched_count") + inputs.dispatched_delta,
@@ -551,6 +557,16 @@ def _advance_backfill_cursor(inputs: AdvanceCursorInputs) -> AdvanceCursorOutput
     # cancelled or completed it and the loop stops. If it is still RUNNING, an earlier attempt of
     # this same advance already committed and only its result was lost, so the loop must carry on
     # from the stored cursor instead of stalling with the window half walked.
+    if not inputs.cancelled and inputs.new_cursor_timestamp is not None:
+        # A cancel can land after this page's runs finished. They still billed, so the cancelled
+        # row keeps their counts. Moving the cursor keeps a retried advance from counting twice.
+        counts = {key: value for key, value in updates.items() if key not in _TERMINAL_FIELDS}
+        if row.filter(
+            status=EvaluationBackfillStatus.CANCELLED,
+            cursor_timestamp=expected_timestamp,
+            cursor_unit_id=inputs.expected_cursor_unit_id,
+        ).update(**counts):
+            return AdvanceCursorOutput(finished=True)
     current_status = row.values_list("status", flat=True).first()
     return AdvanceCursorOutput(finished=current_status != EvaluationBackfillStatus.RUNNING)
 
@@ -770,7 +786,8 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                 stop_reason=_stop_reason(result),
             )
         except Exception as error:
-            if is_cancelled_exception(error):
+            # A cancelled backfill raises here; a run cancelled on its own is only a failed run.
+            if is_cancelled_exception(error) and not isinstance(error, ChildWorkflowError):
                 raise
             temporalio.workflow.logger.warning(
                 "llma.evaluation_backfill_child_failed", extra={"workflow_id": child.workflow_id}, exc_info=True
