@@ -154,6 +154,19 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
     })
 
     describe('display of recents', () => {
+        it('keeps a complete saved filter available when only one property category is offered', async () => {
+            preloadCompleteRecent('$browser', 'Chrome')
+            renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties] })
+
+            expect(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveTextContent(
+                'Event properties'
+            )
+            await selectSuggestedCategory()
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-suggested_filters-1')).toHaveTextContent('Chrome')
+            })
+        })
+
         it('shows recent items in Suggested in selectingKeyOnly mode when key-only recents exist for the picked group', async () => {
             recents.actions.recordRecentFilter({
                 groupType: TaxonomicFilterGroupType.EventProperties,

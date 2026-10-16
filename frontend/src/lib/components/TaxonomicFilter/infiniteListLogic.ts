@@ -915,14 +915,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         minSearchQueryLength,
                     } = values
 
-                    if (!remoteEndpoint) {
-                        return createEmptyListStorage(searchQuery)
-                    }
-
                     if (
+                        !remoteEndpoint ||
                         (minSearchQueryLength > 0 && searchQuery.length < minSearchQueryLength) ||
                         values.group?.shouldSearch?.(searchQuery) === false
                     ) {
+                        cache.disposables.dispose('abortController')
+                        cache.abortController = null
                         return createEmptyListStorage(searchQuery)
                     }
 

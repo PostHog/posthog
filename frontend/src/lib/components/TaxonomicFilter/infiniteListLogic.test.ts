@@ -149,6 +149,46 @@ describe('infiniteListLogic', () => {
         }
     })
 
+    it('cancels a pending value search when the next query is gated', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/persons/values/': () => new Promise(() => {}),
+            },
+        })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]: true })
+        jest.useFakeTimers()
+        let list: ReturnType<typeof infiniteListLogic.build> | undefined
+        try {
+            list = logicWith({
+                listGroupType: TaxonomicFilterGroupType.EmailAddresses,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EmailAddresses],
+            })
+            list.actions.setSearchQuery('sample@')
+            await jest.advanceTimersByTimeAsync(600)
+            const previousController = list.cache.abortController
+            expect(previousController).not.toBeNull()
+            expect(previousController?.signal.aborted).toBe(false)
+
+            list.actions.setSearchQuery('sample')
+            await jest.advanceTimersByTimeAsync(600)
+            expect(previousController?.signal.aborted).toBe(true)
+            expect(list.cache.abortController).toBeNull()
+            expect(list.values.remoteItems).toMatchObject({ searchQuery: 'sample', results: [] })
+
+            await jest.advanceTimersByTimeAsync(31000)
+            expect(list.values.showErrorState).toBe(false)
+            expect(list.values.remoteItems).toMatchObject({ searchQuery: 'sample', results: [] })
+        } finally {
+            list?.unmount()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]: false,
+            })
+            featureFlagLogic.unmount()
+            jest.useRealTimers()
+        }
+    })
+
     it('shows loading while the dashboard list loads', async () => {
         let completeDashboardLoad!: () => void
         const dashboardLoad = new Promise<void>((resolve) => {

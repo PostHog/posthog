@@ -203,11 +203,15 @@ function resolveSuggestedFiltersGroup(
     substantiveGroupCount: number
 ): TaxonomicFilterGroupType[] {
     if (substantiveGroupCount === 1) {
-        const suggestedIdx = groupTypes.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
-        if (suggestedIdx === -1) {
+        if (!availableGroupTypes.has(TaxonomicFilterGroupType.SuggestedFilters)) {
             return groupTypes
         }
-        return [...groupTypes.slice(0, suggestedIdx), ...groupTypes.slice(suggestedIdx + 1)]
+        const withoutSuggested: TaxonomicFilterGroupType[] = groupTypes.filter(
+            (type) => type !== TaxonomicFilterGroupType.SuggestedFilters
+        )
+        const substantiveIdx = withoutSuggested.findIndex((type) => !META_GROUP_TYPES.has(type))
+        withoutSuggested.splice(substantiveIdx + 1, 0, TaxonomicFilterGroupType.SuggestedFilters)
+        return withoutSuggested
     }
 
     const shouldLeadWithSuggested =
@@ -2462,6 +2466,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     groupTypes.includes(propsGroupType)
                 ) {
                     return propsGroupType
+                }
+                const substantiveGroupTypes = groupTypes.filter((type) => !META_GROUP_TYPES.has(type))
+                if (substantiveGroupTypes.length === 1) {
+                    return substantiveGroupTypes[0]
                 }
                 // Otherwise lead with the All (Suggested filters) surface so reopening on an
                 // existing selection still shows recents/pinned + a cross-category search,
