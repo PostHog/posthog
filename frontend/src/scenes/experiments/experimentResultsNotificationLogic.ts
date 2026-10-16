@@ -46,7 +46,7 @@ export type experimentResultsNotificationLogicType = MakeLogicType<
 /**
  * Browser notification for the recalculation flow: the status bar's "Notify me" button opts in, and a
  * notification fires when the run finishes. Driven entirely by `experimentMetricsLogic.isRecalculating`
- * so it's decoupled from how results are loaded. The legacy equivalent still lives in experimentLogic.
+ * so it's decoupled from how results are loaded.
  */
 export const experimentResultsNotificationLogic = kea<experimentResultsNotificationLogicType>([
     props({} as ExperimentResultsNotificationLogicProps),

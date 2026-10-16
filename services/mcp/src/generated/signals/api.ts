@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 65 enabled ops
+ * PostHog API - MCP 66 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -240,7 +240,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per project to a ranker: the priority order, or the served ranking model's fixed head with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used."
+            "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fixed head of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used."
         ),
     source_id: zod
         .string()
@@ -384,6 +384,40 @@ export const SignalsReportsClaimBody = () => zod.object({
 })
 
 /**
+ * Record the thumbs rating at the end of a report, with an optional note. For browser-session requests the rating is persisted as a per-person report action, which counts as consumption evidence for the scout that authored the report (scouts whose output nobody consumes are eventually paused); requests authenticated any other way record no action. When a note is present and the report was authored by a scout, the note is also forwarded to that scout as a steering note it reads on its next run; for any other report there is nothing to steer. The report's state is never changed.
+ * @summary Leave feedback on a report
+ */
+export const SignalsReportsFeedbackCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReportsFeedbackCreateBodyNoteDefault = ``
+export const signalsReportsFeedbackCreateBodyNoteMax = 4000
+
+export const SignalsReportsFeedbackCreateBody = () => zod.object({
+    sentiment: zod
+        .union([
+            zod.enum(['positive', 'negative']).describe('\* `positive` - positive\n\* `negative` - negative'),
+            zod.null(),
+        ])
+        .describe(
+            "The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.\n\n\* `positive` - positive\n\* `negative` - negative"
+        ),
+    note: zod
+        .string()
+        .max(signalsReportsFeedbackCreateBodyNoteMax)
+        .default(signalsReportsFeedbackCreateBodyNoteDefault)
+        .describe(
+            'Free-form note explaining the rating. Capped at 4000 characters. Optional — a bare thumb carries none. When present and the report was authored by a scout, the note is forwarded to that scout as a steering note.'
+        ),
+})
+
+/**
  * Fold one or more duplicate reports into this report, which survives. The sources' signals, work-log artefacts, pull requests, task runs and checks move onto the survivor, the survivor's signal counters take on theirs, and each source is archived with a 'duplicate of' link back to the survivor. A source's open pull request stays open, because the survivor holds it after the move. Pick the survivor deliberately: prefer the older report, and prefer the one with an open implementation PR or an active claim. Any active claim on a source is released, so re-claim the survivor if you were working on one. Titles and summaries are not combined, so edit it afterwards if it needs a rewrite. A merged report keeps its URL but cannot be restored, because its signals now belong to the survivor.
  * @summary Merge duplicate reports into this one
  */
@@ -517,7 +551,7 @@ export const SignalsReportsStateCreateBody = () => zod.object({
 })
 
 /**
- * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). `suggested_reviewers` content is enriched with PostHog user info at read time.
+ * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). `suggested_reviewers` content is enriched with PostHog user info at read time. `ranking_score` content keeps only the head fields of each model's metadata; get the artefact by id for the full metadata.
  * @summary List a report's artefacts
  */
 export const SignalsReportArtefactsListParams = () => zod.object({
@@ -586,7 +620,7 @@ export const SignalsReportArtefactsCreateBody = () => zod
     )
 
 /**
- * Get one artefact by id, content parsed (and reviewers enriched) the same way as the list.
+ * Get one artefact by id, content parsed (and reviewers enriched) the same way as the list. A `ranking_score` keeps its full model metadata.
  * @summary Get a single artefact
  */
 export const SignalsReportArtefactsRetrieveParams = () => zod.object({
@@ -718,6 +752,12 @@ export const signalsReportChecksReplaceCreateBodyTitleMax = 200
 
 export const signalsReportChecksReplaceCreateBodyRationaleMax = 2000
 
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesExclusiveMin = 0
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesMax = 527040
+
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneExclusiveMin = 0
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneMax = 527040
+
 export const signalsReportChecksReplaceCreateBodyConfigOneUnitOneMax = 40
 
 export const SignalsReportChecksReplaceCreateBody = () => zod.object({
@@ -740,6 +780,46 @@ export const SignalsReportChecksReplaceCreateBody = () => zod.object({
                 .optional()
                 .describe(
                     'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.'
+                ),
+            monitoring: zod
+                .union([
+                    zod.object({
+                        reference_period_minutes: zod
+                            .number()
+                            .gt(
+                                signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesExclusiveMin
+                            )
+                            .max(signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesMax)
+                            .describe(
+                                'The period the comparison target describes, in minutes. Independent of the soak and run schedule.'
+                            ),
+                        threshold_scaling: zod
+                            .enum(['linear', 'fixed'])
+                            .describe(
+                                'How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes \/ reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution.'
+                            ),
+                        baseline_period_minutes: zod
+                            .union([
+                                zod
+                                    .number()
+                                    .gt(
+                                        signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneExclusiveMin
+                                    )
+                                    .max(
+                                        signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneMax
+                                    ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'The actual period measured by baseline_value, in minutes. Required when a baseline is supplied.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks."
                 ),
             comparison: zod
                 .object({
@@ -2151,7 +2231,7 @@ export const SignalsScoutNotesDestroyParams = () => zod.object({
 })
 
 /**
- * Return the team's deterministic project profile. The response opens with a compact `summary` envelope carrying the emit gate and the inbox report counts, then the full `payload`. The inventory runs to tens of kilobytes, so a client that truncates a long tool result still keeps the gate. Pass `summary_only=true` to omit `payload` entirely. For the internal scout token the response reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read callers (session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none has been built yet — they never trigger a rebuild. Read this at the start of a run to orient on the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface.
+ * Return the team's deterministic project profile. The response opens with a compact `summary` envelope carrying the emit gate and the inbox report counts, then the full `payload`. The inventory runs to tens of kilobytes, so a client that truncates a long tool result still keeps the gate. Pass `summary_only=true` to omit `payload` entirely. For the internal scout token the response reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read callers (session auth or a `signal_scout:read` PAK) get the newest stored profile whatever its age, with `stale=true` when it is past `expires_at`. They never build inline: when the team has no profile, the call starts a background build and returns 404, so retry in a minute. Read this at the start of a run to orient on the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface.
  * @summary Get the current project profile
  */
 export const SignalsScoutProjectProfileGetParams = () => zod.object({
@@ -3384,6 +3464,12 @@ export const signalsScoutReportCheckCreateBodyTitleMax = 200
 
 export const signalsScoutReportCheckCreateBodyRationaleMax = 2000
 
+export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesExclusiveMin = 0
+export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesMax = 527040
+
+export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneBaselinePeriodMinutesOneExclusiveMin = 0
+export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneBaselinePeriodMinutesOneMax = 527040
+
 export const signalsScoutReportCheckCreateBodyConfigOneOneUnitOneMax = 40
 
 export const signalsScoutReportCheckCreateBodyConfigOneTwoInstructionsMax = 2000
@@ -3427,6 +3513,48 @@ export const SignalsScoutReportCheckCreateBody = () => zod
                             .optional()
                             .describe(
                                 'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.'
+                            ),
+                        monitoring: zod
+                            .union([
+                                zod.object({
+                                    reference_period_minutes: zod
+                                        .number()
+                                        .gt(
+                                            signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesExclusiveMin
+                                        )
+                                        .max(
+                                            signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesMax
+                                        )
+                                        .describe(
+                                            'The period the comparison target describes, in minutes. Independent of the soak and run schedule.'
+                                        ),
+                                    threshold_scaling: zod
+                                        .enum(['linear', 'fixed'])
+                                        .describe(
+                                            'How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes \/ reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution.'
+                                        ),
+                                    baseline_period_minutes: zod
+                                        .union([
+                                            zod
+                                                .number()
+                                                .gt(
+                                                    signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneBaselinePeriodMinutesOneExclusiveMin
+                                                )
+                                                .max(
+                                                    signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneBaselinePeriodMinutesOneMax
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional()
+                                        .describe(
+                                            'The actual period measured by baseline_value, in minutes. Required when a baseline is supplied.'
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                "Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks."
                             ),
                         comparison: zod
                             .object({

@@ -861,6 +861,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
             evidence = self.client.get(f"{base}{report_id}/signals/")
             assert evidence.status_code == 200
             assert evidence.json()["signals"][0]["source_id"] == "synthetic-observation"
+            assert evidence.json()["signals"][0]["spend_accounting_failed_stages"] == []
             artefacts = self.client.get(f"{base}{report_id}/artefacts/")
             assert artefacts.status_code == 200
             assert artefacts.json()["count"] == detail.json()["artefact_count"]

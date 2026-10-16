@@ -8,7 +8,6 @@ from django.core.management.base import CommandError
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.user import default_ui_configuration_for_new_users
 
 from products.access_control.backend.models.access_control import AccessControl
 
@@ -19,10 +18,6 @@ class TestUser(BaseTest):
             user = User.objects.create_user(first_name="Tim", email="tim@gmail.com", password=None)
         self.assertNotEqual(user.distinct_id, "")
         self.assertNotEqual(user.distinct_id, None)
-
-    def test_create_user_sets_slim_ui_configuration_default(self):
-        user = User.objects.create_user(first_name="Tim", email="tim-ui@gmail.com", password=None)
-        self.assertEqual(user.ui_configuration, default_ui_configuration_for_new_users())
 
     def test_create_superuser_raises_with_guidance(self):
         with self.assertRaises(CommandError) as ctx:

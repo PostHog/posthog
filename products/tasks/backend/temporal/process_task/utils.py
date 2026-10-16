@@ -1742,28 +1742,55 @@ def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -
     }
 
 
-def _message_actor_cache_key(run_id: str, message_id: str) -> str:
-    return f"tasks:followup-actor:{run_id}:{message_id}"
+def _message_record_key(kind: str, run_id: str, message_id: str) -> str:
+    return f"tasks:followup-{kind}:{run_id}:{message_id}"
 
 
 # Bounds how long after delivery a turn can finish and still get exact
 # per-message attribution; longer turns fall back to the run-state actors.
-MESSAGE_ACTOR_TTL_SECONDS = 2 * 60 * 60
+DELIVERED_MESSAGE_TTL_SECONDS = 2 * 60 * 60
 
 
-def record_message_actor(run_id: str, message_id: str, slack_user_id: str) -> None:
-    """Correlate a delivered message with its sender's Slack id, so a relay
-    echoing the message id can tag the exact speaker it answers. The sandbox
-    only ever echoes an opaque id — resolution happens against actors this
-    server recorded itself, so a compromised sandbox cannot pick an arbitrary
-    mention target."""
-    get_tasks_cache().set(
-        _message_actor_cache_key(run_id, message_id), slack_user_id, timeout=MESSAGE_ACTOR_TTL_SECONDS
-    )
+def record_delivered_message(
+    run_id: str, message_id: str, *, actor_slack_user_id: str | None, person_message: str | None
+) -> None:
+    """Correlate a delivered message with its sender's Slack id and the sender's own words, so a
+    relay echoing the message id can tag the exact speaker it answers and offer replies that fit
+    what they asked. The sandbox only ever echoes an opaque id — resolution happens against values
+    this server recorded itself, so a compromised sandbox cannot pick an arbitrary mention target."""
+    records = {
+        _message_record_key(kind, run_id, message_id): value
+        for kind, value in (("actor", actor_slack_user_id), ("person-message", person_message))
+        if value
+    }
+    if records:
+        get_tasks_cache().set_many(records, timeout=DELIVERED_MESSAGE_TTL_SECONDS)
 
 
 def get_message_actor(run_id: str, message_id: str) -> str | None:
-    return get_tasks_cache().get(_message_actor_cache_key(run_id, message_id))
+    return get_tasks_cache().get(_message_record_key("actor", run_id, message_id))
+
+
+def turn_person_message(run_id: str | None, message_id: str | None, *, mention: str | None = None) -> str | None:
+    """What the person said to start the turn that answers ``message_id``.
+
+    ``mention`` is the message that opened the run, and only the run's first turn passes it: a later
+    turn never falls back to it, because the mention is not what that turn answers.
+    """
+    if run_id and message_id:
+        # The answer must still go out when the cache is down; the buttons then come from the answer alone.
+        try:
+            recorded = get_tasks_cache().get(_message_record_key("person-message", run_id, message_id))
+        except Exception:
+            logger.warning(
+                "turn_person_message_lookup_failed",
+                extra={"run_id": run_id, "message_id": message_id},
+                exc_info=True,
+            )
+            recorded = None
+        if isinstance(recorded, str) and recorded:
+            return recorded
+    return mention or None
 
 
 def slack_reply_target(task_run: TaskRun, mapping: SlackThreadTaskMapping | None, message_id: str | None) -> str | None:
