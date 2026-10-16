@@ -167,7 +167,7 @@ export const GroupedConnectionErrors: Story = {
                 name: 'Example campaigns',
                 sourceType: 'GoogleAds',
                 status: 'Needs attention',
-                detail: 'campaign: import disabled. Enable this table in the source’s Schemas tab.',
+                detail: 'campaign: import disabled. Enable this table in the source’s Schemas tab. campaign_overview_stats: sync failed. Review the error in the source’s Schemas tab.',
             },
             {
                 id: 'example-google-two',
@@ -189,6 +189,7 @@ export const GroupedConnectionErrors: Story = {
         const canvas = within(canvasElement)
         expect(await canvas.findByText('Example campaigns')).toBeVisible()
         expect(canvas.getByText('Example search')).toBeVisible()
+        expect(canvas.getByText(/campaign: import disabled.*campaign_overview_stats: sync failed/)).toBeVisible()
         expect(canvas.getByText('2 connections')).toBeVisible()
         expect(canvas.getAllByRole('link', { name: /Manage source/ })[0]).toHaveAttribute(
             'href',
