@@ -137,6 +137,12 @@ Carry evidence that a person can judge without re-deriving it: the metric, its c
 A subject line that lifts opens without lifting clicks moved attention, not behaviour, and whoever reads the outcome later should be able to see that.
 A rate without `n` is refused at create, and rightly.
 
+Write the rationale for the person who owns the workflow, not for a reviewer of your run.
+Keep it to four short sentences: what the step's numbers show, what you change, and why that change should move them.
+The evidence panel already shows the rate, `n`, the window and the counter-metrics, so do not repeat timestamps or restate every number.
+Never name your own mechanics: not the scout, not your review target or sample floor, not the scratchpad, not tool names.
+"Opens are 8% on 210 sends. The subject does not say what the email offers. Naming the offer lets people see why to open it." is the whole rationale.
+
 The panel reads your evidence back by name, and the API refuses anything it cannot read, so send these keys:
 
 ```json
@@ -146,7 +152,7 @@ The panel reads your evidence back by name, and the API refuses anything it cann
   "unit": "rate",
   "target_value": 0.2,
   "n": 208,
-  "window": "-7d",
+  "window": "2026-10-08T22:00:00Z/2026-10-15T22:00:00Z",
   "click_through": 0.0192,
   "guardrails": [
     { "metric": "email_bounced", "value": 0.0, "n": 208, "unit": "rate" },
@@ -157,6 +163,9 @@ The panel reads your evidence back by name, and the API refuses anything it cann
 
 `metric`, `current_value`, `unit`, `n` and `guardrails` are required, and every guardrail needs its own `unit`.
 Rates are fractions, never strings: `0.0865`, not `"8.65%"`.
+`window` is the interval you read, as `start/end` in UTC, the same closed days your numbers come from.
+PostHog reads that interval back when you file and shows its own numbers next to yours.
+A relative window such as `-7d` reaches up to now, so it counts sends you left out and the page tells the person your numbers are wrong.
 `unit` is `rate` or `count`, and it is not decoration: a value of 1.0 is either every message or one of them, and the panel shows a count of 1 as `1` only because you said so.
 A number under a key of your own naming (`current_open_rate`) is refused, because a person would otherwise read a well-evidenced suggestion as having no evidence at all.
 
