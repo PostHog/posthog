@@ -3,6 +3,7 @@ import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
+import { MCP_NO_DATA_INSTALL_NOTICE_FLAG } from '@/lib/no-data-guard'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -59,6 +60,7 @@ export interface ResolvedState {
     apiKeyScopes: string[]
     isImpersonated?: boolean
     suppressAnalytics?: boolean
+    projectHasData?: boolean | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -177,6 +179,7 @@ export class RequestStateResolver {
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
+                MCP_NO_DATA_INSTALL_NOTICE_FLAG,
             ]),
         ]
 
@@ -317,6 +320,7 @@ export class RequestStateResolver {
             apiKeyScopes,
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,
+            projectHasData: flagAnalyticsContext?.projectHasData,
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
@@ -454,13 +458,15 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Recruitment and intent experiments stay off so ordinary development keeps the default behavior.
+        // Recruitment, intent and no-data experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
             return {
                 flags: Object.fromEntries(
                     flagKeys.map((key) => [
                         key,
-                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG && key !== MCP_INTENT_PROMPT_FLAG,
+                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG &&
+                            key !== MCP_INTENT_PROMPT_FLAG &&
+                            key !== MCP_NO_DATA_INSTALL_NOTICE_FLAG,
                     ])
                 ),
                 payloads: {},

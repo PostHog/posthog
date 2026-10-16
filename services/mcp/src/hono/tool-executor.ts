@@ -9,6 +9,7 @@ import {
     toolResultAnalyticsProperties,
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
+import { isCloudApi } from '@/lib/constants'
 import {
     ExecCommandError,
     handleToolError,
@@ -27,6 +28,14 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import {
+    buildNoDataInstallNotice,
+    canQueryWarehouse,
+    isNoDataBlockedTool,
+    isNoDataNoticeActive,
+    MCP_NO_DATA_INSTALL_NOTICE_FLAG,
+    WIZARD_INSTALL_START_TOOL,
+} from '@/lib/no-data-guard'
 import { getPostHogClient } from '@/lib/posthog'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import {
@@ -293,6 +302,11 @@ export class ToolExecutor {
         if (!preBuilt) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
             return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+        }
+
+        const noDataNotice = await this.noDataInstallNotice(toolName, state)
+        if (noDataNotice) {
+            return this.returnNoDataNotice(toolName, noDataNotice, state, {}, analyticsMeta)
         }
 
         const tool = preBuilt.build()
@@ -623,6 +637,18 @@ export class ToolExecutor {
             }
         }
 
+        const innerToolName = parseExecCallInnerToolName(validation.data.command)
+        const noDataNotice = innerToolName ? await this.noDataInstallNotice(innerToolName, state) : undefined
+        if (innerToolName && noDataNotice) {
+            return this.returnNoDataNotice(
+                innerToolName,
+                noDataNotice,
+                state,
+                { ...execShape, ...execInputShape },
+                analyticsMeta
+            )
+        }
+
         const startMs = Date.now()
 
         // In single-exec mode every transport-level call is `exec`, so `$mcp_tool_name`
@@ -725,6 +751,60 @@ export class ToolExecutor {
                     isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool)
             )
         }
+    }
+
+    // Only roster tools are blocked, so an unknown or gated name keeps its usual error. Any unknown input runs the tool.
+    private async noDataInstallNotice(toolName: string, state: ResolvedState): Promise<string | undefined> {
+        if (
+            !isNoDataBlockedTool(toolName) ||
+            !isNoDataNoticeActive({
+                projectHasData: state.projectHasData,
+                variant: state.toolFeatureFlags?.[MCP_NO_DATA_INSTALL_NOTICE_FLAG],
+                isImpersonated: state.isImpersonated,
+                suppressAnalytics: state.suppressAnalytics,
+                apiKeyScopes: state.apiKeyScopes,
+                mcpConsumer: state.clientProfile.consumer,
+            }) ||
+            !state.allTools.some((tool) => tool.name === toolName)
+        ) {
+            return undefined
+        }
+        const projectId = await state.context.stateManager.getProjectId().catch(() => undefined)
+        if (!projectId) {
+            return undefined
+        }
+        if (canQueryWarehouse(toolName)) {
+            const hasWarehouseData = await state.context.stateManager
+                .getOrFetchHasWarehouseData(projectId)
+                .catch(() => undefined)
+            if (hasWarehouseData !== false) {
+                return undefined
+            }
+        }
+        return buildNoDataInstallNotice({
+            projectId,
+            offerGitHubInstall: isCloudApi() && state.allTools.some((tool) => tool.name === WIZARD_INSTALL_START_TOOL),
+        })
+    }
+
+    // A normal result, not an error, so the agent relays the guidance instead of retrying the call.
+    private returnNoDataNotice(
+        toolName: string,
+        text: string,
+        state: ResolvedState,
+        extraProperties: Record<string, unknown>,
+        analyticsMeta: ToolCallAnalyticsMeta | undefined
+    ): { content: { type: 'text'; text: string }[] } {
+        void trackToolCall(
+            toolName,
+            0,
+            false,
+            state,
+            { ...extraProperties, mcp_no_data_blocked: true },
+            analyticsMeta,
+            this.servedToolDescription(toolName)
+        )
+        return { content: [{ type: 'text', text }] }
     }
 
     /**

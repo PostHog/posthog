@@ -97,6 +97,9 @@ export function buildActiveEnvironmentContextPrompt(
     }
     if (project) {
         lines.push('For project settings such as the timezone, call `project-get` without an ID.')
+        if (project.ingested_event === false) {
+            lines.push('This project has not received any events yet, so queries on events return no data.')
+        }
         if (project.test_account_filters_default_checked) {
             lines.push(
                 'This project filters out internal and test users by default. `query-*` tools apply this automatically when `filterTestAccounts` is omitted; when composing queries for other tools (e.g. insight-create), set `filterTestAccounts: true` unless the user asks to include internal/test data.'
