@@ -106,8 +106,8 @@ def commits_on_master(shas: Iterable[str], repo: str = REPO) -> frozenset[str]:
     if not candidates:
         return frozenset()
     owner, name = repo.split("/")
-    # GitHub has answered IDENTICAL for a commit it does not have, so each comparison must also
-    # name the commit it compared before it counts.
+    # Without headTarget in the selection, GitHub answered IDENTICAL for a commit it does not
+    # have. Each comparison must also name the commit asked about before it counts.
     fields = " ".join(
         f'c{i}: compare(headRef: "{sha}") {{ status headTarget {{ oid }} }}' for i, sha in enumerate(candidates)
     )
