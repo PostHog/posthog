@@ -1,10 +1,11 @@
+import uuid
 import typing
 
 import pydantic
 import posthoganalytics
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 
 from posthog.schema import HogQLQueryModifiers
 
@@ -20,6 +21,14 @@ HOGQL_MODIFIERS_HELP_TEXT = (
     "export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object "
     "replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
 )
+
+
+def parse_path_uuid(value: object, detail: str | None = None) -> uuid.UUID:
+    """Return a UUID path parameter. A value that is not a UUID cannot name anything, so it is a 404."""
+    try:
+        return uuid.UUID(str(value))
+    except ValueError:
+        raise NotFound(detail)
 
 
 def check_hogql_batch_exports_enabled(team: Team) -> None:
