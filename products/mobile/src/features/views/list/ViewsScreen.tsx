@@ -13,7 +13,7 @@ import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { SearchField } from '@/ui/SearchField'
 import { StateView } from '@/ui/StateView'
-import { colors, layout, radii, type } from '@/ui/tokens'
+import { colors, layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { TABS_HEADER_BOTTOM } from '../../tabs/TabsHeader'
@@ -46,7 +46,6 @@ import { ChooseTileSheet, type ChooseTileTarget } from './ChooseTileSheet'
 import { EditPinsList } from './EditPinsList'
 import { EmptyPins } from './EmptyPins'
 import { PinCard } from './PinCard'
-import { SwipeRow } from './SwipeRow'
 import { usePinFlows } from './usePinFlows'
 import { type GroupPosition, groupPosition, ViewRow } from './ViewRow'
 import { PinMenu, RowMenu } from './ViewsMenu'
@@ -269,11 +268,8 @@ function ViewsBody(): ReactElement {
     const rowHandlers = useMemo(() => {
         const handlers = (entry: ViewEntry) => ({
             onOpen: (view: ListView) => openView(view, entry),
-            onTogglePin: (view: ListView, how: 'button' | 'swipe') =>
-                latest.current.flows.togglePin(
-                    view,
-                    entry === 'search' ? 'search' : how === 'swipe' ? 'swipe' : 'row_menu'
-                ),
+            onTogglePin: (view: ListView) =>
+                latest.current.flows.togglePin(view, entry === 'search' ? 'search' : 'row_menu'),
             onMenu: (view: ListView, anchor: RowAnchor) => setMenu({ kind: 'row', view, entry, anchor }),
         })
         return { recent: handlers('recent'), search: handlers('search') }
@@ -401,36 +397,21 @@ function ViewsBody(): ReactElement {
     const renderItem = useCallback(
         ({ item }: { item: ListItem }): ReactElement | null => {
             switch (item.type) {
-                case 'pin': {
-                    const card = (
-                        <PinCard
-                            pin={item.pin}
-                            index={item.index}
-                            demo={demo}
-                            onOpen={openPin}
-                            onMenu={openPinMenu}
-                            onChooseTile={chooseTileFromCard}
-                            onUnpin={unpinFromCard}
-                            onPressTooltip={openPinPoint}
-                        />
-                    )
+                case 'pin':
                     return (
                         <View style={!item.last && styles.pinGap}>
-                            {/* A Chart pin's plot takes horizontal drags, so only the long-press menu unpins it. */}
-                            {item.pin.display.mode === 'chart' && item.pin.native ? (
-                                card
-                            ) : (
-                                <SwipeRow
-                                    action="unpin"
-                                    onAction={() => unpinPin(item.pin, latest.current.searching ? 'search' : 'swipe')}
-                                    style={styles.pinSwipe}
-                                >
-                                    {card}
-                                </SwipeRow>
-                            )}
+                            <PinCard
+                                pin={item.pin}
+                                index={item.index}
+                                demo={demo}
+                                onOpen={openPin}
+                                onMenu={openPinMenu}
+                                onChooseTile={chooseTileFromCard}
+                                onUnpin={unpinFromCard}
+                                onPressTooltip={openPinPoint}
+                            />
                         </View>
                     )
-                }
                 case 'empty-pins':
                     return <EmptyPins />
                 case 'note':
@@ -469,7 +450,6 @@ function ViewsBody(): ReactElement {
             chooseTileFromCard,
             unpinFromCard,
             openPinPoint,
-            unpinPin,
             rowHandlers,
             pinnedKeys,
             openBrowse,
@@ -771,9 +751,6 @@ const styles = StyleSheet.create({
     },
     pinGap: {
         marginBottom: 8,
-    },
-    pinSwipe: {
-        borderRadius: radii.option,
     },
     note: {
         ...type.meta,

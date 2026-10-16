@@ -130,8 +130,7 @@ function BrowseList({ kind, list }: { kind: BrowseKind; list: BrowseListState })
         [search.active]
     )
     const togglePin = useCallback(
-        (row: BrowseRow, how: 'button' | 'swipe') =>
-            latest.current.flows.togglePin(row, search.active ? 'search' : how === 'swipe' ? 'swipe' : 'row_menu'),
+        (row: BrowseRow) => latest.current.flows.togglePin(row, search.active ? 'search' : 'row_menu'),
         [search.active]
     )
     const openMenu = useCallback((row: BrowseRow, anchor: RowAnchor) => setMenu({ row, anchor }), [])

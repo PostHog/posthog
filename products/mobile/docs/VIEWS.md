@@ -101,8 +101,7 @@ A pin whose tile is gone (its insight answers 404, or the cached dashboard no lo
 
 - Long press any pin for its menu: Show as Row, Number or Chart, Choose tile (dashboards), Move up, Move down, Unpin.
 - Long press a Recent, Browse or search row for Pin to Views (or Unpin) and Open.
-- Swipe a row left for Pin or Unpin. Chart pins have no swipe, because their plot takes horizontal drags.
-- Every Recent, Browse and search row has a pin button.
+- Every Recent, Browse and search row has a pin button. Tap it to pin or unpin the view; rows have no swipe action.
 - "Edit pins" (the More menu's Views section, or Edit next to Pinned) lists the pins with a remove button, a Row, Number and Chart toggle, and a drag handle. Screen readers move a pin with the handle's actions. It sends `mobile_edit_pins_opened` (`from`: `section` or `menu`; `pin_count`) and `mobile_edit_pins_closed` (`reason`: `done` or `no_pins`; `changes`, the number of reorders, moves, mode changes and removals; `duration_s`).
 
 Order and modes go to the device-local prefs through `usePinActions` (`move`, `reorder`, `setDisplayMode`, `chooseTile`). The app never writes the server's `order`.

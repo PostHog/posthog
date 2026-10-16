@@ -12,8 +12,9 @@ export function EmptyPins(): ReactElement {
                 <PinIcon size={20} color={colors.blue} />
             </View>
             <Text style={styles.title}>Nothing pinned yet</Text>
-            <Text style={styles.body}>Pin the views you check often. They stay at the top.</Text>
-            <Text style={styles.body}>Tap the pin on any dashboard or insight, or swipe left on a view below.</Text>
+            <Text style={styles.body}>
+                Tap the pin on any dashboard or insight to pin them to the top of the Views page.
+            </Text>
         </View>
     )
 }

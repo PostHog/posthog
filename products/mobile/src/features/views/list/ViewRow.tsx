@@ -7,7 +7,6 @@ import { PinIcon } from '@/ui/icons/PinIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { colors, radii, type } from '@/ui/tokens'
 
-import { SwipeRow } from './SwipeRow'
 import { useMenuTrigger } from './useMenuTrigger'
 import { ViewIcon } from './viewMeta'
 
@@ -35,19 +34,14 @@ export function GroupFrame({ position, children }: { position: GroupPosition; ch
     return <View style={[styles.frame, CORNERS[position]]}>{children}</View>
 }
 
-export function groupCorners(position: GroupPosition): ViewStyle {
-    const { borderTopWidth: _top, borderBottomWidth: _bottom, ...corners } = CORNERS[position]
-    return corners
-}
-
 interface ViewRowProps<T extends ViewRef> {
     view: T
     meta: string | null
     position: GroupPosition
-    /** Null hides the pin button and the swipe, for views only the web can pin. */
+    /** Null hides the pin button for views only the web can pin. */
     pinned: boolean | null
     onOpen: (view: T) => void
-    onTogglePin: (view: T, how: 'button' | 'swipe') => void
+    onTogglePin: (view: T) => void
     onMenu: (view: T, anchor: RowAnchor) => void
     testID: string
 }
@@ -65,56 +59,45 @@ function ViewRowInner<T extends ViewRef>({
     const menu = useMenuTrigger(view, onMenu)
     return (
         <GroupFrame position={position}>
-            <SwipeRow
-                action={pinned ? 'unpin' : 'pin'}
-                enabled={pinned !== null}
-                onAction={() => onTogglePin(view, 'swipe')}
-                style={groupCorners(position)}
-                testID={testID}
-            >
-                <View
-                    ref={menu.ref}
-                    style={[styles.row, position !== 'first' && position !== 'only' && styles.divider]}
+            <View ref={menu.ref} style={[styles.row, position !== 'first' && position !== 'only' && styles.divider]}>
+                <Pressable44
+                    onPress={() => onOpen(view)}
+                    onLongPress={menu.onLongPress}
+                    accessibilityActions={menu.accessibilityActions}
+                    onAccessibilityAction={menu.onAccessibilityAction}
+                    accessibilityLabel={meta ? `${view.name}, ${meta}` : view.name}
+                    pressedBackground={colors.sunken}
+                    style={styles.open}
+                    testID={testID}
                 >
-                    <Pressable44
-                        onPress={() => onOpen(view)}
-                        onLongPress={menu.onLongPress}
-                        accessibilityActions={menu.accessibilityActions}
-                        onAccessibilityAction={menu.onAccessibilityAction}
-                        accessibilityLabel={meta ? `${view.name}, ${meta}` : view.name}
-                        pressedBackground={colors.sunken}
-                        style={styles.open}
-                        testID={testID}
-                    >
-                        <View style={styles.iconTile}>
-                            <ViewIcon kind={view.kind} size={17} />
-                        </View>
-                        <View style={styles.text}>
-                            <Text style={styles.title} numberOfLines={1}>
-                                {view.name}
+                    <View style={styles.iconTile}>
+                        <ViewIcon kind={view.kind} size={17} />
+                    </View>
+                    <View style={styles.text}>
+                        <Text style={styles.title} numberOfLines={1}>
+                            {view.name}
+                        </Text>
+                        {meta ? (
+                            <Text style={styles.meta} numberOfLines={1}>
+                                {meta}
                             </Text>
-                            {meta ? (
-                                <Text style={styles.meta} numberOfLines={1}>
-                                    {meta}
-                                </Text>
-                            ) : null}
-                        </View>
+                        ) : null}
+                    </View>
+                </Pressable44>
+                {pinned !== null ? (
+                    <Pressable44
+                        onPress={() => onTogglePin(view)}
+                        accessibilityLabel={pinned ? `Unpin ${view.name}` : `Pin ${view.name}`}
+                        accessibilityState={{ checked: pinned }}
+                        pressedBackground={colors.background}
+                        hitSlop={0}
+                        style={styles.pinButton}
+                        testID={`${testID}-pin`}
+                    >
+                        <PinIcon size={20} filled={pinned} color={pinned ? colors.ink : colors.secondary} />
                     </Pressable44>
-                    {pinned !== null ? (
-                        <Pressable44
-                            onPress={() => onTogglePin(view, 'button')}
-                            accessibilityLabel={pinned ? `Unpin ${view.name}` : `Pin ${view.name}`}
-                            accessibilityState={{ checked: pinned }}
-                            pressedBackground={colors.background}
-                            hitSlop={0}
-                            style={styles.pinButton}
-                            testID={`${testID}-pin`}
-                        >
-                            <PinIcon size={20} filled={pinned} color={pinned ? colors.ink : colors.secondary} />
-                        </Pressable44>
-                    ) : null}
-                </View>
-            </SwipeRow>
+                ) : null}
+            </View>
         </GroupFrame>
     )
 }
@@ -123,6 +106,7 @@ export const ViewRow = memo(ViewRowInner) as typeof ViewRowInner
 
 const styles = StyleSheet.create({
     frame: {
+        overflow: 'hidden',
         backgroundColor: colors.white,
         borderColor: colors.hairline,
         borderLeftWidth: 1,
