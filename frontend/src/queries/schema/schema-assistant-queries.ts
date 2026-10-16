@@ -1825,6 +1825,17 @@ export interface AssistantInsightVizNode {
     kind: NodeKind.InsightVizNode
     /** Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery */
     source: Record<string, any>
+    /** Chart rendering options. */
+    vizSpecificOptions?: AssistantVizSpecificOptions
+}
+
+export interface AssistantPieChartOptions {
+    /** Hide the total on a pie chart. */
+    hideAggregation?: boolean
+}
+
+export interface AssistantVizSpecificOptions {
+    ActionsPie?: AssistantPieChartOptions
 }
 
 /**
@@ -1865,7 +1876,7 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
     /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
     yAxisPosition?: 'left' | 'right'
     /**
-     * Override this series to mix chart types, such as bars and lines. `auto` uses the chart's display type.
+     * Chart type. `auto` uses `display`.
      */
     displayType?: 'auto' | 'line' | 'bar' | 'area'
     /** Draw a linear trend line for this series. Only meaningful for line, bar, and area charts. */
