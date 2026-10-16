@@ -6628,6 +6628,8 @@ export namespace Schemas {
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -6718,7 +6720,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -8350,7 +8356,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -8383,6 +8393,8 @@ export namespace Schemas {
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -8468,7 +8480,11 @@ export namespace Schemas {
       offset?: number | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -8506,7 +8522,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -9434,7 +9454,11 @@ export namespace Schemas {
       offset?: number | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -9540,7 +9564,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -92500,7 +92528,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -92533,6 +92565,8 @@ export namespace Schemas {
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -92618,7 +92652,11 @@ export namespace Schemas {
       offset?: number | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -92645,7 +92683,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -93047,7 +93089,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -93080,6 +93126,8 @@ export namespace Schemas {
       /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
       preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -93165,7 +93213,11 @@ export namespace Schemas {
       offset?: number | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -93192,7 +93244,11 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
       preComputeIneligibleReason?: string | null;
+      /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+      preComputeStale?: boolean | null;
       preComputeStrategy?: WebAnalyticsPreComputeStrategy | null;
+      /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+      preComputedAt?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
