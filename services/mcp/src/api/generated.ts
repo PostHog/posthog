@@ -17369,6 +17369,26 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export type BehavioralFilterTimeInterval = typeof BehavioralFilterTimeInterval[keyof typeof BehavioralFilterTimeInterval] | null;
+
+
+    export const BehavioralFilterTimeInterval = {
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Year: 'year',
+    } as const;
+
+    export type BehavioralFilterSeqTimeInterval = typeof BehavioralFilterSeqTimeInterval[keyof typeof BehavioralFilterSeqTimeInterval] | null;
+
+
+    export const BehavioralFilterSeqTimeInterval = {
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Year: 'year',
+    } as const;
+
     export type EventPropFilterTypeEnum = typeof EventPropFilterTypeEnum[keyof typeof EventPropFilterTypeEnum];
 
 
@@ -17399,11 +17419,11 @@ export namespace Schemas {
       value: string;
       event_type: string;
       time_value?: number | null;
-      time_interval?: string | null;
+      time_interval?: BehavioralFilterTimeInterval;
       negation?: boolean;
       operator?: string | null;
       operator_value?: number | null;
-      seq_time_interval?: string | null;
+      seq_time_interval?: BehavioralFilterSeqTimeInterval;
       seq_time_value?: number | null;
       seq_event?: string | number | null;
       seq_event_type?: string | null;

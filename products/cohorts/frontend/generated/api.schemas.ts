@@ -124,6 +124,28 @@ export const PropertyGroupOperatorEnumApi = {
     Or: 'OR',
 } as const
 
+export type BehavioralFilterApiTimeInterval =
+    | (typeof BehavioralFilterApiTimeInterval)[keyof typeof BehavioralFilterApiTimeInterval]
+    | null
+
+export const BehavioralFilterApiTimeInterval = {
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Year: 'year',
+} as const
+
+export type BehavioralFilterApiSeqTimeInterval =
+    | (typeof BehavioralFilterApiSeqTimeInterval)[keyof typeof BehavioralFilterApiSeqTimeInterval]
+    | null
+
+export const BehavioralFilterApiSeqTimeInterval = {
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Year: 'year',
+} as const
+
 export type EventPropFilterTypeEnumApi = (typeof EventPropFilterTypeEnumApi)[keyof typeof EventPropFilterTypeEnumApi]
 
 export const EventPropFilterTypeEnumApi = {
@@ -153,11 +175,11 @@ export interface BehavioralFilterApi {
     value: string
     event_type: string
     time_value?: number | null
-    time_interval?: string | null
+    time_interval?: BehavioralFilterApiTimeInterval
     negation?: boolean
     operator?: string | null
     operator_value?: number | null
-    seq_time_interval?: string | null
+    seq_time_interval?: BehavioralFilterApiSeqTimeInterval
     seq_time_value?: number | null
     seq_event?: string | number | null
     seq_event_type?: string | null

@@ -78,13 +78,17 @@ export const CohortsCreateBody = () => zod.object({
                                     value: zod.string(),
                                     event_type: zod.string(),
                                     time_value: zod.union([zod.number(), zod.null()]).optional(),
-                                    time_interval: zod.union([zod.string(), zod.null()]).optional(),
+                                    time_interval: zod
+                                        .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                        .optional(),
                                     negation: zod
                                         .boolean()
                                         .default(cohortsCreateBodyFiltersOnePropertiesValuesItemOneNegationDefault),
                                     operator: zod.union([zod.string(), zod.null()]).optional(),
                                     operator_value: zod.union([zod.number(), zod.null()]).optional(),
-                                    seq_time_interval: zod.union([zod.string(), zod.null()]).optional(),
+                                    seq_time_interval: zod
+                                        .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                        .optional(),
                                     seq_time_value: zod.union([zod.number(), zod.null()]).optional(),
                                     seq_event: zod.union([zod.string(), zod.number(), zod.null()]).optional(),
                                     seq_event_type: zod.union([zod.string(), zod.null()]).optional(),
@@ -239,7 +243,9 @@ export const CohortsPartialUpdateBody = () => zod.object({
                                     value: zod.string(),
                                     event_type: zod.string(),
                                     time_value: zod.union([zod.number(), zod.null()]).optional(),
-                                    time_interval: zod.union([zod.string(), zod.null()]).optional(),
+                                    time_interval: zod
+                                        .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                        .optional(),
                                     negation: zod
                                         .boolean()
                                         .default(
@@ -247,7 +253,9 @@ export const CohortsPartialUpdateBody = () => zod.object({
                                         ),
                                     operator: zod.union([zod.string(), zod.null()]).optional(),
                                     operator_value: zod.union([zod.number(), zod.null()]).optional(),
-                                    seq_time_interval: zod.union([zod.string(), zod.null()]).optional(),
+                                    seq_time_interval: zod
+                                        .union([zod.enum(['day', 'week', 'month', 'year']), zod.null()])
+                                        .optional(),
                                     seq_time_value: zod.union([zod.number(), zod.null()]).optional(),
                                     seq_event: zod.union([zod.string(), zod.number(), zod.null()]).optional(),
                                     seq_event_type: zod.union([zod.string(), zod.null()]).optional(),

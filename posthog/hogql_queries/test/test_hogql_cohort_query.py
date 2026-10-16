@@ -6,10 +6,25 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
 from posthog.clickhouse.client import sync_execute
-from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery, validate_interval
 
 from products.cohorts.backend.models.cohort import Cohort
+
+
+class TestValidateInterval(SimpleTestCase):
+    @parameterized.expand([("day", "day"), ("days", "day"), ("weeks", "week"), ("hours", "hour")])
+    def test_accepts_singular_and_plural(self, interval: str, expected: str) -> None:
+        assert validate_interval(interval) == expected  # type: ignore[arg-type]
+
+    @parameterized.expand([(None,), ("fortnight",), ("s",)])
+    def test_rejects_unknown(self, interval: str | None) -> None:
+        with self.assertRaises(ValueError):
+            validate_interval(interval)  # type: ignore[arg-type]
 
 
 class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):

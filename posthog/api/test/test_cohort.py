@@ -17,11 +17,12 @@ from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.client import Client
 from django.utils import timezone
 
 from parameterized import parameterized
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import status
 
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
@@ -6473,6 +6474,43 @@ email@example.org,
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("too much memory", response.json()["last_error_message"].lower())
+
+
+class TestBehavioralFilterInterval(SimpleTestCase):
+    @staticmethod
+    def _filters(**interval: str) -> dict[str, Any]:
+        behavioral = {
+            "key": "$pageview",
+            "type": "behavioral",
+            "value": "performed_event_first_time",
+            "event_type": "events",
+            "time_value": 30,
+            "seq_time_value": 7,
+            **interval,
+        }
+        return {"properties": {"type": "OR", "values": [behavioral]}}
+
+    @parameterized.expand(
+        [
+            ("singular", "day", "week", "day", "week"),
+            ("plural", "days", "months", "day", "month"),
+        ]
+    )
+    def test_accepts_interval(
+        self, _name: str, time_interval: str, seq_time_interval: str, expected: str, expected_seq: str
+    ) -> None:
+        validated = CohortFilters.model_validate(
+            self._filters(time_interval=time_interval, seq_time_interval=seq_time_interval)
+        ).model_dump(exclude_none=True)
+
+        behavioral = validated["properties"]["values"][0]
+        assert behavioral["time_interval"] == expected
+        assert behavioral["seq_time_interval"] == expected_seq
+
+    @parameterized.expand([("time_interval",), ("seq_time_interval",)])
+    def test_rejects_unknown_interval(self, field: str) -> None:
+        with self.assertRaises(PydanticValidationError):
+            CohortFilters.model_validate(self._filters(**{field: "fortnight"}))
 
 
 class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):

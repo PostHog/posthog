@@ -20,6 +20,7 @@ from pydantic import (
     BaseModel,
     Field,
     ValidationError as PydanticValidationError,
+    field_validator,
     model_validator,
 )
 from rest_framework import request, serializers, status, viewsets
@@ -77,7 +78,12 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
-from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS, Property
+from posthog.models.property.property import (
+    STRING_PREFIX_SUFFIX_OPERATORS,
+    OperatorInterval,
+    Property,
+    singular_interval,
+)
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
@@ -347,11 +353,11 @@ class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     value: str
     event_type: str
     time_value: int | None = None
-    time_interval: str | None = None
+    time_interval: OperatorInterval | None = None
     negation: bool = False
     operator: str | None = None
     operator_value: int | None = None
-    seq_time_interval: str | None = None
+    seq_time_interval: OperatorInterval | None = None
     seq_time_value: int | None = None
     seq_event: Union[str, int] | None = None  # Allow both string and int for seq_event
     seq_event_type: str | None = None
@@ -360,6 +366,11 @@ class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     event_filters: list[Union[EventPropFilter, HogQLFilter]] | None = None
     explicit_datetime: str | None = None
     explicit_datetime_to: str | None = None
+
+    @field_validator("time_interval", "seq_time_interval", mode="before")
+    @classmethod
+    def _singular_interval(cls, value: Any) -> Any:
+        return singular_interval(value)
 
 
 class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
