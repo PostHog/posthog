@@ -18,6 +18,7 @@ import { TasksListOrdering } from 'products/tasks/frontend/generated/api.schemas
 import type { UserType } from '../../../../frontend/src/types'
 import { loadErrorMessage } from '../lib/load-error'
 import { OriginProduct, Task, TaskAssigneeFilter, TaskListParams, TaskUpsertProps } from '../types/taskTypes'
+import { taskEventsLogic } from './taskEventsLogic'
 import { taskHistoryLogic } from './taskHistoryLogic'
 
 function hasTasksFlag(featureFlags: FeatureFlagsSet): boolean {
@@ -484,6 +485,7 @@ export const tasksLogic = kea<tasksLogicType>([
                 if (payload) {
                     taskHistoryLogic.findMounted()?.actions.taskArchived(payload.taskId)
                 }
+                taskEventsLogic.findMounted()?.actions.taskDeleted()
             },
             renameTaskFailure: ({ error, errorObject }) => {
                 lemonToast.error(`Couldn't rename the task: ${loadErrorMessage(error, errorObject)}`)
