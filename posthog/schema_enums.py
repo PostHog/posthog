@@ -829,6 +829,11 @@ class ChartDisplayType(StrEnum):
     SCATTER_PLOT = "ScatterPlot"
 
 
+class ValueLabelPosition(StrEnum):
+    END = "end"
+    CENTER = "center"
+
+
 class Curve(StrEnum):
     LINEAR = "linear"
     SMOOTH = "smooth"
