@@ -4,7 +4,7 @@ use common_kafka_consumer::{Offset, Rejection, TopicOffsetLedger, TopicPartition
 use metrics::counter;
 use tracing::warn;
 
-use super::{hand_over_frontier, ChargedSlice, Settlement};
+use super::{ChargedSlice, Settlement};
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
 
@@ -78,7 +78,11 @@ fn settle_slices(
             continue;
         };
         outcome.settled += 1;
-        if frontier.is_some() && hand_over_frontier(ledger, pacer, slice.topic_partition) {
+        if frontier.is_none() {
+            continue;
+        }
+        if let Some(taken) = ledger.take_frontier(slice.topic_partition) {
+            pacer.advance_frontier(slice.topic_partition, taken);
             outcome.advanced += 1;
         }
     }

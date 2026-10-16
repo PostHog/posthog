@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_kafka_consumer::{Charge, Offset, TopicOffsetLedger, TopicPartition};
-use tracing::warn;
 
 use crate::commit_pacer::CommitPacer;
 use crate::config::CompletionGranularity;
@@ -42,28 +41,6 @@ pub(crate) fn for_granularity(
         CompletionGranularity::Poll => Arc::new(PollSettlement::new(ledger)),
         CompletionGranularity::Group => Arc::new(GroupSettlement::new(ledger, commit_interval)),
     }
-}
-
-fn hand_over_frontier(
-    ledger: &TopicOffsetLedger,
-    pacer: &CommitPacer,
-    topic_partition: &TopicPartition,
-) -> bool {
-    let Some(taken) = ledger.take_frontier(topic_partition) else {
-        return false;
-    };
-    if taken.gap_offset_count > 0 {
-        warn!(
-            topic = %topic_partition.topic,
-            partition = topic_partition.partition,
-            window_base = taken.first.0,
-            frontier = taken.offset.0,
-            gap_offsets = taken.gap_offset_count,
-            "Commit frontier walked over offsets Kafka never delivered"
-        );
-    }
-    pacer.advance_frontier(topic_partition, taken);
-    true
 }
 
 #[cfg(test)]

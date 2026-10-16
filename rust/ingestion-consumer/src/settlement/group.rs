@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use common_kafka_consumer::{Offset, TopicOffsetLedger, TopicPartition};
 
-use super::{hand_over_frontier, ChargedSlice, Settlement};
+use super::{ChargedSlice, Settlement};
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
 use crate::order_sentinel::OffsetSpan;
@@ -29,7 +29,9 @@ impl Settlement for GroupSettlement {
             .settle(topic_partition, generation, offsets.iter().copied())
         {
             Ok(Some(_)) => {
-                hand_over_frontier(&self.ledger, &self.pacer, topic_partition);
+                if let Some(taken) = self.ledger.take_frontier(topic_partition) {
+                    self.pacer.advance_frontier(topic_partition, taken);
+                }
             }
             Ok(None) => {}
             Err(rejection) => warn_rejection(
