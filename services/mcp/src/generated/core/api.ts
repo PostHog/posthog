@@ -2763,7 +2763,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .boolean()
                     .optional()
                     .describe(
-                        'Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails keep their current values.'
+                        'Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults.'
                     ),
                 email_utm_params: zod
                     .object({
@@ -5547,7 +5547,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .boolean()
                     .optional()
                     .describe(
-                        'Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails keep their current values.'
+                        'Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults.'
                     ),
                 email_utm_params: zod
                     .object({
