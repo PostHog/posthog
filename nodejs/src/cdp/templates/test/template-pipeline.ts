@@ -21,6 +21,7 @@ import { EmailService } from '../../services/messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../../services/messaging/recipient-tokens.service'
 import {
+    CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     GroupType,
@@ -34,6 +35,7 @@ import { buildHogFunctionInvocations } from '../../utils/invocation-utils'
 import { PosthogJwtAudience } from '../../utils/jwt-utils'
 import { ScopedServiceJwt } from '../../utils/scoped-service-jwt'
 import { compileHog, compileHogTemplate } from '../compiler'
+import { KafkaQueueHandoff } from './kafka-queue-handoff'
 
 export type TemplateCase = {
     name: string
@@ -119,9 +121,31 @@ export const casesFor = (templates: HogFunctionTemplate[]): TemplateCase[] =>
                 : [{ name: template.id, template }]
         )
 
+export type QueuedJob = {
+    teamId: number
+    /** Stands in for the stored function row, which the worker loads by id. */
+    hogFunction: HogFunctionType
+    /** Stands in for the groups the worker loads again, because the queue strips them. */
+    groups: HogFunctionInvocationGlobals['groups']
+    secrets: Record<string, string>
+    integrationCredentials: string[]
+    buildErrors: string[]
+    messages: string[]
+}
+
+const loadedByWorker = (invocation: CyclotronJobInvocation, job: QueuedJob): CyclotronJobInvocationHogFunction => {
+    const state = invocation.state as CyclotronJobInvocationHogFunction['state']
+    return {
+        ...invocation,
+        state: { ...state, globals: { ...state.globals, groups: job.groups } },
+        hogFunction: job.hogFunction,
+    }
+}
+
 export class TemplatePipeline {
     private requests: OutgoingRequest[] = []
     private response: ResponseScenario = { status: 200, body: {} }
+    private handoff?: KafkaQueueHandoff
 
     private constructor(
         private hub: Hub,
@@ -204,14 +228,12 @@ export class TemplatePipeline {
         this.requests = []
         this.response = response
 
-        const { hogFunction, integrationSecrets } = await this.createHogFunction(templateCase, options)
-        const globals = this.globalsFor(templateCase, options.entry ?? INVENTED_CORPUS[0])
-        const secrets = { ...secretInputs(hogFunction), ...integrationSecrets }
+        const { hogFunction, globals, secrets, integrationCredentials } = await this.prepare(templateCase, options)
         const evidence = {
             requests: this.requests,
             secrets,
             sensitiveValues: Object.values(secrets),
-            integrationCredentials: Object.values(integrationSecrets),
+            integrationCredentials,
         }
 
         if (hogFunction.type === 'transformation') {
@@ -235,7 +257,10 @@ export class TemplatePipeline {
         if (invocations.length !== 1) {
             invocationErrors.push(`expected 1 invocation, got ${invocations.length}`)
         }
-        const { result, thrown } = invocations.length === 1 ? await this.execute(invocations[0]) : {}
+        const { result, thrown } =
+            invocations.length === 1
+                ? await this.execute(invocations[0], { maxAsyncFunctions: MAX_ASYNC_FUNCTIONS })
+                : {}
 
         return {
             invocationErrors,
@@ -246,15 +271,104 @@ export class TemplatePipeline {
         }
     }
 
+    async queueJob(templateCase: TemplateCase, entry: CorpusEntry): Promise<QueuedJob> {
+        const { hogFunction, globals, secrets, integrationCredentials } = await this.prepare(templateCase, { entry })
+        const { invocations, buildFailures } = await buildHogFunctionInvocations(
+            this.hogInputsService,
+            [hogFunction],
+            globals
+        )
+        const buildErrors = buildFailures.map((failure) => `${failure.step}: ${failure.error}`)
+        if (invocations.length !== 1) {
+            buildErrors.push(`expected 1 invocation, got ${invocations.length}`)
+        }
+        const messages = await (await this.kafkaHandoff()).queue(invocations)
+
+        return {
+            teamId: this.team.id,
+            hogFunction,
+            groups: globals.groups,
+            secrets,
+            integrationCredentials,
+            buildErrors,
+            messages: messages.map((message) => message.toString('base64')),
+        }
+    }
+
+    async runQueuedJob(job: QueuedJob, response: ResponseScenario): Promise<PipelineRun> {
+        this.requests = []
+        this.response = response
+        const handoff = await this.kafkaHandoff()
+        const invocationErrors = [...job.buildErrors]
+        const printedOutput: string[] = []
+        let messages: Buffer[] = job.messages.map((message) => Buffer.from(message, 'base64'))
+        let execution: { result?: CyclotronJobInvocationResult; thrown?: string } = {}
+
+        for (let pickup = 1; messages.length > 0; pickup++) {
+            if (pickup > MAX_ASYNC_FUNCTIONS) {
+                invocationErrors.push(`still queued after ${MAX_ASYNC_FUNCTIONS} pickups`)
+                break
+            }
+            const invocations = await handoff.consume(messages).catch((error) => {
+                invocationErrors.push(`consuming the queued job threw: ${String(error)}`)
+                return null
+            })
+            if (!invocations) {
+                break
+            }
+            if (invocations.length !== 1) {
+                invocationErrors.push(`expected 1 queued invocation, got ${invocations.length}`)
+                break
+            }
+            // The worker passes no options, so each pickup runs at most one queued async function.
+            execution = await this.execute(loadedByWorker(invocations[0], job))
+            if (!execution.result) {
+                break
+            }
+            printedOutput.push(...execution.result.logs.map((log) => log.message))
+            messages = await handoff.requeue([execution.result])
+        }
+
+        return {
+            invocationErrors,
+            ...execution,
+            printedOutput,
+            requests: this.requests,
+            secrets: job.secrets,
+            sensitiveValues: Object.values(job.secrets),
+            integrationCredentials: job.integrationCredentials,
+        }
+    }
+
+    private async prepare(
+        templateCase: TemplateCase,
+        options: RunOptions
+    ): Promise<{
+        hogFunction: HogFunctionType
+        globals: HogFunctionInvocationGlobals
+        secrets: Record<string, string>
+        integrationCredentials: string[]
+    }> {
+        const { hogFunction, integrationSecrets } = await this.createHogFunction(templateCase, options)
+        return {
+            hogFunction,
+            globals: this.globalsFor(templateCase, options.entry ?? INVENTED_CORPUS[0]),
+            secrets: { ...secretInputs(hogFunction), ...integrationSecrets },
+            integrationCredentials: Object.values(integrationSecrets),
+        }
+    }
+
+    private async kafkaHandoff(): Promise<KafkaQueueHandoff> {
+        this.handoff ??= await KafkaQueueHandoff.start(this.hub)
+        return this.handoff
+    }
+
     private async execute(
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        options?: { maxAsyncFunctions: number }
     ): Promise<{ result?: CyclotronJobInvocationResult; thrown?: string }> {
         try {
-            return {
-                result: await this.executor.executeWithAsyncFunctions(invocation, {
-                    maxAsyncFunctions: MAX_ASYNC_FUNCTIONS,
-                }),
-            }
+            return { result: await this.executor.executeWithAsyncFunctions(invocation, options) }
         } catch (error) {
             return { thrown: `execution threw: ${String(error)}` }
         }
