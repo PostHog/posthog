@@ -294,6 +294,9 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
     )
     events_queued_for_deletion = serializers.BooleanField(
         help_text="Whether event deletion was requested for the matched persons. "
+        "Events are not deleted during this request. A weekly batch job deletes them after Saturday 22:00 UTC, "
+        "and a request made shortly before a run can wait for the following week's run. Until then the events "
+        "still appear in queries. Track progress with the deletion_status endpoint. "
         "If a deletion was already queued for a person, it will not be duplicated."
     )
     recordings_queued_for_deletion = serializers.BooleanField(
@@ -371,9 +374,14 @@ class AsyncDeletionStatusSerializer(serializers.Serializer):
         source="key", help_text="The UUID of the person whose events are queued for deletion."
     )
     created_at = serializers.DateTimeField(help_text="When the deletion was requested.")
-    status = serializers.SerializerMethodField(help_text="Current status: 'pending' or 'completed'.")
+    status = serializers.SerializerMethodField(
+        help_text="Current status: 'pending' or 'completed'. 'pending' is expected until the weekly event deletion "
+        "job has run, which can take up to two weeks after the request. It does not mean the deletion is stuck."
+    )
     delete_verified_at = serializers.DateTimeField(
-        help_text="When the deletion was verified complete. Null if still pending.", allow_null=True
+        help_text="When the deletion was verified complete. Null if still pending. Once set, the person's events "
+        "captured before the request no longer appear in queries.",
+        allow_null=True,
     )
 
     def get_status(self, obj: AsyncDeletion) -> str:
@@ -1029,6 +1037,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
 
         Person records are removed in the background shortly after the request returns, so a successful response reports them in `persons_queued_for_deletion` and `persons_deleted` is 0.
+
+        With `delete_events=true`, events are deleted later by a weekly batch job, not during this request. Check progress with the `deletion_status` endpoint.
         """
 
         delete_events = bool(request.data.get("delete_events"))
@@ -1176,6 +1186,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def deletion_status(self, request: request.Request, **kwargs):
         """
         List the status of queued event deletions for persons. When you delete a person with `delete_events=true`, an async deletion is queued. Use this endpoint to check whether those deletions are still pending or have been completed.
+
+        Events are deleted by a weekly batch job that runs after Saturday 22:00 UTC. A request made shortly before a run can wait for the following week's run, so a deletion can stay pending for up to two weeks. That is expected and doesn't need a new request. Recording deletions are not tracked here.
         """
         params = DeletionStatusQueryParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
