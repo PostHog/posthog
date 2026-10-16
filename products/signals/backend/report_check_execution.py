@@ -23,7 +23,19 @@ from typing import cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import DateTimeField, DurationField, Exists, ExpressionWrapper, F, OuterRef, Q, Value, Window
+from django.db.models import (
+    Case,
+    DateTimeField,
+    DurationField,
+    Exists,
+    ExpressionWrapper,
+    F,
+    OuterRef,
+    Q,
+    Value,
+    When,
+    Window,
+)
 from django.db.models.functions import Coalesce, Greatest, RowNumber
 from django.utils import timezone
 
@@ -60,7 +72,6 @@ from products.signals.backend.report_checks import (
     CheckConfigValidationError,
     MetricThresholdConfig,
     check_schedule_expires_at,
-    monitoring_interval_minutes,
     parse_check_config,
     soak_minutes_from_gap,
 )
@@ -411,17 +422,38 @@ def resurface_failed_check(
         logger.exception("signals.report_check.resurface_failed", check_id=str(check.id), team_id=check.team_id)
 
 
-def expire_overdue_checks(now: datetime) -> int:
+def _monitoring_metric_filter(disabled_organizations: frozenset[UUID]) -> Q:
+    return (
+        Q(
+            report__status=SignalReport.Status.MONITORING,
+            report__monitoring_started_at__isnull=False,
+            kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+            config__monitoring__isnull=False,
+        )
+        & ~Q(config__monitoring=None)
+        & ~Q(report__team__organization_id__in=disabled_organizations)
+    )
+
+
+def expire_overdue_checks(now: datetime, *, disabled_monitoring_organization_ids: frozenset[UUID] | None = None) -> int:
     """Retire open checks whose horizon passed without a run. Returns how many were retired.
 
     Pending rows are swept too, so a check waiting on a report that never resolves retires at the
     horizon instead of waiting forever for a clock that will not start.
     """
 
+    expiry_filter = Q(expires_at__lte=now)
+    if disabled_monitoring_organization_ids is not None:
+        monitoring = _monitoring_metric_filter(disabled_monitoring_organization_ids) & Q(
+            status=SignalReportCheck.Status.ACTIVE
+        )
+        expiry_filter = (expiry_filter & ~monitoring) | (
+            monitoring & Q(report__monitoring_started_at__lte=now - MAX_CHECK_HORIZON)
+        )
     overdue = list(
         # Only the columns the log entry and the telemetry read. A `metric_threshold` config carries
         # a copied-in query, and a full tick hydrates five hundred rows.
-        SignalReportCheck.all_teams.filter(status__in=SignalReportCheck.OPEN_STATUSES, expires_at__lte=now).only(
+        SignalReportCheck.all_teams.filter(expiry_filter, status__in=SignalReportCheck.OPEN_STATUSES).only(
             "id", "team_id", "report_id", "kind", "title", "last_run_at"
         )[:MAX_CHECK_EXPIRIES_PER_TICK]
     )
@@ -431,9 +463,9 @@ def expire_overdue_checks(now: datetime) -> int:
     # which arms its pending checks and moves `expires_at` forward, and an update filtered on id and
     # status alone would retire a check that has just been given a clock.
     expired = SignalReportCheck.all_teams.filter(
+        expiry_filter,
         id__in=[check.id for check in overdue],
         status__in=SignalReportCheck.OPEN_STATUSES,
-        expires_at__lte=now,
     ).update(status=SignalReportCheck.Status.EXPIRED, updated_at=now)
     if expired:
         _log_expired_checks(overdue, now, expired)
@@ -568,19 +600,6 @@ def park_checks_on_unresolved_reports(
     return parked
 
 
-def _monitoring_metric_filter(disabled_organizations: frozenset[UUID]) -> Q:
-    return (
-        Q(
-            report__status=SignalReport.Status.MONITORING,
-            report__monitoring_started_at__isnull=False,
-            kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
-            config__monitoring__isnull=False,
-        )
-        & ~Q(config__monitoring=None)
-        & ~Q(report__team__organization_id__in=disabled_organizations)
-    )
-
-
 def _prepare_monitoring_metrics(now: datetime, disabled_organizations: frozenset[UUID]) -> None:
     cadence = ExpressionWrapper(
         Greatest(
@@ -594,19 +613,32 @@ def _prepare_monitoring_metrics(now: datetime, disabled_organizations: frozenset
         SignalReportCheck.all_teams.filter(
             _monitoring_metric_filter(disabled_organizations),
             status=SignalReportCheck.Status.ACTIVE,
-            expires_at__gt=now,
-        )
-        .filter(
-            Q(last_run_at__isnull=True)
-            | Q(last_run_at__lt=F("report__monitoring_started_at"))
-            | ~Q(measurement_start_at=F("report__monitoring_started_at"))
         )
         .annotate(
-            _first_observation_at=ExpressionWrapper(
-                F("report__monitoring_started_at") + cadence, output_field=DateTimeField()
-            )
+            _monitoring_next_run_at=ExpressionWrapper(
+                Greatest(
+                    Coalesce("last_run_at", F("report__monitoring_started_at")), F("report__monitoring_started_at")
+                )
+                + Case(
+                    When(
+                        last_run_at__gte=F("report__monitoring_started_at"),
+                        consecutive_errors__gt=0,
+                        then=Value(CHECK_ERROR_RETRY_AFTER),
+                    ),
+                    default=cadence,
+                    output_field=DurationField(),
+                ),
+                output_field=DateTimeField(),
+            ),
+            _monitoring_expires_at=ExpressionWrapper(
+                F("report__monitoring_started_at") + Value(MAX_CHECK_HORIZON), output_field=DateTimeField()
+            ),
         )
-        .exclude(measurement_start_at=F("report__monitoring_started_at"), next_run_at=F("_first_observation_at"))
+        .exclude(
+            measurement_start_at=F("report__monitoring_started_at"),
+            next_run_at=F("_monitoring_next_run_at"),
+            expires_at=F("_monitoring_expires_at"),
+        )
         .select_related("report")
         .order_by("report__monitoring_started_at", "id")[:MAX_CHECK_PARKS_PER_TICK]
     )
@@ -620,8 +652,9 @@ def _prepare_monitoring_metrics(now: datetime, disabled_organizations: frozenset
             report__status=SignalReport.Status.MONITORING,
             report__monitoring_started_at=start,
         ).update(
-            next_run_at=start + timedelta(minutes=monitoring_interval_minutes(check.run_interval_minutes)),
+            next_run_at=check._monitoring_next_run_at,
             measurement_start_at=start,
+            expires_at=check._monitoring_expires_at,
             updated_at=now,
         )
 
@@ -651,7 +684,10 @@ def collect_due_checks(
                 field="report__status",
                 disabled_monitoring_organization_ids=disabled_monitoring_organization_ids,
             )
-            | _monitoring_metric_filter(disabled_monitoring_organization_ids),
+            | (
+                _monitoring_metric_filter(disabled_monitoring_organization_ids)
+                & Q(report__monitoring_started_at__gt=now - MAX_CHECK_HORIZON)
+            ),
             # Agent and legacy metric checks must stay dormant until the report resolves.
         )
         .select_related("report", "report__team", "team__organization")
@@ -719,14 +755,14 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
     """
 
     now = now or timezone.now()
-    expired = expire_overdue_checks(now)
     candidate_checks = SignalReportCheck.all_teams.filter(
         Q(status=SignalReportCheck.Status.ACTIVE) | Q(status=SignalReportCheck.Status.PENDING, expires_at__gt=now)
     )
     disabled_organizations = check_monitoring_disabled_organizations(candidate_checks)
+    _prepare_monitoring_metrics(now, disabled_organizations)
+    expired = expire_overdue_checks(now, disabled_monitoring_organization_ids=disabled_organizations)
     _arm_monitoring_checks(now, disabled_monitoring_organization_ids=disabled_organizations)
     park_checks_on_unresolved_reports(now, disabled_monitoring_organization_ids=disabled_organizations)
-    _prepare_monitoring_metrics(now, disabled_organizations)
     deadline = time.monotonic() + CHECK_RUN_TIME_BUDGET_SECONDS
     counts: dict[str, int] = {
         "observed": 0,

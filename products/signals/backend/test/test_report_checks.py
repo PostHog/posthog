@@ -255,6 +255,8 @@ class TestCheckComparison(SimpleTestCase):
             ("average", "avg", "linear", None, False),
             ("fixed_average", "avg", "fixed", None, True),
             ("fixed_distinct", "dau", "fixed", None, True),
+            ("rolling_weekly", "weekly_active", "fixed", None, False),
+            ("rolling_monthly", "monthly_active", "fixed", None, False),
             ("formula", "total", "linear", {"formulas": ["A * 2"]}, False),
             ("missing_baseline_period", "total", "fixed", None, False),
         ]
@@ -708,6 +710,75 @@ class TestReportCheckExecution(APIBaseTest):
             assert check.status == SignalReportCheck.Status.PASSED
             assert check.runs_remaining == 0
 
+    @parameterized.expand([("success", False), ("query_error", True)])
+    def test_flag_recovery_restores_the_latest_monitoring_attempt_schedule(self, _name: str, query_error: bool) -> None:
+        start = datetime(2026, 10, 1, 12, tzinfo=UTC)
+        sample_at = start + timedelta(days=1)
+        interval = CHECK_ERROR_RETRY_AFTER if query_error else timedelta(days=1)
+        with time_machine.travel(sample_at, tick=False):
+            check = self._monitoring_check(start=start)
+            with (
+                patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+                patch(
+                    "products.signals.backend.report_check_monitoring.measure_metric",
+                    side_effect=RuntimeError("Query unavailable") if query_error else None,
+                    return_value=MetricMeasurement(value=8, measured_at=sample_at, series=None),
+                ),
+            ):
+                run_due_report_checks()
+            with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False):
+                run_due_report_checks(now=sample_at + interval)
+            check.refresh_from_db()
+            assert check.next_run_at == start + timedelta(days=14)
+            with (
+                patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+                patch(
+                    "products.signals.backend.report_check_monitoring.measure_metric",
+                    return_value=MetricMeasurement(value=9, measured_at=sample_at, series=None),
+                ) as measure,
+            ):
+                run_due_report_checks(now=sample_at + interval - timedelta(minutes=1))
+                measure.assert_not_called()
+                check.refresh_from_db()
+                assert check.next_run_at == sample_at + interval
+                run_due_report_checks(now=sample_at + interval)
+                measure.assert_called_once()
+            assert self.report.artefacts.filter(type="check_observation").count() == 2
+
+    @parameterized.expand([("early", 3, 41, False), ("late", 80, 91, False), ("repair_backlog", 80, 91, True)])
+    def test_flag_recovery_restores_the_original_monitoring_horizon(
+        self, _name: str, armed_day: int, recovery_day: int, backlog: bool
+    ) -> None:
+        start = datetime(2026, 10, 1, 12, tzinfo=UTC)
+        with time_machine.travel(start + timedelta(days=armed_day), tick=False):
+            check = self._monitoring_check(start=start, status=SignalReportCheck.Status.PENDING)
+            with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False):
+                run_due_report_checks()
+            recovery_at = start + timedelta(days=recovery_day)
+            with (
+                time_machine.travel(recovery_at, tick=False),
+                patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+                patch(
+                    "products.signals.backend.report_check_monitoring.measure_metric",
+                    return_value=MetricMeasurement(value=8, measured_at=recovery_at, series=None),
+                ) as measure,
+            ):
+                with patch(
+                    "products.signals.backend.report_check_execution.MAX_CHECK_PARKS_PER_TICK", 0 if backlog else 500
+                ):
+                    run_due_report_checks()
+            check.refresh_from_db()
+            if not backlog:
+                assert check.expires_at == start + MAX_CHECK_HORIZON
+            if recovery_day >= 90:
+                measure.assert_not_called()
+                assert check.status == SignalReportCheck.Status.EXPIRED
+                assert not self.report.artefacts.filter(type="check_observation").exists()
+            else:
+                measure.assert_called_once()
+                assert check.status == SignalReportCheck.Status.ACTIVE
+                assert self.report.artefacts.filter(type="check_observation").count() == 1
+
     def test_reenabling_monitoring_after_a_legacy_error_resumes_sampling(self) -> None:
         now = datetime(2026, 10, 1, 12, tzinfo=UTC)
         start = now - timedelta(days=3)
@@ -743,19 +814,28 @@ class TestReportCheckExecution(APIBaseTest):
         [
             ("retry", 0, SignalReportCheck.Status.ACTIVE),
             ("error_limit", MAX_CONSECUTIVE_CHECK_ERRORS - 1, SignalReportCheck.Status.ERRORED),
+            ("rolling_active_users", 0, SignalReportCheck.Status.ACTIVE, "weekly_active"),
         ]
     )
-    def test_monitoring_query_errors_remain_operational_errors(self, _name: str, errors: int, expected: str) -> None:
+    def test_monitoring_query_errors_remain_operational_errors(
+        self, _name: str, errors: int, expected: str, math: str | None = None
+    ) -> None:
         now = timezone.now()
         check = self._monitoring_check(start=now - timedelta(days=1), consecutive_errors=errors)
+        if math is not None:
+            check.config["query"]["source"]["series"][0]["math"] = math
+            check.config["monitoring"]["threshold_scaling"] = "fixed"
+            check.save(update_fields=["config"])
         with (
             patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
             patch(
                 "products.signals.backend.report_check_monitoring.measure_metric",
                 side_effect=RuntimeError("private query detail"),
-            ),
+            ) as measure,
         ):
             run_due_report_checks(now=now)
+        if math is not None:
+            measure.assert_not_called()
         check.refresh_from_db()
         content = json.loads(self.report.artefacts.get(type="check_observation").content)
         assert "private query detail" not in content["error"]
