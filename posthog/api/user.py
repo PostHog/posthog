@@ -116,6 +116,7 @@ from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token, has_live_
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_notification_lock import notification_locks_for_users
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -522,15 +523,21 @@ class UserSerializer(serializers.ModelSerializer):
         if is_impersonated(self.context.get("request")):
             return False
         # A self-signed-up user verifies their email before the first login, so nobody else can add
-        # credentials to the account first. Only a partner-provisioned account can carry access that
-        # someone other than its owner set up. TeamProvisioningConfig also covers organizations
-        # provisioned before OrganizationProvisioning existed.
+        # credentials to the account first. TeamProvisioningConfig and a Vercel installation cover
+        # organizations provisioned before OrganizationProvisioning existed. A "connectable" Vercel
+        # integration links an organization the user already owned, so it does not count.
         organization_id = OuterRef("organization_id")
         if (
             not OrganizationMembership.objects.filter(user=instance)
             .filter(
                 Exists(OrganizationProvisioning.objects.filter(organization_id=organization_id))
                 | Exists(TeamProvisioningConfig.objects.filter(team__organization_id=organization_id))
+                | Exists(
+                    OrganizationIntegration.objects.filter(
+                        organization_id=organization_id,
+                        kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+                    ).exclude(config__contains={"type": "connectable"})
+                )
             )
             .exists()
         ):

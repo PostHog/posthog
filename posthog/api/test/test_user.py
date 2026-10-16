@@ -38,6 +38,7 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -64,6 +65,9 @@ def issue_verification_code(user: User, target_email: str | None = None) -> str:
     with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
         email_verification_code_verifier.send_code(user, target_email=target_email)
     return mock_send.call_args[0][1]
+
+
+ProvisionedBy = Literal["organization", "team", "vercel_installation", "vercel_connectable"]
 
 
 class TestUserAPI(APIBaseTest):
@@ -309,13 +313,20 @@ class TestUserAPI(APIBaseTest):
         assert "active_realtime_notification_types" in body
         assert "comment_mention" in body["active_realtime_notification_types"]
 
-    def _provision_organization(self, provisioned_by: Literal["organization", "team"] | None = "organization") -> None:
+    def _provision_organization(self, provisioned_by: ProvisionedBy | None = "organization") -> None:
         if provisioned_by == "organization":
             OrganizationProvisioning.objects.create(
                 organization=self.organization, partner=OrganizationProvisioning.Partner.VERCEL
             )
         elif provisioned_by == "team":
             TeamProvisioningConfig.objects.create(team=self.team)
+        elif provisioned_by in ("vercel_installation", "vercel_connectable"):
+            OrganizationIntegration.objects.create(
+                organization=self.organization,
+                kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+                integration_id="icfg_test",
+                config={"type": "connectable"} if provisioned_by == "vercel_connectable" else {},
+            )
 
     @parameterized.expand(
         [
@@ -324,6 +335,8 @@ class TestUserAPI(APIBaseTest):
             ("unreviewed_passkey_only", "organization", False, False, True, True),
             ("unreviewed_pat_and_passkey", "organization", False, True, True, True),
             ("unreviewed_pat_only_legacy_team_provisioning", "team", False, True, False, True),
+            ("unreviewed_pat_only_legacy_vercel_installation", "vercel_installation", False, True, False, True),
+            ("unreviewed_pat_only_vercel_connected_own_organization", "vercel_connectable", False, True, False, False),
             ("unreviewed_pat_and_passkey_not_provisioned", None, False, True, True, False),
             ("reviewed_pat_only", "organization", True, True, False, False),
             ("reviewed_passkey_only", "organization", True, False, True, False),
@@ -334,7 +347,7 @@ class TestUserAPI(APIBaseTest):
     def test_requires_credential_review(
         self,
         _name: str,
-        provisioned_by: Literal["organization", "team"] | None,
+        provisioned_by: ProvisionedBy | None,
         reviewed: bool,
         with_key: bool,
         with_passkey: bool,
