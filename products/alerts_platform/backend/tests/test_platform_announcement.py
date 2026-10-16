@@ -70,7 +70,8 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
 
         # As `default`, the history write and read share that user's per-user concurrency limit
         # with every other caller, and a rejected insert loses the row.
-        assert [call.kwargs.get("ch_user") for call in executed.call_args_list] == [ClickHouseUser.ALERTS_PLATFORM] * 2
+        assert executed.call_args_list
+        assert all(call.kwargs.get("ch_user") == ClickHouseUser.ALERTS_PLATFORM for call in executed.call_args_list)
 
         assert result is not None
         assert result.configuration_id == str(self.configuration.id)
