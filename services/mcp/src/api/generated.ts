@@ -67195,7 +67195,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly key: string | null;
-      /** Who owns the content. `code` when it was uploaded from a repository, so the next upload replaces edits made in PostHog. `gui` or null when it is edited in PostHog.
+      /** Who owns the content. `code` when it was uploaded from a repository: PostHog then refuses edits, and the template changes through its next upload. To edit it in PostHog, send a PATCH whose only field is `managed_by` set to `gui`. `gui` or null when it is edited in PostHog.
        *
        * * `gui` - GUI
        * * `code` - Code */
@@ -83150,7 +83150,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly key?: string | null;
-      /** Who owns the content. `code` when it was uploaded from a repository, so the next upload replaces edits made in PostHog. `gui` or null when it is edited in PostHog.
+      /** Who owns the content. `code` when it was uploaded from a repository: PostHog then refuses edits, and the template changes through its next upload. To edit it in PostHog, send a PATCH whose only field is `managed_by` set to `gui`. `gui` or null when it is edited in PostHog.
        *
        * * `gui` - GUI
        * * `code` - Code */
@@ -112223,6 +112223,26 @@ export namespace Schemas {
       readonly retention_last_updated: string | null;
     }
 
+    export interface TemplateError {
+      /** Error class, such as `invalid_request`. */
+      type: string;
+      /** Stable error code to branch on, such as `invalid_template_key`. */
+      code: string;
+      /** What went wrong. */
+      detail: string;
+      /**
+         * The request field the error is about, if any.
+         * @nullable
+         */
+      attr: string | null;
+      /** Why PostHog refuses the request. */
+      why?: string;
+      /** What to change before you retry. */
+      fix?: string;
+      /** Documentation for this error code. */
+      docs_url?: string;
+    }
+
     export interface TemplateInfo {
       /** Template identifier, e.g. 'likely_active_soon'. Pass to autoresearch-resolve-template-create.
        *
@@ -113002,26 +113022,6 @@ export namespace Schemas {
     export interface TrainingRunHistory {
       /** Recent completed training runs — the current pipeline first, then same-target sibling pipelines on the team — newest first. Mine these to reuse winning features and avoid repeating discarded approaches. */
       runs: TrainingRunHistoryEntry[];
-    }
-
-    export interface TransactionalEmailError {
-      /** Error class, such as `invalid_request`. */
-      type: string;
-      /** Stable error code to branch on, such as `invalid_template_key`. */
-      code: string;
-      /** What went wrong. */
-      detail: string;
-      /**
-         * The request field the error is about, if any.
-         * @nullable
-         */
-      attr: string | null;
-      /** Why PostHog refuses the request. */
-      why?: string;
-      /** What to change before you retry. */
-      fix?: string;
-      /** Documentation for this error code. */
-      docs_url?: string;
     }
 
     export interface TranslateRequest {

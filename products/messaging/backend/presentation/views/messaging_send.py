@@ -14,10 +14,10 @@ from products.messaging.backend.facade.contracts import ContentHashState, Queued
 from products.messaging.backend.facade.templates import MessageTemplateMissing, find_template_to_send
 from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_THROTTLES,
-    RequestRefused,
     SendTransactionalEmailResponseSerializer,
     SendTransactionalEmailSerializer,
-    TransactionalEmailErrorSerializer,
+    TemplateErrorSerializer,
+    TemplateRefusal,
     TransactionalEmailViewSetMixin,
     invalid_request,
     invalid_template_key,
@@ -81,15 +81,15 @@ def template_reference(template: dict[str, Any]) -> TemplateReference:
     return TemplateReference(key=template.get("key"), id=template.get("id"), hash=template.get("hash"))
 
 
-def invalid_send(errors: Any) -> RequestRefused:
+def invalid_send(errors: Any) -> TemplateRefusal:
     return invalid_request(
         errors, why="A send needs a template, a recipient address, and data as an object.", retry="send again"
     )
 
 
-def template_not_found(reference: TemplateReference) -> RequestRefused:
+def template_not_found(reference: TemplateReference) -> TemplateRefusal:
     if reference.key is not None:
-        return RequestRefused(
+        return TemplateRefusal(
             code="template_not_found",
             detail=f"No template in this project has the key `{reference.key}`.",
             attr="template__key",
@@ -97,7 +97,7 @@ def template_not_found(reference: TemplateReference) -> RequestRefused:
             fix=f"Upload the template first with `PUT /api/projects/@current/messaging_templates/by_key/{reference.key}/`, "
             "or check the key and the project.",
         )
-    return RequestRefused(
+    return TemplateRefusal(
         code="template_not_found",
         detail=f"No template in this project has the id `{reference.id}`.",
         attr="template__id",
@@ -106,7 +106,7 @@ def template_not_found(reference: TemplateReference) -> RequestRefused:
     )
 
 
-TEMPLATE_OUTDATED = RequestRefused(
+TEMPLATE_OUTDATED = TemplateRefusal(
     code="template_outdated",
     detail="PostHog does not hold the content this hash describes, so nothing was sent.",
     attr="template__hash",
@@ -128,16 +128,16 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
         responses={
             202: OpenApiResponse(response=SendEmailResponseSerializer, description="Email queued"),
             400: OpenApiResponse(
-                response=TransactionalEmailErrorSerializer,
+                response=TemplateErrorSerializer,
                 description="A field is invalid, the template isn't transactional or its email is paused, or the "
                 "recipient can't be used",
             ),
             404: OpenApiResponse(
-                response=TransactionalEmailErrorSerializer,
+                response=TemplateErrorSerializer,
                 description="No template has this key or id, or the transactional email API is not enabled",
             ),
             409: OpenApiResponse(
-                response=TransactionalEmailErrorSerializer,
+                response=TemplateErrorSerializer,
                 description="PostHog does not hold the content the hash describes. Nothing was sent",
             ),
             429: OpenApiResponse(description="Rate limited, or the project is over its email quota"),
@@ -185,10 +185,10 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
         )
 
     def _refuse(
-        self, refused: RequestRefused, status_code: int = status.HTTP_400_BAD_REQUEST, **usage: str
+        self, refused: TemplateRefusal, status_code: int = status.HTTP_400_BAD_REQUEST, **usage: str
     ) -> Response:
         if usage:
             self._report_transactional_email_send(
                 self.request, {**usage, "outcome": "rejected", "error_code": refused.code}
             )
-        return Response(TransactionalEmailErrorSerializer(refused).data, status=status_code)
+        return Response(TemplateErrorSerializer(refused).data, status=status_code)

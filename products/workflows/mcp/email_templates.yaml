@@ -95,7 +95,8 @@ tools:
             changes; ids and Unlayer numbering for added blocks are assigned for you. Operations apply atomically — the
             design is read, the ops applied in order, the result validated and re-rendered to HTML, and saved only if
             valid, otherwise nothing changes. After patching, call workflows-show-email-template so the user sees the
-            result.
+            result. A template whose managed_by is code refuses this with 403 immutable: change its file in the
+            repository and upload it with workflows-upload-email-template instead.
         response:
             exclude:
                 - content
@@ -176,7 +177,8 @@ tools:
             workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send
             back the complete content.email with your edited design. The server re-renders the sent email from the
             design on save. After updating, call workflows-show-email-template so the user sees the result, and share
-            the returned _posthogUrl edit link.
+            the returned _posthogUrl edit link. A template whose managed_by is code refuses every update with 403
+            immutable: change its file in the repository and upload it with workflows-upload-email-template instead.
         exclude_params:
             - content.email.html
         response:

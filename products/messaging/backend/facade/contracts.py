@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -107,6 +108,27 @@ class TemplateReference:
     key: str | None
     id: UUID | None
     hash: str | None
+
+
+@frozen
+class TemplateWriteIntent:
+    """A write to a template: the API action that carries it and its whole request body."""
+
+    action: str
+    payload: Mapping[str, Any]
+
+
+class TemplateManagedByCode(Exception):
+    """The template is managed by code, so it refuses this write. `detail`, `why` and `fix` are written for the
+    caller."""
+
+    code = "immutable"
+
+    def __init__(self, *, detail: str, why: str, fix: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.why = why
+        self.fix = fix
 
 
 @frozen

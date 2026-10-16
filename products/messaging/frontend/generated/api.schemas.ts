@@ -57,7 +57,7 @@ export interface SendEmailResponseApi {
     warnings: SendEmailWarningApi[]
 }
 
-export interface TransactionalEmailErrorApi {
+export interface TemplateErrorApi {
     /** Error class, such as `invalid_request`. */
     type: string
     /** Stable error code to branch on, such as `invalid_template_key`. */
@@ -488,7 +488,7 @@ export interface MessageTemplateApi {
      * @nullable
      */
     readonly key: string | null
-    /** Who owns the content. `code` when it was uploaded from a repository, so the next upload replaces edits made in PostHog. `gui` or null when it is edited in PostHog.
+    /** Who owns the content. `code` when it was uploaded from a repository: PostHog then refuses edits, and the template changes through its next upload. To edit it in PostHog, send a PATCH whose only field is `managed_by` set to `gui`. `gui` or null when it is edited in PostHog.
      *
      * * `gui` - GUI
      * * `code` - Code */
@@ -560,7 +560,7 @@ export interface PatchedMessageTemplateApi {
      * @nullable
      */
     readonly key?: string | null
-    /** Who owns the content. `code` when it was uploaded from a repository, so the next upload replaces edits made in PostHog. `gui` or null when it is edited in PostHog.
+    /** Who owns the content. `code` when it was uploaded from a repository: PostHog then refuses edits, and the template changes through its next upload. To edit it in PostHog, send a PATCH whose only field is `managed_by` set to `gui`. `gui` or null when it is edited in PostHog.
      *
      * * `gui` - GUI
      * * `code` - Code */
