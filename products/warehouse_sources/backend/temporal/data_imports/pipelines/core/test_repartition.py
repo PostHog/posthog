@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionBudgetExceededError,
+    RepartitionSliceEndedError,
     RepartitionStoppedError,
     RepartitionSupersededError,
     RepartitionTarget,
@@ -1039,7 +1040,7 @@ class TestRewriteIntoTemp:
         live = _write_month_partitioned(str(tmp_path / "live"), rows)
         save_checkpoint = AsyncMock()
 
-        with pytest.raises(RepartitionStoppedError) as stopped:
+        with pytest.raises(RepartitionSliceEndedError) as stopped:
             asyncio.run(
                 _rewrite_into_temp(
                     old_delta=live,
@@ -1059,7 +1060,7 @@ class TestRewriteIntoTemp:
                 )
             )
 
-        assert stopped.value.rows_written in (1, 3)
+        assert stopped.value.rows_written == 3
         save_checkpoint.assert_awaited()
 
     def test_a_stop_request_on_the_last_source_file_lets_the_rewrite_finish(self, tmp_path):
@@ -2809,7 +2810,7 @@ class TestRewriteCheckpointResume:
                     target=target,
                     logger=logger,
                     claim_token="tok",
-                    rewrite_stop_at=0.0,
+                    rewrite_slice_seconds=0.0,
                 )
             )
 
@@ -2847,7 +2848,7 @@ class TestRewriteCheckpointResume:
                     logger=logger,
                     claim_token="tok",
                     should_stop=lambda: False,
-                    rewrite_stop_at=0.0,
+                    rewrite_slice_seconds=0.0,
                 )
             )
 
@@ -2855,6 +2856,9 @@ class TestRewriteCheckpointResume:
         assert rewrite.await_args.kwargs["pause_at_file_end"]() is True
         assert rewrite.await_args.kwargs["should_stop"]() is False
         assert swap.await_args.kwargs["should_stop"]() is False
+        with patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True) as saved:
+            asyncio.run(rewrite.await_args.kwargs["save_checkpoint"](1, target))
+        assert saved.call_args.kwargs["checkpoint"]["sliced"] is True
 
     @pytest.mark.parametrize(
         "version_offset,blocker,expected_restart",

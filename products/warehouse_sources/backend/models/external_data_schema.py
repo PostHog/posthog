@@ -920,7 +920,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         in one activity converges across attempts rather than giving up terminally. Cleared once temp
         is fully built (a swap is staged) or when the controller gives up. Shape:
         {"temp_uri": str, "rows_written": int, "target": dict, "live_version": int, "held_at": str,
-        "budget_exhausted": bool}.
+        "budget_exhausted": bool, "sliced": bool}.
         """
         if self.sync_type_config:
             marker = self.sync_type_config.get("repartition_rewrite", None)

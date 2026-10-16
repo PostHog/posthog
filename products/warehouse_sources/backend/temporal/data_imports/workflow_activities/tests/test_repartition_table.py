@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionBudgetExceededError,
     RepartitionSchemePersistError,
+    RepartitionSliceEndedError,
     RepartitionStoppedError,
     RepartitionTooLargeForBudgetError,
 )
@@ -39,7 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     _maybe_flag_pre_extraction,
     _maybe_repartition_table,
     _rewrite_deadline,
-    _rewrite_slice_end,
+    _rewrite_slice_seconds,
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table"
@@ -248,8 +249,8 @@ class TestRewriteDeadline:
 class TestRewriteSlice:
     @parameterized.expand(
         [
-            ("one_sync_interval", dt.timedelta(hours=1), "proactive_threshold", {}, False, 4600.0),
-            ("floor_for_frequent_syncs", dt.timedelta(minutes=5), "proactive_threshold", {}, False, 2800.0),
+            ("one_sync_interval", dt.timedelta(hours=1), "proactive_threshold", {}, False, 3600.0),
+            ("floor_for_frequent_syncs", dt.timedelta(minutes=5), "proactive_threshold", {}, False, 1800.0),
             ("no_schedule", None, "proactive_threshold", {}, False, None),
             ("slice_past_the_activity_budget", dt.timedelta(hours=24), "coarsening", {}, False, None),
             ("operator_target", dt.timedelta(hours=1), "admin", {}, False, None),
@@ -269,13 +270,17 @@ class TestRewriteSlice:
         schema = _schema(name="contacts", s3_folder_name="contacts")
         schema.sync_frequency_interval = interval
         with patch(f"{MODULE}.is_repartition_hold_enabled", return_value=hold_enabled):
-            slice_end = _rewrite_slice_end(
-                schema, {**PENDING_TARGET, **pending_extra}, trigger_reason, activity_started=1000.0, deadline=22300.0
+            slice_seconds = _rewrite_slice_seconds(
+                schema,
+                {**PENDING_TARGET, **pending_extra},
+                trigger_reason,
+                activity_started=1000.0,
+                deadline=22300.0,
+                logger=MagicMock(),
             )
-        assert slice_end == expected
+        assert slice_seconds == expected
 
     @patch(f"{MODULE}.is_repartition_hold_enabled", return_value=False)
-    @patch(f"{MODULE}.save_repartition_checkpoint_if_claimed")
     @patch(f"{MODULE}.capture_repartition_event")
     @patch(f"{MODULE}.HeartbeaterSync")
     @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
@@ -290,7 +295,6 @@ class TestRewriteSlice:
         mock_repartition: AsyncMock,
         _mock_heartbeater: MagicMock,
         mock_capture_event: MagicMock,
-        mock_save_checkpoint: MagicMock,
         _mock_hold: MagicMock,
     ) -> None:
         schema = _schema(
@@ -301,7 +305,7 @@ class TestRewriteSlice:
         )
         schema.sync_frequency_interval = dt.timedelta(hours=1)
         mock_schema_model.objects.select_related.return_value.get.return_value = schema
-        mock_repartition.side_effect = RepartitionStoppedError("stopped", rows_written=180_000)
+        mock_repartition.side_effect = RepartitionSliceEndedError("paused", rows_written=180_000)
 
         ActivityEnvironment().run(
             _maybe_repartition_table,
@@ -310,11 +314,6 @@ class TestRewriteSlice:
         )
 
         assert schema.repartition_pending["attempts"] == 1
-        assert mock_save_checkpoint.call_args.kwargs["checkpoint"] == {
-            "rows_written": 50_000,
-            "temp_uri": TEMP_URI,
-            "sliced": True,
-        }
         skipped = [c.args[1] for c in mock_capture_event.call_args_list if c.args[0] == "warehouse_repartition_skipped"]
         assert [props["reason"] for props in skipped] == ["sync_slice_ended"]
 
