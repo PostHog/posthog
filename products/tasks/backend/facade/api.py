@@ -767,10 +767,10 @@ def get_task_for_slack_unfurl(task_id: str | UUID, team_id: int, user_id: int) -
     )
 
 
-def get_task_artifact_for_slack_unfurl(
+def _slack_unfurl_artifact_entry(
     *, task_id: str | UUID, run_id: str | UUID, artifact_id: str, team_id: int, user_id: int
-) -> contracts.TaskArtifactSlackUnfurlDTO | None:
-    """A downloadable run artifact the user may see, or ``None``.
+) -> tuple[Task, dict[str, Any]] | None:
+    """The task and the downloadable run artifact the user may see, or ``None``.
 
     A run with analytics context is refused. The download endpoint checks the caller's access to
     that context against the request, and an unfurl has no request, so it fails closed.
@@ -782,8 +782,18 @@ def get_task_artifact_for_slack_unfurl(
     if run is None or "analytics_query_context" in (run.state or {}):
         return None
     entry = next((a for a in run.artifacts or [] if a.get("id") == artifact_id and a.get("storage_path")), None)
-    if entry is None:
+    return (task, entry) if entry is not None else None
+
+
+def get_task_artifact_for_slack_unfurl(
+    *, task_id: str | UUID, run_id: str | UUID, artifact_id: str, team_id: int, user_id: int
+) -> contracts.TaskArtifactSlackUnfurlDTO | None:
+    found = _slack_unfurl_artifact_entry(
+        task_id=task_id, run_id=run_id, artifact_id=artifact_id, team_id=team_id, user_id=user_id
+    )
+    if found is None:
         return None
+    task, entry = found
     size = entry.get("size")
     uploaded_at = entry.get("uploaded_at")
     try:
@@ -792,11 +802,34 @@ def get_task_artifact_for_slack_unfurl(
         uploaded = None
     return contracts.TaskArtifactSlackUnfurlDTO(
         name=str(entry.get("name") or "artifact"),
+        content_type=str(entry.get("content_type") or ""),
         size=size if isinstance(size, int) else None,
         uploaded_at=uploaded,
         task_id=task.id,
         task_title=task.title,
     )
+
+
+def read_task_artifact_for_slack_unfurl(
+    *, task_id: str | UUID, run_id: str | UUID, artifact_id: str, team_id: int, user_id: int, max_bytes: int
+) -> bytes | None:
+    """The artifact's bytes, with the same access checks as ``get_task_artifact_for_slack_unfurl``.
+
+    Returns ``None`` when the file is larger than ``max_bytes``.
+    """
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    found = _slack_unfurl_artifact_entry(
+        task_id=task_id, run_id=run_id, artifact_id=artifact_id, team_id=team_id, user_id=user_id
+    )
+    if found is None:
+        return None
+    _task, entry = found
+    size = entry.get("size")
+    if not isinstance(size, int) or size > max_bytes:
+        return None
+    content = object_storage.read_bytes(entry["storage_path"], missing_ok=True)
+    return content if content is not None and len(content) <= max_bytes else None
 
 
 _StateEntryResult = TypeVar("_StateEntryResult")

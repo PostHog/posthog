@@ -237,6 +237,7 @@ class TaskArtifactSlackUnfurlDTO:
     """The task run artifact metadata needed to build a Slack unfurl. It never carries the file contents."""
 
     name: str
+    content_type: str
     size: int | None
     uploaded_at: datetime | None
     task_id: UUID

@@ -82,6 +82,11 @@ _CHART_LABEL_CHARS = 16
 
 ADHOC_INSIGHT_KIND = "adhoc_insight"
 
+# The image formats a Slack image block displays.
+_SLACK_IMAGE_CONTENT_TYPES = frozenset({"image/png", "image/jpeg", "image/gif"})
+_MAX_ARTIFACT_IMAGE_BYTES = 5 * 1024 * 1024
+_SLACK_FILE_SCOPE = "files:write"
+
 _UNFURL_TEMPLATES: dict[str, tuple[str, ...]] = {
     "insight": (*OBJECT_URL_TEMPLATES["insight"], "/bi/{id}"),
     "dashboard": OBJECT_URL_TEMPLATES["dashboard"],
@@ -343,6 +348,16 @@ class _CardButton:
 
 
 @frozen
+class ArtifactImageRequest:
+    """A task artifact image to upload to Slack and show in its card. Plain strings, so it survives Celery."""
+
+    task_id: str
+    run_id: str
+    artifact_id: str
+    name: str
+
+
+@frozen
 class _UnfurlCard:
     label: str
     title: str
@@ -356,6 +371,7 @@ class _UnfurlCard:
     chart_insight_id: int | None = None
     # Set for an ad hoc insight. Its card goes out only together with its chart.
     chart_query: dict | None = None
+    artifact_image: ArtifactImageRequest | None = None
 
 
 def _tracked_url(url: str, kind: str) -> str:
@@ -451,7 +467,7 @@ def _build_unfurl_invite(integration: Integration, kind: str, channel: str) -> d
         integration,
         utm_tags=_INVITE_UTM_TAGS,
         ai_enabled=ai_enabled,
-        subject=f"this {kind}",
+        subject=f"this {kind.replace('_', ' ')}",
     )
 
 
@@ -822,6 +838,11 @@ def _task_artifact_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard 
     if artifact is None:
         return "not_found_or_no_access"
     task_url = f"{parsed.scheme}://{parsed.netloc}/project/{ctx.team.pk}/tasks/{artifact.task_id}"
+    is_image = (
+        artifact.content_type in _SLACK_IMAGE_CONTENT_TYPES
+        and artifact.size is not None
+        and artifact.size <= _MAX_ARTIFACT_IMAGE_BYTES
+    )
     return _UnfurlCard(
         label="Task artifact",
         title=artifact.name,
@@ -829,6 +850,11 @@ def _task_artifact_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard 
         timestamp=artifact.uploaded_at,
         timestamp_label="Uploaded",
         button=_CardButton(label="View task", url=task_url),
+        artifact_image=(
+            ArtifactImageRequest(task_id=str(task_id), run_id=str(run_id), artifact_id=ref, name=artifact.name)
+            if is_image
+            else None
+        ),
     )
 
 
@@ -1130,6 +1156,110 @@ def _queue_unfurl_charts(
     return True
 
 
+def _queue_unfurl_artifact_image(
+    *,
+    integration: Integration,
+    user: User,
+    event: dict,
+    unfurls: dict[str, dict],
+    url: str,
+    image: ArtifactImageRequest,
+) -> bool:
+    """Queue ``add_artifact_image_to_unfurl`` on Celery. The file read and the Slack upload are too slow for
+    the webhook's ack budget."""
+    # noqa reason: the task module imports api, which imports this module at load time.
+    from products.slack_app.backend.tasks import add_slack_unfurl_artifact_image  # noqa: PLC0415
+
+    try:
+        add_slack_unfurl_artifact_image.delay(
+            team_id=integration.team_id,
+            integration_id=integration.id,
+            user_id=user.pk,
+            event=event,
+            unfurls=unfurls,
+            url=url,
+            image=dataclasses.asdict(image),
+        )
+    except Exception:
+        logger.warning("slack_app_unfurl_artifact_image_queue_failed", team_id=integration.team_id, exc_info=True)
+        return False
+    return True
+
+
+_ImageFailure = Literal["missing_scope", "unavailable", "upload_failed", "unfurl_failed"]
+
+
+@frozen
+class _ImageUpload:
+    file_id: str | None = None
+    failure: _ImageFailure | None = None
+
+
+def _upload_artifact_image(
+    slack: SlackIntegration, *, user: User, team_id: int, image: ArtifactImageRequest
+) -> _ImageUpload:
+    """Upload the image to Slack. The result holds its file id, or why it is not shown.
+
+    The upload names no channel, so the file is visible only where a block references it. The
+    image needs no public URL, so the organization's public sharing setting does not apply.
+    """
+    if slack.missing_scopes({_SLACK_FILE_SCOPE}):
+        return _ImageUpload(failure="missing_scope")
+    content = tasks_facade.read_task_artifact_for_slack_unfurl(
+        task_id=image.task_id,
+        run_id=image.run_id,
+        artifact_id=image.artifact_id,
+        team_id=team_id,
+        user_id=user.pk,
+        max_bytes=_MAX_ARTIFACT_IMAGE_BYTES,
+    )
+    if content is None:
+        return _ImageUpload(failure="unavailable")
+    try:
+        response = slack.client.files_upload_v2(content=content, filename=image.name, title=image.name)
+    except Exception:
+        logger.warning("slack_app_unfurl_artifact_image_upload_failed", team_id=team_id, exc_info=True)
+        return _ImageUpload(failure="upload_failed")
+    file = response.get("file")
+    file_id = file.get("id") if isinstance(file, dict) else None
+    if not isinstance(file_id, str) or not file_id:
+        return _ImageUpload(failure="upload_failed")
+    return _ImageUpload(file_id=file_id)
+
+
+def add_artifact_image_to_unfurl(
+    *,
+    integration: Integration,
+    user: User,
+    event: dict,
+    unfurls: dict[str, dict],
+    url: str,
+    image: ArtifactImageRequest,
+) -> None:
+    """Upload a task artifact image to Slack and post its card again with the image. Best effort: a
+    failure keeps the text card."""
+    slack = SlackIntegration(integration)
+    upload = _upload_artifact_image(slack, user=user, team_id=integration.team_id, image=image)
+    failure = upload.failure
+    error: str | None = None
+    if upload.file_id is not None:
+        blocks = list(unfurls[url]["blocks"])
+        position = next((i for i, block in enumerate(blocks) if block.get("type") == "actions"), len(blocks))
+        alt_text = _truncate(image.name, _MAX_TITLE_CHARS)
+        blocks.insert(position, {"type": "image", "slack_file": {"id": upload.file_id}, "alt_text": alt_text})
+        error = _post_unfurls(slack, event, {**unfurls, url: {**unfurls[url], "blocks": blocks}})
+        failure = "unfurl_failed" if error else None
+    capture_slack_event(
+        integration,
+        "slack app link unfurl artifact image",
+        slack_user_id=event["user"],
+        posthog_user=user,
+        shown=failure is None,
+        failure=failure,
+        error=error,
+    )
+
+
 def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     """
     Unfurl supported PostHog resource links with metadata.
@@ -1278,6 +1408,17 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         unfurls=unfurls,
         charts=chart_requests,
     )
+    image_url, image = next(
+        ((url, card.artifact_image) for url, (_, card) in cards.items() if card.artifact_image and not compact),
+        (None, None),
+    )
+    artifact_image_queued = (
+        image_url is not None
+        and image is not None
+        and _queue_unfurl_artifact_image(
+            integration=integration, user=user, event=event, unfurls=unfurls, url=image_url, image=image
+        )
+    )
     capture_slack_event(
         integration,
         "slack app link unfurled",
@@ -1289,4 +1430,5 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         skipped_count=len(skipped),
         followup_invite_shown=invite is not None,
         charts_queued=charts_queued,
+        artifact_image_queued=artifact_image_queued,
     )

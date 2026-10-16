@@ -53,7 +53,7 @@ from products.slack_app.backend.slack_link_unfurl import (
     handle_posthog_link_unfurl,
     parse_posthog_resource_link,
 )
-from products.slack_app.backend.tasks import start_slack_unfurl_charts
+from products.slack_app.backend.tasks import add_slack_unfurl_artifact_image, start_slack_unfurl_charts
 from products.surveys.backend.models import Survey
 from products.tasks.backend.models import Channel, Task, TaskRun
 
@@ -830,7 +830,13 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 ]
         raise ValueError(kind)
 
-    def _create_task_artifact(self, run_state: dict | None = None, project_id: int | None = None) -> str:
+    def _create_task_artifact(
+        self,
+        run_state: dict | None = None,
+        project_id: int | None = None,
+        name: str = "report.md",
+        content_type: str = "text/markdown",
+    ) -> str:
         task = Task.objects.create(
             team=self.team,
             created_by=self.user,
@@ -845,16 +851,61 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             artifacts=[
                 {
                     "id": "file-1",
-                    "name": "report.md",
+                    "name": name,
                     "type": "artifact",
                     "size": 2048,
-                    "storage_path": "tasks/artifacts/run_1/file-1_report.md",
+                    "content_type": content_type,
+                    "storage_path": f"tasks/artifacts/run_1/file-1_{name}",
                     "uploaded_at": "2026-10-01T12:00:00+00:00",
                 }
             ],
         )
         project = project_id or self.team.pk
         return f"http://testserver/api/projects/{project}/tasks/{task.id}/runs/{run.id}/artifacts/file-1/download/"
+
+    @parameterized.expand(
+        [
+            ("image", "chart.png", "image/png", frozenset(), True),
+            ("not_an_image", "report.md", "text/markdown", frozenset(), False),
+            ("install_without_file_scope", "chart.png", "image/png", frozenset({"files:write"}), False),
+        ]
+    )
+    @patch("posthog.storage.object_storage.read_bytes", return_value=b"png-bytes")
+    @patch("products.slack_app.backend.tasks.add_slack_unfurl_artifact_image.delay")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_task_artifact_image_shows_in_its_card(
+        self,
+        _name: str,
+        name: str,
+        content_type: str,
+        missing_scopes: frozenset[str],
+        expect_image: bool,
+        mock_slack_integration_class: MagicMock,
+        mock_resolve: MagicMock,
+        mock_delay: MagicMock,
+        _mock_read_bytes: MagicMock,
+    ) -> None:
+        # Runs the queued task in process, through JSON like the Celery broker.
+        mock_delay.side_effect = lambda **kwargs: add_slack_unfurl_artifact_image(**json.loads(json.dumps(kwargs)))
+        url = self._create_task_artifact(name=name, content_type=content_type)
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_slack_integration_class.return_value.missing_scopes.return_value = missing_scopes
+        mock_client = mock_slack_integration_class.return_value.client
+        mock_client.files_upload_v2.return_value = {"file": {"id": "F123"}}
+
+        self._unfurl_links([url])
+
+        if not expect_image:
+            mock_client.chat_unfurl.assert_called_once()
+            mock_client.files_upload_v2.assert_not_called()
+            return
+        mock_client.files_upload_v2.assert_called_once_with(content=b"png-bytes", filename=name, title=name)
+        unfurl = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]
+        self._assert_slack_accepts(unfurl)
+        types = [block["type"] for block in unfurl["blocks"]]
+        assert types.index("image") == types.index("actions") - 1
+        assert unfurl["blocks"][types.index("image")]["slack_file"] == {"id": "F123"}
 
     @parameterized.expand(
         [
