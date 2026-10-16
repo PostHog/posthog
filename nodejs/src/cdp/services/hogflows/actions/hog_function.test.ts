@@ -558,7 +558,7 @@ describe('HogFunctionHandler', () => {
             ].map((options) => ({ billingType, usageKey, ...options }))
         )
     )(
-        'emits $billingType metrics and only bills production usage in $mode mode',
+        'emits $billingType metrics and only excludes mocked usage in $mode mode',
         async ({ billingType, usageKey, isTest, mockFunctions }) => {
             const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
                 reportBillableInvocation: jest.fn(),
@@ -602,7 +602,7 @@ describe('HogFunctionHandler', () => {
                 metric_name: 'billable_invocation',
                 count: 1,
             })
-            if (isTest) {
+            if (isTest && mockFunctions) {
                 expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
             } else {
                 expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(1)

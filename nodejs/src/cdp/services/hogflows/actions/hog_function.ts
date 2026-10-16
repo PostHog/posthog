@@ -223,7 +223,7 @@ export class HogFunctionHandler implements ActionHandler {
                     billingMetricType: this.hogFlowActionBillingType,
                 })
 
-                if (!hogExecutorOptions?.isTest) {
+                if (!hogExecutorOptions?.isTest || !hogExecutorOptions.functions) {
                     // actionStepCount holds across a retry of this step but changes on a loop revisit.
                     this.usageReporter?.reportBillableInvocation({
                         teamId: invocation.teamId,
