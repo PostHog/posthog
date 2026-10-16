@@ -316,7 +316,9 @@ function SendDayPickerFor({ sendAt }: { sendAt: string }): JSX.Element {
     }, [prefillFromLink, setScheduleMode, setSendAt, sendAt])
     return (
         <BindLogic logic={broadcastWizardLogic} props={props}>
-            <SendDayPicker />
+            <div className="w-[60rem]">
+                <SendDayPicker />
+            </div>
         </BindLogic>
     )
 }
@@ -327,5 +329,8 @@ export const SendDayPickerCrowded: StoryFn = () => {
     return <SendDayPickerFor sendAt="2026-10-20T10:00:00.000Z" />
 }
 SendDayPickerCrowded.parameters = {
-    testOptions: { waitForLoadersToDisappear: true, waitForSelector: '[data-attr=send-day-picker-use-suggestion]' },
+    testOptions: {
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=send-day-picker-use-suggestion] >> visible=true',
+    },
 }

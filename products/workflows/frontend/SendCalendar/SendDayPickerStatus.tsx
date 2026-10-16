@@ -1,8 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconCheck, IconWarning } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { broadcastWizardLogic } from '../Broadcasts/broadcastWizardLogic'
@@ -24,50 +22,45 @@ export function SendDayPickerStatus(): JSX.Element {
     }
     if (isTransactional) {
         return (
-            <div className="text-sm text-secondary">
+            <LemonBanner type="info">
                 Transactional emails don't count toward the frequency cap, so any day works.
-            </div>
+            </LemonBanner>
         )
     }
     if (sendAt && !selectedCrowding.length) {
+        return <LemonBanner type="success">This time stays within {describeRule(rule)}.</LemonBanner>
+    }
+
+    const suggestionLabel = suggestion?.tz(effectiveTimezone).format('ddd, MMM D [at] h:mm A')
+    const action = suggestion
+        ? {
+              children: 'Use this day',
+              onClick: applySuggestion,
+              'data-attr': 'send-day-picker-use-suggestion',
+          }
+        : undefined
+    const suggestionText = suggestion ? (
+        <>
+            The first day that keeps to {describeRule(rule)} is <strong>{suggestionLabel}</strong>.
+        </>
+    ) : (
+        <>
+            No day in the next {SUGGESTION_HORIZON_DAYS} days keeps to {describeRule(rule)}.
+        </>
+    )
+
+    if (sendAt) {
+        const names = [...new Set(selectedCrowding.map((send) => send.name))].join(', ')
         return (
-            <div className="flex items-center gap-1 text-sm">
-                <IconCheck className="shrink-0 text-success" />
-                This time stays within {describeRule(rule)}.
-            </div>
+            <LemonBanner type="warning" action={action}>
+                Some people in this audience also get {names} within {rule.windowDays}{' '}
+                {rule.windowDays === 1 ? 'day' : 'days'}. {suggestionText}
+            </LemonBanner>
         )
     }
-    const names = [...new Set(selectedCrowding.map((send) => send.name))].join(', ')
     return (
-        <div className="flex flex-col gap-1 text-sm">
-            {sendAt ? (
-                <div className="flex items-start gap-1 text-warning">
-                    <IconWarning className="mt-0.5 shrink-0" />
-                    <span>
-                        Some people in this audience also get {names} within {rule.windowDays}{' '}
-                        {rule.windowDays === 1 ? 'day' : 'days'}. That's more than {describeRule(rule)}.
-                    </span>
-                </div>
-            ) : null}
-            {suggestion ? (
-                <div className="flex flex-wrap items-center gap-2">
-                    <span>
-                        Suggested: <strong>{suggestion.tz(effectiveTimezone).format('ddd, MMM D [at] h:mm A')}</strong>
-                    </span>
-                    <LemonButton
-                        type="secondary"
-                        size="xsmall"
-                        onClick={applySuggestion}
-                        data-attr="send-day-picker-use-suggestion"
-                    >
-                        Use this day
-                    </LemonButton>
-                </div>
-            ) : (
-                <span className="text-secondary">
-                    No day in the next {SUGGESTION_HORIZON_DAYS} days stays within {describeRule(rule)}.
-                </span>
-            )}
-        </div>
+        <LemonBanner type="info" action={action}>
+            {suggestionText}
+        </LemonBanner>
     )
 }
