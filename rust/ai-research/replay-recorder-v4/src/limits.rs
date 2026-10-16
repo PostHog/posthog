@@ -2,7 +2,7 @@
 //! own new-session rate limiter with the main lane's rules.
 
 use std::borrow::Cow;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -165,14 +165,18 @@ impl Buckets {
     }
 }
 
-/// The main lane's new-session rate limiter, run by v4 for itself. Each team's new sessions take a token from its
-/// bucket, and a session denied one is blocked as a whole, so v4 never keeps half of it.
+/// The main lane's new-session rate limiter, run by v4 for itself. Each team's new sessions on the main topic take a
+/// token from its bucket, and a session denied one is blocked as a whole, so v4 never keeps half of it.
+///
+/// The replay overflow lane enforces the same blocklist, but its own limiter only counts. v4 does the same: a session
+/// first seen on the overflow topic is never blocked for its own rate. Seen and blocked state is shared by both topics.
 ///
 /// Redis errors fail open, as in the main lane: a session whose state is unknown is not blocked, and a block that
 /// is not written holds in this process.
 pub struct SessionLimiter {
     redis: Arc<dyn Client + Send + Sync>,
-    buckets: Mutex<Buckets>,
+    /// The main topic's buckets, then the overflow topic's, which only count.
+    buckets: Mutex<[Buckets; 2]>,
     blocking_enabled: bool,
     seen: moka::sync::Cache<SessionKey, ()>,
     blocked: moka::sync::Cache<SessionKey, bool>,
@@ -209,25 +213,26 @@ impl SessionLimiter {
     ) -> Self {
         Self {
             redis,
-            buckets: Mutex::new(Buckets {
+            buckets: Mutex::new(std::array::from_fn(|_| Buckets {
                 capacity,
                 replenish_per_sec,
                 teams: HashMap::new(),
-            }),
+            })),
             blocking_enabled,
             seen: local_cache(),
             blocked: local_cache(),
         }
     }
 
-    /// Returns which of a poll batch's sessions are blocked. A session is new when it is neither seen nor blocked,
-    /// and only a new session takes a token, so a blocked session does not drain its team's bucket.
-    pub async fn blocked(&self, sessions: &BTreeSet<SessionKey>) -> HashSet<SessionKey> {
+    /// Returns which of a poll batch's sessions are blocked. Each session maps to true when a message of it came from
+    /// the main topic. A session is new when it is neither seen nor blocked, and only a new session takes a token, so
+    /// a blocked session does not drain its team's bucket.
+    pub async fn blocked(&self, sessions: &BTreeMap<SessionKey, bool>) -> HashSet<SessionKey> {
         let deadline = tokio::time::Instant::now() + LIMITER_DEADLINE;
         let mut blocked = HashSet::new();
         let mut seen = HashSet::new();
         let mut reads: Vec<(String, bool, &SessionKey)> = Vec::new();
-        for session in sessions {
+        for session in sessions.keys() {
             if self.seen.contains_key(session) {
                 seen.insert(session);
             } else {
@@ -267,14 +272,14 @@ impl SessionLimiter {
         let mut writes = Vec::new();
         {
             let mut buckets = self.buckets.lock().unwrap();
-            for session in sessions {
+            for (session, &main) in sessions {
                 if seen.contains(session) || blocked.contains(session) || unknown.contains(session)
                 {
                     continue;
                 }
                 counter!("ai_research_v4_recorder_new_sessions_total").increment(1);
-                let blocking = self.blocking_enabled;
-                let allowed = buckets.take(session.team_id, now);
+                let blocking = main && self.blocking_enabled;
+                let allowed = buckets[usize::from(!main)].take(session.team_id, now);
                 if !allowed {
                     let outcome = if blocking { "blocked" } else { "counted" };
                     counter!("ai_research_v4_recorder_rate_limited_sessions_total", "outcome" => outcome)
@@ -376,8 +381,8 @@ mod tests {
         }
     }
 
-    fn on(sessions: &[SessionKey]) -> BTreeSet<SessionKey> {
-        sessions.iter().cloned().collect()
+    fn on(main: bool, sessions: &[SessionKey]) -> BTreeMap<SessionKey, bool> {
+        sessions.iter().map(|s| (s.clone(), main)).collect()
     }
 
     fn sorted(blocked: HashSet<SessionKey>) -> Vec<String> {
@@ -411,11 +416,14 @@ mod tests {
             .map(|i| session(7, &format!("s{i}")))
             .chain([session(8, "other")])
             .collect();
-        assert_eq!(sorted(limiter.blocked(&on(&flood)).await), ["s2", "s3"]);
+        assert_eq!(
+            sorted(limiter.blocked(&on(true, &flood)).await),
+            ["s2", "s3"]
+        );
 
         // Later messages: a blocked session stays blocked, and a seen one takes no token from the empty bucket.
         let later = [session(7, "s0"), session(7, "s3")];
-        assert_eq!(sorted(limiter.blocked(&on(&later)).await), ["s3"]);
+        assert_eq!(sorted(limiter.blocked(&on(true, &later)).await), ["s3"]);
 
         let writes: Vec<String> = redis
             .get_calls()
@@ -438,6 +446,17 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn the_overflow_topic_only_counts_but_drops_blocked_sessions() {
+        let limiter = SessionLimiter::new(Arc::new(MockRedisClient::new()), 1.0, 0.0, true);
+        let flood: Vec<SessionKey> = (0..3).map(|i| session(7, &format!("o{i}"))).collect();
+        assert!(limiter.blocked(&on(false, &flood)).await.is_empty());
+
+        let main = [session(7, "m0"), session(7, "m1")];
+        assert_eq!(sorted(limiter.blocked(&on(true, &main)).await), ["m1"]);
+        assert_eq!(sorted(limiter.blocked(&on(false, &main)).await), ["m1"]);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn reads_the_state_other_processes_wrote() {
         let mut redis = MockRedisClient::new();
         redis.mget_ret(&format!("{SEEN_PREFIX}:7:seen"), Some(b"1".to_vec()));
@@ -451,7 +470,7 @@ mod tests {
         ];
         // Neither known session takes the one token, so the first new one gets it.
         assert_eq!(
-            sorted(limiter.blocked(&on(&sessions)).await),
+            sorted(limiter.blocked(&on(true, &sessions)).await),
             ["blocked", "new"]
         );
     }
@@ -463,7 +482,10 @@ mod tests {
             "the connection closed in a reply",
         ));
         let limiter = SessionLimiter::new(Arc::new(redis.clone()), 0.0, 0.0, true);
-        assert!(limiter.blocked(&on(&[session(7, "a")])).await.is_empty());
+        assert!(limiter
+            .blocked(&on(true, &[session(7, "a")]))
+            .await
+            .is_empty());
         let ops: Vec<_> = redis.get_calls().into_iter().map(|c| c.op).collect();
         assert_eq!(ops, ["mget", "heal"]);
 
@@ -471,7 +493,7 @@ mod tests {
         let redis = MockRedisClient::new().pipeline_block(Duration::from_secs(60));
         let limiter = SessionLimiter::new(Arc::new(redis), 0.0, 0.0, true);
         let started = tokio::time::Instant::now();
-        let a = on(&[session(7, "a")]);
+        let a = on(true, &[session(7, "a")]);
         assert_eq!(sorted(limiter.blocked(&a).await), ["a"]);
         assert_eq!(started.elapsed(), LIMITER_DEADLINE);
         assert_eq!(sorted(limiter.blocked(&a).await), ["a"]);
@@ -482,7 +504,7 @@ mod tests {
         let redis = MockRedisClient::new();
         let limiter = SessionLimiter::new(Arc::new(redis.clone()), 0.0, 0.0, false);
         assert!(limiter
-            .blocked(&on(&[session(7, "a"), session(7, "b")]))
+            .blocked(&on(true, &[session(7, "a"), session(7, "b")]))
             .await
             .is_empty());
         assert!(redis

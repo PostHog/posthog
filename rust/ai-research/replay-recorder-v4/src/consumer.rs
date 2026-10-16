@@ -1,6 +1,6 @@
 //! The consume loop: gate and admit each message from its key and headers, buffer it, and flush on time or size.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -22,7 +22,7 @@ use replay_core_v4::keys::kms::AwsKms;
 use replay_core_v4::keys::rows::{key_month, write_day};
 use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
 
-use crate::batch::{Batch, Block, Inspectors, Raw, SessionKey};
+use crate::batch::{Batch, Block, Inspectors, Raw, SessionKey, Tp};
 use crate::limits::{Restrictions, SessionLimiter};
 use crate::process::{admit, sampled, Admitted, Headers, Skip};
 use crate::store::BlobStore;
@@ -38,7 +38,15 @@ const POLL_BATCH: usize = 1000;
 
 /// Records the partitions each rebalance takes away, so the loop can drop what it buffered for them.
 pub struct RebalanceContext {
-    revoked: Arc<Mutex<Vec<i32>>>,
+    topics: Vec<&'static str>,
+    revoked: Arc<Mutex<Vec<Tp>>>,
+}
+
+impl RebalanceContext {
+    fn tp(&self, topic: &str, partition: i32) -> Option<Tp> {
+        let topic = *self.topics.iter().find(|t| **t == topic)?;
+        Some(Tp { topic, partition })
+    }
 }
 
 impl ClientContext for RebalanceContext {}
@@ -46,27 +54,34 @@ impl ClientContext for RebalanceContext {}
 impl ConsumerContext for RebalanceContext {
     fn pre_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
         if let Rebalance::Revoke(partitions) = rebalance {
-            self.revoked
-                .lock()
-                .unwrap()
-                .extend(partitions.elements().iter().map(|e| e.partition()));
+            let revoked = partitions
+                .elements()
+                .iter()
+                .filter_map(|e| self.tp(e.topic(), e.partition()))
+                .collect::<Vec<_>>();
+            self.revoked.lock().unwrap().extend(revoked);
         }
     }
 }
 
 pub struct RecorderConsumer {
     consumer: StreamConsumer<RebalanceContext>,
-    topic: String,
-    revoked: Arc<Mutex<Vec<i32>>>,
+    revoked: Arc<Mutex<Vec<Tp>>>,
 }
 
 impl RecorderConsumer {
+    /// `topics` are leaked so a partition is a cheap `Copy` key. There are at most two, created once.
     pub fn new(
         kafka: &KafkaConfig,
         group: &str,
         offset_reset: &str,
-        topic: &str,
+        topics: &[String],
     ) -> Result<Self, rdkafka::error::KafkaError> {
+        let topics: Vec<&'static str> = topics
+            .iter()
+            .filter(|t| !t.is_empty())
+            .map(|t| &*Box::leak(t.clone().into_boxed_str()))
+            .collect();
         let mut config = ClientConfig::new();
         config
             .set("bootstrap.servers", &kafka.kafka_hosts)
@@ -87,30 +102,32 @@ impl RecorderConsumer {
         let revoked = Arc::new(Mutex::new(Vec::new()));
         let consumer: StreamConsumer<RebalanceContext> =
             config.create_with_context(RebalanceContext {
+                topics: topics.clone(),
                 revoked: revoked.clone(),
             })?;
-        consumer.subscribe(&[topic])?;
-        Ok(Self {
-            consumer,
-            topic: topic.to_owned(),
-            revoked,
-        })
+        consumer.subscribe(&topics)?;
+        Ok(Self { consumer, revoked })
     }
 
-    fn take_revoked(&self) -> Vec<i32> {
+    /// The main topic comes first. The overflow lane's limiter only counts, so v4's does the same there.
+    fn is_main(&self, tp: Tp) -> bool {
+        self.consumer.context().topics.first() == Some(&tp.topic)
+    }
+
+    fn take_revoked(&self) -> Vec<Tp> {
         std::mem::take(&mut *self.revoked.lock().unwrap())
     }
 
     /// Commits the next offset of every partition this process still owns.
-    fn commit(&self, offsets: &std::collections::HashMap<i32, i64>) {
+    fn commit(&self, offsets: &std::collections::HashMap<Tp, i64>) {
         let assigned = self.consumer.assignment().unwrap_or_default();
         let mut list = TopicPartitionList::new();
-        for (&partition, &offset) in offsets {
-            if assigned.find_partition(&self.topic, partition).is_some() {
+        for (&tp, &offset) in offsets {
+            if assigned.find_partition(tp.topic, tp.partition).is_some() {
                 if let Err(error) =
-                    list.add_partition_offset(&self.topic, partition, Offset::Offset(offset + 1))
+                    list.add_partition_offset(tp.topic, tp.partition, Offset::Offset(offset + 1))
                 {
-                    tracing::warn!(%error, partition, "building the offset commit failed");
+                    tracing::warn!(%error, partition = tp.partition, "building the offset commit failed");
                 }
             }
         }
@@ -257,25 +274,34 @@ async fn handle_messages(
 ) {
     let mut admitted = Vec::with_capacity(messages.len());
     for message in messages {
-        let session = admit_message(message, &consumer.topic, settings, sources)
+        let Some(tp) = consumer
+            .consumer
+            .context()
+            .tp(message.topic(), message.partition())
+        else {
+            continue;
+        };
+        let session = admit_message(message, tp, settings, sources)
             .await
             .map(|admitted| SessionKey {
                 team_id: admitted.team_id,
                 session_id: admitted.session_id,
             });
-        admitted.push((message, session));
+        admitted.push((message, tp, session));
     }
     // The limiter decides before anything is buffered, so a blocked session's messages never reach a block.
-    let sessions: BTreeSet<SessionKey> = admitted
-        .iter()
-        .filter_map(|(_, session)| session.as_ref().ok().cloned())
-        .collect();
+    let mut sessions: BTreeMap<SessionKey, bool> = BTreeMap::new();
+    for (_, tp, session) in &admitted {
+        if let Ok(session) = session {
+            *sessions.entry(session.clone()).or_default() |= consumer.is_main(*tp);
+        }
+    }
     let blocked = if sessions.is_empty() {
         HashSet::new()
     } else {
         sources.limiter.blocked(&sessions).await
     };
-    for (message, session) in admitted {
+    for (message, tp, session) in admitted {
         let session = session.and_then(|session| {
             if blocked.contains(&session) {
                 Err(Skip::Blocked)
@@ -292,12 +318,12 @@ async fn handle_messages(
                     payload: message.payload().unwrap_or_default().to_vec(),
                     content_encoding: header(message, "content-encoding").map(str::to_owned),
                 };
-                batch.add(message.partition(), session, raw);
+                batch.add(tp, session, raw);
             }
             Err(skip) => {
                 counter!("ai_research_v4_recorder_messages_total", "outcome" => skip.as_str())
                     .increment(1);
-                batch.handled(message.partition(), message.offset());
+                batch.handled(tp, message.offset());
             }
         }
     }
@@ -306,7 +332,7 @@ async fn handle_messages(
 /// Everything before the payload: the gate on the Kafka key, then the headers, restrictions and team.
 async fn admit_message(
     message: &BorrowedMessage<'_>,
-    topic: &str,
+    tp: Tp,
     settings: &Settings,
     sources: &Sources,
 ) -> Result<Admitted, Skip> {
@@ -323,7 +349,7 @@ async fn admit_message(
     };
     let restriction = sources.restrictions.get(&headers, now_ms / 1000).await;
     let team = headers.token.and_then(|token| sources.teams.get(token));
-    let redirect_overflow = settings.redirecting_topic.as_deref() == Some(topic);
+    let redirect_overflow = settings.redirecting_topic.as_deref() == Some(tp.topic);
     admit(&headers, restriction, redirect_overflow, team, now_ms)
 }
 
