@@ -15462,7 +15462,7 @@ export namespace Schemas {
     /**
      * * `fx` - fx
      */
-    export type FxTaskRunCreateSchemaRuntimeAdapterEnum = "fx";
+    export type FxRuntimeAdapterEnum = "fx";
     /**
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -15557,7 +15557,7 @@ export namespace Schemas {
          *
          * * `fx` - fx
          */
-        runtime_adapter: FxTaskRunCreateSchemaRuntimeAdapterEnum;
+        runtime_adapter: FxRuntimeAdapterEnum;
         /**
          * LLM gateway model identifier to run in the fx runtime. Any model the gateway serves works.
          */
