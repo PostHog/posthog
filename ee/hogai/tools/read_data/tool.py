@@ -1,4 +1,5 @@
 import re
+import json
 from collections.abc import Callable
 from datetime import UTC
 from typing import ClassVar, Literal, Self, Union
@@ -117,7 +118,7 @@ class ReadInsight(BaseModel):
     insight_id: str = Field(description="The string ID of the insight.")
     execute: bool = Field(
         default=False,
-        description="If true, executes the insight query and returns results. If false, returns only the insight definition.",
+        description="If true, executes the insight query and returns results. If false, returns the full stored query for saved insights. Use false before saved edits.",
     )
 
 
@@ -456,7 +457,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         # The agent wants to read the schema, just return it
         if not execute:
-            text_result = await context.format_schema()
+            saved_query = None
+            if isinstance(result, ModelArtifactResult):
+                saved_query = json.dumps(result.model.query, separators=(",", ":"))
+            text_result = await context.format_schema(saved_query=saved_query)
             return text_result, None
 
         # Create a new artifact message, so the user can see the results in the UI

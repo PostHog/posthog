@@ -83,6 +83,8 @@ Workflow:
 
 Retrieves and optionally retrieves data for an existing insight by its ID.
 
+Before editing a saved insight, use execute=false to read its full stored query. JSON Patch paths start at that query's root. Use /source only when the returned query contains source. Execution results use the inner analytics query and are not the patch target.
+
 ## Use this when:
 - You have an insight ID and want to retrieve the data for that insight or read the insight schema.
 - The user wants to see or discuss a specific saved insight.
