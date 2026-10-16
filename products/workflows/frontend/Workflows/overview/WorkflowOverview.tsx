@@ -128,7 +128,7 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                 </LemonBanner>
             ) : null}
 
-            <div className="grid grid-cols-1 gap-2 @md:grid-cols-2 @3xl:grid-cols-3 @6xl:grid-cols-5">
+            <div className="grid grid-cols-1 gap-2 @md:grid-cols-2 @3xl:grid-cols-3 @6xl:grid-flow-col @6xl:auto-cols-fr @6xl:grid-cols-none">
                 <WorkflowMetricCard
                     name="Started"
                     description="Workflow runs that started in this date range."
