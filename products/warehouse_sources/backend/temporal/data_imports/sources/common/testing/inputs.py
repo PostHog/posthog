@@ -1,3 +1,5 @@
+import datetime
+
 import structlog
 from structlog.types import FilteringBoundLogger
 
@@ -19,6 +21,7 @@ def source_inputs(
     db_incremental_field_earliest_value: object | None = None,
     reset_pipeline: bool = False,
     api_version: str | None = None,
+    history_start: datetime.datetime | None = None,
     logger: FilteringBoundLogger | None = None,
 ) -> SourceInputs:
     """The `SourceInputs` the pipeline hands a source, with the fields a test varies.
@@ -43,4 +46,5 @@ def source_inputs(
         logger=logger if logger is not None else structlog.get_logger(_LOGGER_NAME),
         reset_pipeline=reset_pipeline,
         api_version=api_version,
+        history_start=history_start,
     )
