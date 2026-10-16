@@ -86,8 +86,8 @@ export interface marketingAnalyticsTilesLogicValues {
     includeConversionGoals: boolean // marketingAnalyticsLogic
     integrationFilter: IntegrationFilter // marketingAnalyticsLogic
     loading: boolean // marketingAnalyticsLogic
-    sourcesInitialLoading: boolean // marketingAnalyticsLogic
     shouldFilterTestAccounts: boolean // marketingAnalyticsLogic
+    sourcesInitialLoading: boolean // marketingAnalyticsLogic
     tileColumnSelection: validColumnsForTiles // marketingAnalyticsLogic
     defaultColumns: string[] // marketingAnalyticsTableLogic
     query: DataTableNode | null // marketingAnalyticsTableLogic

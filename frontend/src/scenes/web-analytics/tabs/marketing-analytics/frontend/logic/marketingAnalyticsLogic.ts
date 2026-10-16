@@ -411,7 +411,6 @@ export interface marketingAnalyticsLogicValues {
     integrationFilter: IntegrationFilter
     isAdPerformance: boolean
     loading: boolean
-    sourcesInitialLoading: boolean
     nativeSources: ExternalDataSource[]
     nativeSourcesHierarchyStatus: NativeSourceHierarchyStatus[]
     optionsOpen: boolean
@@ -422,6 +421,7 @@ export interface marketingAnalyticsLogicValues {
     sourceValidationError: string | null
     sourceValidationErrors: SourceValidationApi['errors_by_source']
     sourceValidationLoading: boolean
+    sourcesInitialLoading: boolean
     tileColumnSelection: validColumnsForTiles
     unconfiguredNativeSources: ExternalDataSource[]
     uniqueConversionGoalName: string
