@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 
+use futures::stream::{self, StreamExt};
 use metrics::counter;
 use replay_core_v4::inspect::session::{BlockInspection, Moment, SessionInspector};
 use replay_core_v4::inspect::stats::BlockStats;
@@ -110,61 +111,54 @@ pub struct Inspectors {
 }
 
 impl Inspectors {
-    /// Decodes every buffered message, runs it through its session's inspector and returns one block per session.
-    pub fn inspect(&mut self, batch: Batch) -> (Vec<Block>, HashMap<Tp, i64>) {
-        let now = Instant::now();
+    /// Decodes every buffered message and runs it through its session's inspector, with up to `concurrency` sessions
+    /// at once off the async runtime. Returns one block per session.
+    pub async fn inspect(
+        &mut self,
+        batch: Batch,
+        concurrency: usize,
+    ) -> (Vec<Block>, HashMap<Tp, i64>) {
         let mut by_session: BTreeMap<SessionKey, (Vec<Tp>, Vec<Raw>)> = BTreeMap::new();
         for ((session, tp), pending) in batch.sessions {
             let (tps, raws) = by_session.entry(session).or_default();
             tps.push(tp);
             raws.extend(pending.messages);
         }
-        let mut blocks = Vec::with_capacity(by_session.len());
-        for (session, (tps, raws)) in by_session {
-            let (inspector, partitions, last_seen) = self
-                .sessions
-                .entry(session.clone())
-                .or_insert_with(|| (SessionInspector::default(), Vec::new(), now));
-            for tp in tps {
-                if !partitions.contains(&tp) {
-                    partitions.push(tp);
-                }
-            }
-            *last_seen = now;
-            let mut messages = Vec::with_capacity(raws.len());
-            for raw in raws {
-                let message = read(raw.payload, raw.content_encoding.as_deref())
-                    .and_then(|m| check_read(&m, &session.session_id).map(|()| m));
-                match message {
-                    Ok(mut message) => {
-                        // Decoded once here, for the inspector and the block writer both.
-                        message.decode_compressed();
-                        messages.push(message);
-                    }
-                    Err(skip) => {
-                        counter!("replay_recorder_v4_messages_total", "outcome" => skip.as_str())
-                            .increment(1);
+        let tasks: Vec<_> = by_session
+            .into_iter()
+            .map(|(session, (tps, raws))| {
+                let (inspector, mut partitions) = self
+                    .sessions
+                    .remove(&session)
+                    .map(|(inspector, partitions, _)| (inspector, partitions))
+                    .unwrap_or_default();
+                for tp in tps {
+                    if !partitions.contains(&tp) {
+                        partitions.push(tp);
                     }
                 }
-            }
-            if messages.is_empty() {
-                continue;
-            }
-            counter!("replay_recorder_v4_messages_total", "outcome" => "recorded")
-                .increment(messages.len() as u64);
-            let mut block = BlockInspection::default();
-            for message in &messages {
-                inspector.observe_message(&mut block, message);
-            }
-            let inspected = block.finish();
-            blocks.push(Block {
-                session,
-                messages,
-                stats: inspected.stats,
-                moments: inspected.moments,
-                image_urls: inspected.image_urls,
-            });
+                (session, inspector, partitions, raws)
+            })
+            .collect();
+        let done: Vec<_> = stream::iter(tasks)
+            .map(|(session, inspector, partitions, raws)| {
+                tokio::task::spawn_blocking(move || {
+                    let (inspector, block) = inspect_session(&session, inspector, raws);
+                    (session, inspector, partitions, block)
+                })
+            })
+            .buffer_unordered(concurrency.max(1))
+            .collect()
+            .await;
+        let now = Instant::now();
+        let mut blocks = Vec::new();
+        for result in done {
+            let (session, inspector, partitions, block) =
+                result.expect("inspecting a session panicked");
+            self.sessions.insert(session, (inspector, partitions, now));
+            blocks.extend(block);
         }
+        blocks.sort_by(|a, b| a.session.cmp(&b.session));
         (blocks, batch.offsets)
     }
 
@@ -178,6 +172,47 @@ impl Inspectors {
             .retain(|_, (_, _, last_seen)| last_seen.elapsed() < idle);
         metrics::gauge!("replay_recorder_v4_live_sessions").set(self.sessions.len() as f64);
     }
+}
+
+fn inspect_session(
+    session: &SessionKey,
+    mut inspector: SessionInspector,
+    raws: Vec<Raw>,
+) -> (SessionInspector, Option<Block>) {
+    let mut messages = Vec::with_capacity(raws.len());
+    for raw in raws {
+        let message = read(raw.payload, raw.content_encoding.as_deref())
+            .and_then(|m| check_read(&m, &session.session_id).map(|()| m));
+        match message {
+            Ok(mut message) => {
+                // Decoded once here, for the inspector and the block writer both.
+                message.decode_compressed();
+                messages.push(message);
+            }
+            Err(skip) => {
+                counter!("replay_recorder_v4_messages_total", "outcome" => skip.as_str())
+                    .increment(1);
+            }
+        }
+    }
+    if messages.is_empty() {
+        return (inspector, None);
+    }
+    counter!("replay_recorder_v4_messages_total", "outcome" => "recorded")
+        .increment(messages.len() as u64);
+    let mut block = BlockInspection::default();
+    for message in &messages {
+        inspector.observe_message(&mut block, message);
+    }
+    let inspected = block.finish();
+    let block = Block {
+        session: session.clone(),
+        messages,
+        stats: inspected.stats,
+        moments: inspected.moments,
+        image_urls: inspected.image_urls,
+    };
+    (inspector, Some(block))
 }
 
 #[cfg(test)]
@@ -219,8 +254,8 @@ mod tests {
         json!([{"type": 3, "timestamp": 3, "data": {"source": 1, "positions": []}}])
     }
 
-    #[test]
-    fn a_revoked_partition_leaves_nothing_behind() {
+    #[tokio::test]
+    async fn a_revoked_partition_leaves_nothing_behind() {
         let mut batch = Batch::default();
         batch.add(tp(0), key("a"), raw(10, "a", mouse()));
         batch.add(tp(1), key("b"), raw(20, "b", mouse()));
@@ -229,7 +264,7 @@ mod tests {
         batch.drop_partitions(&[tp(1)]);
         inspectors.drop_partitions(&[tp(1)]);
 
-        let (blocks, offsets) = inspectors.inspect(batch);
+        let (blocks, offsets) = inspectors.inspect(batch, 2).await;
         assert_eq!(
             blocks
                 .iter()
@@ -240,18 +275,18 @@ mod tests {
         assert_eq!(offsets, HashMap::from([(tp(0), 10)]));
     }
 
-    #[test]
-    fn session_state_carries_across_flushes() {
+    #[tokio::test]
+    async fn session_state_carries_across_flushes() {
         let mut inspectors = Inspectors::default();
         let mut first = Batch::default();
         first.add(tp(0), key("a"), raw(1, "a", snapshot()));
         first.add(tp(0), key("b"), raw(2, "b", mouse()));
-        inspectors.inspect(first);
+        inspectors.inspect(first, 2).await;
 
         let mut second = Batch::default();
         second.add(tp(0), key("a"), raw(3, "a", mouse()));
         second.add(tp(0), key("b"), raw(4, "b", mouse()));
-        let (blocks, _) = inspectors.inspect(second);
+        let (blocks, _) = inspectors.inspect(second, 2).await;
         let cold: Vec<_> = blocks
             .iter()
             .map(|b| (b.session.session_id.as_str(), b.stats.cold_start))

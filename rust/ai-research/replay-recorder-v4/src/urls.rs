@@ -8,6 +8,8 @@ use replay_core_v4::refs::{image_url_ref, reference_hash};
 use replay_core_v4::seal::image_url_key;
 use serde_json::{json, Value};
 
+use replay_core_v4::inspect::stats::BlockStats;
+
 use crate::batch::Block;
 
 /// The v3 fetcher's limits on one Kafka record.
@@ -17,9 +19,9 @@ const MAX_RECORD_BYTES: usize = 512 * 1024;
 const REMAINING_HOPS: u32 = 10;
 
 /// Builds one job per new remote image URL, grouped by registrable domain, the topic's key. Counts each block's URLs
-/// in its stats. `already_sent` names references this process sent for the same team and day.
-pub fn fetch_jobs(
-    blocks: &mut [Block],
+/// in the stats paired with it. `already_sent` names references this process sent for the same team and day.
+pub fn fetch_jobs<'b>(
+    blocks: impl IntoIterator<Item = (&'b Block, &'b mut BlockStats)>,
     keys: &FlushKeys,
     write_day: &str,
     now_ms: i64,
@@ -27,7 +29,7 @@ pub fn fetch_jobs(
 ) -> BTreeMap<String, Vec<Value>> {
     let mut jobs: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     let mut seen = HashSet::new();
-    for block in blocks.iter_mut() {
+    for (block, stats) in blocks {
         let id = SessionId {
             team_id: block.session.team_id,
             session_id: block.session.session_id.clone(),
@@ -49,7 +51,7 @@ pub fn fetch_jobs(
             if !is_public_host(&url.host) || is_tracking_beacon(&url.host, &path) {
                 continue;
             }
-            block.stats.image_urls += 1;
+            stats.image_urls += 1;
             let reference = image_url_ref(
                 block.session.team_id,
                 write_day,
@@ -112,7 +114,6 @@ fn record(domain: &str, jobs: Vec<Value>) -> (String, Vec<u8>, Vec<String>) {
 
 #[cfg(test)]
 mod tests {
-    use replay_core_v4::inspect::stats::BlockStats;
     use replay_core_v4::keys::batch::SessionKey as Key;
 
     use super::*;
@@ -128,7 +129,7 @@ mod tests {
             "http://localhost/private.png",
             "https://bat.bing.com/action/0",
         ];
-        let mut blocks = vec![Block {
+        let block = Block {
             session: SessionKey {
                 team_id: 7,
                 session_id: "s".to_owned(),
@@ -137,7 +138,8 @@ mod tests {
             stats: BlockStats::default(),
             moments: Vec::new(),
             image_urls: urls.iter().map(|u| (*u).to_owned()).collect(),
-        }];
+        };
+        let mut stats = BlockStats::default();
         let mut keys = FlushKeys::default();
         keys.sessions.insert(
             SessionId {
@@ -159,9 +161,13 @@ mod tests {
         );
         let sent = image_url_ref(7, "2026-10-15", &sent_hash);
 
-        let jobs = fetch_jobs(&mut blocks, &keys, "2026-10-15", 1_000, &|reference| {
-            reference == sent
-        });
+        let jobs = fetch_jobs(
+            [(&block, &mut stats)],
+            &keys,
+            "2026-10-15",
+            1_000,
+            &|reference| reference == sent,
+        );
         let domains: Vec<_> = jobs.keys().cloned().collect();
         assert_eq!(domains, ["example.com"]);
         let fetched: Vec<_> = jobs["example.com"]
@@ -185,7 +191,7 @@ mod tests {
             (Some("s"), Some(10))
         );
         // Every public URL the block referenced counts, sent before or not.
-        assert_eq!(blocks[0].stats.image_urls, 4);
+        assert_eq!(stats.image_urls, 4);
     }
 
     #[test]

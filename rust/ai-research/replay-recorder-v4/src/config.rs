@@ -53,6 +53,10 @@ pub struct Config {
     #[envconfig(default = "67108864")]
     pub flush_max_bytes: usize,
 
+    /// How many sessions of a flush are decoded, inspected and sealed at once. 0 is one per CPU.
+    #[envconfig(default = "0")]
+    pub flush_concurrency: usize,
+
     /// A session's inspector is dropped after this long without a message, so memory follows live sessions.
     #[envconfig(default = "3600")]
     pub session_idle_secs: u64,

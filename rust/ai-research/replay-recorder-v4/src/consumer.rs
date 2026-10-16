@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use common_kafka::config::KafkaConfig;
-use common_kafka::kafka_producer::KafkaContext;
 use lifecycle::Handle;
 use metrics::counter;
 use rdkafka::consumer::{
@@ -14,22 +13,11 @@ use rdkafka::consumer::{
 use rdkafka::message::{BorrowedMessage, Headers as _, Message as _};
 use rdkafka::{ClientConfig, ClientContext, Offset, TopicPartitionList};
 
-use chrono::Utc;
-use replay_core_v4::keys::batch::{KeyStore, SessionId};
-use replay_core_v4::keys::kms::AwsKms;
-use replay_core_v4::keys::rows::key_day;
-use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
-
 use crate::batch::{Batch, Block, Inspectors, Raw, SessionKey, Tp};
+use crate::flush::{write_flush, FlushError, Writer};
 use crate::limits::{Blocklist, Restrictions};
 use crate::process::{admit, sampled, Admitted, Headers, Skip};
-use crate::store::BlobStore;
 use crate::teams::TeamCache;
-use crate::urls::{fetch_jobs, records};
-use crate::write::{prepare, write_block_index, write_blocks, write_images, WriteError};
-use rdkafka::message::{Header, OwnedHeaders};
-use rdkafka::producer::{FutureProducer, FutureRecord};
-use rdkafka::util::Timeout;
 
 /// Records the partitions each rebalance takes away, so the loop can drop what it buffered for them.
 pub struct RebalanceContext {
@@ -139,34 +127,11 @@ fn header<'m>(message: &'m BorrowedMessage<'_>, name: &str) -> Option<&'m str> {
         .and_then(|v| std::str::from_utf8(v).ok())
 }
 
-/// What a flush needs to store blocks. Without it the recorder runs dry.
-pub struct Writer {
-    pub keys: KeyStore<CachedKeyTable<AwsKeyTable>, AwsKms>,
-    pub store: Arc<dyn BlobStore>,
-    pub rrweb_bucket: String,
-    pub images_bucket: String,
-    /// Images this process stored for their team and day, so a later flush references them without packing them again.
-    pub stored_images: moka::sync::Cache<String, ()>,
-    pub producer: FutureProducer<KafkaContext>,
-    pub image_fetch_topic: String,
-    /// Remote image references this process sent to the fetcher for their team and day.
-    pub sent_urls: moka::sync::Cache<String, ()>,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum FlushError {
-    #[error(transparent)]
-    Keys(#[from] replay_core_v4::keys::batch::KeyError),
-    #[error(transparent)]
-    Write(#[from] WriteError),
-    #[error("producing image fetch jobs failed: {0}")]
-    Produce(String),
-}
-
 pub struct Settings {
     pub sample_percentage: f64,
     pub flush_interval: Duration,
     pub flush_max_bytes: usize,
+    pub flush_concurrency: usize,
     pub session_idle: Duration,
     /// The main topic, when the main lane moves its force-overflow messages to the overflow topic.
     pub redirecting_topic: Option<String>,
@@ -212,8 +177,10 @@ pub async fn run(
         if batch.should_flush(settings.flush_interval, settings.flush_max_bytes) {
             let mut flushed = std::mem::take(&mut batch);
             drop_blocked(&mut flushed, sources.blocklist.as_ref()).await;
-            let (mut blocks, offsets) = inspectors.inspect(flushed);
-            if let Err(error) = flush(&mut blocks, writer.as_ref()).await {
+            let (blocks, offsets) = inspectors
+                .inspect(flushed, settings.flush_concurrency)
+                .await;
+            if let Err(error) = flush(blocks, writer.as_ref(), settings.flush_concurrency).await {
                 // Nothing of this flush is committed, so a restart reads it again from the last commit.
                 tracing::error!(%error, "flush failed");
                 handle.signal_failure(format!("flush failed: {error}"));
@@ -312,9 +279,13 @@ async fn drop_blocked(batch: &mut Batch, blocklist: &dyn Blocklist) {
 }
 
 /// Stores a flush's blocks, or only reports them when the recorder runs dry.
-async fn flush(blocks: &mut [Block], writer: Option<&Writer>) -> Result<(), FlushError> {
+async fn flush(
+    blocks: Vec<Block>,
+    writer: Option<&Writer>,
+    concurrency: usize,
+) -> Result<(), FlushError> {
     counter!("replay_recorder_v4_blocks_total").increment(blocks.len() as u64);
-    for block in blocks.iter() {
+    for block in &blocks {
         counter!("replay_recorder_v4_block_events_total").increment(block.stats.event_count);
         if block.stats.cold_start {
             counter!("replay_recorder_v4_cold_start_blocks_total").increment(1);
@@ -324,88 +295,6 @@ async fn flush(blocks: &mut [Block], writer: Option<&Writer>) -> Result<(), Flus
         }
     }
     let Some(writer) = writer else { return Ok(()) };
-    let now = Utc::now();
-    let day = key_day(now);
-    let sessions: Vec<SessionId> = blocks
-        .iter()
-        .map(|b| SessionId {
-            team_id: b.session.team_id,
-            session_id: b.session.session_id.clone(),
-        })
-        .collect();
-    // Keys are stored before anything is sealed with them, as in v3.
-    let keys = writer.keys.keys_for_flush(&sessions, &day).await?;
-    counter!("replay_recorder_v4_dropped_sessions_total").increment(keys.dropped.len() as u64);
-    let stored = &writer.stored_images;
-    let prepared = prepare(blocks, &keys, &day, &|reference| {
-        stored.contains_key(reference)
-    });
-    // Before the index is written: building the jobs counts each block's image URLs into its stats.
-    let jobs = fetch_jobs(blocks, &keys, &day, now.timestamp_millis(), &|reference| {
-        writer.sent_urls.contains_key(reference)
-    });
-    let rows = write_images(
-        &prepared.images,
-        &keys,
-        &day,
-        &writer.images_bucket,
-        &writer.rrweb_bucket,
-        writer.store.as_ref(),
-        now,
-    )
-    .await?;
-    for row in &rows {
-        stored.insert(row.image_ref.clone(), ());
-    }
-    counter!("replay_recorder_v4_stored_images_total").increment(rows.len() as u64);
-    let written = write_blocks(
-        &prepared.blocks,
-        &writer.rrweb_bucket,
-        writer.store.as_ref(),
-        now,
-    )
-    .await?;
-    counter!("replay_recorder_v4_written_blocks_total").increment(written.len() as u64);
-    write_block_index(
-        blocks,
-        &written,
-        &keys,
-        &writer.rrweb_bucket,
-        writer.store.as_ref(),
-        now,
-    )
-    .await?;
-    produce_jobs(writer, jobs, now.timestamp_millis()).await?;
-    Ok(())
-}
-
-/// Sends the flush's fetch jobs and waits for every delivery before the flush commits, as the v3 mirror does.
-async fn produce_jobs(
-    writer: &Writer,
-    jobs: std::collections::BTreeMap<String, Vec<serde_json::Value>>,
-    now_ms: i64,
-) -> Result<(), FlushError> {
-    let captured_at = now_ms.to_string();
-    let mut sent = Vec::new();
-    for (domain, payload, references) in records(jobs) {
-        let headers = OwnedHeaders::new().insert(Header {
-            key: "capture-timestamp-ms",
-            value: Some(&captured_at),
-        });
-        let record = FutureRecord::to(&writer.image_fetch_topic)
-            .key(&domain)
-            .payload(&payload)
-            .headers(headers);
-        writer
-            .producer
-            .send(record, Timeout::After(Duration::from_secs(30)))
-            .await
-            .map_err(|(error, _)| FlushError::Produce(error.to_string()))?;
-        sent.extend(references);
-    }
-    counter!("replay_recorder_v4_image_fetch_jobs_total").increment(sent.len() as u64);
-    for reference in sent {
-        writer.sent_urls.insert(reference, ());
-    }
-    Ok(())
+    let blocks: Vec<Arc<Block>> = blocks.into_iter().map(Arc::new).collect();
+    write_flush(&blocks, writer, concurrency).await
 }
