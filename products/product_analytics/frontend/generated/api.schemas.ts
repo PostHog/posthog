@@ -1948,6 +1948,7 @@ export const DataColorTokenApi = {
 export interface ResultCustomizationByValueApi {
     assignmentBy?: 'value'
     color?: DataColorTokenApi | null
+    customColor?: string | null
     hidden?: boolean | null
 }
 
@@ -5939,6 +5940,8 @@ export interface HogQLQueryApi {
     /** Run the selected connection query directly without translating it through HogQL first */
     sendRawQuery?: boolean | null
     tags?: QueryLogTagsApi | null
+    /** BI worksheets can explicitly request up to one million aggregated rows. */
+    useBusinessIntelligenceLimits?: boolean | null
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: HogQLQueryApiValues
     /** Variables to be substituted into the query */
@@ -8073,6 +8076,13 @@ export interface ScatterChartSettingsApi {
     xStartAtZero?: boolean | null
 }
 
+export type ValueLabelPositionApi = (typeof ValueLabelPositionApi)[keyof typeof ValueLabelPositionApi]
+
+export const ValueLabelPositionApi = {
+    End: 'end',
+    Center: 'center',
+} as const
+
 export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
 
 export const DisplayTypeApi = {
@@ -8129,6 +8139,7 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    barGap?: number | null
     boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
     chartStyle?: ChartStyleApi | null
@@ -8155,8 +8166,14 @@ export interface ChartSettingsApi {
     showYAxisBorder?: boolean | null
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean | null
+    valueLabelBackground?: boolean | null
+    valueLabelFontSize?: number | null
+    valueLabelPosition?: ValueLabelPositionApi | null
+    valueLabelRotation?: number | null
     xAxis?: ChartAxisApi | null
+    xAxisDateFormat?: string | null
     xAxisLabel?: string | null
+    xAxisTickRotation?: number | null
     yAxis?: ChartAxisApi[] | null
     /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
     yAxisAtZero?: boolean | null
@@ -8344,6 +8361,9 @@ export const BIQueryLimitApi = {
     Number1000: 1000,
     Number10000: 10000,
     Number50000: 50000,
+    Number100000: 100000,
+    Number500000: 500000,
+    Number1000000: 1000000,
 } as const
 
 export interface AliasApi {

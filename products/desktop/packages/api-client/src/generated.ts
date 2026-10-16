@@ -2219,6 +2219,7 @@ export namespace Schemas {
     export type ResultCustomizationByValue = Partial<{
         assignmentBy: string;
         color: DataColorToken | null;
+        customColor: string | null;
         hidden: boolean | null;
     }>;
     export type ResultCustomizationByPosition = Partial<{
@@ -4397,6 +4398,7 @@ export namespace Schemas {
         response?: (HogQLQueryResponse | null) | undefined;
         sendRawQuery?: (boolean | null) | undefined;
         tags?: (QueryLogTags | null) | undefined;
+        useBusinessIntelligenceLimits?: (boolean | null) | undefined;
         values?: (Record<string, unknown> | null) | undefined;
         variables?: (Record<string, HogQLVariable> | null) | undefined;
         version?: (number | null) | undefined;
@@ -4709,7 +4711,14 @@ export namespace Schemas {
         nextField: BIField;
         previousField: BIField;
     };
-    export type BIQueryLimit = 100 | 1000 | 10000 | 50000;
+    export type BIQueryLimit =
+        | 100
+        | 1000
+        | 10000
+        | 50000
+        | 100000
+        | 500000
+        | 1000000;
     export type MemberAliase = { aliases: Array<Alias>; field: BIField };
     export type MissingDates = "gap" | "zero";
     export type ReferenceLines = "pane" | "worksheet";
@@ -4880,6 +4889,7 @@ export namespace Schemas {
         xScale: XScale | null;
         xStartAtZero: boolean | null;
     }>;
+    export type ValueLabelPosition = "end" | "center";
     export type Settings = Partial<{
         display: ChartSettingsDisplay | null;
         formatting: ChartSettingsFormatting | null;
@@ -4889,6 +4899,7 @@ export namespace Schemas {
         settings?: (Settings | null) | undefined;
     };
     export type ChartSettings = Partial<{
+        barGap: number | null;
         boxPlot: BoxPlotSettings | null;
         chartStyle: ChartStyle | null;
         goalLines: Array<GoalLine> | null;
@@ -4911,8 +4922,14 @@ export namespace Schemas {
         showXAxisTicks: boolean | null;
         showYAxisBorder: boolean | null;
         stackBars100: boolean | null;
+        valueLabelBackground: boolean | null;
+        valueLabelFontSize: number | null;
+        valueLabelPosition: ValueLabelPosition | null;
+        valueLabelRotation: number | null;
         xAxis: ChartAxis | null;
+        xAxisDateFormat: string | null;
         xAxisLabel: string | null;
+        xAxisTickRotation: number | null;
         yAxis: Array<ChartAxis> | null;
         yAxisAtZero: boolean | null;
     }>;
