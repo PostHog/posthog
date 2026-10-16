@@ -1,3 +1,4 @@
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -49,6 +50,57 @@ class TestTransactionalEmail(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{hog_flow_id}")
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
+
+    @parameterized.expand(
+        [
+            ("update", "", {"name": "Reset"}),
+            (
+                "design",
+                "design/",
+                {"operations": [{"op": "update_content", "id": "txt1", "patch": {"values": {"text": "<p>New</p>"}}}]},
+            ),
+        ]
+    )
+    @patch(
+        "products.messaging.backend.presentation.views.message_templates.render_design_html",
+        return_value="<p>New</p>",
+    )
+    def test_a_deleted_workflow_unlinks_the_template_until_it_is_made_transactional_again(
+        self, _name, suffix, body, _render, mock_post, _flag, _capture
+    ):
+        design = {
+            "body": {
+                "id": "body1",
+                "rows": [
+                    {
+                        "id": "row1",
+                        "cells": [1],
+                        "columns": [
+                            {
+                                "id": "col1",
+                                "contents": [{"id": "txt1", "type": "text", "values": {"text": "<p>Old</p>"}}],
+                                "values": {},
+                            }
+                        ],
+                        "values": {},
+                    }
+                ],
+                "values": {},
+            }
+        }
+        MessageTemplate.objects.filter(id=self.template.id).update(
+            content={"email": {**self.template.content["email"], "design": design}}
+        )
+        deleted = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}")
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+        template_url = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/"
+
+        edited = self.client.patch(f"{template_url}{suffix}", body, format="json")
+        remade = self.client.post(f"{template_url}make_transactional/", {}, format="json")
+
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+        assert edited.json()["transactional_hog_flow_id"] is None
+        assert remade.json()["transactional_hog_flow_id"] not in (None, str(self.hog_flow_id))
 
     def test_is_hidden_while_the_flag_is_off(self, mock_post, flag, _capture):
         flag.return_value = False
@@ -117,6 +169,68 @@ class TestTransactionalEmail(APIBaseTest):
         template.refresh_from_db()
         assert template.transactional_hog_flow_id is None
 
+    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    def test_saving_a_transactional_template_writes_a_new_workflow_version(self, reload, mock_post, _flag, _capture):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
+                {"content": {"email": {"subject": "A new subject", "html": "<p>New</p>"}}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        # Workers reload once the new version is committed, not only from inside the transaction.
+        reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(self.hog_flow_id)])
+        workflow = self._workflow(self.hog_flow_id)
+        assert workflow["version"] == 2
+        email = workflow["actions"][1]["config"]["inputs"]["email"]["value"]
+        assert (email["subject"], email["html"]) == ("A new subject", "<p>New</p>")
+
+    @parameterized.expand([("marketing_category",), ("no_email_content",)])
+    def test_a_template_whose_workflow_was_deleted_takes_edits_it_could_not_send_with(
+        self, mock_post, _flag, _capture, edit
+    ):
+        category = MessageCategory.objects.create(
+            team=self.team, key="news", name="News", category_type=MessageCategoryType.MARKETING
+        )
+        body: dict[str, Any] = (
+            {"message_category": str(category.id)} if edit == "marketing_category" else {"content": {}}
+        )
+        self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/", body, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["transactional_hog_flow_id"] is None
+
+    def test_deleting_a_transactional_template_succeeds(self, mock_post, _flag, _capture):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/", {"deleted": True}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.template.refresh_from_db()
+        assert self.template.deleted
+
+    def test_rejects_an_update_that_would_stop_a_transactional_template_sending(self, mock_post, _flag, _capture):
+        category = MessageCategory.objects.create(
+            team=self.team, key="news", name="News", category_type=MessageCategoryType.MARKETING
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
+            {"message_category": str(category.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "marketing_template"
+        self.template.refresh_from_db()
+        assert self.template.message_category_id is None
+        assert self._workflow(self.hog_flow_id)["version"] == 1
+
 
 @pytest.mark.ee
 @patch(
@@ -158,6 +272,19 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
                 organization_member_id=membership_id,
             )
         self.client.force_login(member)
+
+    @parameterized.expand(
+        [
+            ("update", "patch", "", {"content": {"email": {"subject": "New", "html": "<p>New</p>"}}}),
+        ]
+    )
+    def test_a_member_denied_the_workflow_cannot_change_it(self, mock_post, _flag, _name, method, suffix, body):
+        url = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/{suffix}"
+
+        response = getattr(self.client, method)(url, body, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        mock_post.assert_not_called()
 
     @parameterized.expand([("unlinked", None), ("linked_to_a_deleted_workflow", uuid4())])
     def test_editor_access_to_one_workflow_cannot_create_another(self, mock_post, _flag, _name, linked_hog_flow_id):

@@ -1,9 +1,14 @@
 """Transactional emails: a template made sendable over the API. Each one is backed by a workflow that runs once
 per send, so sends get the workflow's metrics, run history and versions."""
 
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
+
+import structlog
+
+from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
 from products.messaging.backend.facade.contracts import MarketingTemplate, SenderUnavailable, TemplateNotSendable
 from products.messaging.backend.models import MessageCategory, MessageTemplate
@@ -11,9 +16,13 @@ from products.messaging.backend.models.message_category import MessageCategoryTy
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
 from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContent,
+    TransactionalEmailContentInvalid,
     TransactionalEmailSenderUnavailable,
     create_transactional_email_workflow,
+    update_transactional_email_workflow,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 def check_sendable(team_id: int, *, template_type: str, content: dict, message_category_id: UUID | None) -> None:
@@ -82,3 +91,69 @@ def _workflow_exists(team_id: int, hog_flow_id: UUID) -> bool:
     except WorkflowNotFound:
         return False
     return True
+
+
+def lock_transactional_workflow_id(team_id: int, template_id: UUID) -> UUID | None:
+    """Lock the template row for the rest of the transaction and return its workflow id. Holding the lock
+    keeps make_transactional from linking a workflow between this read and the update that follows."""
+    return (
+        MessageTemplate.objects.select_for_update()
+        .filter(team_id=team_id, id=template_id)
+        .values_list("transactional_hog_flow_id", flat=True)
+        .get()
+    )
+
+
+def check_transactional_update(template_id: UUID, team_id: int, fields: dict[str, Any]) -> None:
+    """Raise when an update would leave a transactional template unable to send. `fields` are validated
+    serializer fields, where `message_category` holds a category id."""
+    template = MessageTemplate.objects.get(team_id=team_id, id=template_id)
+    if not template.transactional_hog_flow_id or fields.get("deleted"):
+        return
+    # A link to a deleted workflow no longer restricts the template. The sync after the update clears it.
+    if not _workflow_exists(team_id, template.transactional_hog_flow_id):
+        return
+    check_sendable(
+        team_id,
+        template_type=fields.get("type", template.type),
+        content=fields.get("content", template.content),
+        message_category_id=fields.get("message_category", template.message_category_id),
+    )
+
+
+def _reload_workers(team_id: int, hog_flow_id: UUID) -> None:
+    # The edit is already committed, so a failed reload must not fail the request. Workers still pick up the
+    # new version when their cache expires.
+    try:
+        reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[str(hog_flow_id)])
+    except Exception:
+        logger.exception("transactional_email_worker_reload_failed", team_id=team_id, hog_flow_id=str(hog_flow_id))
+
+
+def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int | None) -> None:
+    """Write the template's current content as a new version of its workflow, if it has one."""
+    template = MessageTemplate.objects.get(team_id=team_id, id=template_id)
+    if not template.transactional_hog_flow_id or template.deleted:
+        return
+    hog_flow_id = template.transactional_hog_flow_id
+    if not _workflow_exists(team_id, hog_flow_id):
+        # Someone deleted the workflow. The template stops being transactional and can be made so again.
+        MessageTemplate.objects.filter(team_id=team_id, id=template_id).update(transactional_hog_flow_id=None)
+        return
+    try:
+        update_transactional_email_workflow(
+            team_id=team_id,
+            user_id=user_id,
+            hog_flow_id=hog_flow_id,
+            content=_content(template, from_integration_id=None),
+        )
+        # The save already told the workers to reload, but before the caller's transaction committed, so a
+        # worker can cache the old version. This reload runs once the new version is visible.
+        transaction.on_commit(lambda: _reload_workers(team_id, hog_flow_id))
+    except WorkflowNotFound:
+        # Deleted between the check above and the update.
+        MessageTemplate.objects.filter(team_id=team_id, id=template_id).update(transactional_hog_flow_id=None)
+    except TransactionalEmailContentInvalid as e:
+        raise TemplateNotSendable("The template needs a subject and a body to send.") from e
+    except TransactionalEmailSenderUnavailable as e:
+        raise SenderUnavailable("No verified email sender. Verify a sending domain first.") from e
