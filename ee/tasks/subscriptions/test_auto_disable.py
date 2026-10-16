@@ -228,7 +228,8 @@ class TestDisableInvalidSubscription(APIBaseTest):
 
 @time_machine.travel("2026-08-01T12:00:00Z", tick=False)
 class TestSubscriptionDeliveryFailureNotification(APIBaseTest):
-    def test_sends_email_to_the_subscription_creator(self):
+    @parameterized.expand([("email_available", True), ("email_unavailable", False)])
+    def test_sends_email_to_the_subscription_creator(self, _label, email_available):
         subscription = Subscription.objects.create(
             team=self.team,
             target_type="email",
@@ -239,9 +240,15 @@ class TestSubscriptionDeliveryFailureNotification(APIBaseTest):
             created_by=self.user,
         )
 
-        with patch("ee.tasks.subscriptions.failure_notifications.EmailMessage") as email_cls:
+        with (
+            patch("ee.tasks.subscriptions.failure_notifications.is_email_available", return_value=email_available),
+            patch("ee.tasks.subscriptions.failure_notifications.EmailMessage") as email_cls,
+        ):
             send_subscription_delivery_failure_email(subscription)
 
+        if not email_available:
+            email_cls.assert_not_called()
+            return
         assert email_cls.call_args.kwargs["subject"] == 'PostHog subscription "Weekly report" could not be delivered'
         assert email_cls.call_args.kwargs["template_name"] == "subscription_delivery_failed"
         assert email_cls.call_args.kwargs["template_context"]["scheduled_at"] == subscription.next_delivery_date
@@ -283,6 +290,7 @@ class TestSubscriptionDeliveryFailureNotification(APIBaseTest):
         )
 
         with (
+            patch("ee.tasks.subscriptions.failure_notifications.is_email_available", return_value=True),
             patch("ee.tasks.subscriptions.failure_notifications.EmailMessage") as email_cls,
             patch("ee.tasks.subscriptions.failure_notifications.create_notification") as create_notification_mock,
         ):

@@ -3,7 +3,9 @@ from urllib.parse import urlparse
 
 from django.utils.formats import date_format
 
-from posthog.email import EmailMessage
+import structlog
+
+from posthog.email import EmailMessage, is_email_available
 from posthog.models import User
 
 from products.exports.backend.models.subscription import Subscription
@@ -16,6 +18,8 @@ from products.notifications.backend.facade.api import (
     has_been_dispatched,
 )
 from products.notifications.backend.facade.enums import NotificationOnlyResourceType
+
+logger = structlog.get_logger(__name__)
 
 
 def _get_notification_creator(subscription: Subscription) -> User | None:
@@ -31,6 +35,13 @@ def _get_notification_creator(subscription: Subscription) -> User | None:
 def send_subscription_delivery_failure_email(subscription: Subscription, failure_id: str | None = None) -> None:
     creator = _get_notification_creator(subscription)
     if creator is None or not creator.email:
+        return
+    if not is_email_available():
+        logger.info(
+            "subscription.delivery_failure_email_skipped_email_unavailable",
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+        )
         return
 
     title = subscription.title or "your subscription"

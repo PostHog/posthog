@@ -5,7 +5,7 @@ from slack_sdk.errors import SlackApiError
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
-from posthog.email import EmailDeliveryError
+from posthog.email import EmailDeliveryError, is_email_available
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
@@ -33,6 +33,8 @@ LOGGER = get_logger(__name__)
 # details into history events capped at the gRPC payload limit, and an oversized non-retryable
 # error can't be recorded, leaving the workflow unable to complete its failing task.
 _MAX_ERROR_DETAIL_RESULTS = 50
+
+EMAIL_UNAVAILABLE_REASON = "Email is not configured on this instance"
 
 
 def strip_null_bytes(value: Any) -> Any:
@@ -111,6 +113,26 @@ async def deliver_email(
     if send_only_to_new_recipients:
         previous = {e.strip() for e in (previous_target_value or "").split(",") if e.strip()}
         emails = [e for e in emails if e not in previous]
+
+    if emails and not await database_sync_to_async(is_email_available, thread_sensitive=False)():
+        # A config gap on the worker fails every recipient the same way, and a retry cannot fix it.
+        # Fail once, before the per-recipient loop captures one exception per address.
+        LOGGER.warning(
+            "deliver_subscription.email_unavailable",
+            subscription_id=subscription.id,
+            recipient_count=len(emails),
+        )
+        error = {"message": EMAIL_UNAVAILABLE_REASON, "type": "email_unavailable"}
+        recipient_results.extend(
+            RecipientResult(recipient=email, status="failed", error=error, human_readable_error=None)
+            for email in emails
+        )
+        _capture_delivery_failed_event(subscription, Exception(EMAIL_UNAVAILABLE_REASON))
+        raise ApplicationError(
+            EMAIL_UNAVAILABLE_REASON,
+            {"recipient_results": error_detail_results(recipient_results)},
+            non_retryable=True,
+        )
 
     await LOGGER.ainfo(
         "deliver_subscription.sending_email", subscription_id=subscription.id, recipient_count=len(emails)
