@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { ReferenceLines, TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
+import { TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
 import type {
     ReferenceLineProps,
     Series,
@@ -22,6 +22,7 @@ import {
     type ReportMetricChartType,
     type ReportMetricSeriesPoints,
 } from '../../utils/reportMetrics'
+import { ReportChartMarkers } from './ReportChartMarkers'
 
 // Only the top is pinned: the sides keep the computed gutter so the first and last date labels fit.
 // The top gridline sits at the top of the plot, and its tick label is centered on it, so the plot
@@ -117,11 +118,11 @@ export function ReportObservationChart({
         >
             {type === 'bar' ? (
                 <TimeSeriesBarChart series={series} labels={points.labels} theme={theme} config={barConfig}>
-                    {markers && <ReferenceLines lines={markers} />}
+                    {markers && <ReportChartMarkers markers={markers} />}
                 </TimeSeriesBarChart>
             ) : (
                 <TimeSeriesLineChart series={series} labels={points.labels} theme={theme} config={lineConfig}>
-                    {markers && <ReferenceLines lines={markers} />}
+                    {markers && <ReportChartMarkers markers={markers} />}
                 </TimeSeriesLineChart>
             )}
         </div>
