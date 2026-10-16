@@ -13,7 +13,6 @@ from django.db import transaction
 from pydantic import ValidationError as PydanticValidationError
 
 from products.alerts_platform.backend.facade.contracts import (
-    DEFAULT_MAX_INSTANCES,
     MAX_EVALUATION_PERIODS,
     Grouping,
     InvalidPlatformAlertEdit,
@@ -55,8 +54,6 @@ def _validated(
             raise InvalidPlatformAlertEdit(name, f"Must be between 1 and {MAX_EVALUATION_PERIODS}.")
     if edit.datapoints_to_alarm > edit.evaluation_periods:
         raise InvalidPlatformAlertEdit("datapoints_to_alarm", "Cannot exceed evaluation_periods.")
-    if edit.grouping.max_instances > DEFAULT_MAX_INSTANCES:
-        raise InvalidPlatformAlertEdit("grouping", f"max_instances must be at most {DEFAULT_MAX_INSTANCES}.")
     if edit.cooldown_minutes < 0:
         raise InvalidPlatformAlertEdit("cooldown_minutes", "Cannot be negative.")
     try:

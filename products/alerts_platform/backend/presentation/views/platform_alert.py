@@ -20,6 +20,7 @@ from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.contracts import (
     DEFAULT_MAX_INSTANCES,
     MAX_EVALUATION_PERIODS,
+    MAX_INSTANCES_CEILING,
     Grouping,
     GroupingMode,
     InvalidPlatformAlertEdit,
@@ -80,7 +81,7 @@ class GroupingSerializer(serializers.Serializer):
     )
     max_instances = serializers.IntegerField(
         min_value=1,
-        max_value=DEFAULT_MAX_INSTANCES,
+        max_value=MAX_INSTANCES_CEILING,
         default=DEFAULT_MAX_INSTANCES,
         help_text="Most instances the alert keeps at once. Groups past it are not tracked, and the last "
         "message says how many were left out.",
