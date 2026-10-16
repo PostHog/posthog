@@ -1707,6 +1707,80 @@ describe('dashboardLogic', () => {
             expect(successToast).not.toHaveBeenCalled()
         })
 
+        const moveFirstTileIntoGroup = async (): Promise<DashboardTile> => {
+            await expectLogic(logic).toFinishAllListeners()
+            const movedTile = logic.values.dashboard!.tiles[0]
+            await expectLogic(logic, () => {
+                logic.actions.moveTileToGroup(movedTile.id, 'plans', logic.values.layouts.sm ?? [])
+            }).toFinishAllListeners()
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+            jest.spyOn(api, 'update')
+            return movedTile
+        }
+
+        it('saving a tile moved into a group sends only that tile its new group', async () => {
+            const movedTile = await moveFirstTileIntoGroup()
+
+            await expectLogic(logic, () => {
+                logic.actions.saveLayoutChanges()
+            }).toFinishAllListeners()
+
+            const payload = (api.update as jest.Mock).mock.calls.at(-1)[1]
+            expect(payload.tiles.filter((tile: { group_key?: string }) => 'group_key' in tile)).toEqual([
+                expect.objectContaining({ id: movedTile.id, group_key: 'plans' }),
+            ])
+        })
+
+        it('a failed save keeps a tile moved into a group as an unsaved change', async () => {
+            const movedTile = await moveFirstTileIntoGroup()
+            ;(api.update as jest.Mock).mockRejectedValueOnce(new Error('network down'))
+
+            await expectLogic(logic, () => {
+                logic.actions.saveLayoutChanges()
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboard!.tiles.find((tile) => tile.id === movedTile.id)?.group_key).toBe('plans')
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+        })
+
+        it('discarding puts a tile moved into a group back where it was', async () => {
+            const movedTile = await moveFirstTileIntoGroup()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            }).toFinishAllListeners()
+
+            expect(api.update).not.toHaveBeenCalled()
+            expect(logic.values.dashboard!.tiles.find((tile) => tile.id === movedTile.id)?.group_key ?? null).toBeNull()
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+        })
+
+        it('discarding keeps a duplicated tile in its group', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const sourceTile = logic.values.dashboard!.tiles[0]
+            const groupedCopy = { ...sourceTile, id: 999, group_key: 'plans' }
+            jest.spyOn(api, 'update').mockResolvedValueOnce({
+                ...logic.values.dashboard!,
+                tiles: [...logic.values.dashboard!.tiles, groupedCopy],
+            })
+            await expectLogic(logic, () => {
+                logic.actions.duplicateTile(sourceTile)
+            })
+                .toDispatchActions(['duplicateTileSuccess'])
+                .toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardEditing(
+                    { filters: true, layout: true },
+                    DashboardEventSource.SceneCommonButtons
+                )
+                logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboard!.tiles.find((tile) => tile.id === groupedCopy.id)?.group_key).toBe('plans')
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+        })
+
         it('discarding edit mode restores original layouts', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
@@ -2101,9 +2175,13 @@ describe('dashboardLogic', () => {
                 expect(dialogOpenSpy).not.toHaveBeenCalled()
             })
 
-            it('prompts before changing the movement mode when the layout is unsaved', async () => {
+            it.each([
+                { name: 'a tile moves', change: moveFirstTile },
+                { name: 'a tile moves into a group', change: moveFirstTileIntoGroup },
+            ])('prompts before changing the movement mode, and discards the change, when $name', async ({ change }) => {
                 await expectLogic(logic).toFinishAllListeners()
-                await expectLogic(logic, moveFirstTile).toFinishAllListeners()
+                await change()
+                await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
                     logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
@@ -2121,6 +2199,7 @@ describe('dashboardLogic', () => {
 
                 const dialogProps = dialogOpenSpy.mock.calls.at(-1)?.[0]
                 dialogProps?.primaryButton?.onClick?.({} as React.MouseEvent<HTMLButtonElement>)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
 
                 await expectLogic(logic).toFinishAllListeners().toMatchValues({ hasUnsavedLayoutChanges: false })
             })

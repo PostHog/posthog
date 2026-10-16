@@ -440,6 +440,12 @@ function parseDashboardTileId(tileId: string | undefined): DashboardTileIdOrNew 
     return Number.isNaN(parsedTileId) ? null : parsedTileId
 }
 
+const tileGroupKeysFromDashboard = (dashboard: DashboardType | null | undefined): Record<number, string | null> =>
+    Object.fromEntries((dashboard?.tiles ?? []).map((tile) => [tile.id, tile.group_key ?? null]))
+
+const tileGroupKeyChanged = (tile: DashboardTile, savedGroupKeys: Record<number, string | null>): boolean =>
+    (tile.group_key ?? null) !== (savedGroupKeys[tile.id] ?? null)
+
 const tileLayoutsFromDashboard = (
     dashboard: DashboardType | null | undefined
 ): Record<number, DashboardTile['layouts']> => {
@@ -522,6 +528,7 @@ export interface dashboardLogicValues {
     dashboardEditing: DashboardEditing | null
     dashboardFailedToLoad: boolean
     dashboardFiltersSaving: boolean
+    dashboardGroupKeys: Record<DashboardTile['id'], string | null>
     dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
     dashboardLoadData: {
         action: DashboardLoadAction | undefined
@@ -858,6 +865,15 @@ export interface dashboardLogicActions {
     }
     loadingDashboardItemsStarted: (action: DashboardLoadAction) => {
         action: DashboardLoadAction
+    }
+    moveTileToGroup: (
+        tileId: number,
+        groupKey: string | null,
+        layout: Layout
+    ) => {
+        groupKey: string | null
+        layout: Layout
+        tileId: number
     }
     moveToDashboard: (
         tile: DashboardTile,
@@ -1254,9 +1270,9 @@ export interface dashboardLogicActions {
     }
     setTileProperty: (
         tileId: number,
-        properties: Partial<Pick<DashboardTile, 'color' | 'show_description'>>
+        properties: Partial<Pick<DashboardTile, 'color' | 'group_key' | 'show_description'>>
     ) => {
-        properties: Partial<Pick<DashboardTile, 'color' | 'show_description'>>
+        properties: Partial<Pick<DashboardTile, 'color' | 'group_key' | 'show_description'>>
         tileId: number
     }
     setWidgetRefreshStatuses: (
@@ -1272,6 +1288,9 @@ export interface dashboardLogicActions {
     }
     setWidgetRunResults: (results: Record<number, DashboardWidgetRunResultApi>) => {
         results: Record<number, DashboardWidgetRunResultApi>
+    }
+    tileGroupKeysSaved: (dashboard: DashboardType) => {
+        dashboard: DashboardType
     }
     tileStreamingComplete: () => {
         value: true
@@ -1473,7 +1492,8 @@ export interface dashboardLogicMeta {
             dashboardLayouts: Record<
                 number,
                 Record<string, never> | Record<DashboardLayoutSize, TileLayout> | undefined
-            >
+            >,
+            dashboardGroupKeys: Record<number, string | null>
         ) => boolean
         effectiveVariablesAndAssociatedInsights: (
             dashboard: DashboardType | null,
@@ -1748,6 +1768,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         clearDeferredTileRefresh: (tileIds: number[]) => ({ tileIds }),
         cancelWidgetRefresh: (tileIds: number[], requestNumber: number) => ({ tileIds, requestNumber }),
         toggleTileGroup: (groupKey: string) => ({ groupKey }),
+        tileGroupKeysSaved: (dashboard: DashboardType) => ({ dashboard }),
+        moveTileToGroup: (tileId: number, groupKey: string | null, layout: Layout) => ({ tileId, groupKey, layout }),
         preloadTileGroup: (groupKey: string, retryFailed: boolean = false) => ({ groupKey, retryFailed }),
         /** Debounced run_widgets refresh for a single tile (tile filters). */
         scheduleRefreshDashboardWidgets: (tileId: number) => ({ tileId }),
@@ -1893,7 +1915,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
         toggleTileDescription: (tileId: number) => ({ tileId }),
-        setTileProperty: (tileId: number, properties: Partial<Pick<DashboardTile, 'color' | 'show_description'>>) => ({
+        setTileProperty: (
+            tileId: number,
+            properties: Partial<Pick<DashboardTile, 'color' | 'show_description' | 'group_key'>>
+        ) => ({
             tileId,
             properties,
         }),
@@ -2078,6 +2103,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => ({
                             id: tile.id,
                             layouts: tile.layouts?.sm ? { sm: tile.layouts.sm } : {},
+                            ...(tileGroupKeyChanged(tile, values.dashboardGroupKeys)
+                                ? { group_key: tile.group_key ?? null }
+                                : {}),
                         }))
 
                         const currentDashboard = values.dashboard
@@ -2105,7 +2133,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const layoutsChanged = (currentDashboard.tiles || []).some((tile) => {
                             const originalLayouts = values.dashboardLayouts?.[tile.id]?.sm
                             const updatedLayouts = layoutsToUpdate.find((t) => t.id === tile.id)?.layouts?.sm
-                            return !equal(originalLayouts || {}, updatedLayouts || {})
+                            return (
+                                !equal(originalLayouts || {}, updatedLayouts || {}) ||
+                                tileGroupKeyChanged(tile, values.dashboardGroupKeys)
+                            )
                         })
 
                         const colorsChanged = breakdownColorsChanged || themeChanged
@@ -2171,6 +2202,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             })
                         }
                         cache.dashboardChangesPersisted = true
+                        if (scope === 'layout') {
+                            actions.tileGroupKeysSaved(updatedDashboard)
+                        }
                         return updatedDashboard
                     } catch (e) {
                         lemonToast.error('Could not update dashboard: ' + String(e))
@@ -2213,6 +2247,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tiles: values.dashboard.tiles.map((tile) => ({
                                 ...tile,
                                 layouts: values.dashboardLayouts?.[tile.id],
+                                group_key: values.dashboardGroupKeys[tile.id] ?? null,
                             })),
                         }
                     }
@@ -2485,6 +2520,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setAccessDeniedToDashboard: () => false,
                 loadDashboardFailure: () => true,
                 setDashboardStreamFailed: () => true,
+            },
+        ],
+        dashboardGroupKeys: [
+            {} as Record<DashboardTile['id'], string | null>,
+            {
+                loadDashboardSuccess: (_, { dashboard }) => tileGroupKeysFromDashboard(dashboard),
+                loadDashboardMetadataSuccess: (_, { dashboard }) => tileGroupKeysFromDashboard(dashboard),
+                // Not saveEditModeChangesSuccess: a failed save also fires it, and the moves must stay unsaved.
+                tileGroupKeysSaved: (_, { dashboard }) => tileGroupKeysFromDashboard(dashboard),
+                receiveTileFromStream: (state, { tile }) => ({ ...state, [tile.id]: tile.group_key ?? null }),
+                // Adds only the new tile, so unsaved group moves of other tiles still count as changes.
+                duplicateTileSuccess: (state, { dashboard }) => ({
+                    ...tileGroupKeysFromDashboard(dashboard),
+                    ...state,
+                }),
             },
         ],
         dashboardLayouts: [
@@ -3353,10 +3403,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (settings: DashboardSettings) => settings.variables,
         ],
         hasUnsavedLayoutChanges: [
-            (s) => [s.dashboard, s.dashboardLayouts],
+            (s) => [s.dashboard, s.dashboardLayouts, s.dashboardGroupKeys],
             (
                 dashboard: DashboardType | null,
-                dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
+                dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>,
+                dashboardGroupKeys: Record<DashboardTile['id'], string | null>
             ): boolean => {
                 if (!dashboard) {
                     return false
@@ -3364,7 +3415,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return (dashboard.tiles || []).some((tile: DashboardTile) => {
                     const originalSm = dashboardLayouts?.[tile.id]?.sm
                     const currentSm = tile.layouts?.sm
-                    return !equal(originalSm || {}, currentSm || {})
+                    return !equal(originalSm || {}, currentSm || {}) || tileGroupKeyChanged(tile, dashboardGroupKeys)
                 })
             },
         ],
@@ -5127,6 +5178,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.refreshDashboardWidgets({ tileIds: expandedWidgetTileIds, forceRefresh })
             }
         },
+        moveTileToGroup: ({ tileId, groupKey, layout }) => {
+            const previousGroupKey = values.tiles.find((tile) => tile.id === tileId)?.group_key ?? null
+            actions.updateLayouts({ sm: layout })
+            actions.setTileProperty(tileId, { group_key: groupKey })
+            posthog.capture('dashboard tile moved between groups', {
+                dashboard_id: props.id,
+                from_group: previousGroupKey !== null,
+                to_group: groupKey !== null,
+            })
+        },
         toggleTileGroup: ({ groupKey }) => {
             const collapse = !values.collapsedTileGroupKeys.includes(groupKey)
             const groupTileIds = values.tiles.filter((tile) => tile.group_key === groupKey).map((tile) => tile.id)
@@ -5522,6 +5583,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         layouts?.sm ? [{ ...layouts.sm, i: tileId }] : []
                     )
                     actions.updateLayouts({ sm: savedSmLayout })
+                    for (const tile of values.tiles) {
+                        if (tileGroupKeyChanged(tile, values.dashboardGroupKeys)) {
+                            actions.setTileProperty(tile.id, { group_key: values.dashboardGroupKeys[tile.id] ?? null })
+                        }
+                    }
                 }
                 actions.setDashboardGridCompaction(layoutCompaction)
                 actions.saveDashboardGridCompaction(layoutCompaction)

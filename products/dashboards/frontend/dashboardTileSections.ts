@@ -1,7 +1,10 @@
+import { cloneLayout } from 'react-grid-layout'
 import type { Layout } from 'react-grid-layout'
+import { moveElement } from 'react-grid-layout/core'
 
 import type { DashboardLayoutSize, DashboardTile } from '~/types'
 
+import type { DashboardGridCompactor } from './dashboardCustomization'
 import type { DashboardTileGroupApi } from './generated/api.schemas'
 
 export type DashboardSection =
@@ -158,4 +161,79 @@ export function getCollapsedTileGroupKeys({
         }
         return !!(groups && Object.hasOwn(groups, groupKey) && groups[groupKey].collapsed)
     })
+}
+
+/** The grid cell nearest to a dragged tile's top-left corner, kept so the whole tile fits in the grid. */
+export function getDropCell({
+    tileRect,
+    gridRect,
+    cols,
+    rowHeight,
+    margin: [marginX, marginY],
+    tileWidth,
+}: {
+    tileRect: { left: number; top: number }
+    gridRect: { left: number; top: number; width: number }
+    cols: number
+    rowHeight: number
+    margin: [number, number]
+    tileWidth: number
+}): { x: number; y: number } {
+    const columnStep = (gridRect.width - marginX * (cols - 1)) / cols + marginX
+    const x = Math.round((tileRect.left - gridRect.left) / columnStep)
+    const y = Math.round((tileRect.top - gridRect.top) / (rowHeight + marginY))
+    return { x: Math.min(Math.max(x, 0), cols - tileWidth), y: Math.max(y, 0) }
+}
+
+/**
+ * Moves a tile from its section into another one, or into a new ungrouped section when `targetIndex` is past the
+ * last section. Without a drop cell the tile goes to the bottom of the target.
+ */
+export function moveTileToSection({
+    sections,
+    sectionLayouts,
+    tileId,
+    targetIndex,
+    cell,
+    compactor,
+    cols,
+}: {
+    sections: DashboardSection[]
+    sectionLayouts: Layout[]
+    tileId: number
+    targetIndex: number
+    cell: { x: number; y: number } | null
+    compactor: DashboardGridCompactor
+    cols: number
+}): { layout: Layout; groupKey: string | null } {
+    const tileKey = tileId.toString()
+    const sourceIndex = sections.findIndex((section) => section.tiles.some((tile) => tile.id === tileId))
+    const item = sectionLayouts[sourceIndex]?.find((layoutItem) => layoutItem.i === tileKey)
+    if (!item) {
+        return { layout: stackSectionLayouts(sectionLayouts), groupKey: null }
+    }
+
+    const targetLayout = sectionLayouts[targetIndex] ?? []
+    const bottom = Math.max(0, ...targetLayout.map((layoutItem) => layoutItem.y + layoutItem.h))
+    // Enter at the bottom, then move to the drop cell the way a drag does, so the tile under the drop moves aside.
+    const withTile = cloneLayout([...targetLayout, { ...item, y: bottom }])
+    const entered = withTile[withTile.length - 1]
+    const moved = cell ? moveElement(withTile, entered, cell.x, cell.y, true, false, compactor.type, cols) : withTile
+    const layouts = [...sectionLayouts, ...(targetIndex >= sectionLayouts.length ? [[]] : [])].map((layout, index) => {
+        if (index === sourceIndex) {
+            return compactor.compact(
+                layout.filter((layoutItem) => layoutItem.i !== tileKey),
+                cols
+            )
+        }
+        if (index === targetIndex) {
+            return compactor.compactInteraction(cols, tileKey, moved, moved, true)
+        }
+        return layout
+    })
+    const target = sections[targetIndex]
+    return {
+        layout: stackSectionLayouts(layouts),
+        groupKey: target?.kind === 'group' ? target.groupKey : null,
+    }
 }
