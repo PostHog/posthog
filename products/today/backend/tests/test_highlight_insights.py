@@ -38,14 +38,26 @@ def insight(series: dict[str, list[tuple[date, float]]], **fields: Any) -> Insig
 class TestInsightRules(SimpleTestCase):
     @parameterized.expand(
         [
-            ("opened on most days", [TODAY - timedelta(days=d) for d in range(10)], 10),
-            ("opened every Monday", [TODAY - timedelta(days=1 + 7 * w) for w in range(4)], 4),
-            ("opened on many days of one week", [TODAY - timedelta(days=d) for d in range(5)], 0),
-            ("a habit that stopped a month ago", [TODAY - timedelta(days=30 + 7 * w) for w in range(4)], 0),
+            ("opened on most days", [TODAY - timedelta(days=d) for d in range(10)], False, 10),
+            ("opened every Monday", [TODAY - timedelta(days=1 + 7 * w) for w in range(4)], False, 4),
+            ("opened on many days of one week", [TODAY - timedelta(days=d) for d in range(5)], False, 0),
+            ("a habit that stopped a month ago", [TODAY - timedelta(days=30 + 7 * w) for w in range(4)], False, 0),
+            ("opened on two days while history is short", [TODAY, TODAY - timedelta(days=3)], True, 2),
+            ("opened on one day while history is short", [TODAY], True, 0),
         ]
     )
-    def test_routine_days(self, _name: str, view_days: list[date], expected: int) -> None:
-        self.assertEqual(routine.routine_days(view_days, TODAY), expected)
+    def test_routine_days(self, _name: str, view_days: list[date], warming_up: bool, expected: int) -> None:
+        self.assertEqual(routine.routine_days(view_days, TODAY, warming_up), expected)
+
+    @parameterized.expand(
+        [
+            ("no recorded views", [], True),
+            ("views from the last week", [[TODAY - timedelta(days=6)], [TODAY]], True),
+            ("a view two weeks ago", [[TODAY], [TODAY - timedelta(days=14)]], False),
+        ]
+    )
+    def test_is_warming_up(self, _name: str, view_days: list[list[date]], expected: bool) -> None:
+        self.assertEqual(routine.is_warming_up(view_days, TODAY), expected)
 
     @parameterized.expand(
         [
