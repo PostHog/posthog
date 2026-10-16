@@ -443,7 +443,7 @@ export function SharingModalContent({
                                                     {...iframeProperties}
                                                     title="Shared insight preview"
                                                     onLoad={() => setIframeLoaded(true)}
-                                                    sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                                                    sandbox="allow-scripts allow-same-origin allow-popups"
                                                 />
                                             </div>
                                         )}
