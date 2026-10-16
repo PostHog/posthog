@@ -6,7 +6,8 @@
 #   head-ref                  defaults to the working tree
 #   --handoff                 each version runs the destination jobs the other version queued, the way old and new
 #                             pods share the hog queue during a deploy. A handoff is flagged when it sends what
-#                             neither version sends on its own.
+#                             neither version sends on its own. The comparison fails when a version's own jobs
+#                             send something other than its direct recording.
 #   CDP_TEMPLATE_CORPUS       JSON corpus to run on, defaults to the invented corpus
 #   CDP_TEMPLATE_SHADOW_DIR   where the recordings go, defaults to a new temp directory
 #
@@ -65,7 +66,6 @@ remove_checkouts() {
 }
 trap remove_checkouts EXIT
 
-# Prints the nodejs directory of a throwaway checkout of the ref, with this tree's recorder in it.
 prepare_checkout() {
     local name="$1" ref="$2" tree="$checkouts_dir/$1"
     # Hooks off: the post-checkout hook would install a second node_modules into the throwaway checkout.
@@ -84,7 +84,6 @@ prepare_checkout() {
     echo "$tree/nodejs"
 }
 
-# Runs the recorder in a checkout with the given environment, and stops the comparison when it fails.
 run_recorder() {
     local checkout="$1" log="$2"
     shift 2
@@ -136,9 +135,30 @@ compare_versions() {
     esac
 }
 
+# A same-version handoff that differs from the direct recording means the harness lost something on the way through
+# the queue, so every handoff comparison built on it would be meaningless.
+check_handoff_fidelity() {
+    local side broken=0 handoff_file name
+    for side in base head; do
+        for handoff_file in "$shadow_dir/$side-to-$side"/*.json; do
+            name="$(basename "$handoff_file")"
+            if ! cmp -s "$handoff_file" "$shadow_dir/$side/$name"; then
+                broken=$((broken + 1))
+                echo "Queuing changes what ${name%.json} sends on $side, with no other version involved." >&2
+                git --no-pager diff --no-index "$shadow_dir/$side/$name" "$handoff_file" || true
+            fi
+        done
+    done
+    if [[ "$broken" -gt 0 ]]; then
+        echo "$broken recordings change when queued on one version, so the recorder or that version's queue path is broken." >&2
+        exit 2
+    fi
+}
+
 compare_handoffs() {
     for side in base head; do
-        rm -rf "${shadow_dir:?}/jobs-$side"
+        rm -rf "${shadow_dir:?}/$side" "${shadow_dir:?}/jobs-$side"
+        run_recorder "$(checkout_of "$side")" "$shadow_dir/$side.log" CDP_TEMPLATE_RECORDING_DIR="$shadow_dir/$side"
         run_recorder "$(checkout_of "$side")" "$shadow_dir/jobs-$side.log" \
             CDP_TEMPLATE_HANDOFF=queue CDP_TEMPLATE_HANDOFF_DIR="$shadow_dir/jobs-$side"
     done
@@ -150,6 +170,8 @@ compare_handoffs() {
                 CDP_TEMPLATE_HANDOFF_DIR="$shadow_dir/jobs-$producer" CDP_TEMPLATE_RECORDING_DIR="$recording"
         done
     done
+
+    check_handoff_fidelity
 
     local flagged=0
     for direction in "base head" "head base"; do

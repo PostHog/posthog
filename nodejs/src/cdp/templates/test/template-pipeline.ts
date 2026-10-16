@@ -125,21 +125,28 @@ export type QueuedJob = {
     teamId: number
     /** Stands in for the stored function row, which the worker loads by id. */
     hogFunction: HogFunctionType
-    /** Stands in for the groups the worker loads again, because the queue strips them. */
+    /** Stand in for the groups and person the worker loads again when the queue strips them. */
     groups: HogFunctionInvocationGlobals['groups']
+    person: HogFunctionInvocationGlobals['person']
     secrets: Record<string, string>
     integrationCredentials: string[]
     buildErrors: string[]
     messages: string[]
 }
 
-const loadedByWorker = (invocation: CyclotronJobInvocation, job: QueuedJob): CyclotronJobInvocationHogFunction => {
-    const state = invocation.state as CyclotronJobInvocationHogFunction['state']
-    return {
-        ...invocation,
-        state: { ...state, globals: { ...state.globals, groups: job.groups } },
-        hogFunction: job.hogFunction,
+const loadedByWorker = (
+    invocation: CyclotronJobInvocation,
+    job: QueuedJob
+): CyclotronJobInvocationHogFunction | string => {
+    if (invocation.functionId !== job.hogFunction.id) {
+        return `the worker found no function with id ${invocation.functionId}`
     }
+    const state = invocation.state as CyclotronJobInvocationHogFunction['state'] | null
+    if (!state?.globals?.project || !state.globals.event) {
+        return 'the worker skipped the job, because its globals have no project or event'
+    }
+    const globals = { ...state.globals, groups: job.groups, person: state.globals.person ?? job.person }
+    return { ...invocation, state: { ...state, globals }, hogFunction: job.hogFunction }
 }
 
 export class TemplatePipeline {
@@ -288,6 +295,7 @@ export class TemplatePipeline {
             teamId: this.team.id,
             hogFunction,
             groups: globals.groups,
+            person: globals.person,
             secrets,
             integrationCredentials,
             buildErrors,
@@ -320,8 +328,13 @@ export class TemplatePipeline {
                 invocationErrors.push(`expected 1 queued invocation, got ${invocations.length}`)
                 break
             }
+            const loaded = loadedByWorker(invocations[0], job)
+            if (typeof loaded === 'string') {
+                invocationErrors.push(loaded)
+                break
+            }
             // The worker passes no options, so each pickup runs at most one queued async function.
-            execution = await this.execute(loadedByWorker(invocations[0], job))
+            execution = await this.execute(loaded)
             if (!execution.result) {
                 break
             }

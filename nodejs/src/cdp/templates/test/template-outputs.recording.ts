@@ -36,8 +36,7 @@ const inputTextFor = (templateCase: TemplateCase, entry: CorpusEntry): string =>
 const recordRun = (
     corpusEntry: string,
     run: PipelineRun,
-    context: Omit<NormalizeContext, 'secrets'>,
-    isTransformation: boolean
+    context: Omit<NormalizeContext, 'secrets'>
 ): Record<string, unknown> => {
     const normalizeContext: NormalizeContext = { ...context, secrets: run.secrets }
     const errors = [
@@ -48,12 +47,18 @@ const recordRun = (
     return {
         corpusEntry,
         requests: normalizeRequests(run.requests, normalizeContext),
-        ...(isTransformation
-            ? { transformedEvent: normalizeValue(run.result?.execResult ?? null, normalizeContext) }
-            : {}),
         ...(errors.length ? { errors: errors.map((message) => normalizeValue(message, normalizeContext)) } : {}),
     }
 }
+
+const recordTransformationRun = (
+    corpusEntry: string,
+    run: PipelineRun,
+    context: Omit<NormalizeContext, 'secrets'>
+): Record<string, unknown> => ({
+    ...recordRun(corpusEntry, run, context),
+    transformedEvent: normalizeValue(run.result?.execResult ?? null, { ...context, secrets: run.secrets }),
+})
 
 const writeJson = (directory: string, fileName: string, value: unknown): void =>
     writeFileSync(path.join(directory, fileName), JSON.stringify(value, null, 2) + '\n')
@@ -121,7 +126,7 @@ describe('template output recording', () => {
             const runs = []
             for (const { corpusEntry, inputText, job } of queued) {
                 const run = await pipeline.runQueuedJob(job, OK)
-                runs.push(recordRun(corpusEntry, run, { inputText, teamId: job.teamId }, false))
+                runs.push(recordRun(corpusEntry, run, { inputText, teamId: job.teamId }))
             }
             writeJson(outputDir, fileName, runs)
         })
@@ -130,11 +135,12 @@ describe('template output recording', () => {
             'records %s',
             async (_name, templateCase) => {
                 const outputDir = requiredDirectory(OUTPUT_DIR, 'CDP_TEMPLATE_RECORDING_DIR')
+                const record = templateCase.template.type === 'transformation' ? recordTransformationRun : recordRun
                 const runs = []
                 for (const entry of CORPUS) {
                     const run = await pipeline.run(templateCase, OK, { entry })
                     const context = { inputText: inputTextFor(templateCase, entry), teamId: pipeline.teamId }
-                    runs.push(recordRun(entry.name, run, context, templateCase.template.type === 'transformation'))
+                    runs.push(record(entry.name, run, context))
                 }
                 writeJson(outputDir, fileNameFor(templateCase), runs)
             }
