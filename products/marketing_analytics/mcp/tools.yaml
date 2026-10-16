@@ -115,6 +115,33 @@ tools:
             short-circuit with a note. Requires conversion_goal_id — call marketing-analytics-conversion-goals first and
             pass the conversion_goal_id of the goal you want.
         feature_flag: marketing-analytics-mcp
+    marketing-analytics-preview-conversion-goal:
+        operation: marketing_analytics_conversion_goals_preview_create
+        enabled: true
+        param_overrides:
+            goal:
+                input_schema: MarketingConversionGoalSchema
+        scopes:
+            - marketing_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Preview a conversion goal
+        description: >
+            Evaluate an unsaved conversion goal without changing the project. Send the complete draft in goal and
+            explicit date_from/date_to timestamps with time zone offsets, covering at most 31 days. Supports events,
+            existing actions (including their filters), warehouse tables, and saved views. Use total or dau for counts;
+            revenue requires math=sum, math_property, and counts_as_revenue=true. Use the goal's currency settings
+            when the amount is not already in the project base currency. Group aggregation and monetary multipliers
+            are unsupported. Returns total/evaluated/attributed/unattributed counts and values using journey
+            attribution, plus effective settings, warnings, approximation flags, and checks_not_performed. This is
+            not Ad performance's direct UTM matching. Null values are unavailable, not zero. Inspect warnings and
+            unchecked source quality before recommending a goal; a successful query does not establish a business
+            definition, amount units, refund rules, or valid currency codes. The temporary goal ID is not a saved ID
+            or an apply token. Requires AI conversion setup and either Marketing analytics Setup or the new dashboard
+            to be enabled. For assisted setup, use the setting-up-marketing-conversions skill. Saving is a separate write.
+        feature_flag: marketing-analytics-conversion-setup-ai
     marketing-analytics-setup-plan:
         operation: marketing_analytics_setup_plan_retrieve
         enabled: true
@@ -134,7 +161,9 @@ tools:
             This tool only reads data; it does not connect a platform or apply changes. Direct the user to the returned
             connection link, when provided, to complete authorization. Use refresh=true for an explicit rescan. If
             degraded is non-empty, explain that some checks failed. If truncated is true, describe totals as
-            approximate. Requires a project with the Marketing analytics setup plan enabled.
+            approximate. Requires a project with the Marketing analytics setup plan enabled. For conversion
+            recommendations, use the setting-up-marketing-conversions skill to inspect candidate semantics and
+            preview drafts. Present these findings alongside this plan's conversion suggestions.
         feature_flag: marketing-analytics-setup-plan-mcp
     marketing-analytics-suggest-conversion-goals:
         operation: marketing_analytics_suggest_conversion_goals_retrieve
@@ -147,9 +176,12 @@ tools:
             idempotent: true
         title: Suggest conversion goal candidates
         description: >
-            Suggest custom events that are good candidates for becoming conversion goals. Ranks by volume, UTM tag
-            coverage, and uniqueness of users. Excludes autocapture / system events and events that are already
-            configured as goals.
+            Shortlist custom events by volume and UTM tag coverage, with a ranking bonus for events not already
+            configured as goals. Returns distinct-user counts as context. Known system events are excluded; existing
+            goal events can still appear with is_already_a_goal=true. The score is a discovery ranking, not a
+            probability that the event represents revenue or a new customer. Inspect event meaning and properties
+            before recommending it. This endpoint does not list actions; inspect existing action definitions separately
+            and preserve their filters. Use marketing-analytics-preview-conversion-goal to evaluate a draft.
         feature_flag: marketing-analytics-mcp
     marketing-analytics-suggest-utm-mappings:
         operation: marketing_analytics_suggest_utm_mappings_retrieve
@@ -210,3 +242,41 @@ tools:
             integrations, unmatched custom sources, and total spend at risk. Use when the user asks why their events
             appear in 'non-integrated', or why UTMs are not matching the ad platform data.
         feature_flag: marketing-analytics-mcp
+
+    marketing-analytics-conversion-recommendations:
+        operation: marketing_analytics_conversion_recommendations_retrieve
+        enabled: true
+        scopes: [marketing_analytics:read]
+        annotations: { readOnly: true, destructive: false, idempotent: true }
+        title: Read conversion recommendations
+        description: >
+            Read the project's persisted conversion recommendations and latest analysis state without starting AI.
+            Previous results remain available during an update. Inspect questions and limitations before reviewing
+            a draft. Recommendations require a fresh preview and explicit user confirmation before applying.
+        feature_flag: marketing-analytics-conversion-setup-ai
+    marketing-analytics-start-conversion-recommendations:
+        operation: marketing_analytics_conversion_recommendations_start_create
+        enabled: true
+        scopes: [marketing_analytics:read]
+        annotations: { readOnly: false, destructive: false, idempotent: false }
+        title: Analyze conversion candidates
+        description: >
+            Start the first 30-day analysis once with refresh=false. Only use refresh=true after the user explicitly
+            requests an update; later runs analyze 14 days. Active runs are reused. This creates proposals, never goals.
+            Read marketing-analytics-conversion-recommendations for results. Requires project admin access.
+        feature_flag: marketing-analytics-conversion-setup-ai
+    marketing-analytics-apply-conversion-goal:
+        operation: marketing_analytics_conversion_goals_apply_create
+        enabled: true
+        param_overrides:
+            goal:
+                input_schema: MarketingConversionGoalSchema
+        scopes: [marketing_analytics:write]
+        annotations: { readOnly: false, destructive: false, idempotent: true }
+        title: Apply a previewed conversion goal
+        description: >
+            Save the exact event/action goal from an unexpired preview_ref after explicit user confirmation of the
+            business definition and source checks. Send the preview goal unchanged and definition_confirmed=true.
+            Reuse the same reference to safely retry a lost response; this cannot create a duplicate goal.
+            A changed source/configuration or edited definition requires another preview. Requires project admin access.
+        feature_flag: marketing-analytics-conversion-setup-ai

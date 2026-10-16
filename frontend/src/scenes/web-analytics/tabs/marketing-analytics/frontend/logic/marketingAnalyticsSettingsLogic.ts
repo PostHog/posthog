@@ -19,6 +19,7 @@ import {
     MARKETING_INTEGRATION_FIELD_MAP,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConfig,
+    MarketingAnalyticsOverviewMetric,
     NativeMarketingSource,
     NodeKind,
     ProductIntentContext,
@@ -36,6 +37,7 @@ import type { TeamPublicType, TeamType } from '../../../../../../types'
 import { IntegrationSettingsTab } from '../components/settings/IntegrationSettingsModal'
 import {
     DEFAULT_ATTRIBUTION_WINDOW_DAYS,
+    OVERVIEW_METRIC_SLOTS,
     extractSchemaName,
     generateUniqueName,
     getEnabledNativeMarketingSources,
@@ -66,6 +68,7 @@ const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     campaign_name_mappings: {},
     custom_source_mappings: {},
     campaign_field_preferences: {},
+    overview_metrics: [],
 })
 
 const isNativeMarketingSource = (value: string): value is NativeMarketingSource =>
@@ -101,6 +104,8 @@ export interface marketingAnalyticsSettingsLogicValues {
     integrationSettingsModal: IntegrationSettingsModalState
     marketingAnalyticsConfig: MarketingAnalyticsConfig | null
     marketingAnalyticsConfigLoading: boolean
+    overviewMetrics: MarketingAnalyticsOverviewMetric[]
+    overview_metrics: MarketingAnalyticsOverviewMetric[]
     savedMarketingAnalyticsConfig: MarketingAnalyticsConfig
     setupEntryPoint: SetupEntryPoint | null
     setupEntryPointLabel: string
@@ -214,6 +219,9 @@ export interface marketingAnalyticsSettingsLogicActions {
     updateFilterTestAccounts: (filterTestAccounts: boolean) => {
         filterTestAccounts: boolean
     }
+    updateOverviewMetrics: (overviewMetrics: MarketingAnalyticsOverviewMetric[]) => {
+        overviewMetrics: MarketingAnalyticsOverviewMetric[]
+    }
     updateSourceMapping: (
         tableId: string,
         fieldName: MarketingAnalyticsColumnsSchemaNames,
@@ -234,6 +242,10 @@ export interface marketingAnalyticsSettingsLogicMeta {
         attribution_window_days: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => number
         attribution_mode: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => AttributionMode
         filter_test_accounts: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => boolean
+        overview_metrics: (
+            marketingAnalyticsConfig: MarketingAnalyticsConfig | null
+        ) => MarketingAnalyticsOverviewMetric[]
+        overviewMetrics: (overview_metrics: MarketingAnalyticsOverviewMetric[]) => MarketingAnalyticsOverviewMetric[]
         integrationCampaignTables: (
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
@@ -299,6 +311,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         updateCampaignFieldPreferences: (campaignFieldPreferences: Record<string, CampaignFieldPreference>) => ({
             campaignFieldPreferences,
         }),
+        updateOverviewMetrics: (overviewMetrics: MarketingAnalyticsOverviewMetric[]) => ({ overviewMetrics }),
         loadIntegrationCampaigns: (integration: string) => ({ integration }),
         setIntegrationCampaigns: (integration: string, campaigns: Array<{ name: string; id: string }>) => ({
             integration,
@@ -436,6 +449,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     }
                     return { ...state, campaign_field_preferences: campaignFieldPreferences }
                 },
+                updateOverviewMetrics: (state: MarketingAnalyticsConfig | null, { overviewMetrics }) => {
+                    if (!state) {
+                        return { ...createEmptyConfig(), overview_metrics: overviewMetrics }
+                    }
+                    return { ...state, overview_metrics: overviewMetrics }
+                },
             },
         ],
         savedMarketingAnalyticsConfig: [
@@ -553,6 +572,22 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 return marketingAnalyticsConfig?.filter_test_accounts ?? false
             },
         ],
+        overview_metrics: [
+            (s) => [s.marketingAnalyticsConfig],
+            (marketingAnalyticsConfig: MarketingAnalyticsConfig | null): MarketingAnalyticsOverviewMetric[] => {
+                return marketingAnalyticsConfig?.overview_metrics ?? []
+            },
+        ],
+        overviewMetrics: [
+            (s) => [s.overview_metrics],
+            (overviewMetrics: MarketingAnalyticsOverviewMetric[]): MarketingAnalyticsOverviewMetric[] =>
+                // Resolved per slot so a stored list that is short, or that holds a metric no
+                // longer offered for its slot, still renders a full row of cards.
+                OVERVIEW_METRIC_SLOTS.map((slot, index) => {
+                    const stored = overviewMetrics[index]
+                    return stored && slot.options.includes(stored) ? stored : slot.default
+                }),
+        ],
         integrationCampaignTables: [
             (s) => [s.dataWarehouseTables, s.dataWarehouseSources, s.featureFlags],
             (
@@ -653,6 +688,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             updateCampaignNameMappings: () => trackSettingsUpdated('campaign_name_mappings'),
             updateCustomSourceMappings: () => trackSettingsUpdated('custom_source_mappings'),
             updateCampaignFieldPreferences: () => trackSettingsUpdated('campaign_field_preferences'),
+            updateOverviewMetrics: () => trackSettingsUpdated('overview_metrics'),
             testMapping: async ({ tableId, sourceMap }) => {
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. marketingAnalyticsTestMappingCreate() from 'products/marketing_analytics/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.

@@ -89,4 +89,5 @@ class EvalContext:
     git_dirty: bool | None
     """Whether tracked files differed from ``git_sha``; ``None`` when unknown."""
 
+    no_send_logs: bool = False
     infrastructure_retries: int = DEFAULT_INFRA_RETRIES

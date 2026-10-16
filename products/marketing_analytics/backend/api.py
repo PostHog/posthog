@@ -24,6 +24,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.schema import (
@@ -37,6 +38,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import _FallbackSerializer
@@ -55,9 +57,16 @@ from posthog.clickhouse.query_tagging import (
     is_api_key_access_method,
     tag_queries,
 )
+from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import Conflict
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
-from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
+from posthog.models.team.team_marketing_analytics_config import (
+    MAX_ATTRIBUTION_WINDOW_DAYS,
+    MIN_ATTRIBUTION_WINDOW_DAYS,
+    TeamMarketingAnalyticsConfig,
+)
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -67,9 +76,22 @@ from products.marketing_analytics.backend.hogql_queries.adapters.factory import 
 from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import SelfManagedAdapter
 from products.marketing_analytics.backend.hogql_queries.constants import CONVERSION_GOAL_KIND_CHOICES
 from products.marketing_analytics.backend.hogql_queries.utils import map_url_to_provider
+from products.marketing_analytics.backend.models.conversion_setup import (
+    ConversionGoalPreviewEvidence,
+    ConversionRecommendationRun,
+)
+from products.marketing_analytics.backend.services.conversion_goal_evidence import ConversionGoalEvidenceService
+from products.marketing_analytics.backend.services.conversion_goal_preview import (
+    ConversionGoalPreviewOptions,
+    ConversionGoalPreviewRunner,
+)
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
     explain_conversion_goal,
     list_conversion_goals,
+)
+from products.marketing_analytics.backend.services.conversion_recommendations import (
+    ConversionRecommendationResults,
+    ConversionRecommendationService,
 )
 from products.marketing_analytics.backend.services.conversion_recordings import ConversionRecordingsQuery
 from products.marketing_analytics.backend.services.data_source_health import get_data_source_health
@@ -97,6 +119,22 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 logger = structlog.get_logger(__name__)
 
 
+def _marketing_feature_enabled(request: Request, team: Team, flag: str) -> bool:
+    person_properties = {}
+    email = getattr(request.user, "email", None)
+    if email:
+        person_properties["email"] = email
+    return feature_enabled_or_false(
+        flag,
+        # Service credentials authenticate as a synthetic user with no person behind them;
+        # the team UUID keeps the call well-formed, and a person condition won't match it.
+        getattr(request.user, "distinct_id", None) or str(team.uuid),
+        groups={"organization": str(team.organization.id)},
+        person_properties=person_properties,
+        group_properties={"organization": {"id": str(team.organization.id)}},
+    )
+
+
 def _setup_enabled(request: Request, team: Team, *, include_read_only: bool = False) -> bool:
     """Evaluate eligible marketing flags once per request.
 
@@ -111,20 +149,8 @@ def _setup_enabled(request: Request, team: Team, *, include_read_only: bool = Fa
     cached = getattr(request, cache_attribute, None)
     if cached is not None:
         return cached
-    person_properties = {}
-    email = getattr(request.user, "email", None)
-    if email:
-        person_properties["email"] = email
     enabled = any(
-        feature_enabled_or_false(
-            flag,
-            # Service credentials authenticate as a synthetic user with no person behind them;
-            # the team UUID keeps the call well-formed, and a person condition won't match it.
-            getattr(request.user, "distinct_id", None) or str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            person_properties=person_properties,
-            group_properties={"organization": {"id": str(team.organization.id)}},
-        )
+        _marketing_feature_enabled(request, team, flag)
         for flag in (
             "marketing-analytics-setup",
             "new-marketing-analytics-dashboard",
@@ -294,15 +320,6 @@ class ConversionGoalSummarySerializer(serializers.Serializer):
     approximation_reason = serializers.CharField(allow_null=True, help_text="Explanation when is_approximate is true")
 
 
-class ConversionGoalsListResponseSerializer(serializers.Serializer):
-    goals = ConversionGoalSummarySerializer(many=True, help_text="One summary entry per configured conversion goal")
-    attribution_window_days = serializers.IntegerField(help_text="The team's configured attribution window in days")
-    attribution_mode = serializers.CharField(
-        help_text="The team's attribution model (e.g. last_touch, first_touch, linear)"
-    )
-    has_misconfigured = serializers.BooleanField(help_text="True if any goal is misconfigured")
-
-
 # --- conversion goal writes ---
 
 
@@ -401,6 +418,23 @@ class ConversionGoalListField(serializers.JSONField):
     pass
 
 
+class ConversionGoalsSummaryResponseSerializer(serializers.Serializer):
+    goals = ConversionGoalSummarySerializer(many=True, help_text="One summary entry per configured conversion goal")
+    attribution_window_days = serializers.IntegerField(help_text="The team's configured attribution window in days")
+    attribution_mode = serializers.CharField(help_text="The team's configured attribution model")
+    has_misconfigured = serializers.BooleanField(help_text="True if any goal is misconfigured")
+
+
+class ConversionGoalsListResponseSerializer(ConversionGoalsSummaryResponseSerializer):
+    conversion_goals = ConversionGoalListField(
+        help_text="Saved goal definitions, including filters and revenue/customer flags. Use these to review or verify a saved goal."
+    )
+    filter_test_accounts = serializers.BooleanField(
+        help_text="Whether Marketing analytics excludes configured test accounts by default."
+    )
+    base_currency = serializers.CharField(help_text="Project base currency used for revenue conversion.")
+
+
 _GOAL_MODEL_BY_KIND = {
     model.model_fields["kind"].default: model.__name__
     for model in (ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3)
@@ -456,6 +490,191 @@ class ConversionGoalUpdateSerializer(serializers.Serializer):
 class ConversionGoalWriteResponseSerializer(serializers.Serializer):
     goal = ConversionGoalField(help_text="The goal as stored after the write")
     conversion_goals = ConversionGoalListField(help_text="Every configured goal after the write, in display order")
+
+
+class ConversionGoalPreviewSerializer(ConversionGoalWriteSerializer):
+    goal = ConversionGoalField(
+        help_text="The unsaved event, action, or warehouse goal to evaluate. conversion_goal_id is ignored. No goal is saved."
+    )
+    date_from = serializers.DateTimeField(help_text="Inclusive start of a preview period of at most 31 days.")
+    date_to = serializers.DateTimeField(help_text="Inclusive end of the preview period. Include the time zone offset.")
+    lookback_window_days = serializers.IntegerField(
+        required=False,
+        min_value=MIN_ATTRIBUTION_WINDOW_DAYS,
+        max_value=MAX_ATTRIBUTION_WINDOW_DAYS,
+        help_text="Days before a conversion in which sessions can earn credit. Defaults to the project setting.",
+    )
+    allow_multiple_conversions_per_visitor = serializers.BooleanField(
+        required=False, help_text="Count repeat conversions. Defaults to false for unique-user math and true otherwise."
+    )
+    filter_test_accounts = serializers.BooleanField(
+        required=False, help_text="Apply configured test-account filters. Defaults to the project setting."
+    )
+    exclude_direct_traffic = serializers.BooleanField(
+        default=False, help_text="Exclude direct sessions before calculating attribution coverage."
+    )
+    exclude_unattributed = serializers.BooleanField(
+        default=False, help_text="Exclude sessions whose channel is empty or unknown before calculating coverage."
+    )
+
+    def validate_goal(
+        self, value: dict[str, Any]
+    ) -> ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3:
+        try:
+            return _CONVERSION_GOAL_ADAPTER.validate_python({**value, "conversion_goal_id": "preview"})
+        except PydanticValidationError as error:
+            raise serializers.ValidationError(_readable_pydantic_errors(error, value.get("kind")))
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        try:
+            ConversionGoalPreviewOptions(**attrs)
+        except ValueError as error:
+            raise serializers.ValidationError(str(error))
+        return attrs
+
+
+class ConversionGoalApplySerializer(ConversionGoalWriteSerializer):
+    preview_ref = serializers.UUIDField(
+        help_text="Unexpired preview reference issued for this user and project. Retries with the same reference return the same saved goal."
+    )
+    definition_confirmed = serializers.BooleanField(
+        help_text="Explicit confirmation that the business definition and source limitations have been reviewed."
+    )
+
+    def validate_definition_confirmed(self, value: bool) -> bool:
+        if not value:
+            raise serializers.ValidationError("Confirm the business definition and source checks before saving.")
+        return value
+
+    def validate_goal(
+        self, value: dict[str, Any]
+    ) -> ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3:
+        try:
+            return _CONVERSION_GOAL_ADAPTER.validate_python({**value, "conversion_goal_id": "preview"})
+        except PydanticValidationError as error:
+            raise serializers.ValidationError(_readable_pydantic_errors(error, value.get("kind")))
+
+
+class ConversionGoalPreviewResponseSerializer(serializers.Serializer):
+    preview_ref = serializers.UUIDField(
+        allow_null=True,
+        help_text="Reference for validated application of this exact event/action preview by this user. Null for warehouse previews or service credentials.",
+    )
+    expires_at = serializers.DateTimeField(
+        allow_null=True, help_text="When this preview must be refreshed before applying the goal."
+    )
+    goal = ConversionGoalField(
+        help_text="The unsaved goal evaluated by this preview. Its ID is a temporary placeholder."
+    )
+    observed_at = serializers.DateTimeField(help_text="When the preview completed. This is not the source sync time.")
+    date_from = serializers.DateTimeField(help_text="Resolved inclusive start of the conversion period.")
+    date_to = serializers.DateTimeField(help_text="Resolved inclusive end of the conversion period.")
+    timezone = serializers.CharField(help_text="Project time zone used by attribution.")
+    attribution_window_days = serializers.IntegerField(help_text="Resolved session lookback window in days.")
+    allows_multiple_conversions_per_visitor = serializers.BooleanField(help_text="Whether repeat conversions count.")
+    filter_test_accounts = serializers.BooleanField(help_text="Whether configured test-account filters were requested.")
+    exclude_direct_traffic = serializers.BooleanField(
+        help_text="Whether direct sessions were excluded from attribution."
+    )
+    exclude_unattributed = serializers.BooleanField(help_text="Whether sessions with an unknown channel were excluded.")
+    total_conversions = serializers.IntegerField(help_text="Conversion count before per-person evaluation limits.")
+    evaluated_conversions = serializers.IntegerField(help_text="Conversions evaluated after per-person limits.")
+    attributed_conversions = serializers.IntegerField(
+        help_text="Evaluated conversions with at least one eligible session."
+    )
+    unattributed_conversions = serializers.IntegerField(
+        help_text="Total minus attributed conversions, including conversions excluded by evaluation limits."
+    )
+    total_value = serializers.FloatField(
+        allow_null=True, help_text="Summed value, null for count goals or incomplete/invalid values."
+    )
+    evaluated_value = serializers.FloatField(
+        allow_null=True, help_text="Value of evaluated conversions, null for count goals or invalid values."
+    )
+    attributed_value = serializers.FloatField(
+        allow_null=True, help_text="Evaluated value with an eligible session, null for count goals or invalid values."
+    )
+    unattributed_value = serializers.FloatField(
+        allow_null=True, help_text="Total minus attributed value, null if the total is unavailable."
+    )
+    currency = serializers.CharField(
+        allow_null=True, help_text="Project base currency for revenue goals; null for other goals."
+    )
+    conversion_limit_reached = serializers.BooleanField(
+        help_text="Whether the per-person conversion limit excluded conversions."
+    )
+    touchpoint_limit_reached = serializers.BooleanField(
+        help_text="Whether any person reached the touchpoint limit; older sessions may be excluded."
+    )
+    is_approximate = serializers.BooleanField(
+        help_text="Whether evaluation limits or invalid values affect the result. This does not certify source quality."
+    )
+    warnings = serializers.ListField(
+        child=serializers.CharField(), help_text="Limitations to consider when interpreting the result."
+    )
+    checks_not_performed = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Quality checks this preview has not performed. Do not treat them as passed.",
+    )
+
+
+class ConversionGoalPreviewThrottle(UserRateThrottle):
+    scope = "marketing_conversion_goal_preview"
+    rate = "10/minute"
+
+
+class ConversionRecommendationStartSerializer(serializers.Serializer):
+    refresh = serializers.BooleanField(
+        default=False,
+        help_text="False starts the first 30-day analysis once. True requests a new 14-day analysis; use only after an explicit user request.",
+    )
+
+
+class ConversionRecommendationRunSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ConversionRecommendationRun
+        fields = ["id", "status", "lookback_days", "date_from", "date_to", "created_at", "completed_at", "error"]
+        read_only_fields = fields
+
+
+@extend_schema_field(ConversionRecommendationResults)  # type: ignore[arg-type]
+class ConversionRecommendationResultsField(serializers.JSONField):
+    pass
+
+
+class ConversionRecommendationStateSerializer(serializers.Serializer):
+    generation_disabled_reason = serializers.CharField(
+        allow_null=True, help_text="Why this user cannot start an analysis, or null when generation is available."
+    )
+    latest_run = ConversionRecommendationRunSerializer(
+        allow_null=True, help_text="Latest analysis, including its actual state and observation period."
+    )
+    result_run = ConversionRecommendationRunSerializer(
+        allow_null=True,
+        help_text="Completed analysis that supplied the visible recommendations. Previous results remain available during an update or failure.",
+    )
+    results = ConversionRecommendationResultsField(
+        help_text="Persisted proposals and measured evidence. A proposal needs a fresh preview and explicit confirmation before saving."
+    )
+    can_generate = serializers.BooleanField(
+        help_text="Whether this user can request or initialize project recommendations."
+    )
+
+
+class ConversionRecommendationThrottle(UserRateThrottle):
+    scope = "marketing_conversion_recommendations"
+    rate = "5/hour"
+
+
+class InitialConversionGoalsRequestSerializer(serializers.Serializer):
+    pass
+
+
+class InitialConversionGoalsResponseSerializer(serializers.Serializer):
+    initial_goals = ConversionGoalListField(
+        help_text="Initial goals that have not been deleted, with their current values"
+    )
+    initialized = serializers.BooleanField(help_text="Whether initial setup completed or existing goals were preserved")
 
 
 # --- list_data_sources ---
@@ -798,7 +1017,7 @@ class MarketingDiagnosticResponseSerializer(serializers.Serializer):
     integrations = IntegrationDiagnosticSerializer(many=True, help_text="Per-integration cross-domain diagnostics")
     overall_status = serializers.CharField(help_text="healthy/degraded/broken/no_sources")
     summary = serializers.CharField(help_text="One-line plain-English summary of the diagnostic")
-    conversion_goals = ConversionGoalsListResponseSerializer(
+    conversion_goals = ConversionGoalsSummaryResponseSerializer(
         allow_null=True, required=False, help_text="Conversion goal summary, when requested"
     )
     recommended_actions = RecommendedActionSerializer(
@@ -1277,8 +1496,15 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @action(methods=["GET"], detail=False, url_path="conversion_goals", required_scopes=["marketing_analytics:read"])
     def conversion_goals(self, request: Request, *args, **kwargs) -> Response:
         try:
+            config = get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
+            config.refresh_from_db()
             response = async_to_sync(list_conversion_goals)(self.team, user=cast(User, request.user))
-            return Response(ConversionGoalsListResponseSerializer(response.to_dict()).data)
+            payload = response.to_dict() | {
+                "conversion_goals": config.conversion_goals,
+                "filter_test_accounts": config.filter_test_accounts,
+                "base_currency": self.team.base_currency,
+            }
+            return Response(ConversionGoalsListResponseSerializer(payload).data)
         except Exception:
             logger.exception("list_conversion_goals_failed", team_id=self.team.pk)
             return Response(
@@ -1392,6 +1618,237 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         return Response({"goal": removed, "conversion_goals": goals})
 
+    @validated_request(
+        request_serializer=InitialConversionGoalsRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=InitialConversionGoalsResponseSerializer),
+            403: OpenApiResponse(description="Requires project admin access"),
+        },
+        summary="Initialize conversion goals",
+        description="Create up to three suggested event goals once for an unconfigured project. Existing goals and deleted initial goals are never recreated.",
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="conversion_goals/initialize",
+        required_scopes=["marketing_analytics:write"],
+    )
+    def initialize_conversion_goals(self, request: Request, *args, **kwargs) -> Response:
+        self._require_project_admin()
+        return Response(self._initialize_conversion_goals())
+
+    def _initialize_conversion_goals(self) -> dict[str, Any]:
+        config = get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
+        config.refresh_from_db()
+        candidates = []
+        if config.initial_conversion_goal_ids is None and not config.conversion_goals:
+            suggestions = async_to_sync(suggest_conversion_goals)(self.team)
+            candidates = [candidate for candidate in suggestions.candidates if not candidate.is_already_a_goal][:3]
+
+        with transaction.atomic():
+            config = self._locked_config()
+            if config.initial_conversion_goal_ids is None:
+                previous = list(config.conversion_goals)
+                if previous:
+                    config.initial_conversion_goal_ids = []
+                    config.save(update_fields=["initial_conversion_goal_ids"])
+                elif candidates:
+                    goals: list[dict[str, Any]] = []
+                    for candidate in candidates:
+                        goal = self._validated_goal(
+                            {
+                                "kind": "EventsNode",
+                                "event": candidate.event_name,
+                                "conversion_goal_id": str(uuid.uuid4()),
+                                "conversion_goal_name": candidate.event_name,
+                                "schema_map": {"utm_source_name": "utm_source", "utm_campaign_name": "utm_campaign"},
+                            },
+                            existing=goals,
+                        )
+                        goals.append(goal)
+                    config.initial_conversion_goal_ids = [goal["conversion_goal_id"] for goal in goals]
+                    self._store_goals(config, goals, previous=previous)
+
+        initial_ids = config.initial_conversion_goal_ids or []
+        return {
+            "initial_goals": [
+                goal for goal in config.conversion_goals if goal.get("conversion_goal_id") in initial_ids
+            ],
+            "initialized": config.initial_conversion_goal_ids is not None,
+        }
+
+    @validated_request(
+        request_serializer=ConversionGoalPreviewSerializer,
+        responses={200: OpenApiResponse(response=ConversionGoalPreviewResponseSerializer)},
+        summary="Preview an unsaved conversion goal",
+        description=(
+            "Calculate conversion counts, summed value, and journey attribution coverage without saving a goal. "
+            "Uses attribution-table semantics with channel breakdown, not Ad performance's direct UTM matching. "
+            "Supports events, actions, warehouse tables, and saved views for periods up to 31 days. "
+            "Returns evaluation limits and checks not performed; it does not certify the business definition. "
+            "Query execution is bounded and fails rather than returning partial results on timeout."
+        ),
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="conversion_goals/preview",
+        required_scopes=["marketing_analytics:read"],
+        throttle_classes=[ConversionGoalPreviewThrottle],
+    )
+    def preview_conversion_goal(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if not _setup_enabled(request, self.team):
+            raise NotFound("Marketing analytics setup is not enabled for this project.")
+        if not _marketing_feature_enabled(request, self.team, "marketing-analytics-conversion-setup-ai"):
+            raise NotFound("AI conversion setup is not enabled for this project.")
+        options = ConversionGoalPreviewOptions(**request.validated_data)
+        evidence_service = (
+            ConversionGoalEvidenceService(self.team, request.user)
+            if isinstance(request.user, User) and options.goal.kind != "DataWarehouseNode"
+            else None
+        )
+        context_hash = evidence_service.context_hash(options.goal) if evidence_service else None
+        try:
+            preview = ConversionGoalPreviewRunner(
+                options=options, team=self.team, user=cast(User, request.user)
+            ).preview()
+        except TableAccessDeniedError:
+            raise PermissionDenied("You do not have access to the conversion source. Choose an accessible source.")
+        except (ValueError, ExposedHogQLError, ExposedCHQueryError) as error:
+            raise serializers.ValidationError({"goal": str(error)})
+        evidence = evidence_service.record(preview.goal, context_hash) if evidence_service and context_hash else None
+        payload = {
+            **asdict(preview),
+            "goal": preview.goal.model_dump(mode="json", exclude_none=True),
+            "preview_ref": evidence.pk if evidence else None,
+            "expires_at": evidence.expires_at if evidence else None,
+        }
+        return Response(ConversionGoalPreviewResponseSerializer(payload).data)
+
+    @validated_request(
+        request_serializer=ConversionGoalApplySerializer,
+        responses={200: OpenApiResponse(response=ConversionGoalWriteResponseSerializer)},
+        summary="Apply a validated conversion goal",
+    )
+    @action(
+        methods=["POST"], detail=False, url_path="conversion_goals/apply", required_scopes=["marketing_analytics:write"]
+    )
+    def apply_conversion_goal(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self._require_conversion_setup_ai(request)
+        self._require_project_admin()
+        goal = request.validated_data["goal"]
+        with transaction.atomic():
+            config = self._locked_config()
+            evidence = (
+                ConversionGoalPreviewEvidence.objects.for_team(self.team.pk)
+                .select_for_update()
+                .filter(pk=request.validated_data["preview_ref"], requested_by=cast(User, request.user))
+                .first()
+            )
+            if evidence is None:
+                raise NotFound("No preview is available for this user and project. Preview the goal again.")
+            if evidence.goal != goal.model_dump(mode="json", exclude_none=True):
+                raise Conflict("This definition differs from the preview. Preview the edited goal before saving.")
+            if evidence.applied_goal is not None:
+                saved = next(
+                    (
+                        item
+                        for item in config.conversion_goals
+                        if item.get("conversion_goal_id") == evidence.applied_goal.get("conversion_goal_id")
+                    ),
+                    None,
+                )
+                if saved != evidence.applied_goal:
+                    raise Conflict("This goal was changed or removed after saving. Review the current goals.")
+                return Response(
+                    ConversionGoalWriteResponseSerializer(
+                        {"goal": saved, "conversion_goals": config.conversion_goals}
+                    ).data
+                )
+            ConversionGoalEvidenceService(self.team, cast(User, request.user)).validate(evidence, goal)
+            previous = list(config.conversion_goals)
+            saved = self._validated_goal({**evidence.goal, "conversion_goal_id": str(uuid.uuid4())}, existing=previous)
+            goals = [*previous, saved]
+            self._store_goals(config, goals, previous=previous)
+            evidence.applied_goal = saved
+            evidence.save(update_fields=["applied_goal"])
+        return Response(ConversionGoalWriteResponseSerializer({"goal": saved, "conversion_goals": goals}).data)
+
+    def _require_conversion_setup_ai(self, request: Request) -> None:
+        if not _setup_enabled(request, self.team) or not _marketing_feature_enabled(
+            request, self.team, "marketing-analytics-conversion-setup-ai"
+        ):
+            raise NotFound("AI conversion setup is not enabled for this project.")
+        if not isinstance(request.user, User):
+            raise PermissionDenied("Use a user account to review AI conversion recommendations.")
+
+    def _recommendation_service(self, request: Request) -> ConversionRecommendationService:
+        service = ConversionRecommendationService(self.team, cast(User, request.user))
+        try:
+            service.require_access()
+        except PermissionError as error:
+            raise PermissionDenied(str(error)) from error
+        return service
+
+    def _recommendation_state(self, service: ConversionRecommendationService) -> Response:
+        service.expire_interrupted_runs()
+        runs = ConversionRecommendationRun.objects.for_team(self.team.pk).order_by("-created_at", "-id")
+        latest = runs.first()
+        completed = runs.filter(status=ConversionRecommendationRun.Status.COMPLETED).first()
+        generation_disabled_reason = None
+        try:
+            self._require_project_admin()
+            service.require_generation_access()
+        except (PermissionDenied, PermissionError) as error:
+            generation_disabled_reason = str(error)
+        can_generate = generation_disabled_reason is None
+        return Response(
+            ConversionRecommendationStateSerializer(
+                {
+                    "latest_run": latest,
+                    "result_run": completed,
+                    "results": service.visible_results(completed).model_dump(mode="json"),
+                    "can_generate": can_generate,
+                    "generation_disabled_reason": generation_disabled_reason,
+                }
+            ).data
+        )
+
+    @extend_schema(
+        responses=ConversionRecommendationStateSerializer, summary="Read persisted conversion recommendations"
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="conversion_recommendations",
+        required_scopes=["marketing_analytics:read"],
+    )
+    def conversion_recommendations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self._require_conversion_setup_ai(request)
+        return self._recommendation_state(self._recommendation_service(request))
+
+    @validated_request(
+        request_serializer=ConversionRecommendationStartSerializer,
+        responses={200: OpenApiResponse(response=ConversionRecommendationStateSerializer)},
+        summary="Start a conversion recommendation analysis",
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="conversion_recommendations/start",
+        required_scopes=["marketing_analytics:read"],
+        throttle_classes=[ConversionRecommendationThrottle],
+    )
+    def start_conversion_recommendations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self._require_conversion_setup_ai(request)
+        self._require_project_admin()
+        service = self._recommendation_service(request)
+        try:
+            service.start(refresh=request.validated_data["refresh"])
+        except PermissionError as error:
+            raise PermissionDenied(str(error)) from error
+        return self._recommendation_state(service)
+
     def _require_project_admin(self) -> None:
         # The settings PATCH path puts these fields behind ADMIN, so these endpoints have to clear
         # the same bar or they route around it. RBAC alone doesn't: `check_access_level_for_object`
@@ -1406,7 +1863,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
     def _locked_config(self) -> TeamMarketingAnalyticsConfig:
         """Take a row lock so concurrent single-goal writes can't clobber each other."""
-        config = self.team.marketing_analytics_config
+        config = get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
         return TeamMarketingAnalyticsConfig.objects.select_for_update().get(pk=config.pk)
 
     def _validated_goal(
@@ -1770,7 +2227,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         # sitting there, which reads as the apply having silently failed.
         _invalidate_setup_plan_cache(self.team.pk)
 
-        # `_update_marketing_analytics_config` in posthog/api/team.py only diffs
+        # `_update_marketing_analytics_config` in posthog/api/team/team_serializer.py only diffs
         # sources_map / attribution_window_days / attribution_mode into the team
         # activity log, so mapping and goal changes made here would otherwise leave no
         # trace at all. This is the interim record; wiring `log_activity` properly is a

@@ -1,0 +1,242 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { teamLogic } from 'scenes/teamLogic'
+import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+
+import {
+    ConversionGoalFilter,
+    CurrencyCode,
+    MarketingAnalyticsAttributionBreakdown,
+    NodeKind,
+    WebStatsBreakdown,
+} from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+import { PropertyFilterType, PropertyMathType, PropertyOperator, TeamType } from '~/types'
+
+import {
+    MARKETING_TABLE_ROW_LIMIT,
+    RETENTION_MAX_ACQUISITION_DAYS,
+    marketingDashboardLogic,
+} from './marketingDashboardLogic'
+
+const eventGoal = (id: string, extra: Partial<ConversionGoalFilter> = {}): ConversionGoalFilter =>
+    ({
+        kind: NodeKind.EventsNode,
+        event: 'purchase',
+        conversion_goal_id: id,
+        conversion_goal_name: id,
+        schema_map: {},
+        ...extra,
+    }) as ConversionGoalFilter
+
+const loadGoals = async (goals: ConversionGoalFilter[]): Promise<void> => {
+    await expectLogic(() =>
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...teamLogic.values.currentTeam!,
+            marketing_analytics_config: { conversion_goals: goals },
+        } as TeamType)
+    ).toFinishAllListeners()
+}
+
+describe('marketingDashboardLogic', () => {
+    let logic: ReturnType<typeof marketingDashboardLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        marketingAnalyticsLogic.mount()
+        logic = marketingDashboardLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        if (logic.cache.mounted) {
+            logic.unmount()
+        }
+    })
+
+    it('maps the page breakdown onto every web stats table', async () => {
+        marketingAnalyticsLogic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Campaign)
+        await expectLogic(logic).toFinishAllListeners()
+
+        for (const query of [
+            logic.values.overviewTableQuery,
+            logic.values.acquisitionTableQuery,
+            logic.values.engagementTableQuery,
+        ]) {
+            expect(query.breakdownBy).toBe(WebStatsBreakdown.InitialUTMCampaign)
+        }
+        expect(logic.values.retentionQuery.breakdownBy).toBe(MarketingAnalyticsAttributionBreakdown.Campaign)
+    })
+
+    it('keeps a total metric trend stable when the table breakdown changes', async () => {
+        marketingAnalyticsLogic.actions.setDates('-30d', null)
+        logic.actions.toggleExpandedMetric('visitors')
+        logic.actions.setChartMode('total')
+        await expectLogic(logic).toFinishAllListeners()
+        const trend = logic.values.metricChartQuery
+
+        marketingAnalyticsLogic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Campaign)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.metricChartQuery).toEqual(trend)
+        expect(logic.values.acquisitionTableQuery).toMatchObject({
+            breakdownBy: WebStatsBreakdown.InitialUTMCampaign,
+            dateRange: { date_from: '-30d', date_to: null },
+            compareFilter: { compare: true },
+        })
+        expect(logic.values.engagementTableQuery).toMatchObject({
+            breakdownBy: WebStatsBreakdown.InitialUTMCampaign,
+            includeBounceRate: true,
+            dateRange: { date_from: '-30d', date_to: null },
+            compareFilter: { compare: true },
+        })
+    })
+
+    it('asks each table only for the columns its section shows', () => {
+        expect(logic.values.overviewTableQuery).toMatchObject({ includeSessionDuration: true })
+        expect(logic.values.acquisitionTableQuery).toMatchObject({ includeTrafficMetrics: true })
+        // Bounce rate is dropped by the backend when a conversion goal is set, so Engagement has to
+        // be its own query rather than a column on the Conversion one.
+        expect(logic.values.engagementTableQuery).toMatchObject({
+            includeTrafficMetrics: true,
+            includeBounceRate: true,
+            includeSessionDuration: true,
+        })
+        expect(logic.values.engagementTableQuery.conversionGoal).toBeUndefined()
+    })
+
+    it('threads the page filters into every query', async () => {
+        const properties = [
+            {
+                type: PropertyFilterType.Session,
+                key: '$channel_type',
+                operator: PropertyOperator.Exact,
+                value: 'Direct',
+            },
+        ]
+        marketingAnalyticsLogic.actions.setDashboardProperties(properties as any)
+        await loadGoals([eventGoal('signups', { counts_as_customer: true })])
+
+        expect(logic.values.webOverviewQuery.properties).toEqual(properties)
+        expect(logic.values.acquisitionTableQuery.properties).toEqual(properties)
+        expect(logic.values.retentionQuery.properties).toEqual(properties)
+        expect(logic.values.conversionTableQuery?.properties).toEqual(properties)
+    })
+
+    it('drops the comparison for an all-time range', async () => {
+        marketingAnalyticsLogic.actions.setDates('all', null)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.compareFilter).toEqual({ compare: false })
+        expect(logic.values.retentionQuery.comparePreviousPeriod).toBe(false)
+    })
+
+    it.each(['-180d', 'all'])('aligns acquisition operands when clamping %s', async (dateFrom) => {
+        marketingAnalyticsLogic.actions.setDates(dateFrom, null)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.retentionAcquisitionRange.clamped).toBe(true)
+        expect(logic.values.retentionTrafficQuery.dateRange).toEqual(logic.values.retentionQuery.dateRange)
+        expect(logic.values.retentionTrafficQuery.compareFilter?.compare).toBe(
+            logic.values.retentionQuery.comparePreviousPeriod
+        )
+        expect(logic.values.webOverviewQuery.dateRange?.date_from).toBe(dateFrom)
+
+        marketingAnalyticsLogic.actions.setDates(`-${RETENTION_MAX_ACQUISITION_DAYS - 1}d`, null)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.retentionAcquisitionRange).toMatchObject({
+            clamped: false,
+            dateRange: { date_from: `-${RETENTION_MAX_ACQUISITION_DAYS - 1}d` },
+        })
+    })
+
+    it('builds a revenue query only from goals that total an amount', async () => {
+        await loadGoals([eventGoal('signups', { counts_as_customer: true })])
+        expect(logic.values.revenueQuery).toBeNull()
+
+        // counts_as_revenue without sum math cannot be totalled, so it must not reach the query.
+        await loadGoals([eventGoal('purchases', { counts_as_revenue: true })])
+        expect(logic.values.revenueQuery).toBeNull()
+
+        await loadGoals([
+            eventGoal('purchases', {
+                counts_as_revenue: true,
+                math: PropertyMathType.Sum,
+                math_property: 'revenue',
+            }),
+        ])
+        expect(logic.values.revenueQuery?.series).toMatchObject([
+            { kind: NodeKind.EventsNode, event: 'purchase', math: PropertyMathType.Sum, math_property: 'revenue' },
+        ])
+    })
+
+    it.each([
+        [NodeKind.EventsNode, { static: CurrencyCode.EUR }],
+        [NodeKind.ActionsNode, { property: 'currency' }],
+    ] as const)('preserves currency and value math for %s', async (kind, currency) => {
+        const goal = eventGoal('payments', {
+            kind,
+            ...(kind === NodeKind.ActionsNode ? { id: 42 } : {}),
+            counts_as_revenue: true,
+            math: PropertyMathType.Sum,
+            math_property: 'amount',
+            math_property_type: 'event_properties',
+            math_multiplier: 0.01,
+            math_property_revenue_currency: currency,
+        })
+        await loadGoals([goal])
+        const expected = {
+            kind,
+            math_property: 'amount',
+            math_property_type: 'event_properties',
+            math_multiplier: 0.01,
+            math_property_revenue_currency: currency,
+        }
+        expect(logic.values.revenueQuery?.series).toMatchObject([expected])
+        expect(logic.values.conversionValueQuery?.series).toMatchObject([expected, expected])
+        expect(logic.values.conversionValueBreakdownQuery?.series).toMatchObject([expected, expected])
+        for (const metric of ['conversion_value', 'avg_conversion_value']) {
+            logic.actions.toggleExpandedMetric(metric)
+            expect(logic.values.metricChartQuery?.series).toMatchObject([expected])
+        }
+    })
+
+    it('breaks conversion value down on the same dimension as the table it fills', async () => {
+        await loadGoals([
+            eventGoal('purchases', {
+                counts_as_revenue: true,
+                math: PropertyMathType.Sum,
+                math_property: 'revenue',
+            }),
+        ])
+
+        marketingAnalyticsLogic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Channel)
+        expect(logic.values.conversionValueBreakdownQuery?.breakdownFilter).toEqual({
+            breakdown: '$channel_type',
+            breakdown_type: 'session',
+            // The chart's much smaller limit would fold most of the table into one "other" row
+            // that has no counterpart to join to.
+            breakdown_limit: MARKETING_TABLE_ROW_LIMIT,
+        })
+
+        marketingAnalyticsLogic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Campaign)
+        expect(logic.values.conversionValueBreakdownQuery?.breakdownFilter?.breakdown).toBe('$entry_utm_campaign')
+    })
+
+    it('has no conversion value query when the goal totals no amount', async () => {
+        await loadGoals([eventGoal('signups', { counts_as_customer: true })])
+
+        expect(logic.values.conversionValueBreakdownQuery).toBeNull()
+    })
+
+    it('falls back to a customer goal, then to the first goal', async () => {
+        await loadGoals([eventGoal('first'), eventGoal('customer', { counts_as_customer: true })])
+        expect(logic.values.selectedConversionGoal?.conversion_goal_id).toBe('customer')
+
+        await loadGoals([eventGoal('only')])
+        expect(logic.values.selectedConversionGoal?.conversion_goal_id).toBe('only')
+
+        await loadGoals([])
+        expect(logic.values.selectedConversionGoal).toBeNull()
+        expect(logic.values.conversionTableQuery).toBeNull()
+    })
+})

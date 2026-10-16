@@ -29,6 +29,7 @@ from products.marketing_analytics.backend.services.setup_types import (
     MAPPING_KINDS,
     Capability,
     OpenOauth,
+    OpenSettings,
     ReadinessStatus,
     Severity,
     Suggestion,
@@ -545,8 +546,8 @@ class TestConversionGoals(SetupPlanTestCase):
                     event_name="purchase_completed",
                     last_30d_count=4200,
                     distinct_users_30d=3100,
-                    pct_with_utm_source=0.82,
-                    pct_with_utm_campaign=0.8,
+                    pct_with_utm_source=82.0,
+                    pct_with_utm_campaign=80.0,
                     top_utm_sources=[("google", 2000)],
                     is_already_a_goal=False,
                     suggestion_score=0.9,
@@ -561,6 +562,8 @@ class TestConversionGoals(SetupPlanTestCase):
         create = next(s for s in plan.suggestions if s.kind == SuggestionKind.CREATE_CONVERSION_GOAL)
         assert "purchase_completed" in create.evidence
         assert "4,200" in create.evidence
+        assert "82%" in create.evidence
+        assert "business outcome" in create.evidence
 
     @pytest.mark.asyncio
     async def test_misconfigured_goal_is_an_error(self):
@@ -586,6 +589,8 @@ class TestConversionGoals(SetupPlanTestCase):
         flags = [s for s in plan.suggestions if s.kind in flag_kinds]
         assert flags
         assert all(s.safe_to_batch is False for s in flags)
+        assert all(isinstance(s.apply, OpenSettings) for s in flags)
+        assert all("highest-volume" not in s.evidence for s in flags)
 
 
 class TestConnectSourceNeedsPaidEvidence(SetupPlanTestCase):

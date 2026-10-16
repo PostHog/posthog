@@ -725,6 +725,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "attribution_window_days": instance.marketing_analytics_config.attribution_window_days,
             "attribution_mode": instance.marketing_analytics_config.attribution_mode,
             "filter_test_accounts": instance.marketing_analytics_config.filter_test_accounts,
+            "overview_metrics": list(instance.marketing_analytics_config.overview_metrics),
             # Add other fields as they're added to the model
             # "conversion_goals": instance.marketing_analytics_config.conversion_goals.copy() if instance.marketing_analytics_config.conversion_goals else [],
         }
@@ -748,6 +749,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "attribution_window_days": validated_data.get("attribution_window_days"),
             "attribution_mode": validated_data.get("attribution_mode"),
             "filter_test_accounts": validated_data.get("filter_test_accounts"),
+            "overview_metrics": validated_data.get("overview_metrics"),
             # Add other fields as they're added to the model
             # "conversion_goals": validated_data.get("conversion_goals", []),
         }
