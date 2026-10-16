@@ -131,6 +131,14 @@ class WizardCloudRunDTO:
 
 
 @dataclass(frozen=True)
+class TaskRunTokenUsage:
+    """Settled token subtotal in micro-USD and whether every request is accounted for."""
+
+    cost_microusd: int | None
+    complete: bool
+
+
+@dataclass(frozen=True)
 class TaskRunCost:
     """Provider costs in integer USD cents, or None while a source is unavailable or incomplete."""
 
@@ -222,6 +230,21 @@ class TaskSlackUnfurlDTO:
     title: str
     created_by_id: int | None
     latest_run_status: str | None
+
+
+@dataclass(frozen=True)
+class TaskArtifactSlackUnfurlDTO:
+    """The task run artifact metadata needed to build a Slack unfurl."""
+
+    name: str
+    content_type: str
+    size: int | None
+    uploaded_at: datetime | None
+    task_id: UUID
+    task_title: str
+    run_id: UUID
+    artifact_id: str
+    download_path: str
 
 
 @dataclass(frozen=True)

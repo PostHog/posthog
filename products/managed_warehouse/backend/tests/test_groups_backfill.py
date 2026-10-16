@@ -5,10 +5,11 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
+from uuid import uuid4
 
 import pytest
 import time_machine
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 
@@ -32,6 +33,7 @@ from products.managed_warehouse.dags.groups_backfill import (
     duckling_groups_backfill,
     duckling_groups_full_backfill_sensor,
     ensure_groups_table,
+    export_groups_to_duckling_s3,
     groups_snapshot_select_sql,
     replace_groups_snapshot,
     reserve_groups_snapshot,
@@ -40,33 +42,68 @@ from products.managed_warehouse.dags.groups_backfill import (
 
 def test_groups_snapshot_deduplicates_keys_within_each_team_and_group_type(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "CLICKHOUSE_USE_HTTP", False)
+    table_name = f"test_groups_snapshot_{uuid4().hex}"
     with get_client_from_pool() as client:
-        client.execute("""
-            CREATE TEMPORARY TABLE groups (
+        client.execute(f"""
+            CREATE TABLE {table_name} (
                 team_id Int64, group_type_index UInt8, group_key String, group_properties String,
-                created_at DateTime64(6), _timestamp DateTime64(6), _offset UInt64
-            ) ENGINE = Memory
+                created_at DateTime64(3), _timestamp DateTime, _offset UInt64
+            ) ENGINE = ReplacingMergeTree(_timestamp)
+            ORDER BY (team_id, group_type_index, group_key)
         """)
         try:
+            client.execute(f"SYSTEM STOP MERGES {table_name}")
             created = datetime(2025, 1, 1)
             latest = datetime(2025, 1, 2)
             client.execute(
-                "INSERT INTO groups VALUES",
+                f"INSERT INTO {table_name} VALUES",
                 [
-                    (7, 0, "company", '{"name":"old"}', created, created, 1),
                     (7, 0, "company", '{"name":"latest"}', created, latest, 2),
-                    (7, 0, "company", '{"name":"latest"}', created, latest, 2),
+                    (7, 0, "tied", '{"name":"first insert"}', created, latest, 99),
                     (7, 1, "company", '{"name":"another type"}', created, latest, 2),
                     (8, 0, "company", '{"name":"another team"}', created, latest, 2),
                 ],
             )
-            rows = client.execute(groups_snapshot_select_sql(7))
+            client.execute(
+                f"INSERT INTO {table_name} VALUES",
+                [
+                    (7, 0, "company", '{"name":"old"}', created, created, 1),
+                    (7, 0, "tied", '{"name":"last insert"}', created, latest, 1),
+                ],
+            )
+            query = groups_snapshot_select_sql(7).replace("FROM groups FINAL", f"FROM {table_name} FINAL")
+            rows = client.execute(query)
         finally:
-            client.execute("DROP TEMPORARY TABLE groups")
-    assert [row[:6] for row in rows] == [
+            client.execute(f"DROP TABLE {table_name}")
+    assert sorted(row[:6] for row in rows) == [
         (7, 0, "company", '{"name":"latest"}', created, latest),
+        (7, 0, "tied", '{"name":"last insert"}', created, latest),
         (7, 1, "company", '{"name":"another type"}', created, latest),
     ]
+
+
+@pytest.mark.parametrize("memory_override", [None, 20 * 1024**3])
+def test_groups_export_memory_default_and_operator_override(memory_override: int | None) -> None:
+    client = MagicMock()
+    client.execute.return_value = [(100,)]
+    context = MagicMock()
+    context.run.run_id = "synthetic-run"
+    target = DucklingTarget(team_id=7, organization_id="org", bucket="unused", bucket_region="us-east-1")
+    config = DucklingBackfillConfig(
+        clickhouse_settings={"max_memory_usage": memory_override} if memory_override is not None else None
+    )
+
+    with patch(
+        "products.managed_warehouse.dags.groups_backfill.get_s3_url_for_clickhouse", return_value="https://example.com"
+    ):
+        result = export_groups_to_duckling_s3(context, client, config, target)
+
+    export_query = client.execute.call_args.args[0]
+    export_settings = client.execute.call_args.kwargs["settings"]
+    assert result == "s3://unused/backfill/groups/7/synthetic-run/*.parquet"
+    assert "FROM groups FINAL" in export_query
+    assert "ORDER BY" not in export_query
+    assert export_settings["max_memory_usage"] == (memory_override if memory_override is not None else 100 * 1024**3)
 
 
 class _LakeConnection:

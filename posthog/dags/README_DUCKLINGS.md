@@ -50,13 +50,20 @@ Rerun a team partition manually to refresh its groups; there is no daily groups 
 Each sensor tick checks at most 25 teams, schedules at most three runs, and advances a cursor so repeated failures cannot block discovery.
 Failed snapshots retry with exponential backoff from 10 minutes to a maximum of 320 minutes.
 The sensor checks active runs separately from real snapshot history; previews do not hide a successful or active snapshot.
-The export uses the latest group properties from ClickHouse, sorts by group type and key, and replaces the team's DuckLake snapshot in a transaction.
+The export reads ClickHouse groups with `FINAL` and replaces the team's DuckLake snapshot in a transaction.
+Deduplication follows the table engine: the highest `_timestamp` wins, with equal timestamps resolved by insertion order.
+The export does not apply an explicit sort.
 Before exporting, the job reserves a generation in the table comment. Registration commits that generation with the rows, so an older export cannot overwrite a newer snapshot, including an empty one.
 A table reset starts a new generation epoch. The `posthog_groups_backfill:` table comment is reserved for snapshot state; do not edit it manually.
 Output metadata reports `superseded: true` when a newer snapshot or table reset prevents registration.
 `delete_tables` is refused for the legacy shared `groups` table.
 The job shares the events/persons backfill concurrency limit and supports `dry_run` and `skip_ducklake_registration`.
 Groups snapshots require `cleanup_existing_partition_data: true`.
+
+Groups exports default to a 100 GiB query memory limit, matching full persons exports.
+Override it with `clickhouse_settings.max_memory_usage` when launching a run.
+For a memory failure, lower `max_s3_file_fanout` and rerun the same team partition with `delete_tables: false`.
+A failed export does not replace the previous snapshot; only a successful export proceeds to registration.
 
 The groups sensor defaults to stopped. Use a manual snapshot to validate rollout before enabling automatic discovery:
 

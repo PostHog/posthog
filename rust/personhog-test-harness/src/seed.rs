@@ -72,6 +72,17 @@ pub fn lifecycle_tables_for(person_table: &str) -> (&'static str, &'static str) 
     }
 }
 
+/// The publish outbox paired with a person table, derived the way identity
+/// derives it. Identity validates its six tables as one set, so a spawned
+/// identity must be told this one too.
+pub fn publish_outbox_table_for(person_table: &str) -> &'static str {
+    if person_table == "personhog_person_tmp" {
+        "person_publish_outbox_tmp"
+    } else {
+        "person_publish_outbox"
+    }
+}
+
 /// Create (or revive) one person per distinct id through the identity
 /// service and return their row ids in entry order. This is the bed's
 /// seeding path: creation runs the same get-or-create the ingestion

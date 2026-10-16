@@ -35,6 +35,8 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
 from products.workflows.backend.facade.writes import update_workflow
@@ -409,6 +411,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("automation", "automation", {"Webhook sync"}),
             ("loop", "loop", {"Loop with email action"}),
             ("broadcast", "broadcast", {"Announcement"}),
+            ("transactional_email", "transactional_email", {"Password reset"}),
             # What the workflows page sends: everything except the surfaces with their own page.
             (
                 "everything_but_broadcasts",
@@ -457,6 +460,13 @@ class TestHogFlowAPI(APIBaseTest):
             name="Announcement",
             created_by=self.user,
             origin_product="broadcasts",
+            actions=[{"id": "a", "type": "function_email", "config": {}}],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Password reset",
+            created_by=self.user,
+            origin_product="transactional_emails",
             actions=[{"id": "a", "type": "function_email", "config": {}}],
         )
 
@@ -5702,6 +5712,22 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
 
+    def test_in_flight_allowed_with_hog_flow_read_key(self):
+        flow_id = self._create_flow()
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="hog_flow read", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:read"]
+        )
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+            return_value=MagicMock(status_code=200, json=lambda: {"count": 3, "by_action": {"action_1": 3}}),
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/in_flight",
+                headers={"authorization": f"Bearer {key}"},
+            )
+        assert response.status_code == 200, response.json()
+
     def test_bulk_delete_archived_workflows(self):
         ids = [self._create_flow(name=f"Flow {i}") for i in range(3)]
         for fid in ids:
@@ -7349,6 +7375,395 @@ class TestCreateTaskActionValidation(APIBaseTest):
         response = self._post_flow({"max_parallel_tasks": {"value": value}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+_TRIGGER = {
+    "id": "trigger_node",
+    "name": "trigger_1",
+    "type": "trigger",
+    "config": {
+        "type": "event",
+        "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+    },
+}
+
+
+class TestReplayVisionActionValidation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        template = deepcopy(webhook_template)
+        template["id"] = "template-posthog-replay-vision"
+        template["name"] = "Replay Vision"
+        template["inputs_schema"] = [
+            {"key": "session_id", "type": "string", "label": "Session ID", "secret": False, "required": True},
+            {"key": "analysis", "type": "replay_vision_scan", "label": "Analysis", "secret": False, "required": True},
+        ]
+        sync_template_to_db(template)
+
+    def _enable_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+    def _save_step(self, analysis: dict, team: Team | None = None, **extra: Any):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {
+                "template_id": "template-posthog-replay-vision",
+                "inputs": {
+                    "session_id": {"value": "{event.properties.$session_id}"},
+                    "analysis": {"value": analysis},
+                },
+            },
+        }
+        return self.client.post(
+            f"/api/projects/{(team or self.team).id}/hog_flows",
+            {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
+            format="json",
+            HTTP_X_POSTHOG_CLIENT="mcp",
+            **extra,
+        )
+
+    @parameterized.expand(
+        [
+            ("can_view_recordings", "viewer", {"type": "monitor", "prompt": "did they rage click?"}, None),
+            ("cannot_view_recordings", "none", {"type": "monitor", "prompt": "did they rage click?"}, "template_id"),
+            ("incomplete_setup", "viewer", {"type": "classifier", "prompt": "intent?"}, "inputs"),
+        ]
+    )
+    def test_the_step_needs_recording_access_and_a_complete_setup(
+        self, _name: str, recording_access: str, analysis: dict, error_attr: str | None
+    ) -> None:
+        self._enable_access_control()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level=recording_access)
+
+        response = self._save_step(analysis)
+
+        if error_attr is None:
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert error_attr in str(response.json()), response.json()
+
+    _VISION_STEP = {
+        "id": "vision",
+        "name": "vision",
+        "type": "function",
+        "config": {
+            "template_id": "template-posthog-replay-vision",
+            "inputs": {"session_id": {"value": "{variables.session}"}},
+        },
+    }
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_a_batch_run_with_the_step_needs_the_callers_recording_access(self, create_invocation: MagicMock) -> None:
+        self._enable_access_control()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Batch scan",
+            status="active",
+            trigger={"type": "batch", "filters": {"properties": []}},
+            actions=[self._VISION_STEP],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}/batch_jobs",
+            {"variables": [{"key": "session", "value": "s1"}]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert "session recordings" in response.json()["detail"], response.json()
+        create_invocation.assert_not_called()
+
+    def test_a_rerun_of_the_step_needs_the_callers_recording_access(self) -> None:
+        self._enable_access_control()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Rerun scan",
+            status="active",
+            trigger={"type": "event", "filters": {}},
+            actions=[_TRIGGER, self._VISION_STEP],
+        )
+
+        with patch("products.workflows.backend.presentation.views.hog_flow.rerun_hog_invocations") as rerun:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}/rerun/",
+                {"filter": {"window_start": "2026-10-13T00:00:00Z", "window_end": "2026-10-14T00:00:00Z"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert "session recordings" in response.json()["detail"], response.json()
+        rerun.assert_not_called()
+
+    def test_a_variables_only_edit_is_checked_against_the_staged_draft_too(self) -> None:
+        self._enable_access_control()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Draft scan",
+            status="active",
+            trigger={"type": "event", "filters": {}},
+            actions=[_TRIGGER],
+            draft={"actions": [_TRIGGER, self._VISION_STEP]},
+            variables=[{"key": "session", "type": "string", "label": "Session", "default": "s1"}],
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+            {"variables": [{"key": "session", "type": "string", "label": "Session", "default": "s2"}]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "variables", response.json()
+
+    @parameterized.expand(
+        [("complete_setup", {"type": "monitor", "prompt": "p"}), ("incomplete_setup", {"type": "classifier"})]
+    )
+    def test_client_code_and_templating_never_reach_the_stored_setup(self, _name: str, value: dict) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {
+                "name": "Draft",
+                "actions": [
+                    _TRIGGER,
+                    {
+                        "id": "action_1",
+                        "name": "action_1",
+                        "type": "function",
+                        "config": {
+                            "template_id": "template-posthog-replay-vision",
+                            "inputs": {
+                                "analysis": {
+                                    "value": value,
+                                    "bytecode": ["_H", 1, 32, "other-scanner"],
+                                    "templating": "liquid",
+                                }
+                            },
+                        },
+                    },
+                ],
+                "edges": [],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        stored = HogFlow.objects.get(id=response.json()["id"])
+        actions = (stored.draft or {}).get("actions") or stored.actions
+        analysis = next(a for a in actions if a["id"] == "action_1")["config"]["inputs"]["analysis"]
+        assert not {"bytecode", "templating"} & set(analysis)
+
+    def test_a_web_draft_with_a_malformed_setup_saves(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {
+                "name": "Draft",
+                "actions": [
+                    {
+                        "id": "trigger_node",
+                        "name": "trigger_1",
+                        "type": "trigger",
+                        "config": {"type": "event", "filters": {}},
+                    },
+                    {
+                        "id": "action_1",
+                        "name": "action_1",
+                        "type": "function",
+                        "config": {"template_id": "template-posthog-replay-vision", "inputs": {"analysis": "invalid"}},
+                    },
+                ],
+                "edges": [],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_the_step_is_refused_in_a_child_environment(self) -> None:
+        child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
+
+        response = self._save_step({"type": "monitor", "prompt": "did they rage click?"}, team=child)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "main environment" in str(response.json()), response.json()
+
+    def test_a_web_draft_can_hold_the_step_before_it_has_inputs(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {
+                "name": "Draft",
+                "actions": [
+                    {
+                        "id": "trigger_node",
+                        "name": "trigger_1",
+                        "type": "trigger",
+                        "config": {"type": "event", "filters": {}},
+                    },
+                    {
+                        "id": "action_1",
+                        "name": "action_1",
+                        "type": "function",
+                        "config": {"template_id": "template-posthog-replay-vision"},
+                    },
+                ],
+                "edges": [],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand([("editable", "editor", status.HTTP_201_CREATED), ("restricted", "none", 400)])
+    def test_the_step_needs_the_editors_own_access_to_the_scanner(
+        self, _name: str, scanner_access: str, expected: int
+    ) -> None:
+        self._enable_access_control()
+        scanner = ReplayScanner.objects.create(
+            team=self.team, name="checkout", scanner_type="monitor", scanner_config={"prompt": "checked out?"}
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="replay_scanner", resource_id=str(scanner.id), access_level=scanner_access
+        )
+
+        response = self._save_step({"type": "scanner", "scanner_id": str(scanner.id)})
+
+        assert response.status_code == expected, response.json()
+
+    def test_the_step_refuses_an_experiment_scanner(self) -> None:
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="experiment",
+            scanner_type="experiment",
+            scanner_config={"prompt": "p", "experiment_id": create_experiment(self.team, "workflow-flag").id},
+        )
+
+        response = self._save_step({"type": "scanner", "scanner_id": str(scanner.id)})
+
+        assert response.status_code == 400, response.json()
+        assert "Experiment scanners can't run from a workflow" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("recording_and_scanner_scopes", ["hog_flow:write", "session_recording:read", "replay_scanner:write"], 201),
+            ("no_recording_scope", ["hog_flow:write", "replay_scanner:write"], 400),
+            ("scanner_read_only", ["hog_flow:write", "session_recording:read", "replay_scanner:read"], 400),
+        ]
+    )
+    def test_a_key_needs_the_scopes_for_what_the_step_reads(self, _name: str, scopes: list[str], expected: int) -> None:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="workflows", user=self.user, secure_value=hash_key_value(key), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self._save_step(
+            {"type": "monitor", "prompt": "did they rage click?"}, HTTP_AUTHORIZATION=f"Bearer {key}"
+        )
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand([("can_view_recordings", "viewer", status.HTTP_200_OK), ("cannot", "none", 400)])
+    def test_changing_only_the_variables_of_a_step_needs_the_editors_recording_access(
+        self, _name: str, recording_access: str, expected: int
+    ) -> None:
+        self._enable_access_control()
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Scan flow",
+            status="active",
+            created_by=self.user,
+            trigger={"type": "event", "filters": {}},
+            variables=[{"key": "session", "type": "string", "label": "Session", "default": "s1"}],
+            actions=[
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {
+                        "type": "event",
+                        "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+                    },
+                },
+                {
+                    "id": "action_1",
+                    "name": "action_1",
+                    "type": "function",
+                    "config": {
+                        "template_id": "template-posthog-replay-vision",
+                        "inputs": {"session_id": {"value": "{variables.session}"}},
+                    },
+                },
+            ],
+        )
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level=recording_access)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow.id}",
+            {"variables": [{"key": "session", "type": "string", "label": "Session", "default": "another-session"}]},
+            format="json",
+        )
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand([("live", False, status.HTTP_403_FORBIDDEN), ("mocked", True, status.HTTP_200_OK)])
+    def test_a_live_test_run_needs_the_testers_recording_access(
+        self, _name: str, mock_async_functions: bool, expected: int
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Scan flow",
+            created_by=self.user,
+            trigger={"type": "event", "filters": {}},
+            actions=[
+                {
+                    "id": "action_1",
+                    "name": "action_1",
+                    "type": "function",
+                    "config": {"template_id": "template-posthog-replay-vision", "inputs": {}},
+                }
+            ],
+        )
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}/invocations/",
+                data={
+                    "globals": {"event": {"event": "$pageview", "distinct_id": "d1"}},
+                    "mock_async_functions": mock_async_functions,
+                    "current_action_id": "action_1",
+                },
+                format="json",
+            )
+
+        assert response.status_code == expected, response.json()
+        assert mock_invoke.call_count == (1 if mock_async_functions else 0)
 
 
 class TestRunScoutActionValidation(APIBaseTest):

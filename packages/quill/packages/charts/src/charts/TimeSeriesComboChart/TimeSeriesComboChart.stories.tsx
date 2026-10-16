@@ -43,6 +43,27 @@ export const Basic: Story = {
     },
 }
 
+export const SharedValueDomain: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesComboChart
+                    series={BAR_AND_LINE}
+                    labels={MONTHLY_LABELS}
+                    theme={theme}
+                    config={{
+                        valueDomain: { min: 0, max: 500 },
+                        xAxis: { timezone: 'UTC', interval: 'month' },
+                        yAxis: { showGrid: true },
+                        legend: { show: true },
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
+
 export const StackedBarsAndLine: Story = {
     render: () => {
         const theme = useReactiveTheme()
