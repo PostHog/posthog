@@ -9,6 +9,7 @@ import {
     collectNotebookFrameNodes,
     collectRunnableCellNodeIds,
     extractPythonIdentifiers,
+    notebookHasNodeOfTypes,
 } from './notebookNodeContent'
 
 describe('buildNotebookDependencyGraph', () => {
@@ -268,5 +269,22 @@ describe('collectRunnableCellNodeIds', () => {
             .join('\n\n')
 
         expect(collectRunnableCellNodeIds(buildMarkdownNotebookContent(markdown))).toEqual(expected)
+    })
+})
+
+describe('notebookHasNodeOfTypes', () => {
+    const codeCellTypes = [NotebookNodeType.SQLV2, NotebookNodeType.PythonV2]
+
+    it.each([
+        ['prose only', '# Findings\n\nSignups went up.', false],
+        ['an insight only', serializeMarkdownNotebookComponent('Query', { nodeId: 'q1' }), false],
+        ['an empty python cell', serializeMarkdownNotebookComponent('PythonV2', { nodeId: 'p1', code: '' }), true],
+        [
+            'a sql cell after prose',
+            `Intro\n\n${serializeMarkdownNotebookComponent('SQLV2', { nodeId: 's1', code: 'select 1' })}`,
+            true,
+        ],
+    ])('%s', (_name, markdown, expected) => {
+        expect(notebookHasNodeOfTypes(buildMarkdownNotebookContent(markdown), codeCellTypes)).toBe(expected)
     })
 })

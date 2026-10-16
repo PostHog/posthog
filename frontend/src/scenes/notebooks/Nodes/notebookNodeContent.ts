@@ -260,6 +260,29 @@ const expandMarkdownNotebookNodesOfTypes = (node: any, nodeTypes: NotebookNodeTy
 const expandMarkdownNotebookNodesOfType = (node: any, nodeType: NotebookNodeType): JSONContent[] =>
     expandMarkdownNotebookNodesOfTypes(node, [nodeType])
 
+/** Whether the notebook holds at least one cell of the given types, markdown notebook cells included. */
+export const notebookHasNodeOfTypes = (
+    content: JSONContent | null | undefined,
+    nodeTypes: NotebookNodeType[]
+): boolean => {
+    const walk = (node: JSONContent): boolean => {
+        if (!node || typeof node !== 'object') {
+            return false
+        }
+        if (node.type && nodeTypes.includes(node.type as NotebookNodeType)) {
+            return true
+        }
+        if (
+            node.type === NotebookNodeType.MarkdownNotebook &&
+            expandMarkdownNotebookNodesOfTypes(node, nodeTypes).length
+        ) {
+            return true
+        }
+        return !!node.content?.some(walk)
+    }
+    return !!content && walk(content)
+}
+
 export interface NotebookDataframeNode {
     node: JSONContent
     nodeId: string

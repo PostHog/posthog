@@ -100,6 +100,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         markdownEditorValue,
         markdownEditorInteractionActive,
         markdownRemoteCarets,
+        hasCodeCells,
     } = useValues(notebookLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
@@ -803,7 +804,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                         canvasHeader={
                             jupyterMode ? (
                                 <>
-                                    {isEditable ? <NotebookJupyterToolbar /> : null}
+                                    {isEditable && hasCodeCells ? <NotebookJupyterToolbar /> : null}
                                     <NotebookVariablesBar />
                                 </>
                             ) : (

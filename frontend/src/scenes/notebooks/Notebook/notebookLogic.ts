@@ -76,6 +76,7 @@ import {
     collectNotebookFrameNodes,
     collectRunnableCellNodeIds,
     collectSqlV2Nodes,
+    notebookHasNodeOfTypes,
 } from '../Nodes/notebookNodeContent'
 import type { NotebookDependencyGraph, NotebookFrameNodeSummary, SqlV2NodeSummary } from '../Nodes/notebookNodeContent'
 import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
@@ -311,6 +312,8 @@ export interface notebookLogicValues {
     frameNodeSummaries: NotebookFrameNodeSummary[]
     getSharedCachedInlineQueryResults: (nodeId: string | null | undefined) => AnyResponseType | null
     getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel<Node<Record<string, any>>> | null
+    hasCodeCells: boolean
+    hasDataframeConsumers: boolean
     hasUnsavedVariables: boolean
     isEditable: boolean
     isLocalOnly: boolean
@@ -689,13 +692,19 @@ export interface notebookLogicMeta {
         sqlV2NodeSummaries: (content: JSONContent) => SqlV2NodeSummary[]
         runnableCellNodeIds: (content: JSONContent) => string[]
         frameNodeSummaries: (content: JSONContent) => NotebookFrameNodeSummary[]
+        hasCodeCells: (content: JSONContent) => boolean
+        hasDataframeConsumers: (content: JSONContent) => boolean
         dependencyGraph: (contentAtLastRun: JSONContent | null) => NotebookDependencyGraph
         sqlNodeIndices: (content: JSONContent) => Map<string, number>
         isShowingLeftColumn: (showHistory: boolean) => boolean
         variables: (localVariables: NotebookVariable[] | null, notebook: NotebookType | null) => NotebookVariable[]
         variableErrors: (variables: NotebookVariable[], content: JSONContent) => (string | null)[]
         runnableVariables: (variables: NotebookVariable[], content: JSONContent) => NotebookVariable[]
-        showVariables: (showVariablesOverride: boolean | null, variables: NotebookVariable[]) => boolean
+        showVariables: (
+            showVariablesOverride: boolean | null,
+            variables: NotebookVariable[],
+            hasCodeCells: boolean
+        ) => boolean
         canEditNotebook: (
             previewContent: JSONContent | null,
             notebook: NotebookType | null,
@@ -1449,6 +1458,23 @@ export const notebookLogic = kea<notebookLogicType>([
         sqlV2NodeSummaries: [(s) => [s.content], (content: JSONContent) => collectSqlV2Nodes(content)],
         runnableCellNodeIds: [(s) => [s.content], (content: JSONContent) => collectRunnableCellNodeIds(content)],
         frameNodeSummaries: [(s) => [s.content], (content: JSONContent) => collectNotebookFrameNodes(content)],
+        // Kernel controls only help once a cell can run code, so readers of a prose and insight
+        // notebook do not see them.
+        hasCodeCells: [
+            (s) => [s.content],
+            (content: JSONContent) =>
+                notebookHasNodeOfTypes(content, [NotebookNodeType.SQLV2, NotebookNodeType.PythonV2]),
+        ],
+        // Cells that can read an insight dataframe by name.
+        hasDataframeConsumers: [
+            (s) => [s.content],
+            (content: JSONContent) =>
+                notebookHasNodeOfTypes(content, [
+                    NotebookNodeType.SQLV2,
+                    NotebookNodeType.PythonV2,
+                    NotebookNodeType.GeneratedWidget,
+                ]),
+        ],
         dependencyGraph: [
             // Keyed on the last-run snapshot, not live content, so typing does not rebuild it.
             (s) => [s.contentAtLastRun],
@@ -1491,11 +1517,12 @@ export const notebookLogic = kea<notebookLogicType>([
                 getRunnableNotebookVariables(variables, getNotebookVariableConflictNames(content)),
         ],
         // Open by default only once the notebook has variables — an empty bar is noise on a
-        // notebook that does not use them. The toggle overrides in both directions.
+        // notebook that does not use them. The toggle overrides in both directions, but only
+        // where a variable can be declared or read.
         showVariables: [
-            (s) => [s.showVariablesOverride, s.variables],
-            (showVariablesOverride: boolean | null, variables: NotebookVariable[]): boolean =>
-                showVariablesOverride ?? variables.length > 0,
+            (s) => [s.showVariablesOverride, s.variables, s.hasCodeCells],
+            (showVariablesOverride: boolean | null, variables: NotebookVariable[], hasCodeCells: boolean): boolean =>
+                (hasCodeCells || variables.length > 0) && (showVariablesOverride ?? variables.length > 0),
         ],
 
         // Whether this reader may change the notebook at all, independent of the view/edit toggle.

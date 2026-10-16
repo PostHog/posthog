@@ -19,14 +19,16 @@ export function NotebookInsightDataframe({
     updateAttributes: (attributes: Partial<InsightDataframeAttributes>) => void
 }): JSX.Element | null {
     const { notebookLogic, nodeId } = useValues(useRequiredNotebookNode())
-    const { canEditNotebook, isShared } = useValues(notebookLogic)
+    const { canEditNotebook, isShared, hasDataframeConsumers } = useValues(notebookLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const enabled =
         !!(
             featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] || featureFlags[FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]
         ) &&
         canEditNotebook &&
-        !isShared
+        !isShared &&
+        // A prepared dataframe keeps its footer, so it can still be refreshed.
+        (hasDataframeConsumers || !!attributes.runId)
     if (!enabled) {
         return null
     }
