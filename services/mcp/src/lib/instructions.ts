@@ -64,6 +64,8 @@ function buildIntegrationsLine(integrationKinds?: string[]): string | undefined 
 export interface EnvironmentContextOptions {
     /** Integration kinds connected in the active project; `undefined` means unknown. */
     integrationKinds?: string[]
+    /** Whether to state that the project has no events yet. Set only in the no-data notice test arm. */
+    noEventsNotice?: boolean
 }
 
 export function buildActiveEnvironmentContextPrompt(
@@ -97,7 +99,7 @@ export function buildActiveEnvironmentContextPrompt(
     }
     if (project) {
         lines.push('For project settings such as the timezone, call `project-get` without an ID.')
-        if (project.ingested_event === false) {
+        if (opts?.noEventsNotice && project.ingested_event === false) {
             lines.push('This project has not received any events yet, so queries on events return no data.')
         }
         if (project.test_account_filters_default_checked) {

@@ -4,16 +4,12 @@
 import type { FlagValue } from '@/lib/posthog/flags'
 
 export const MCP_NO_DATA_INSTALL_NOTICE_FLAG = 'mcp-no-data-install-notice'
-const NOTICE_VARIANT = 'test'
+export const NO_DATA_NOTICE_VARIANT = 'test'
 
 export const WIZARD_INSTALL_START_TOOL = 'wizard-install-start'
 const GITHUB_CONNECT_URL_TOOL = 'integrations-github-connect-url'
 
 const BLOCKED_TOOL_PREFIX = 'query-'
-
-// Logs, traces and metrics arrive through their own ingestion pipelines, which do not set
-// `ingested_event`. A project that only sends these still has data for these tools to read.
-const NON_EVENT_QUERY_TOOLS: ReadonlySet<string> = new Set(['query-logs', 'query-apm-spans', 'query-metrics'])
 
 const BLOCKED_TOOLS: ReadonlySet<string> = new Set([
     'insight-query',
@@ -35,10 +31,9 @@ const BLOCKED_TOOLS: ReadonlySet<string> = new Set([
 const WAREHOUSE_QUERY_TOOLS: ReadonlySet<string> = new Set(['execute-sql', 'read-data-schema'])
 
 export function isNoDataBlockedTool(toolName: string): boolean {
-    if (toolName.startsWith(BLOCKED_TOOL_PREFIX)) {
-        return !NON_EVENT_QUERY_TOOLS.has(toolName)
-    }
-    return BLOCKED_TOOLS.has(toolName) || WAREHOUSE_QUERY_TOOLS.has(toolName)
+    return (
+        toolName.startsWith(BLOCKED_TOOL_PREFIX) || BLOCKED_TOOLS.has(toolName) || WAREHOUSE_QUERY_TOOLS.has(toolName)
+    )
 }
 
 export function canQueryWarehouse(toolName: string): boolean {
@@ -58,7 +53,7 @@ export interface NoDataNoticeAudience {
 export function isNoDataNoticeActive(audience: NoDataNoticeAudience): boolean {
     return (
         audience.projectHasData === false &&
-        audience.variant === NOTICE_VARIANT &&
+        audience.variant === NO_DATA_NOTICE_VARIANT &&
         !audience.isImpersonated &&
         !audience.suppressAnalytics &&
         !audience.apiKeyScopes.includes('internal_run:read') &&

@@ -3,7 +3,7 @@ import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
-import { MCP_NO_DATA_INSTALL_NOTICE_FLAG } from '@/lib/no-data-guard'
+import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, NO_DATA_NOTICE_VARIANT } from '@/lib/no-data-guard'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -249,6 +249,8 @@ export class RequestStateResolver {
             source === EVENT_SOURCE.MCP && !_apiKey?.is_impersonated && !props.suppressAnalytics
                 ? resolveIntentPrompt(mergedFlags[MCP_INTENT_PROMPT_FLAG], payloads[MCP_INTENT_PROMPT_FLAG])
                 : undefined
+
+        context.noDataInstallNotice = mergedFlags[MCP_NO_DATA_INSTALL_NOTICE_FLAG] === NO_DATA_NOTICE_VARIANT
 
         const clientProfile = new MCPClientProfile({
             clientName: clientContext.mcpClientName,
