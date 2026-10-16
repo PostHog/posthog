@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import {
@@ -24,11 +24,6 @@ import {
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
-    Item,
-    ItemContent,
-    ItemGroup,
-    ItemMedia,
-    ItemTitle,
     Skeleton,
     Spinner,
     Text,
@@ -47,7 +42,7 @@ import { TodayAnalyticsNewFolderDialog } from '~/layout/today/TodayAnalyticsNewF
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
 import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
-import { analyticsListColumns } from './AnalyticsListColumns'
+import { AnalyticsListRow, analyticsListColumns } from './AnalyticsListColumns'
 import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
@@ -108,8 +103,15 @@ function AnalyticsListContent(): JSX.Element {
             ? urls.analyticsMine(analyticsListUrlParams(filters))
             : urls.analyticsList(analyticsListUrlParams(filters))
     const columns = analyticsListColumns({ backUrl, showSpace: mode === 'feed' })
+    const rows = useMemo<AnalyticsListRow[]>(
+        () => [
+            ...subfolders.map((folder) => ({ kind: 'folder' as const, folder })),
+            ...items.map((item) => ({ kind: 'item' as const, item })),
+        ],
+        [subfolders, items]
+    )
     const spaceName = mode === 'folder' ? folderBreadcrumbs[folderBreadcrumbs.length - 1]?.name || 'Project root' : null
-    // Only the space itself can be deleted from here; a folder inside it is managed from the project tree.
+    // Only the collection itself is deleted from Manage; a folder inside it is deleted from its row.
     const topLevelSpace = mode === 'folder' && filters.folder ? analyticsSpaceOfPath(filters.folder) : null
     const isSpaceRoot = !!topLevelSpace && topLevelSpace !== USERS_FOLDER && folderBreadcrumbs.length === 1
 
@@ -216,35 +218,10 @@ function AnalyticsListContent(): JSX.Element {
                 className={feedStale ? 'opacity-60 transition-opacity' : 'transition-opacity'}
                 aria-busy={feedStale || hasMore}
             >
-                {subfolders.length > 0 && (
-                    <ItemGroup className="mb-3 grid grid-cols-1 gap-2 @md/analytics:grid-cols-3">
-                        {subfolders.map((folder) => (
-                            <Item
-                                key={folder.path}
-                                variant="outline"
-                                size="sm"
-                                className="text-foreground hover:bg-fill-button-tertiary-hover hover:text-foreground"
-                                render={
-                                    <LinkPrimitive
-                                        to={urls.analyticsList({ folder: folder.path })}
-                                        data-attr="analytics-list-subfolder"
-                                    />
-                                }
-                            >
-                                <ItemMedia variant="icon" aria-hidden>
-                                    <IconFolder />
-                                </ItemMedia>
-                                <ItemContent className="min-w-0">
-                                    <ItemTitle className="truncate">{folder.name}</ItemTitle>
-                                </ItemContent>
-                            </Item>
-                        ))}
-                    </ItemGroup>
-                )}
-                {items.length > 0 && (
+                {rows.length > 0 && (
                     <DataTable
                         columns={columns}
-                        data={items}
+                        data={rows}
                         fullWidth
                         size="sm"
                         stickyHeader

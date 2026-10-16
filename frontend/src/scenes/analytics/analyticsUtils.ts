@@ -82,6 +82,8 @@ export interface AnalyticsItem {
     tags: string[]
     spaceId: string | null
     spaceName: string | null
+    /** The file system row behind the item, which a drag hands to the project tree's move. */
+    entry?: FileSystemEntry
 }
 
 export const ANALYTICS_BACK_NAME = 'Analytics'
@@ -170,6 +172,7 @@ export function fileSystemEntryToAnalytics(
         tags: stringTags(Array.isArray(entry.meta?.tags) ? entry.meta.tags : undefined),
         spaceId: analyticsSpaceOfPath(entry.path),
         spaceName: analyticsSpaceOfPath(entry.path),
+        entry,
     }
 }
 
@@ -234,3 +237,6 @@ export function newCanvasSpaceIdForPath(
     const canvas = /^\/canvases\/([^/]+)$/.exec(path)
     return canvas && openCanvas?.id === canvas[1] ? openCanvas.channel : null
 }
+
+/** Scopes the Analytics list's drag ids and drop targets apart from the project tree's own. */
+export const ANALYTICS_DRAG_SCOPE = 'analytics-list'

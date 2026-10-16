@@ -674,20 +674,22 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         tags_by_entry: dict[tuple[str, int, str], builtins.list[str]] = {}
         if include_tags:
             for entry_type, app_label, model_name, ref_field in TAGGED_FILE_SYSTEM_TYPES:
-                refs = [
-                    item["ref"]
-                    for item in results
-                    if item.get("type") == entry_type
-                    and item.get("user_access_level") != "none"
-                    and isinstance(item.get("ref"), str)
-                    and item["ref"]
-                ]
+                tag_refs: builtins.list[str] = []
+                for item in results:
+                    ref = item.get("ref")
+                    if (
+                        item.get("type") == entry_type
+                        and item.get("user_access_level") != "none"
+                        and isinstance(ref, str)
+                        and ref
+                    ):
+                        tag_refs.append(ref)
                 model = apps.get_model(app_label, model_name)
-                refs = _coerce_refs_for_lookup(model, ref_field, refs)
-                if not refs:
+                lookup_refs = _coerce_refs_for_lookup(model, ref_field, tag_refs)
+                if not lookup_refs:
                     continue
                 rows = model.objects.filter(
-                    team__project_id=self.team.project_id, deleted=False, **{f"{ref_field}__in": refs}
+                    team__project_id=self.team.project_id, deleted=False, **{f"{ref_field}__in": lookup_refs}
                 ).values_list("pk", "team_id", ref_field)
                 key_by_pk = {pk: (team_id, str(ref)) for pk, team_id, ref in rows}
                 if not key_by_pk:

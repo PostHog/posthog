@@ -11,6 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { AnalyticsListUrlParams, urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -73,6 +74,9 @@ export interface FolderContents {
 export interface FolderRow {
     path: string
     name: string
+    entry?: FileSystemEntry
+    createdAt?: string | null
+    createdBy?: AnalyticsItem['createdBy']
 }
 
 export type AnalyticsListState = 'loading' | 'error' | 'empty' | 'no-matches' | 'ready'
@@ -180,6 +184,12 @@ export interface analyticsListLogicActions {
     shareToSpaceDone: () => {
         value: true
     } // analyticsShareLogic
+    deleteSavedItem: (savedItem: FileSystemEntry) => {
+        savedItem: FileSystemEntry
+    } // projectTreeDataLogic
+    movesSettled: (moved: import('~/layout/panel-layout/ProjectTree/projectTreeDataLogic').MovedItem[]) => {
+        moved: import('~/layout/panel-layout/ProjectTree/projectTreeDataLogic').MovedItem[]
+    } // projectTreeDataLogic
     folderCreated: () => {
         value: true
     } // todayAnalyticsLogic
@@ -340,6 +350,8 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             ['shareToSpaceDone'],
             todayAnalyticsLogic,
             ['folderCreated'],
+            projectTreeDataLogic,
+            ['movesSettled', 'deleteSavedItem'],
         ],
     })),
     actions({
@@ -516,10 +528,30 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 if (mode !== 'folder' || !folderContents || folderContents.folder !== filters.folder) {
                     return []
                 }
+                // Folders carry no tags, so a tag filter leaves them out.
+                if (filters.tags.length) {
+                    return []
+                }
                 const needle = filters.search.trim().toLowerCase()
                 return folderContents.entries
                     .filter((entry) => entry.type === 'folder')
-                    .map((entry) => ({ path: entry.path, name: fileSystemEntryName(entry) }))
+                    .map((entry) => {
+                        const creator = folderContents.users.find((user) => user.id === entry.meta?.created_by)
+                        return {
+                            path: entry.path,
+                            name: fileSystemEntryName(entry),
+                            entry,
+                            createdAt: entry.created_at ?? null,
+                            createdBy: creator
+                                ? {
+                                      uuid: creator.uuid,
+                                      first_name: creator.first_name,
+                                      last_name: creator.last_name,
+                                      email: creator.email,
+                                  }
+                                : null,
+                        }
+                    })
                     .filter((folder) => !needle || folder.name.toLowerCase().includes(needle))
                     .sort((first, second) => first.name.localeCompare(second.name))
             },
@@ -733,6 +765,9 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             // A move or a new folder changes what this list holds, so it reads again.
             shareToSpaceDone: () => actions.loadList(),
             folderCreated: () => actions.loadList(),
+            // Drags and folder deletes go through the project tree, which reports here once they land.
+            movesSettled: () => actions.loadList(),
+            deleteSavedItem: () => actions.loadList(),
         }
     }),
     actionToUrl(({ values }) => {

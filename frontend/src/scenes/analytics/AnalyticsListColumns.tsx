@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 
-import { IconFolderMove, IconFolderOpen, IconShare, IconX } from '@posthog/icons'
+import { IconEllipsis, IconFolder, IconFolderMove, IconFolderOpen, IconShare, IconTrash, IconX } from '@posthog/icons'
 import {
     Button,
     Chip,
@@ -21,15 +21,29 @@ import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 
+import { AnalyticsDraggableRow } from './AnalyticsDraggableRow'
+import { AnalyticsFolderDropTarget } from './AnalyticsFolderDropTarget'
+import type { FolderRow } from './analyticsListLogic'
 import { AnalyticsOwner } from './AnalyticsOwner'
 import { analyticsShareLogic } from './analyticsShareLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
-import { ANALYTICS_TYPE_INFO, AnalyticsItem, analyticsOpenHref } from './analyticsUtils'
+import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, AnalyticsItem, analyticsOpenHref } from './analyticsUtils'
 
-export type AnalyticsListColumns = DataTableProps<AnalyticsItem, unknown>['columns']
+export type AnalyticsListRow = { kind: 'folder'; folder: FolderRow } | { kind: 'item'; item: AnalyticsItem }
+
+export type AnalyticsListColumns = DataTableProps<AnalyticsListRow, unknown>['columns']
+
+function EmptyCell(): JSX.Element {
+    return (
+        <Text size="xs" variant="muted">
+            –
+        </Text>
+    )
+}
 
 function TimeCell({ time, label }: { time: string | null; label?: string }): JSX.Element {
     if (!time) {
@@ -167,6 +181,116 @@ function MoveCell({ item }: { item: AnalyticsItem }): JSX.Element {
     )
 }
 
+function FolderMenuCell({ folder }: { folder: FolderRow }): JSX.Element | null {
+    const { deleteItem } = useActions(projectTreeDataLogic)
+    const entry = folder.entry
+    if (!entry) {
+        return null
+    }
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                render={
+                    <Button
+                        variant="default"
+                        size="icon-sm"
+                        aria-label={`Actions for ${folder.name}`}
+                        data-attr="analytics-list-folder-menu"
+                    />
+                }
+            >
+                <IconEllipsis />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-48">
+                <DropdownMenuItem
+                    onClick={() => router.actions.push(urls.analyticsList({ folder: folder.path }))}
+                    data-attr="analytics-list-folder-open"
+                >
+                    <IconFolderOpen />
+                    Open folder
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => deleteItem(entry, ANALYTICS_DRAG_SCOPE)}
+                    data-attr="analytics-list-folder-delete"
+                >
+                    <IconTrash />
+                    Delete folder
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    )
+}
+
+function FolderTitle({ folder, draggable }: { folder: FolderRow; draggable: boolean }): JSX.Element {
+    const title = (
+        <>
+            <IconFolder className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <LinkPrimitive
+                to={urls.analyticsList({ folder: folder.path })}
+                className="truncate font-semibold text-foreground"
+                data-attr="analytics-list-subfolder"
+            >
+                {folder.name}
+            </LinkPrimitive>
+        </>
+    )
+    return (
+        <AnalyticsFolderDropTarget path={folder.path} className="flex min-w-48 items-center gap-2 overflow-hidden">
+            {draggable && folder.entry ? (
+                <AnalyticsDraggableRow entry={folder.entry}>{title}</AnalyticsDraggableRow>
+            ) : (
+                title
+            )}
+        </AnalyticsFolderDropTarget>
+    )
+}
+
+function ItemTitle({
+    item,
+    backUrl,
+    draggable,
+}: {
+    item: AnalyticsItem
+    backUrl: string
+    draggable: boolean
+}): JSX.Element {
+    const title = (
+        <>
+            <Tooltip>
+                <TooltipTrigger
+                    render={
+                        <span
+                            className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ color: ANALYTICS_TYPE_INFO[item.type].color }}
+                        />
+                    }
+                >
+                    <AnalyticsTypeIcon type={item.type} />
+                </TooltipTrigger>
+                <TooltipContent>{ANALYTICS_TYPE_INFO[item.type].label}</TooltipContent>
+            </Tooltip>
+            <LinkPrimitive
+                to={analyticsOpenHref(item, backUrl)}
+                className="truncate font-semibold text-foreground"
+                data-attr={`analytics-list-row-${item.type}`}
+            >
+                {item.name}
+            </LinkPrimitive>
+        </>
+    )
+    return (
+        <span className="flex min-w-48 items-center gap-2 overflow-hidden">
+            {draggable && item.entry ? (
+                <AnalyticsDraggableRow entry={item.entry}>{title}</AnalyticsDraggableRow>
+            ) : (
+                title
+            )}
+        </span>
+    )
+}
+
 /**
  * The list's columns. Every column but the title has a fixed width, so the title always gets the same
  * remainder and the table does not resize as the rows change. The type shows as the title's icon.
@@ -178,37 +302,19 @@ export function analyticsListColumns({
     backUrl: string
     showSpace: boolean
 }): AnalyticsListColumns {
+    const draggable = !showSpace
     return [
         {
             id: 'name',
             header: 'Title',
             meta: { expand: true },
             enableSorting: false,
-            cell: ({ row }) => (
-                <span className="flex min-w-48 items-center gap-2 overflow-hidden">
-                    <Tooltip>
-                        <TooltipTrigger
-                            render={
-                                <span
-                                    className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ color: ANALYTICS_TYPE_INFO[row.original.type].color }}
-                                />
-                            }
-                        >
-                            <AnalyticsTypeIcon type={row.original.type} />
-                        </TooltipTrigger>
-                        <TooltipContent>{ANALYTICS_TYPE_INFO[row.original.type].label}</TooltipContent>
-                    </Tooltip>
-                    <LinkPrimitive
-                        to={analyticsOpenHref(row.original, backUrl)}
-                        className="truncate font-semibold text-foreground"
-                        data-attr={`analytics-list-row-${row.original.type}`}
-                    >
-                        {row.original.name}
-                    </LinkPrimitive>
-                </span>
-            ),
+            cell: ({ row }) =>
+                row.original.kind === 'folder' ? (
+                    <FolderTitle folder={row.original.folder} draggable={draggable} />
+                ) : (
+                    <ItemTitle item={row.original.item} backUrl={backUrl} draggable={draggable} />
+                ),
         },
         ...(showSpace
             ? ([
@@ -218,7 +324,7 @@ export function analyticsListColumns({
                       enableSorting: false,
                       cell: ({ row }) => (
                           <div className="w-36">
-                              <SpaceCell item={row.original} />
+                              {row.original.kind === 'item' ? <SpaceCell item={row.original.item} /> : <EmptyCell />}
                           </div>
                       ),
                   },
@@ -230,7 +336,7 @@ export function analyticsListColumns({
             enableSorting: false,
             cell: ({ row }) => (
                 <div className="w-36 overflow-hidden">
-                    <TagsCell tags={row.original.tags} />
+                    {row.original.kind === 'item' ? <TagsCell tags={row.original.item.tags} /> : <EmptyCell />}
                 </div>
             ),
         },
@@ -238,7 +344,16 @@ export function analyticsListColumns({
             id: 'owner',
             header: 'Owner',
             enableSorting: false,
-            cell: ({ row }) => <AnalyticsOwner owner={row.original.createdBy} className="w-36" />,
+            cell: ({ row }) => (
+                <AnalyticsOwner
+                    owner={
+                        row.original.kind === 'item'
+                            ? row.original.item.createdBy
+                            : (row.original.folder.createdBy ?? null)
+                    }
+                    className="w-36"
+                />
+            ),
         },
         {
             id: 'created',
@@ -246,11 +361,17 @@ export function analyticsListColumns({
             enableSorting: false,
             cell: ({ row }) => (
                 <div className="w-24">
-                    <TimeCell time={row.original.createdAt} />
+                    <TimeCell
+                        time={
+                            row.original.kind === 'item'
+                                ? row.original.item.createdAt
+                                : (row.original.folder.createdAt ?? null)
+                        }
+                    />
                 </div>
             ),
         },
-        // Inside a space the Space column is gone, so the row carries the way out instead.
+        // Inside a collection the Collection column is gone, so the row carries the way out instead.
         ...(showSpace
             ? []
             : ([
@@ -260,7 +381,11 @@ export function analyticsListColumns({
                       enableSorting: false,
                       cell: ({ row }) => (
                           <div className="flex w-8 justify-end">
-                              <MoveCell item={row.original} />
+                              {row.original.kind === 'item' ? (
+                                  <MoveCell item={row.original.item} />
+                              ) : (
+                                  <FolderMenuCell folder={row.original.folder} />
+                              )}
                           </div>
                       ),
                   },

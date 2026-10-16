@@ -4,6 +4,7 @@ import { Button, Text } from '@posthog/quill'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { AnalyticsFolderDropTarget } from './AnalyticsFolderDropTarget'
 import { FolderRow } from './analyticsListLogic'
 
 export function AnalyticsFolderBreadcrumbs({ crumbs }: { crumbs: FolderRow[] }): JSX.Element {
@@ -27,15 +28,18 @@ export function AnalyticsFolderBreadcrumbs({ crumbs }: { crumbs: FolderRow[] }):
                             {crumb.name}
                         </Text>
                     ) : (
-                        <Button
-                            variant="link-muted"
-                            size="sm"
-                            nativeButton={false}
-                            render={<LinkPrimitive to={urls.analyticsList({ folder: crumb.path })} />}
-                            data-attr="analytics-list-folder-crumb"
-                        >
-                            {crumb.name}
-                        </Button>
+                        // A parent crumb takes dropped rows, which is how an item moves back out of a folder.
+                        <AnalyticsFolderDropTarget path={crumb.path}>
+                            <Button
+                                variant="link-muted"
+                                size="sm"
+                                nativeButton={false}
+                                render={<LinkPrimitive to={urls.analyticsList({ folder: crumb.path })} />}
+                                data-attr="analytics-list-folder-crumb"
+                            >
+                                {crumb.name}
+                            </Button>
+                        </AnalyticsFolderDropTarget>
                     )}
                 </span>
             ))}
