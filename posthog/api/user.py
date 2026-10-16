@@ -117,13 +117,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_notification_lock import notification_locks_for_users
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.user import (
-    ROLE_CHOICES,
-    Notifications,
-    OnboardingSkippedReason,
-    ShortcutPosition,
-    preserve_starred_products_setup,
-)
+from posthog.models.user import ROLE_CHOICES, Notifications, OnboardingSkippedReason, ShortcutPosition
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import (
@@ -284,11 +278,9 @@ class UserSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar "
-            "section and item visibility, and SQL editor settings such as Vim mode and the vimrc. "
-            "Send the complete object: it replaces the stored value "
-            "wholesale. Null means no customization; absent keys mean the element is shown. Once "
-            "`sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true."
+            "Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers SQL "
+            "editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the "
+            "stored value wholesale. Null means no customization."
         ),
     )
     anonymize_data = ClassicBehaviorBooleanFieldSerializer(
@@ -669,7 +661,6 @@ class UserSerializer(serializers.ModelSerializer):
         return validate_notification_settings(cast(User, self.instance), notification_settings)
 
     def validate_ui_configuration(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
-        value = preserve_starred_products_setup(cast(Optional[User], self.instance), value)
         if value is None:
             return None
         try:

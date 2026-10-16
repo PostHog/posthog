@@ -1,6 +1,7 @@
 import type { UserBasicType } from '~/types'
 
 import {
+    type SignalReportApi,
     type ReportChartApi,
     type ReportMetricApi,
     type ReportRankingApi,
@@ -85,7 +86,7 @@ export const ACTIONABLE_ACTIONABILITY_VALUES: SignalReportActionability[] = [
     'requires_human_input',
 ]
 
-export interface SignalReport {
+export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_at'> {
     pull_requests?: readonly SignalReportPullRequestApi[]
     assignee?: SignalReportAssigneeApi | null
     id: string
@@ -150,6 +151,8 @@ export interface SignalReport {
     refund_ineligibility_reason?: string | null
     /** The served ranking model's score. Staff only: null for other users and for unscored reports. */
     ranking?: ReportRankingApi | null
+    /** Coarse sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
+    inbox_merge_key?: number | null
 }
 
 export enum SignalReportStatus {

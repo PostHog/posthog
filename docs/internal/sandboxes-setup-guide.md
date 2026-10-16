@@ -287,6 +287,11 @@ Automatic Flash uses your existing severity threshold and never resolves comment
 The switch sets your `default_review_mode` preference to `flash` or `follow` through `PATCH /api/projects/<project_id>/review_hog/settings/`.
 Project admins choose which repositories the project reviews, and who gets automatic Flash there, through the `review_hog/project_settings`, `review_hog/installation_claims`, and `review_hog/repositories` endpoints.
 
+The Code review settings page calls automatic reviews **Standard** and requested reviews **Deep**.
+Project defaults appear beside personal preferences. Personal repository choices take priority over personal defaults and project rules.
+**Commit fixes to my pull requests** allows Deep reviews to push fixes only with the author's own opt-in.
+The control's help explains when fixes are paused. Review skill descriptions summarize each check; editing skill text changes it for the whole project.
+
 To run Flash locally, use `run_review --review-mode flash` from the repository root:
 
 ```bash

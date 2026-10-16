@@ -915,6 +915,16 @@ SERVING_MANIFEST_ASSET = "inbox_ranking_serving_manifest"
 class _ServingStore:
     storage: "ObjectStorageClient"
     bucket: str
+    # A cross-account bucket refuses a write that does not hand ownership to the bucket owner.
+    acl: str | None = None
+
+    def write(self, key: str, content: str | bytes, content_type: str | None = None) -> None:
+        extras: dict[str, str] = {}
+        if content_type is not None:
+            extras["ContentType"] = content_type
+        if self.acl is not None:
+            extras["ACL"] = self.acl
+        self.storage.write(bucket=self.bucket, key=key, content=content, extras=extras or None)
 
 
 @dagster.asset(name=SERVING_MANIFEST_ASSET, deps=["inbox_ranking_model_champion"], **COMMON_ASSET_KWARGS)
@@ -1111,7 +1121,11 @@ def _publish_mirror(
         )
         return False
     try:
-        mirror = _ServingStore(storage=serving_mirror_storage(), bucket=settings.INBOX_RANKING_SERVING_MIRROR_BUCKET)
+        mirror = _ServingStore(
+            storage=serving_mirror_storage(),
+            bucket=settings.INBOX_RANKING_SERVING_MIRROR_BUCKET,
+            acl="bucket-owner-full-control",
+        )
         publish_serving_models(
             context, client, bucket, prefix, manifest.model_copy(update={"project_vectors": None}), mirror
         )
@@ -1163,7 +1177,7 @@ def publish_serving_models(
             )
             if body is None:
                 raise dagster.Failure(f"{entry.key} is missing {name} in the dataset bucket; manifest not written")
-            target.storage.write(bucket=target.bucket, key=f"{entry.prefix}/{name}", content=body, extras=None)
+            target.write(f"{entry.prefix}/{name}", body)
             bytes_copied += len(body)
         copied.append(entry.key)
         context.log.info(f"copied {entry.key} to {target.bucket}/{entry.prefix}")
@@ -1171,12 +1185,7 @@ def publish_serving_models(
         bytes_copied += _publish_project_vectors(
             context, client, bucket, project_vectors_source, manifest.project_vectors, target
         )
-    target.storage.write(
-        bucket=target.bucket,
-        key=serving_manifest_key(prefix),
-        content=manifest.model_dump_json(indent=2),
-        extras={"ContentType": "application/json"},
-    )
+    target.write(serving_manifest_key(prefix), manifest.model_dump_json(indent=2), content_type="application/json")
     return _ModelPublication(copied=copied, present=present, bytes_copied=bytes_copied)
 
 
@@ -1197,7 +1206,7 @@ def _publish_project_vectors(
     body = None if source is None else _read_bytes_if_exists(client, bucket, source)
     if body is None:
         raise dagster.Failure(f"project vectors {source} are missing in the dataset bucket; manifest not written")
-    target.storage.write(bucket=target.bucket, key=target_key, content=body, extras=None)
+    target.write(target_key, body)
     context.log.info(f"copied project vectors to {target.bucket}/{target_key}")
     return len(body)
 

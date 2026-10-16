@@ -59,7 +59,7 @@ class UmamiSource(ResumableSource[UmamiSourceConfig, UmamiResumeState], Validate
         ),
         pypi=("umami-analytics",),
         rubygems=("umami-ruby",),
-        competes_with=(ProductKey.WEB_ANALYTICS,),
+        alternative_to=(ProductKey.WEB_ANALYTICS,),
     )
 
     lists_tables_without_credentials = True

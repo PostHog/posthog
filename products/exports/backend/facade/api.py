@@ -1,14 +1,17 @@
 """Public Python interface for creating and retrieving one-off exports."""
 
+import io
 from collections.abc import Collection
 from datetime import datetime, timedelta
 
 from django.conf import settings
 from django.db.models import Q
 from django.http.response import HttpResponseBase
+from django.utils.timezone import now
 
 import structlog
 from asgiref.sync import async_to_sync
+from PIL import Image, UnidentifiedImageError
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.hogql.constants import LimitContext
@@ -24,6 +27,7 @@ from products.exports.backend.models.exported_asset import (
     DATASET_EXPORT_KIND as DATASET_EXPORT_KIND,
     ExportedAsset,
     get_content_response,
+    save_content as _save_content,
     save_content_from_file as _save_content_from_file,
 )
 from products.exports.backend.models.subscription import Subscription
@@ -40,6 +44,8 @@ JSONL_EXPORT_FORMAT = ExportedAsset.ExportFormat.JSONL
 # Caps the whole workflow including retries; callers block on this, so it must stay
 # well under the web tier's request timeout.
 RENDER_TIMEOUT = timedelta(seconds=90)
+_MAX_IMAGE_PIXELS = 25_000_000
+_PNG_MODES = frozenset({"1", "L", "LA", "I", "I;16", "P", "RGB", "RGBA"})
 EXPORT_WORKFLOW_TIMEOUT = timedelta(minutes=35)
 
 
@@ -118,6 +124,7 @@ def save_export_asset_content_from_file(
 
 
 def delete_insight_subscriptions(*, project_id: int, insight_ids: Collection[int]) -> None:
+    # nosemgrep: environment-model-scoped-by-project -- insights are project-level, so deleting one removes its subscriptions in every environment
     for subscription in Subscription.objects.filter(team__project_id=project_id, insight_id__in=insight_ids):
         subscription.delete()
 
@@ -208,6 +215,47 @@ def get_delivery_image_url(
     return asset.get_subscription_delivery_content_url(expiry_delta=expiry_delta)
 
 
+def create_png_delivery_url(
+    *, team_id: int, created_by_id: int, content: bytes, filename: str, url_ttl: timedelta, asset_ttl: timedelta
+) -> str | None:
+    """Store image bytes as a PNG export and mint a delivery url for it. None when the bytes are not an image.
+
+    The url opens without a login, so the caller must check that the user may see the image.
+    """
+    png = _as_png(content)
+    if png is None:
+        return None
+    asset = ExportedAsset.objects.create(
+        team_id=team_id,
+        created_by_id=created_by_id,
+        export_format=ExportedAsset.ExportFormat.PNG,
+        export_context={"filename": filename},
+        expires_after=now() + asset_ttl,
+    )
+    _save_content(asset, png)
+    return asset.get_subscription_delivery_content_url(expiry_delta=url_ttl)
+
+
+def _as_png(content: bytes) -> bytes | None:
+    try:
+        with Image.open(io.BytesIO(content)) as image:
+            # A small compressed file can decode to a very large bitmap.
+            if image.width * image.height > _MAX_IMAGE_PIXELS:
+                return None
+            if image.format == "PNG":
+                image.verify()
+                return content
+            image.load()
+            png_ready: Image.Image = image
+            if image.mode not in _PNG_MODES:
+                png_ready = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+            output = io.BytesIO()
+            png_ready.save(output, format="PNG")
+            return output.getvalue()
+    except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError):
+        return None
+
+
 def _create_png_export_asset(
     *,
     team: Team,
@@ -261,17 +309,31 @@ def _create_png_export_asset(
     return asset
 
 
-def create_insight_png_export(
-    *, team: Team, created_by: User, insight_id: int, is_system: bool = False, expires_after: datetime | None = None
+def create_png_export(
+    *,
+    team: Team,
+    created_by: User,
+    insight_id: int | None = None,
+    query: dict | None = None,
+    is_system: bool = False,
+    expires_after: datetime | None = None,
 ) -> int:
     """Check access and create the PNG asset that ``ExportAssetWorkflow`` renders, without rendering it.
 
     Returns the asset id. For a caller that is itself a Temporal workflow: it runs the export as a
     child workflow instead of blocking a worker on ``render_png_export``. The access rules and the
     ``is_system`` and ``expires_after`` arguments are the same as for ``render_png_export``.
+
+    Pass exactly one of a saved ``insight_id`` or an ad hoc ``query``. A query must be an
+    InsightVizNode or a DataVisualizationNode over HogQL. A request that breaks a rule raises ``ValueError``.
     """
     return _create_png_export_asset(
-        team=team, created_by=created_by, insight_id=insight_id, is_system=is_system, expires_after=expires_after
+        team=team,
+        created_by=created_by,
+        insight_id=insight_id,
+        export_context={"source": query} if query is not None else None,
+        is_system=is_system,
+        expires_after=expires_after,
     ).id
 
 
