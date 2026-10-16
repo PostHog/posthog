@@ -77,7 +77,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
 from products.tasks.backend.logic.services.store_skills import resolve_store_skills
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
-from products.tasks.backend.temporal.metrics import StepTimer
+from products.tasks.backend.temporal.metrics import StepTimer, sandbox_runtime_label
 from products.tasks.backend.temporal.oauth import is_interactive_signals_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
@@ -114,6 +114,7 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     origin_product: str | None = None
+    startup_requested_at: str | None = None
     task_runtime: str = Task.Runtime.ACP
     environment: str | None = None
     github_user_integration_id: str | None = None
@@ -372,6 +373,8 @@ class TaskProcessingContext:
             "team_id": self.team_id,
             "repository": self.repository,
             "origin_product": self.origin_product,
+            "runtime": sandbox_runtime_label(self.use_modal_vm_sandbox),
+            "sandbox_backend": self.sandbox_backend,
             "environment": self.environment,
             "distinct_id": self.distinct_id,
             "mode": self.mode,
@@ -1705,6 +1708,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     return TaskProcessingContext(
         task_id=str(task.id),
         run_id=run_id,
+        startup_requested_at=task_run.startup_requested_at,
         team_id=task.team_id,
         team_uuid=str(task.team.uuid),
         organization_id=str(task.team.organization_id),

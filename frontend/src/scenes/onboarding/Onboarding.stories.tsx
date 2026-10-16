@@ -16,10 +16,10 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
-import { onboardingLogic } from './legacy/onboardingLogic'
+import { onboardingLogic } from './onboardingLogic'
 
 const meta: Meta = {
-    title: 'Scenes-Other/Onboarding/Legacy',
+    title: 'Scenes-Other/Onboarding',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
