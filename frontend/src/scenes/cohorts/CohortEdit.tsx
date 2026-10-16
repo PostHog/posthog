@@ -66,6 +66,7 @@ import { messageAudienceOpenLogic } from 'products/workflows/frontend/MessageAud
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
+import { CohortBlockingWorkflowsModal } from './CohortBlockingWorkflowsModal'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { COHORT_CSV_HELP, CohortCsvDropzone } from './CohortCsvDropzone'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
@@ -221,6 +222,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         setStaticCohortMode,
         setActiveTab,
         setUsedInExpanded,
+        openBlockingWorkflowsModal,
         submitCohort,
     } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
@@ -290,6 +292,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         <BindLogic logic={cohortEditLogic} props={logicProps}>
             <div className="cohort">
                 <AddPersonToCohortModal id={id} />
+                <CohortBlockingWorkflowsModal />
                 <CohortSceneMenuBar id={id} />
 
                 <ScenePanel>
@@ -526,6 +529,24 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 <Tooltip title="Create a new cohort to use a different type of cohort.">
                                                     <IconInfo className="text-secondary text-base" />
                                                 </Tooltip>
+                                                {usedIn && usedIn.workflows.total > 0 && (
+                                                    <>
+                                                        <span className="text-secondary">·</span>
+                                                        <Link
+                                                            className="text-sm"
+                                                            onClick={() =>
+                                                                openBlockingWorkflowsModal({
+                                                                    action: 'view',
+                                                                    workflows: usedIn.workflows,
+                                                                })
+                                                            }
+                                                            data-attr="cohort-used-in-workflows"
+                                                        >
+                                                            Used in {usedIn.workflows.total}{' '}
+                                                            {usedIn.workflows.total === 1 ? 'workflow' : 'workflows'}
+                                                        </Link>
+                                                    </>
+                                                )}
                                             </div>
                                         )}
 
