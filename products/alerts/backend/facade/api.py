@@ -8,6 +8,7 @@ lifecycle machine in `facade.lifecycle`, and scheduling math in `facade.scheduli
 import uuid
 from collections.abc import Collection
 from datetime import datetime, timedelta
+from itertools import islice
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -44,7 +45,6 @@ from products.alerts.backend.llm_detector_limits import (
     llm_detector_access_error,
 )
 from products.alerts.backend.models.alert import METRICS_INSIGHT_QUERY_FILTER, AlertCheck, AlertConfiguration
-from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -182,6 +182,9 @@ def snooze_alert_from_slack(
     return "snoozed"
 
 
+FIRING_ALERT_CANDIDATES = 200
+
+
 def list_firing_alerts_created_by(
     team: Team, user: User, *, include_metrics_insights: bool, limit: int
 ) -> list[contracts.FiringAlert]:
@@ -194,19 +197,17 @@ def list_firing_alerts_created_by(
     ).filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=timezone.now()))
     if not include_metrics_insights:
         alerts = alerts.exclude(id__in=alerts.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
-    viewable_insights = UserAccessControl(user, team=team).filter_queryset_by_access_level(
-        Insight.objects.filter(team_id=team.id)
-    )
-    rows = (
-        alerts.filter(insight_id__in=viewable_insights.values("id"))
-        .order_by("-created_at")
-        .values_list("id", "name", "insight__name", "insight__derived_name", "insight__short_id")[:limit]
-    )
+    access = UserAccessControl(user, team=team)
+    candidates = alerts.select_related("insight").order_by("-created_at")[:FIRING_ALERT_CANDIDATES]
+    viewable = (alert for alert in candidates if access.check_access_level_for_object(alert.insight, "viewer"))
     return [
         contracts.FiringAlert(
-            id=alert_id, name=name, insight_name=insight_name or derived_name, insight_short_id=short_id
+            id=alert.id,
+            name=alert.name,
+            insight_name=alert.insight.name or alert.insight.derived_name,
+            insight_short_id=alert.insight.short_id,
         )
-        for alert_id, name, insight_name, derived_name, short_id in rows
+        for alert in islice(viewable, limit)
     ]
 
 
