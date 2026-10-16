@@ -352,7 +352,7 @@ The redirect also sets the `ph_pending_oauth_connection` cookie so those screens
 - Cleared when the person grants or denies the authorization.
 - A CIMD client seen for the first time has no application row yet, so the cookie carries the host of its `client_id` URL as the name.
 
-An account created while the cookie is present skips in-app onboarding. Signup sets `onboarding_skipped_reason` to `connector`, pinned to the signup organization, so another organization the person joins later still shows onboarding. A delegated invitee keeps onboarding, because running it is the reason for the invite.
+An account created while the cookie is present skips in-app onboarding. Signup sets `onboarding_skipped_reason` to `connector`, pinned to the signup organization, so another organization the person joins later still shows onboarding. A delegated invitee keeps onboarding, because running it is the reason for the invite. Until the project ingests its first event, opening the project homepage sends that person to `/welcome`. Other pages open as linked, so a deep link from the connecting application still works.
 
 While the cookie is present, the signup form pins the data region to the region the form is served from. An OAuth client is registered in one region only, so an account created in the other region could not finish the connection.
 
