@@ -8,7 +8,11 @@ from uuid import UUID
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
-from posthog.models.person.util import _batched_get_persons_by_uuids, get_person_tombstones
+from posthog.models.person.util import (
+    _batched_get_distinct_ids_for_persons,
+    _batched_get_persons_by_uuids,
+    get_person_tombstones,
+)
 from posthog.personhog_client.client import personhog_call
 from posthog.personhog_client.proto import ReadOptions
 
@@ -47,3 +51,13 @@ def _tombstoned_uuids(team_id: int, person_uuids: list[str]) -> set[str]:
 
 def _chunks(items: Sequence[_T], size: int) -> list[Sequence[_T]]:
     return [items[i : i + size] for i in range(0, len(items), size)]
+
+
+def _live_distinct_ids_for_persons(team_id: int, person_ids: list[int]) -> dict[int, list[tuple[str, int]]]:
+    """Each person's live distinct ids with their versions."""
+    if not person_ids:
+        return {}
+    by_person = personhog_call(
+        "get_distinct_ids_for_persons", lambda: _batched_get_distinct_ids_for_persons(team_id, person_ids)
+    )
+    return {person_id: [(d.id, d.version) for d in dids] for person_id, dids in by_person.items()}

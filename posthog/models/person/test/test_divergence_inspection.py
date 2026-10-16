@@ -5,64 +5,15 @@ from uuid import uuid4
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from django.core.management import call_command
-from django.utils.timezone import now
 
-from posthog.clickhouse.client import sync_execute
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail
 from posthog.models.person.divergence.inspection import hash_distinct_id, inspect_mappings, inspect_persons
-from posthog.models.person.sql import BULK_INSERT_PERSON_DISTINCT_ID2
-from posthog.models.person.util import (
-    create_person as create_person_in_ch,
-    tombstone_persons_in_postgres,
-)
-from posthog.models.signals import mute_selected_signals
+from posthog.models.person.test.divergence_fixtures import DivergenceFixturesMixin
+from posthog.models.person.util import tombstone_persons_in_postgres
 from posthog.personhog_client.fake_client import get_active_fake
-from posthog.test.persons import add_distinct_id, create_person
 
 
-class TestDivergenceInspection(ClickhouseTestMixin, BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        # A background merge collapses the duplicate and older rows the tie and blanked shapes are made of.
-        for table in ("person", "person_distinct_id2"):
-            sync_execute(f"SYSTEM STOP MERGES {table}")
-            self.addCleanup(sync_execute, f"SYSTEM START MERGES {table}")
-
-    def _pg_person(self, *, version: int, distinct_ids: list[str] | None = None):
-        with mute_selected_signals():
-            person = create_person(team=self.team, version=version, properties={"email": "pg@example.com"})
-            for distinct_id in distinct_ids or []:
-                add_distinct_id(person=person, distinct_id=distinct_id, version=0)
-        return person
-
-    def _ch_person(self, person_uuid: str, version: int, properties: dict, *, deleted: bool = False) -> None:
-        create_person_in_ch(
-            team_id=self.team.pk,
-            uuid=person_uuid,
-            version=version,
-            is_deleted=deleted,
-            properties=properties,
-            timestamp=now(),
-        )
-
-    def _ch_mapping(self, distinct_id: str, person_uuid: str, version: int) -> None:
-        sync_execute(
-            BULK_INSERT_PERSON_DISTINCT_ID2,
-            [
-                {
-                    "distinct_id": distinct_id,
-                    "person_id": person_uuid,
-                    "team_id": self.team.pk,
-                    "is_deleted": 0,
-                    "version": version,
-                    "_timestamp": now().replace(tzinfo=None),
-                    "_offset": 0,
-                    "_partition": 0,
-                }
-            ],
-            flush=False,
-        )
-
+class TestDivergenceInspection(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
     def _log_person_activity(self, activity: str, *, item_id: int, name: str | None) -> None:
         ActivityLog.objects.create(
             organization_id=self.organization.id,
