@@ -56,6 +56,7 @@ import type {
     HogInvocationResultApi,
     HogInvocationResultDetailApi,
     HogInvocationResultsCountApi,
+    InboxReportAccessApi,
     MessageAssetApi,
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowRevisionBasicListApi,
@@ -1236,6 +1237,23 @@ export const hogFlowsEmailSendingSuspensionRetrieve = async (
     options?: RequestInit
 ): Promise<EmailSendingSuspensionStatusApi> => {
     return apiMutator<EmailSendingSuspensionStatusApi>(getHogFlowsEmailSendingSuspensionRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsInboxReportAccessRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/inbox_report_access/`
+}
+
+/**
+ * Whether the caller may use the Inbox report ready trigger, so the editor can disable it up front.
+ */
+export const hogFlowsInboxReportAccessRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<InboxReportAccessApi> => {
+    return apiMutator<InboxReportAccessApi>(getHogFlowsInboxReportAccessRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

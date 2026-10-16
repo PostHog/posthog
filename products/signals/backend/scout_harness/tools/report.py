@@ -148,6 +148,7 @@ from products.signals.backend.scout_report.judge import (
 )
 from products.signals.backend.slack_formatting import strip_chart_references
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT
+from products.signals.backend.workflow_events import emit_inbox_report_ready_event
 from products.tasks.backend.facade import api as tasks_facade
 
 if TYPE_CHECKING:
@@ -2245,6 +2246,9 @@ async def emit_report(
                 delivery_id=persisted.report_id,
             )
         await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
+        await database_sync_to_async(emit_inbox_report_ready_event, thread_sensitive=False)(
+            team_id=team.id, report_id=persisted.report_id, source_products=[SOURCE_PRODUCT]
+        )
     return await finish(_emit_result(persisted.report_id, judgement))
 
 
@@ -2431,6 +2435,7 @@ def emit_report_sync(
                 delivery_id=persisted.report_id,
             )
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
+        emit_inbox_report_ready_event(team_id=team.id, report_id=persisted.report_id, source_products=[SOURCE_PRODUCT])
     return finish(_emit_result(persisted.report_id, judgement))
 
 

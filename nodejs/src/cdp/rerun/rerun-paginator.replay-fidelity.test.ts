@@ -39,10 +39,11 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
 
     function buildPaginator(
         clickhouse: ClickHouseClient,
-        hogFlowQueue: jest.Mocked<CyclotronJobQueuePostgresV2>
+        hogFlowQueue: jest.Mocked<CyclotronJobQueuePostgresV2>,
+        trigger: Record<string, unknown> = { type: 'event', filters: {} }
     ): RerunPaginatorService {
         const hogFlowManager = {
-            getHogFlow: jest.fn().mockResolvedValue({ id: functionId, team_id: teamId, variables: [] }),
+            getHogFlow: jest.fn().mockResolvedValue({ id: functionId, team_id: teamId, variables: [], trigger }),
         } as unknown as jest.Mocked<HogFlowManagerService>
         const hogFunctionManager = {
             getHogFunction: jest.fn().mockResolvedValue(null),
@@ -160,5 +161,44 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         const invocation = hogFlowQueue.queueInvocations.mock.calls[0][0][0] as CyclotronJobInvocationHogFlow
         expect(invocation.state?.currentAction).toBeUndefined()
         expect(invocation.state?.customerTaskIdempotencyVersion).toBeUndefined()
+    })
+
+    it.each([
+        ['replays it while the trigger subscribes', 'subscribed', 1, 0],
+        ['skips it once the trigger changed', 'changed', 0, 1],
+    ] as const)('for a stored Inbox report run, %s', async (_, triggerState, queued, skipped) => {
+        const inboxReportTrigger = {
+            type: 'internal-event',
+            filters: { source: 'internal-events', events: [{ id: '$inbox_report_ready', type: 'events' }] },
+        }
+        const rows = [
+            {
+                invocation_id: 'inv-3',
+                parent_run_id: '',
+                attempts: 0,
+                last_scheduled_at: '2026-06-01 09:00:00.000000',
+                first_scheduled_at: '2026-06-01 09:00:00.000000',
+                invocation_globals: JSON.stringify({
+                    event: { uuid: 'evt-3', event: '$inbox_report_ready', distinct_id: 'd-3', properties: {} },
+                    actionStepCount: 0,
+                    variables: {},
+                }),
+            },
+        ]
+        const hogFlowQueue = {
+            queueInvocations: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<CyclotronJobQueuePostgresV2>
+
+        const paginator = buildPaginator(
+            fakeClickhouse(rows),
+            hogFlowQueue,
+            triggerState === 'subscribed' ? inboxReportTrigger : undefined
+        )
+        const { state: next } = await paginator.processPage(teamId, state, {
+            jobId: 'rerun-3',
+            createdAt: DateTime.now(),
+        })
+
+        expect(next.progress).toMatchObject({ queued, skipped })
     })
 })

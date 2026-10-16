@@ -14,6 +14,11 @@ const githubTrigger = {
     filters: { source: 'internal-events', events: [{ id: '$github_event_received', type: 'events' }] },
 }
 
+const inboxReportTrigger = {
+    type: 'internal-event',
+    filters: { source: 'internal-events', events: [{ id: '$inbox_report_ready', type: 'events' }] },
+}
+
 describe('HogFlowFunctionConfiguration', () => {
     describe('buildSampleGlobals', () => {
         const realSampleGlobals: CyclotronJobInvocationGlobals = {
@@ -120,6 +125,8 @@ describe('HogFlowFunctionConfiguration', () => {
             ['slack message', slackTrigger, { event: true, person: false, groups: false, request: false }],
             // GitHub-triggered runs are person-less too.
             ['github event', githubTrigger, { event: true, person: false, groups: false, request: false }],
+            // So are runs started by an Inbox report.
+            ['inbox report', inboxReportTrigger, { event: true, person: false, groups: false, request: false }],
         ])('exposes the right globals for a %s trigger', (_name, trigger, present) => {
             const globals = buildSampleGlobals(trigger, undefined, exampleSampleGlobals)
             expect(globals).toHaveProperty('project')
@@ -168,6 +175,20 @@ describe('HogFlowFunctionConfiguration', () => {
             expect('review_state' in properties).toBe(true)
         })
 
+        // Locks the sample property names to what Signals emits, so hand-typed expressions like
+        // {event.properties.summary} autocomplete instead of warning as unknown.
+        it('exposes the report properties for an Inbox report trigger', () => {
+            const properties = buildSampleGlobals(inboxReportTrigger, undefined).event.properties
+            expect(Object.keys(properties).sort()).toEqual([
+                'priority',
+                'report_id',
+                'report_url',
+                'source_products',
+                'summary',
+                'title',
+            ])
+        })
+
         it('maps workflow variables to typed placeholders', () => {
             const globals = buildSampleGlobals(undefined, [
                 { key: 'name', type: 'string' },
@@ -178,10 +199,11 @@ describe('HogFlowFunctionConfiguration', () => {
     })
 
     describe('filterInputsSchemaForTrigger', () => {
-        const aiTaskSchema = [{ key: 'prompt' }, { key: 'reply_in_slack_thread' }]
+        const aiTaskSchema = [{ key: 'prompt' }, { key: 'reply_in_slack_thread' }, { key: 'link_inbox_report' }]
 
         it.each([
             ['slack message', slackTrigger, ['prompt', 'reply_in_slack_thread']],
+            ['inbox report', inboxReportTrigger, ['prompt', 'link_inbox_report']],
             ['event', { type: 'event' }, ['prompt']],
             ['undefined', undefined, ['prompt']],
             // An internal-event trigger for some other event is not a Slack trigger.

@@ -10,7 +10,7 @@ import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { createOrganization, createTeam, createTestTeamFixture, getTeam } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_FLOW_MASK_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
     insertHogFunction as _insertHogFunction,
     createInternalEvent,
@@ -377,6 +377,30 @@ describe('CDP Internal Events Consumer', () => {
             const hogFlowInvocations = invocations.filter((i: any) => i.hogFlow)
             expect(hogFlowInvocations).toHaveLength(1)
             expect(hogFlowInvocations[0].functionId).toBe(hogFlow.id)
+        })
+
+        it('should not start a masked workflow again on redelivery when queueing its run failed', async () => {
+            await _insertHogFlow(hub.postgres, {
+                ...buildHogFlow(team.id, { type: 'internal-event' }),
+                trigger_masking: HOG_FLOW_MASK_EXAMPLES.everyTime.trigger_masking,
+            })
+            let queueFailed = false
+            mockQueueInvocations.mockImplementation((invocations: unknown[]) => {
+                if (invocations.length && !queueFailed) {
+                    queueFailed = true
+                    return Promise.reject(new Error('queue down'))
+                }
+                return Promise.resolve()
+            })
+            const deliver = async () =>
+                processor.processBatch(await processor._parseKafkaBatch([createKafkaMessage(slackMessage(team.id))]))
+
+            const failed = await deliver()
+            await expect(failed.backgroundTask).rejects.toThrow('queue down')
+            const redelivered = await deliver()
+            await redelivered.backgroundTask
+
+            expect(redelivered.invocations.filter((i: any) => i.hogFlow)).toHaveLength(0)
         })
 
         it('should not start an internal-event workflow from another signal on this topic', async () => {

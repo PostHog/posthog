@@ -16,6 +16,7 @@ from products.tasks.backend.facade.workflow_tasks import (
     MAX_ATTACHED_SKILLS,
     OUTPUT_FIELD_TYPES,
     WorkflowTaskConnectorsInvalid,
+    WorkflowTaskInboxReport,
     WorkflowTaskLimitExceeded,
     WorkflowTaskOriginKeyConflict,
     WorkflowTaskOutputFieldsInvalid,
@@ -34,6 +35,7 @@ from products.workflows.backend.facade.api import (
     get_workflow_task_daily_limits,
 )
 from products.workflows.backend.facade.service_jwt import TASKS_CREATE_PURPOSE
+from products.workflows.backend.facade.workflows import inbox_report_claim_skip_reason
 
 logger = structlog.get_logger(__name__)
 
@@ -149,6 +151,17 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         required=False,
         help_text="Stable key for this invocation. A retried request with the same key returns the existing task.",
     )
+    inbox_report_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Inbox report that started the workflow. A task with a repository claims it, and the task's pull "
+            "request appears on the report. As with any claimed report, merging the pull request resolves the "
+            "report, and closing it without merging dismisses the report. A task that opens no pull request "
+            "gives the report back when it finishes. The task claims the report only when the workflow uses the "
+            "Inbox report trigger and its owner can read Inbox reports. If someone already claimed the report, "
+            "the task runs without linking it."
+        ),
+    )
     output_fields = serializers.DictField(
         child=serializers.ChoiceField(choices=OUTPUT_FIELD_TYPES),
         required=False,
@@ -225,9 +238,10 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
         daily_limits = get_workflow_task_daily_limits(team_id=team_id)
         rate_limits = WorkflowTaskRateLimits(per_workflow=daily_limits.per_workflow, per_team=daily_limits.per_team)
 
+        team = Team.objects.get(id=team_id)
         try:
             result = create_workflow_task(
-                team=Team.objects.get(id=team_id),
+                team=team,
                 hog_flow_id=hog_flow_id,
                 owner_id=owner_id,
                 prompt=data["prompt"].strip(),
@@ -247,6 +261,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 ),
                 rate_limits=rate_limits,
                 output_schema=data.get("output_fields"),
+                inbox_report=_inbox_report(data.get("inbox_report_id"), team, hog_flow_id, owner_id),
             )
         except WorkflowTaskConnectorsInvalid as error:
             raise serializers.ValidationError(
@@ -317,6 +332,17 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
 
 def _rejected(detail: str, http_status: int) -> Response:
     return Response(WorkflowTaskRejectedSerializer({"detail": detail}).data, status=http_status)
+
+
+def _inbox_report(
+    report_id: uuid.UUID | None, team: Team, hog_flow_id: uuid.UUID, owner_id: int
+) -> WorkflowTaskInboxReport | None:
+    if report_id is None:
+        return None
+    return WorkflowTaskInboxReport(
+        report_id=str(report_id),
+        claim_skip_reason=inbox_report_claim_skip_reason(team=team, workflow_id=hog_flow_id, owner_id=owner_id),
+    )
 
 
 def _resolve_workflow_owner(team_id: int, hog_flow_id: uuid.UUID) -> int | None:

@@ -73,7 +73,9 @@ COHORT_TRIGGER_TRANSITIONS: Final[tuple[str, ...]] = ("entered", "left")
 # allowlist keeps that gap closed by default, so adding a trigger means answering the
 # authorization question for that event. Pair a new entry with a tile in
 # products/workflows/frontend/Workflows/hogflows/registry/triggers/.
-WORKFLOW_SAFE_INTERNAL_EVENTS: Final[frozenset[str]] = frozenset({"$slack_message_received", "$github_event_received"})
+WORKFLOW_SAFE_INTERNAL_EVENTS: Final[frozenset[str]] = frozenset(
+    {"$slack_message_received", "$github_event_received", "$inbox_report_ready"}
+)
 
 # Billable action types that are subject to rate limiting and quota tracking
 # These action types incur costs and are counted against customer quotas

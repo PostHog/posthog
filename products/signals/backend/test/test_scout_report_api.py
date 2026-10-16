@@ -74,6 +74,7 @@ JUDGE_PATH = "products.signals.backend.scout_report.judge.judge_report_safety"
 EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_request"
 # Patched at its source module so the lazy import inside `_maybe_autostart_report` picks up the mock.
 AUTOSTART_PATH = "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts"
+PRODUCE_INTERNAL_EVENT_PATH = "products.signals.backend.workflow_events.produce_internal_event"
 CAPTURE_PATH = "products.signals.backend.scout_harness.tools.report.posthoganalytics.capture"
 METRICS_GATE_PATH = "products.signals.backend.scout_harness.tools.report.organization_report_metrics_enabled"
 # The customer-facing copy lands in the scout's own team project via capture_internal (a network boundary).
@@ -229,7 +230,12 @@ class TestScoutReportAPI(APIBaseTest):
         # The failure this exists for: the caller times out at a proxy, the server keeps working, and
         # the scout resends. The resend reads its report back instead of doubling it, judge unpaid.
         run = _make_run(self.team)
-        with _safe_judge() as judge, patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+        with (
+            _safe_judge() as judge,
+            patch(EMBED_PATH),
+            patch(AUTOSTART_PATH, new=AsyncMock()) as autostart,
+            patch(PRODUCE_INTERNAL_EVENT_PATH) as produce_internal_event,
+        ):
             first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
             with patch(CAPTURE_PATH) as capture:
                 retry = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
@@ -239,8 +245,12 @@ class TestScoutReportAPI(APIBaseTest):
         assert first["idempotent_replay"] is False
         assert SignalReport.objects.filter(team=self.team).count() == 1
         judge.assert_awaited_once()
-        # The report already surfaced, so its draft PR must not be started a second time.
+        # The report already surfaced, so neither its draft PR nor its workflows start a second time.
         autostart.assert_awaited_once()
+        [ready_event] = [call.args[1] for call in produce_internal_event.call_args_list]
+        assert ready_event.event == "$inbox_report_ready"
+        assert ready_event.properties["report_id"] == first["report_id"]
+        assert ready_event.properties["source_products"] == ["signals_scout"]
         event = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
         assert event.kwargs["properties"]["outcome"] == "idempotent_replay"
 

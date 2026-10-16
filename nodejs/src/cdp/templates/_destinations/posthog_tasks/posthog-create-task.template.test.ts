@@ -181,6 +181,19 @@ describe('posthog create task template', () => {
         expect(parseJSON(params.body!).slack_context).toBeUndefined()
     })
 
+    it.each([
+        ['an inbox report run with the toggle on', true, '$inbox_report_ready', 'report-1'],
+        ['an inbox report run with the toggle off', false, '$inbox_report_ready', undefined],
+        ['a run started by another event', true, 'event-name', undefined],
+    ])('sends the inbox report to claim for %s', async (_name, linkInboxReport, eventName, expected) => {
+        const { params } = await invokeAndGetFetch(
+            { ...fullInputs, link_inbox_report: linkInboxReport },
+            { event: { event: eventName, properties: { report_id: 'report-1' } } }
+        )
+
+        expect(parseJSON(params.body!).inbox_report_id).toEqual(expected)
+    })
+
     it('fails without staging a request when the instructions are empty', async () => {
         const response = await tester.invoke({ prompt: '' }, undefined, workflowOptions)
         expect(response.error).toMatch(/Instructions are required/)

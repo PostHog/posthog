@@ -5,16 +5,21 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.facade.clickhouse import INSERT_HOG_INVOCATION_RESULT_SQL
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.tests.api.test_message_assets import create_message_asset
 
 
 def create_hog_invocation_result(
@@ -290,3 +295,131 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
         )
         assert detail_res.status_code == 200, detail_res.json()
         assert detail_res.json()["invocation_id"] == "inv-1"
+
+    def _deny_report_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(team=self.team, resource="task", access_level="none")
+
+    def _api_key_headers(self, scopes: list[str]) -> dict[str, str]:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="runs", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+        return {"authorization": f"Bearer {key}"}
+
+    @parameterized.expand(
+        [
+            ("member_who_reads_reports", None, False, 200),
+            ("member_without_report_access", None, True, 403),
+            ("api_key_with_report_read", ["hog_flow:read", "person:read", "task:read"], False, 200),
+            ("api_key_without_report_read", ["hog_flow:read", "person:read"], False, 403),
+        ]
+    )
+    def test_detail_of_an_inbox_report_run_requires_report_read_access(
+        self, _name: str, api_key_scopes: list[str] | None, deny_report_access: bool, expected_status: int
+    ) -> None:
+        # A run started by an Inbox report stores the report's title and summary, which Inbox shows only
+        # to people who can read reports.
+        self._seed(
+            "inv-1",
+            invocation_globals='{"event": {"event": "$inbox_report_ready", "properties": {"title": "Checkout broken"}}}',
+        )
+        if deny_report_access:
+            self._deny_report_access()
+        headers = self._api_key_headers(api_key_scopes) if api_key_scopes is not None else {}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/invocation_results/inv-1/", headers=headers
+        )
+
+        assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            (
+                "content_of_an_inbox_report_run",
+                "assets/content/?invocation_id=inv-1&action_id=email-step",
+                "$inbox_report_ready",
+                True,
+                403,
+            ),
+            (
+                "content_for_a_report_reader",
+                "assets/content/?invocation_id=inv-1&action_id=email-step",
+                "$inbox_report_ready",
+                False,
+                200,
+            ),
+            (
+                "content_of_another_run",
+                "assets/content/?invocation_id=inv-1&action_id=email-step",
+                "$pageview",
+                True,
+                200,
+            ),
+        ]
+    )
+    def test_assets_of_an_inbox_report_run_require_report_read_access(
+        self, _name: str, path: str, run_event: str, deny_report_access: bool, expected_status: int
+    ) -> None:
+        # The email a run sends can quote the report, even after the workflow moved to another trigger.
+        self._seed("inv-1", invocation_globals=json.dumps({"event": {"event": run_event}}))
+        create_message_asset(
+            team_id=self.team.pk, function_id=str(self.hog_flow.pk), invocation_id="inv-1", subject="Checkout broken"
+        )
+        if deny_report_access:
+            self._deny_report_access()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/{path}")
+
+        assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("member_without_report_access", True, {"inv-pageview"}),
+            ("member_who_reads_reports", False, {"inv-pageview", "inv-report"}),
+        ]
+    )
+    def test_assets_list_hides_inbox_report_runs_from_members_without_report_access(
+        self, _name: str, deny_report_access: bool, expected_invocation_ids: set[str]
+    ) -> None:
+        for invocation_id, run_event in [("inv-report", "$inbox_report_ready"), ("inv-pageview", "$pageview")]:
+            self._seed(invocation_id, invocation_globals=json.dumps({"event": {"event": run_event}}))
+            create_message_asset(team_id=self.team.pk, function_id=str(self.hog_flow.pk), invocation_id=invocation_id)
+        if deny_report_access:
+            self._deny_report_access()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/assets/")
+
+        assert response.status_code == 200, response.json()
+        assert {row["invocation_id"] for row in response.json()} == expected_invocation_ids
+
+    def test_rerun_of_an_inbox_report_workflow_requires_report_read_access(self) -> None:
+        self.hog_flow.trigger = {
+            "type": "internal-event",
+            "filters": {"source": "internal-events", "events": [{"id": "$inbox_report_ready", "type": "events"}]},
+        }
+        self.hog_flow.save()
+        headers = self._api_key_headers(["hog_flow:write", "person:read", "group:read"])
+
+        with patch("products.workflows.backend.presentation.views.hog_flow.rerun_hog_invocations") as rerun:
+            rerun.return_value = MagicMock(status_code=200, json=lambda: {"queued_count": 0, "skipped_count": 0})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/rerun/",
+                {
+                    "filter": {
+                        "window_start": (datetime.now(tz=UTC) - timedelta(days=1)).isoformat(),
+                        "window_end": datetime.now(tz=UTC).isoformat(),
+                        "invocation_ids": ["inv-1"],
+                    }
+                },
+                format="json",
+                headers=headers,
+            )
+
+        assert response.status_code == 403, response.json()
+        rerun.assert_not_called()

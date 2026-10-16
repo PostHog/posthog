@@ -1191,3 +1191,9 @@ def _build_variant_lookup() -> dict[tuple[str, str], type[SignalInputBase]]:
 
 
 SIGNAL_VARIANT_LOOKUP: dict[tuple[str, str], type[SignalInputBase]] = _build_variant_lookup()
+
+
+class ReportClaimOutcome(enum.StrEnum):
+    CLAIMED = "claimed"
+    HELD = "held"
+    NOT_CLAIMABLE = "not_claimable"

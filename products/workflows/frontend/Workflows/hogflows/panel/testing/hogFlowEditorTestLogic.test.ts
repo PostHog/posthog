@@ -260,6 +260,28 @@ describe('hogFlowEditorTestLogic', () => {
             assertion(globals.event.properties)
         })
 
+        it('builds a person-less report example for Inbox report triggers', () => {
+            const globals = createExampleEventForTrigger(
+                {
+                    type: 'internal-event',
+                    filters: { source: 'internal-events', events: [{ id: '$inbox_report_ready', type: 'events' }] },
+                },
+                1,
+                'wf'
+            )
+
+            expect(globals.event.event).toEqual('$inbox_report_ready')
+            expect(globals.person).toBeUndefined()
+            expect(globals.event.properties).toMatchObject({
+                report_id: expect.any(String),
+                title: expect.any(String),
+                summary: expect.any(String),
+                priority: expect.any(String),
+                source_products: expect.any(Array),
+                report_url: expect.any(String),
+            })
+        })
+
         it('returns the standard example event for event triggers', () => {
             const globals = createExampleEventForTrigger({ type: 'event', filters: {} }, 1, 'wf')
 

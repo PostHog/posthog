@@ -1,5 +1,5 @@
 import { Node } from '@xyflow/react'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import {
@@ -55,6 +55,7 @@ import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters, HogFlowPropertyFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
+import { inboxReportAccessLogic } from '../registry/triggers/inboxReportAccessLogic'
 import {
     PERSON_FREQUENCY_OPTIONS,
     TriggerFrequencyOption,
@@ -88,6 +89,11 @@ type TriggerOptionItem = {
     icon: JSX.Element
     group?: string
     tag?: JSX.Element
+    useDisabledReason?: () => string | null
+}
+
+function useNoDisabledReason(): null {
+    return null
 }
 
 function getTriggerDisplayType(type: string, config: any): string {
@@ -102,10 +108,12 @@ function TriggerTypeDropdown({
     items,
     selectedItem,
     onSelect,
+    onOpen,
 }: {
     items: TriggerOptionItem[]
     selectedItem: TriggerOptionItem | undefined
     onSelect: (value: string) => void
+    onOpen: () => void
 }): JSX.Element {
     const [popoverOpen, setPopoverOpen] = useState(false)
     const [search, setSearch] = useState('')
@@ -182,7 +190,16 @@ function TriggerTypeDropdown({
                 </div>
             }
         >
-            <LemonButton type="secondary" fullWidth onClick={() => setPopoverOpen(!popoverOpen)}>
+            <LemonButton
+                type="secondary"
+                fullWidth
+                onClick={() => {
+                    if (!popoverOpen) {
+                        onOpen()
+                    }
+                    setPopoverOpen(!popoverOpen)
+                }}
+            >
                 {selectedItem ? (
                     <span className="flex items-center gap-2">
                         {selectedItem.icon}
@@ -206,9 +223,17 @@ function TriggerTypeDropdownItem({
     selected: boolean
     onSelect: () => void
 }): JSX.Element {
+    const useDisabledReason = item.useDisabledReason ?? useNoDisabledReason
+    const disabledReason = useDisabledReason()
     return (
         <li>
-            <LemonButton fullWidth active={selected} onClick={onSelect} icon={item.icon}>
+            <LemonButton
+                fullWidth
+                active={selected}
+                onClick={onSelect}
+                icon={item.icon}
+                disabledReason={disabledReason}
+            >
                 <div className="flex flex-col my-1">
                     <div className="flex items-baseline font-semibold">
                         <span>{item.label}</span>
@@ -225,6 +250,8 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
     const { setWorkflowActionConfig, setWorkflowValue } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    useMountedLogic(inboxReportAccessLogic)
+    const { checkInboxReportAccess } = useActions(inboxReportAccessLogic)
 
     const type = node.data.config.type
     const displayType = getTriggerDisplayType(type, node.data.config)
@@ -276,6 +303,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                     value: t.value,
                     icon: t.icon,
                     group: t.group,
+                    useDisabledReason: t.useDisabledReason,
                 })),
         ]
         return items
@@ -339,7 +367,12 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
             <span>What causes this workflow to begin?</span>
             <div className="flex items-center gap-2">
                 <LemonField.Pure error={validationResult?.errors?.type}>
-                    <TriggerTypeDropdown items={allTriggerItems} selectedItem={selectedItem} onSelect={handleSelect} />
+                    <TriggerTypeDropdown
+                        items={allTriggerItems}
+                        selectedItem={selectedItem}
+                        onSelect={handleSelect}
+                        onOpen={checkInboxReportAccess}
+                    />
                 </LemonField.Pure>
                 {type === 'schedule' && <ScheduleStatusBadge />}
             </div>

@@ -4,6 +4,11 @@ import { uuid } from 'lib/utils/dom'
 import { CyclotronJobInvocationGlobals } from '~/types'
 
 import {
+    INBOX_REPORT_READY_EVENT,
+    exampleInboxReportProperties,
+    isInboxReportReadyTriggerConfig,
+} from './registry/triggers/inboxReportTriggerConfig'
+import {
     SlackTriggerFilters,
     decodeSlackFilters,
     isSlackMessageTriggerConfig,
@@ -133,6 +138,37 @@ export const createExampleSlackMessageEvent = (
     }
 }
 
+// Mirrors the event Signals emits for $inbox_report_ready (products/signals/backend/workflow_events.py).
+// Report-triggered runs carry no person.
+export const createExampleInboxReportEvent = (
+    teamId?: number,
+    workflowName?: string | null
+): CyclotronJobInvocationGlobals => {
+    const resolvedTeamId = teamId || 1
+    const properties = exampleInboxReportProperties()
+    return {
+        event: {
+            uuid: uuid(),
+            distinct_id: properties.report_id,
+            timestamp: dayjs().toISOString(),
+            elements_chain: '',
+            url: '',
+            event: INBOX_REPORT_READY_EVENT,
+            properties: { ...properties, this_is_an_example_event: true },
+        },
+        groups: {},
+        project: {
+            id: resolvedTeamId,
+            name: 'Default project',
+            url: `${window.location.origin}/project/${resolvedTeamId}`,
+        },
+        source: {
+            name: workflowName ?? 'Unnamed',
+            url: window.location.href.split('#')[0],
+        },
+    }
+}
+
 // The example globals for a trigger type. A Slack-connected internal-event trigger gets a
 // message shaped like the real internal event, seeded with the trigger's own channel and poster
 // filters so it matches those by default.
@@ -144,6 +180,9 @@ export const createExampleEventForTrigger = (
     if (isSlackMessageTriggerConfig(triggerConfig)) {
         const decoded = decodeSlackFilters(triggerConfig.filters.properties)
         return createExampleSlackMessageEvent(teamId, workflowName, decoded)
+    }
+    if (isInboxReportReadyTriggerConfig(triggerConfig)) {
+        return createExampleInboxReportEvent(teamId, workflowName)
     }
     return createExampleEvent(teamId, workflowName)
 }

@@ -403,6 +403,10 @@ export const SLACK_MESSAGE_RECEIVED_EVENT = '$slack_message_received'
 // products/workflows/backend/github_workflow_events.py.
 export const GITHUB_EVENT_RECEIVED_EVENT = '$github_event_received'
 
+// The same, for an Inbox report that finished research. The Python producer keeps its own copy in
+// products/cdp/backend/internal_events.py.
+export const INBOX_REPORT_READY_EVENT = '$inbox_report_ready'
+
 // The event ids an internal-event trigger's filters name, or null when the filters are not the
 // shape the internal-events consumer accepts (wrong source, no events, or action/warehouse
 // filters, which that stream cannot evaluate). Shared by the consumer's eligibility check and

@@ -251,6 +251,7 @@ post_save:products.signals.backend.spend_receivers.task_run_created
 post_save:products.slack_app.backend.signals.invalidate_repo_list_on_user_github_change
 post_save:products.slack_app.backend.signals.onboard_slack_inbox_on_install
 post_save:products.surveys.backend.models.survey_changed
+post_save:products.tasks.backend.logic.services.workflow_inbox_report_claim.release_unused_inbox_report_claim_on_end
 post_save:products.tasks.backend.models.bump_task_activity_on_run
 post_save:products.tasks.backend.models.bump_task_activity_on_thread_message
 post_save:products.tasks.backend.models.project_task_created_activity

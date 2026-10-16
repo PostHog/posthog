@@ -20,6 +20,8 @@ from products.signals.backend.billing import (
     mark_report_billing_exempt,
     system_billing_exempt_reason,
 )
+from products.signals.backend.facade.api import ReportClaimOutcome, claim_report_for_workflow_task
+from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
 from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.skills.backend.models.skills import LLMSkill
@@ -294,6 +296,22 @@ class TestSignalsBilling(BaseTest):
     def test_pr_on_non_implementation_task_not_billed(self) -> None:
         report = self._report()
         self._pr_run(report, created_at=_at(19), relationship=TASK_RUN_TYPE_RESEARCH)
+        self.assertEqual(self._credits(), {})
+
+    def test_pr_of_a_workflow_task_that_claimed_the_report_not_billed(self) -> None:
+        report = self._report()
+        Task, TaskRun = _task_model(), _task_run_model()
+        task = Task.objects.create(
+            team=self.team, title="fix", description="d", origin_product=Task.OriginProduct.WORKFLOW
+        )
+        outcome = claim_report_for_workflow_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        assert outcome == ReportClaimOutcome.CLAIMED
+        TaskRun.objects.create(
+            team=self.team, task=task, output={"pr_url": "https://github.com/x/y/pull/1"}, created_at=_at(19)
+        )
+
+        linked_prs = fetch_implementation_pr_state_for_reports([str(report.id)], team_id=self.team.id)
+        self.assertEqual(linked_prs[str(report.id)].url, "https://github.com/x/y/pull/1")
         self.assertEqual(self._credits(), {})
 
     @parameterized.expand(

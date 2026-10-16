@@ -30,6 +30,7 @@ from products.signals.backend.temporal.inbox_notification import (
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeOutput
 from products.signals.backend.temporal.signal_queries import FetchSignalsForReportInput, FetchSignalsForReportOutput
 from products.signals.backend.temporal.summary import (
+    EmitInboxReportReadyInput,
     ImplementationBufferInput,
     MarkReportInProgressInput,
     MarkReportReadyInput,
@@ -130,6 +131,7 @@ class _Recorder:
         # means the card ships without the PR link.
         self.autostarts_at_notification: list[int] = []
         self.autostart_inputs: list[MaybeAutostartImplementationInput] = []
+        self.ready_event_inputs: list[EmitInboxReportReadyInput] = []
 
 
 def _signal_data() -> SignalData:
@@ -217,6 +219,10 @@ async def _run_summary_workflow(
         recorder.autostarts += 1
         recorder.autostart_inputs.append(input)
 
+    @activity.defn(name="emit_inbox_report_ready_activity")
+    async def fake_emit_ready(input: EmitInboxReportReadyInput) -> None:
+        recorder.ready_event_inputs.append(input)
+
     @activity.defn(name="record_notification_check_activity")
     async def fake_notification_check(input: InboxNotificationInput) -> None:
         recorder.autostarts_at_notification.append(recorder.autostarts)
@@ -240,6 +246,7 @@ async def _run_summary_workflow(
                 fake_buffer,
                 fake_candidate,
                 fake_autostart,
+                fake_emit_ready,
                 fake_notification_check,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
@@ -299,6 +306,7 @@ async def test_buffer_autostarts_when_no_signal_arrives():
     assert recorder.candidate_checks == 1
     assert recorder.autostarts == 1
     assert recorder.autostarts_at_notification == [1]
+    assert [ready.source_products for ready in recorder.ready_event_inputs] == [["error_tracking"]]
 
 
 @pytest.mark.asyncio
@@ -310,5 +318,7 @@ async def test_signal_during_buffer_re_researches_instead_of_implementing():
     assert recorder.researches == 2
     assert recorder.candidate_checks == 2
     assert recorder.autostarts == 1
-    # Only the settled run notifies, so no card goes out for the summary the re-research replaced.
+    # Only the settled run notifies, so no card goes out and no workflow starts for the summary the
+    # re-research replaced.
     assert recorder.autostarts_at_notification == [1]
+    assert [ready.source_products for ready in recorder.ready_event_inputs] == [["error_tracking"]]

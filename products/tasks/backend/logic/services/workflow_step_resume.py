@@ -9,6 +9,7 @@ from products.cdp.backend.workflow_step_resume import (
     cap_value,
     emit_workflow_step_resume,
 )
+from products.tasks.backend.logic.services.workflow_inbox_report_claim import inbox_report_claim_outcome
 from products.tasks.backend.logic.services.workflow_task_output import RUN_OUTPUT_RESERVED_KEYS
 from products.tasks.backend.models import Task, TaskRun
 
@@ -66,10 +67,12 @@ def _structured_output_for_run(task_run: TaskRun) -> tuple[dict[str, Any] | None
 def _result_for_run(task_run: TaskRun) -> dict[str, Any]:
     output = task_run.output or {}
     structured, warnings = _structured_output_for_run(task_run)
-    # `output` goes first: the byte cap trims later keys first, and prose can lose its tail while
-    # a structured field cannot.
+    # The byte cap trims later keys first. The small, fixed-size keys lead so a long output never
+    # pushes them out, and `output` comes before prose, which can lose its tail while a structured
+    # field cannot.
     return {
         "run_id": str(task_run.id),
+        "inbox_report": inbox_report_claim_outcome(task_run),
         "output": structured,
         "warnings": warnings or None,
         "final_message": output.get("final_message"),

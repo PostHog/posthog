@@ -86,6 +86,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.cdp.backend.internal_events import INBOX_REPORT_READY_EVENT
 from products.cdp.backend.presentation.hog_functions import (
     DATA_WAREHOUSE_SOURCES,
     FLAG_GATED_TEMPLATE_IDS,
@@ -109,6 +110,7 @@ from products.cdp.backend.presentation.hog_invocations.results import (
     HogInvocationResultSerializer,
     HogInvocationResultsFiltersSerializer,
     HogInvocationResultsRequestSerializer,
+    fetch_hog_invocation_globals,
     fetch_hog_invocation_result,
     fetch_hog_invocation_results,
     fetch_hog_invocation_results_count,
@@ -122,6 +124,7 @@ from products.cdp.backend.presentation.serializers import (
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
+from products.signals.backend.facade.api import may_read_reports
 from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
@@ -278,6 +281,7 @@ from products.workflows.backend.facade.workflows import (
     get_workflow_edit_state,
     get_workflow_ref,
     list_workflows,
+    subscribes_to_inbox_reports,
     workflow_from_fields,
     workflow_publish_impact,
 )
@@ -299,6 +303,7 @@ from products.workflows.backend.presentation.views.hog_flow_batch_job import (
     HogFlowBatchJobSerializer,
 )
 from products.workflows.backend.presentation.views.hog_flow_fields import (
+    HOG_FLOW_MASKING_MAX_TTL_SECONDS,
     HOG_FLOW_VARIABLES_MAX_BYTES,
     HogFlowActionTypeField,
     HogFlowMaskingSerializer,
@@ -905,6 +910,40 @@ def _has_slack_channel_filter(filters: dict) -> bool:
     return False
 
 
+INBOX_REPORT_ACCESS_MESSAGE = (
+    "You need viewer access to Tasks to use Inbox reports in workflows. "
+    "If you use an API key, it also needs the task:read scope."
+)
+
+
+def _may_read_inbox_reports(request: Request | None, team: Team) -> bool:
+    """Whether the caller can read Inbox reports, as a member and through the token they used.
+
+    Runs started by an Inbox report carry its title and summary, so every path that reads or replays
+    them asks this on top of the workflow's own access.
+    """
+    user = getattr(request, "user", None)
+    if request is None or user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
+        return True
+    token_scopes = get_authenticator_scopes(request.successful_authenticator)
+    if token_scopes is not None and not {"*", "task:read", "task:write"} & set(token_scopes):
+        return False
+    return may_read_reports(user=user, team=team)
+
+
+def _once_per_inbox_report_masking() -> dict[str, Any]:
+    masking = HogFlowMaskingSerializer(
+        data={"hash": "{event.properties.report_id}", "ttl": HOG_FLOW_MASKING_MAX_TTL_SECONDS, "threshold": None}
+    )
+    masking.is_valid(raise_exception=True)
+    return dict(masking.validated_data)
+
+
+def _is_inbox_report_run(invocation_globals: dict[str, Any]) -> bool:
+    event = invocation_globals.get("event")
+    return isinstance(event, dict) and event.get("event") == INBOX_REPORT_READY_EVENT
+
+
 def _has_exact_string_filter(filters: dict, key: str) -> bool:
     """Whether the filters restrict the trigger by an exact, non-empty value for the given key.
 
@@ -1219,6 +1258,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "(repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, "
             "title, body, review_state, branch, repository_visibility), and requires exact-match repository "
             "and event_type filters; without them it runs on every delivery from every connected repository. "
+            "$inbox_report_ready runs once per Inbox report, when its research finishes and the report is "
+            "ready, with properties report_id, title, summary, priority, source_products and report_url; "
+            "saving it needs viewer access to Tasks, and an API key also needs the task:read scope. "
             "webhook and "
             "manual triggers also require template_id: 'template-source-webhook', and tracking_pixel "
             "requires template_id: 'template-source-webhook-pixel'. "
@@ -1647,6 +1689,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                                 "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
                             }
                         )
+                if subscribes_to_inbox_reports(filters) and not _may_read_inbox_reports(
+                    self.context.get("request"), self.context["get_team"]()
+                ):
+                    raise serializers.ValidationError({"filters": INBOX_REPORT_ACCESS_MESSAGE})
                 if _subscribes_to("$github_event_received"):
                     _normalize_github_repository_filters(filters)
                     if not is_draft and not _has_exact_string_filter(filters, "repository"):
@@ -2531,6 +2577,18 @@ class EmailSendingSuspensionStatusSerializer(serializers.Serializer):
     )
 
 
+class InboxReportAccessSerializer(serializers.Serializer):
+    """Whether the caller may save a workflow that triggers on Inbox reports."""
+
+    can_use_inbox_reports = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when the caller can read Inbox reports: viewer access to Tasks, and the task:read scope "
+            "when they use an API key. Saving an Inbox report ready trigger fails without it."
+        ),
+    )
+
+
 class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
     """Whether PostHog paused this one workflow's email sending, and why."""
 
@@ -2751,7 +2809,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire "
             "once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an "
             "already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; "
-            "omit to disable."
+            "omit to disable. A $inbox_report_ready trigger always masks on the report, once per report "
+            "for the maximum ttl, and ignores the value sent."
         ),
     )
     conversion = HogFlowConversionSerializer(
@@ -3131,6 +3190,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                             )
                         }
                     )
+
+        # Kafka redelivers, and Signals re-emits a report it already announced. Masking on the report keeps
+        # one run per report, so it replaces whatever masking the caller sent.
+        if subscribes_to_inbox_reports(data["trigger"].get("filters")):
+            data["trigger_masking"] = _once_per_inbox_report_masking()
 
         # Compute and store unique billable action types for efficient quota checking
         # Only track billable actions defined in BILLABLE_ACTION_TYPES
@@ -4302,6 +4366,7 @@ class HogFlowViewSet(
         "metrics_global",
         "team_reputation",
         "email_sending_suspension",
+        "inbox_report_access",
         "user_blast_radius",
         "assets",
         "asset_content",
@@ -4656,6 +4721,8 @@ class HogFlowViewSet(
         `person:read` and `group:read` on top of `hog_flow:write`.
         """
         hog_flow = self._workflow_ref()
+        if subscribes_to_inbox_reports(hog_flow.trigger_filters) and not _may_read_inbox_reports(request, self.team):
+            raise exceptions.PermissionDenied(INBOX_REPORT_ACCESS_MESSAGE)
 
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -5762,6 +5829,14 @@ class HogFlowViewSet(
         serializer.is_valid(raise_exception=True)
 
         payload = dict(serializer.validated_data)
+        if (
+            not payload["mock_async_functions"]
+            and hog_flow is not None
+            and isinstance(hog_flow.trigger, dict)
+            and subscribes_to_inbox_reports(hog_flow.trigger.get("filters"))
+            and not _may_read_inbox_reports(request, self.team)
+        ):
+            raise exceptions.PermissionDenied(INBOX_REPORT_ACCESS_MESSAGE)
         if payload.pop("use_draft", False):
             # The staged draft was validated when written, so it goes to the executor inline exactly
             # like an explicit configuration override — workers never read (or cache) the draft column.
@@ -5951,6 +6026,8 @@ class HogFlowViewSet(
         )
         if data is None:
             raise exceptions.NotFound("Invocation not found.")
+        if _is_inbox_report_run(data.invocation_globals) and not _may_read_inbox_reports(request, self.team):
+            raise exceptions.PermissionDenied(INBOX_REPORT_ACCESS_MESSAGE)
         return Response(HogInvocationResultDetailSerializer(data).data)
 
     @extend_schema(
@@ -5986,7 +6063,14 @@ class HogFlowViewSet(
             after=after_date,
             before=before_date,
         )
-        enriched = [dataclasses.replace(row, function_name=obj.name or "") for row in data]
+        readable_invocation_ids = self._invocation_ids_readable_by(
+            request, str(obj.id), {row.invocation_id for row in data}
+        )
+        enriched = [
+            dataclasses.replace(row, function_name=obj.name or "")
+            for row in data
+            if row.invocation_id in readable_invocation_ids
+        ]
         return Response(MessageAssetSerializer(enriched, many=True).data)
 
     @extend_schema(
@@ -6014,6 +6098,7 @@ class HogFlowViewSet(
         )
         if html is None:
             raise exceptions.NotFound("Asset content is no longer available.")
+        self._deny_assets_of_inbox_report_runs(request, str(obj.id), [params["invocation_id"]])
         response = HttpResponse(html, content_type="text/html; charset=utf-8")
         # Enforce sandboxing at the response layer so direct navigation to the asset URL
         # (bypassing the iframe with `sandbox=""` on the frontend) still can't execute
@@ -6025,6 +6110,27 @@ class HogFlowViewSet(
         response["X-Content-Type-Options"] = "nosniff"
         response["Referrer-Policy"] = "no-referrer"
         return response
+
+    def _deny_assets_of_inbox_report_runs(
+        self, request: Request, function_id: str, invocation_ids: Sequence[str]
+    ) -> None:
+        if set(invocation_ids) - self._invocation_ids_readable_by(request, function_id, set(invocation_ids)):
+            raise exceptions.PermissionDenied(INBOX_REPORT_ACCESS_MESSAGE)
+
+    def _invocation_ids_readable_by(self, request: Request, function_id: str, invocation_ids: set[str]) -> set[str]:
+        if not invocation_ids or _may_read_inbox_reports(request, self.team):
+            return invocation_ids
+        run_globals = fetch_hog_invocation_globals(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=function_id,
+            invocation_ids=list(invocation_ids),
+        )
+        return {
+            invocation_id
+            for invocation_id in invocation_ids
+            if not _is_inbox_report_run(run_globals.get(invocation_id, {}))
+        }
 
     @extend_schema(
         operation_id="hog_flows_metrics_global_retrieve",
@@ -6267,6 +6373,17 @@ class HogFlowViewSet(
                     ),
                 }
             ).data
+        )
+
+    @extend_schema(
+        operation_id="hog_flows_inbox_report_access_retrieve",
+        responses={200: InboxReportAccessSerializer},
+    )
+    @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[], url_path="inbox_report_access")
+    def inbox_report_access(self, request: Request, **kwargs) -> Response:
+        """Whether the caller may use the Inbox report ready trigger, so the editor can disable it up front."""
+        return Response(
+            InboxReportAccessSerializer({"can_use_inbox_reports": _may_read_inbox_reports(request, self.team)}).data
         )
 
     @extend_schema(

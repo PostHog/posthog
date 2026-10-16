@@ -57,6 +57,10 @@ if (not empty(inputs.max_parallel_tasks)) {
   payload.max_parallel_tasks := inputs.max_parallel_tasks
 }
 
+if (inputs.link_inbox_report == true and event.event == '$inbox_report_ready' and not empty(event.properties.report_id)) {
+  payload.inbox_report_id := event.properties.report_id
+}
+
 if (inputs.reply_in_slack_thread != false and event.event == '$slack_message_received' and not empty(event.properties.channel) and not empty(event.properties.ts)) {
   payload.slack_context := {
     'integration_id': event.properties.integration_id,
@@ -186,6 +190,17 @@ return task
             templating: false,
             description:
                 'The agent posts its updates as replies in the Slack thread that started this workflow. Replies in that thread are sent to the agent. The run stays open for about 2 minutes after the agent finishes so replies can reach it.',
+        },
+        {
+            key: 'link_inbox_report',
+            type: 'boolean',
+            label: 'Link the task and its pull request to the Inbox report',
+            secret: false,
+            required: false,
+            default: false,
+            templating: false,
+            description:
+                'The task claims the Inbox report that started this workflow, and its pull request appears on the report. As with any claimed report, merging the pull request resolves the report, and closing it without merging dismisses the report. If the task opens no pull request, it gives the report back when it finishes. This needs a repository. If someone already claimed the report, the task runs without linking it.',
         },
         {
             // Allow 409 through to the template so it can surface the API's detailed limit

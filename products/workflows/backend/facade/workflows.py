@@ -22,6 +22,10 @@ from products.workflows.backend.services.hog_flow_reads import (
     workflow_from_fields,
     workflow_publish_impact,
 )
+from products.workflows.backend.services.inbox_reports import (
+    inbox_report_claim_skip_reason,
+    subscribes_to_inbox_reports,
+)
 
 __all__ = [
     "BILLABLE_ACTION_TYPES",
@@ -38,7 +42,9 @@ __all__ = [
     "get_workflow",
     "get_workflow_edit_state",
     "get_workflow_ref",
+    "inbox_report_claim_skip_reason",
     "list_workflows",
+    "subscribes_to_inbox_reports",
     "workflow_from_fields",
     "workflow_publish_impact",
 ]

@@ -16,6 +16,11 @@ import { CyclotronJobInputType, CyclotronJobInvocationGlobals, HogFunctionMappin
 import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorTestLogic } from '../../panel/testing/hogFlowEditorTestLogic'
 import { isGithubEventTriggerConfig } from '../../registry/triggers/githubTriggerFilters'
+import {
+    INBOX_REPORT_READY_EVENT,
+    exampleInboxReportProperties,
+    isInboxReportReadyTriggerConfig,
+} from '../../registry/triggers/inboxReportTriggerConfig'
 import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
 import { CustomerTaskWorkflowReferenceInput } from './CustomerTaskWorkflowReferenceInput'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
@@ -165,6 +170,16 @@ export function buildSampleGlobals(
             },
             timestamp: '2024-01-01T12:00:00Z',
         }
+    } else if (isInboxReportReadyTriggerConfig(trigger)) {
+        // Property names mirror what Signals emits (products/signals/backend/workflow_events.py). No
+        // person: report-triggered runs are person-less.
+        const properties = exampleInboxReportProperties()
+        sampleGlobals.event = {
+            event: INBOX_REPORT_READY_EVENT,
+            distinct_id: properties.report_id,
+            properties,
+            timestamp: '2024-01-01T12:00:00Z',
+        }
     }
 
     const realGlobalsByKey: Record<string, unknown> = (triggerType === 'event' ? realSampleGlobals : null) ?? {}
@@ -178,17 +193,24 @@ export function buildSampleGlobals(
     }
 }
 
-// The AI task step's Slack thread toggle only means something when a Slack message can start
-// the workflow; on other triggers the runtime no-ops it, so hide it rather than explain it.
+// The AI task step's Slack thread and Inbox report toggles only mean something when their trigger
+// can start the workflow; on other triggers the runtime no-ops them, so hide them rather than explain them.
 export function filterInputsSchemaForTrigger<T extends { key: string }>(
     templateId: string,
     trigger: { type?: string; filters?: unknown } | undefined | null,
     inputsSchema: T[]
 ): T[] {
-    if (templateId === 'template-posthog-create-task' && !isSlackMessageTriggerConfig(trigger)) {
-        return inputsSchema.filter((schema) => schema.key !== 'reply_in_slack_thread')
+    if (templateId !== 'template-posthog-create-task') {
+        return inputsSchema
     }
-    return inputsSchema
+    const hiddenKeys = new Set<string>()
+    if (!isSlackMessageTriggerConfig(trigger)) {
+        hiddenKeys.add('reply_in_slack_thread')
+    }
+    if (!isInboxReportReadyTriggerConfig(trigger)) {
+        hiddenKeys.add('link_inbox_report')
+    }
+    return inputsSchema.filter((schema) => !hiddenKeys.has(schema.key))
 }
 
 export function HogFlowFunctionConfiguration({

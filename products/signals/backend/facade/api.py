@@ -46,7 +46,12 @@ from products.signals.backend.briefing_reports import (
     report_ids_naming_user as report_ids_naming_user,
     reports_for_briefing as reports_for_briefing,
 )
-from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
+from products.signals.backend.contracts import (
+    DIRECT_STEERABLE_SOURCES,
+    SIGNAL_VARIANT_LOOKUP,
+    ReportClaimOutcome as ReportClaimOutcome,
+    SignalRemediation,
+)
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.inbox_summary import (
     INBOX_SUMMARY_PERIOD as INBOX_SUMMARY_PERIOD,
@@ -380,6 +385,52 @@ def record_slack_report_discussion(*, team_id: int, report_id: str, task_id: str
         report_id=report_id,
         user_id=user_id,
         action_type=SignalReportAction.ActionType.SLACK_DISCUSSION,
+    )
+
+
+def claim_report_for_workflow_task(*, team_id: int, report_id: str, task_id: str) -> ReportClaimOutcome:
+    """Claim the report for a workflow task, unless another actor holds it or the report is no longer open.
+
+    A claim is not an implementation: it writes no implementation bridge, so it never raises the
+    fixed Signals charge, and the task's pull requests attach to the report as plain PR links.
+    """
+    from products.signals.backend.report_assignments import (
+        try_claim_report_for_task,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return try_claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
+
+
+def release_report_claim_of_task(*, team_id: int, report_id: str, task_id: str) -> None:
+    """Release the report's claim if the task still holds it."""
+    from products.signals.backend.report_assignments import (
+        release_report_claim_of_task as release_report_claim_of_task_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    release_report_claim_of_task_impl(team_id=team_id, report_id=report_id, task_id=task_id)
+
+
+@frozen
+class ReportTaskLink:
+    """The task that holds the report's claim, and the pull request the report shows."""
+
+    claiming_task_id: str | None
+    pr_url: str | None
+
+
+def report_task_link(*, team_id: int, report_id: str) -> ReportTaskLink:
+    from products.signals.backend.implementation_pr import (  # noqa: PLC0415 — keeps the tasks facade off this module's import path
+        fetch_implementation_pr_state_for_reports,
+    )
+    from products.signals.backend.report_claims import (
+        get_active_claim,  # noqa: PLC0415 — keeps the tasks facade off this module's import path
+    )
+
+    claim = get_active_claim(team_id=team_id, report_id=report_id)
+    pr = fetch_implementation_pr_state_for_reports([report_id], team_id=team_id).get(report_id)
+    return ReportTaskLink(
+        claiming_task_id=str(claim.actor_task_id) if claim and claim.actor_task_id else None,
+        pr_url=pr.url if pr else None,
     )
 
 

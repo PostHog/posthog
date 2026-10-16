@@ -15,6 +15,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -24,9 +25,18 @@ from posthog.models.team.team import Team
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from posthog.test.authentication_checks import covers_authentication
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
+from products.signals.backend.facade.api import (
+    ReportClaimOutcome,
+    ReportTaskLink,
+    claim_report_for_workflow_task,
+    report_task_link,
+)
+from products.signals.backend.models import SignalReport
 from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
@@ -38,6 +48,11 @@ from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.presentation.views.workflow_tasks import WorkflowTasksJWTAuthentication
 
 SECRET = "test-tasks-create-jwt"
+
+INBOX_REPORT_TRIGGER = {
+    "type": "internal-event",
+    "filters": {"source": "internal-events", "events": [{"id": "$inbox_report_ready", "type": "events"}]},
+}
 
 
 def _token(
@@ -73,6 +88,18 @@ class TestWorkflowTasksAPI(APIBaseTest):
             {"prompt": "look into the alert", **(body or {})},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {token or _token(self.team.id, str(self.hog_flow.id))}",
+        )
+
+    def _start_from_inbox_reports(self, trigger: dict = INBOX_REPORT_TRIGGER) -> None:
+        self.enterContext(patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"))
+        self.hog_flow = create_workflow_for_test(
+            team_id=self.team.id, name="Inbox triage", created_by_id=self.user.id, trigger=trigger
+        )
+
+    def _post_for_inbox_report(self, report: SignalReport) -> Any:
+        Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+        return self._post(
+            {"inbox_report_id": str(report.id), "repository": "posthog/posthog", "idempotency_key": str(uuid4())}
         )
 
     def _seed_workflow_task(self, run_status: str) -> Task:
@@ -602,6 +629,193 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         run = TaskRun.objects.get(id=response.json()["run_id"])
         assert run.state["pending_dispatch"]["create_pr"] is with_repository
+
+    @parameterized.expand(
+        [
+            ("an inbox report run with a repository", True, True, True, None),
+            ("a run with no repository", True, False, False, "no_repository"),
+            ("a run not started by an inbox report", False, True, False, None),
+        ]
+    )
+    def test_claims_the_triggering_inbox_report_for_the_task(
+        self, _name: str, send_report_id: bool, with_repository: bool, claimed: bool, skip_reason: str | None
+    ) -> None:
+        self._start_from_inbox_reports()
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, signal_count=1, total_weight=1.0
+        )
+        body: dict = {}
+        if send_report_id:
+            body["inbox_report_id"] = str(report.id)
+        if with_repository:
+            Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+            body["repository"] = "posthog/posthog"
+
+        response = self._post(body)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        claiming_task_id = report_task_link(team_id=self.team.id, report_id=str(report.id)).claiming_task_id
+        assert claiming_task_id == (response.json()["id"] if claimed else None)
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state.get("inbox_report_claim", {}).get("reason") == skip_reason
+
+    @parameterized.expand(
+        [
+            ("a manual trigger", {"type": "manual"}, False, "not_inbox_trigger"),
+            (
+                "a captured product event with the same name",
+                {"type": "event", "filters": {"events": [{"id": "$inbox_report_ready", "type": "events"}]}},
+                False,
+                "not_inbox_trigger",
+            ),
+            ("an owner who cannot read Inbox reports", INBOX_REPORT_TRIGGER, True, "no_report_access"),
+        ]
+    )
+    def test_does_not_claim_a_report_the_workflow_may_not_claim(
+        self, _name: str, trigger: dict, deny_report_access: bool, reason: str
+    ) -> None:
+        self._start_from_inbox_reports(trigger)
+        if deny_report_access:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            AccessControl.objects.create(team=self.team, resource="task", access_level="none")
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, signal_count=1, total_weight=1.0
+        )
+
+        response = self._post_for_inbox_report(report)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert report_task_link(team_id=self.team.id, report_id=str(report.id)).claiming_task_id is None
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state["inbox_report_claim"] == {"report_id": str(report.id), "claimed": False, "reason": reason}
+
+    @parameterized.expand(
+        [
+            ("resolved", SignalReport.Status.RESOLVED),
+            ("suppressed", SignalReport.Status.SUPPRESSED),
+            ("deleted", SignalReport.Status.DELETED),
+        ]
+    )
+    def test_does_not_claim_a_report_that_is_no_longer_open(self, _name: str, report_status: str) -> None:
+        self._start_from_inbox_reports()
+        report = SignalReport.objects.create(team=self.team, status=report_status, signal_count=1, total_weight=1.0)
+
+        response = self._post_for_inbox_report(report)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert report_task_link(team_id=self.team.id, report_id=str(report.id)).claiming_task_id is None
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state["inbox_report_claim"] == {
+            "report_id": str(report.id),
+            "claimed": False,
+            "reason": "not_claimable",
+        }
+
+    def test_runs_without_a_claim_when_signals_already_holds_the_report(self) -> None:
+        self._start_from_inbox_reports()
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, signal_count=1, total_weight=1.0
+        )
+        signals_task = Task.objects.create(
+            team=self.team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        outcome = claim_report_for_workflow_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(signals_task.id)
+        )
+        assert outcome == ReportClaimOutcome.CLAIMED
+        Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+
+        response = self._post({"inbox_report_id": str(report.id), "repository": "posthog/posthog"})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        claiming_task_id = report_task_link(team_id=self.team.id, report_id=str(report.id)).claiming_task_id
+        assert claiming_task_id == str(signals_task.id)
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state["inbox_report_claim"] == {"report_id": str(report.id), "claimed": False, "reason": "held"}
+
+    def _claimed_inbox_report_run(self) -> tuple[SignalReport, TaskRun]:
+        self._start_from_inbox_reports()
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, signal_count=1, total_weight=1.0
+        )
+        response = self._post_for_inbox_report(report)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.status == TaskRun.Status.QUEUED
+        return report, run
+
+    @parameterized.expand(
+        [
+            ("completed with a pull request", "complete", "https://github.com/posthog/posthog/pull/7"),
+            ("completed without a pull request", "complete", None),
+            ("reaped by the stale-queued janitor", "reap_stale_queued", None),
+            ("reaped as a stranded run", "reap_stranded", None),
+        ]
+    )
+    def test_ending_the_run_settles_the_inbox_report_claim(self, _name: str, ending: str, pr_url: str | None) -> None:
+        report, run = self._claimed_inbox_report_run()
+
+        with (
+            patch("products.tasks.backend.logic.services.workflow_step_resume.emit_workflow_step_resume"),
+            patch("products.signals.backend.tasks.link_report_tracker_issues.delay"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if ending == "complete":
+                run.status = TaskRun.Status.COMPLETED
+                run.output = {"final_message": "Done", **({"pr_url": pr_url} if pr_url else {})}
+                run.save(update_fields=["status", "output"])
+            elif ending == "reap_stale_queued":
+                assert tasks_facade.fail_task_run(run.id, "stuck", error_type="stale_queued_cleanup")
+            else:
+                assert tasks_facade.claim_and_fail_stale_run(run.id, "stranded")
+
+        link = report_task_link(team_id=self.team.id, report_id=str(report.id))
+        if pr_url:
+            assert link == ReportTaskLink(claiming_task_id=str(run.task_id), pr_url=pr_url)
+        else:
+            assert link == ReportTaskLink(claiming_task_id=None, pr_url=None)
+
+    @parameterized.expand(
+        [
+            ("overwrite", {"state": {"inbox_report_claim": {"report_id": "other", "claimed": False}}}),
+            ("remove", {"state_remove_keys": ["inbox_report_claim"]}),
+            ("append", {"state_append": {"inbox_report_claim": ["other"]}}),
+        ]
+    )
+    def test_the_run_api_cannot_change_the_inbox_report_claim(self, _name: str, payload: dict) -> None:
+        report, run = self._claimed_inbox_report_run()
+        self.client.force_login(self.user)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{run.task_id}/runs/{run.id}/", payload, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        run.refresh_from_db()
+        assert run.state["inbox_report_claim"] == {"report_id": str(report.id), "claimed": True}
+
+    def test_a_failed_claim_release_still_wakes_the_workflow_step(self) -> None:
+        _, run = self._claimed_inbox_report_run()
+
+        with (
+            patch(
+                "products.signals.backend.facade.api.release_report_claim_of_task",
+                side_effect=RuntimeError("signals unavailable"),
+            ),
+            patch("products.tasks.backend.logic.services.workflow_step_resume.emit_workflow_step_resume") as wake,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            assert tasks_facade.claim_and_fail_stale_run(run.id, "stranded")
+
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.FAILED
+        wake.assert_called_once()
 
     def test_teammates_can_see_and_drive_workflow_tasks(self) -> None:
         teammate = self._create_user("teammate@posthog.com")

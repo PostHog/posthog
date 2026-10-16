@@ -159,6 +159,7 @@ class TestSignalsProductModuleIntegrity:
             "mark_report_ready_activity",
             "maybe_autostart_implementation_activity",
             "implementation_buffer_seconds_activity",
+            "emit_inbox_report_ready_activity",
             "report_is_candidate_activity",
             "publish_report_completed_activity",
             "report_has_assigned_signals_activity",

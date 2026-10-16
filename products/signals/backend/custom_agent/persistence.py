@@ -12,6 +12,7 @@ from products.signals.backend.models import ArtefactAttribution, SignalReport, S
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
+from products.signals.backend.workflow_events import emit_inbox_report_ready_event
 
 
 @dataclass(frozen=True)
@@ -127,5 +128,7 @@ def create_custom_agent_ready_report(
             user_uuids=reviewer_user_uuids,
             source="custom_agent",
         )
+
+    emit_inbox_report_ready_event(team_id=team_id, report_id=str(report.id), source_products=[agent_identifier[0]])
 
     return PersistedCustomAgentReport(report_id=str(report.id), task_id=task_id)

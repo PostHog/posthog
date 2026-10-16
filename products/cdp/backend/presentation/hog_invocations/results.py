@@ -366,3 +366,36 @@ def fetch_hog_invocation_result(
     if not results:
         return None
     return _build_invocation(results[0], detail=True)
+
+
+def fetch_hog_invocation_globals(
+    team_id: int,
+    function_kind: str,
+    function_id: str,
+    invocation_ids: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Fetch the triggering payload of each given invocation, keyed by invocation id."""
+    if not invocation_ids:
+        return {}
+    query = """
+        SELECT invocation_id, argMax(invocation_globals, version)
+        FROM hog_invocation_results
+        WHERE team_id = %(team_id)s
+          AND function_kind = %(function_kind)s
+          AND function_id = %(function_id)s
+          AND invocation_id IN %(invocation_ids)s
+        GROUP BY invocation_id
+    """
+    results = cast(
+        list,
+        sync_execute(
+            query,
+            {
+                "team_id": team_id,
+                "function_kind": function_kind,
+                "function_id": function_id,
+                "invocation_ids": invocation_ids,
+            },
+        ),
+    )
+    return {invocation_id: _decode_invocation_globals(stored) for invocation_id, stored in results}

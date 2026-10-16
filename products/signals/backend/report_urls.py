@@ -22,6 +22,7 @@ class ReportLinkSource(StrEnum):
     SUPPORT = "support"
     TASK = "task"
     TODAY = "today"
+    WORKFLOW = "workflow"
 
 
 def report_path(team_id: int, report_id: str | UUID, source: ReportLinkSource) -> str:

@@ -3623,6 +3623,145 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert event_id in response.json()["detail"]
 
+    def _deny_report_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(team=self.team, resource="task", access_level="none")
+
+    def _api_key_headers(self, scopes: list[str]) -> dict[str, str]:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="workflows", user=self.user, secure_value=hash_key_value(key), scopes=scopes
+        )
+        return {"authorization": f"Bearer {key}"}
+
+    def _inbox_report_trigger_action(self) -> dict:
+        return {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "internal-event",
+                "filters": {"source": "internal-events", "events": [{"id": "$inbox_report_ready", "type": "events"}]},
+            },
+        }
+
+    @parameterized.expand(
+        [
+            ("member_who_reads_reports", None, False, 201),
+            ("member_without_report_access", None, True, 400),
+            ("api_key_with_report_read", ["hog_flow:write", "task:read"], False, 201),
+            ("api_key_without_report_read", ["hog_flow:write"], False, 400),
+        ]
+    )
+    def test_hog_flow_inbox_report_trigger_requires_report_read_access(
+        self, _name: str, api_key_scopes: list[str] | None, deny_report_access: bool, expected_status: int
+    ) -> None:
+        # Each run carries a report's title and summary, which Inbox shows only to people who can read
+        # reports. Starting a workflow needs only hog_flow:write, so the trigger asks for both.
+        if deny_report_access:
+            self._deny_report_access()
+        headers = self._api_key_headers(api_key_scopes) if api_key_scopes is not None else {}
+        hog_flow = {
+            "name": "Triage Inbox reports",
+            "status": "active",
+            "actions": [self._inbox_report_trigger_action()],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, format="json", headers=headers)
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 400:
+            assert "task:read" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("omitted", {}),
+            ("cleared", {"trigger_masking": None}),
+            ("keyed_on_something_else", {"trigger_masking": {"hash": "{person.id}", "ttl": 60, "threshold": None}}),
+        ]
+    )
+    def test_hog_flow_inbox_report_trigger_runs_once_per_report(self, _name: str, submitted_masking: dict) -> None:
+        hog_flow = {
+            "name": "Triage Inbox reports",
+            "status": "active",
+            "actions": [self._inbox_report_trigger_action()],
+            **submitted_masking,
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, format="json")
+
+        assert response.status_code == 201, response.json()
+        trigger_masking = response.json()["trigger_masking"]
+        assert {key: trigger_masking[key] for key in ("hash", "ttl", "threshold")} == {
+            "hash": "{event.properties.report_id}",
+            "ttl": 60 * 60 * 24 * 365 * 3,
+            "threshold": None,
+        }
+        assert trigger_masking["bytecode"][0] == "_H"
+
+    @parameterized.expand(
+        [
+            ("live_run_by_a_member_who_reads_reports", False, False, 200),
+            ("live_run_by_a_member_without_report_access", False, True, 403),
+            ("mocked_run_by_a_member_without_report_access", True, True, 200),
+        ]
+    )
+    def test_live_test_invocation_of_an_inbox_report_workflow_requires_report_read_access(
+        self, _name: str, mock_async_functions: bool, deny_report_access: bool, expected_status: int
+    ) -> None:
+        # A live run can create a task that claims the report named in the forged event.
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Triage Inbox reports", "status": "active", "actions": [self._inbox_report_trigger_action()]},
+            format="json",
+        )
+        assert created.status_code == 201, created.json()
+        if deny_report_access:
+            self._deny_report_access()
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/invocations/",
+                {
+                    "globals": {"event": {"event": "$inbox_report_ready", "properties": {"report_id": "r"}}},
+                    "mock_async_functions": mock_async_functions,
+                },
+                format="json",
+            )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 403:
+            assert "task:read" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("member_who_reads_reports", None, False, True),
+            ("member_without_report_access", None, True, False),
+            ("api_key_with_report_read", ["hog_flow:read", "task:read"], False, True),
+            ("api_key_without_report_read", ["hog_flow:read"], False, False),
+        ]
+    )
+    def test_inbox_report_access_tells_the_editor_whether_the_trigger_can_be_saved(
+        self, _name: str, api_key_scopes: list[str] | None, deny_report_access: bool, expected: bool
+    ) -> None:
+        if deny_report_access:
+            self._deny_report_access()
+        headers = self._api_key_headers(api_key_scopes) if api_key_scopes is not None else {}
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/inbox_report_access/", headers=headers)
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"can_use_inbox_reports": expected}
+
     def test_hog_flow_internal_event_trigger_rejects_a_disallowed_event_alongside_an_allowed_one(self):
         # Checking only the first event would let a second one smuggle the payload out.
         trigger_action = {

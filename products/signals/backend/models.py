@@ -413,6 +413,14 @@ class SignalReport(UUIDModel):
     # once and never cleared, so it survives past Temporal's history retention window — a workflow
     # ID de-duplication would not. Null for reports that never notified or predate the field.
     inbox_notified_at = models.DateTimeField(null=True, blank=True)
+    # When the report started the project's "Inbox report ready" workflows. Set once and never cleared,
+    # for the same reason as `inbox_notified_at`: a report settles once per research pass, and each
+    # settle would otherwise start every listening workflow again.
+    ready_event_emitted_at = models.DateTimeField(null=True, blank=True)
+    ready_event_delivered_at = models.DateTimeField(null=True, blank=True)
+    # The products the claimed event named, so the sweep re-emits it unchanged. A trigger can
+    # filter on them, and a custom-agent report has no signals to derive them from again.
+    ready_event_source_products = ArrayField(models.CharField(max_length=100), null=True, blank=True)
 
     # The emit key of the scout `emit_report` call that authored this report. An emission can take
     # minutes, so the caller can time out at a proxy while the request keeps running here, and the
@@ -447,6 +455,11 @@ class SignalReport(UUIDModel):
                 fields=["team", "first_visible_at"],
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
+            ),
+            models.Index(
+                fields=["ready_event_emitted_at"],
+                condition=models.Q(ready_event_emitted_at__isnull=False, ready_event_delivered_at__isnull=True),
+                name="signals_report_ready_unsent",
             ),
             # Back the inbox `search` filter. On UPPER(...) because icontains compiles to
             # UPPER(col) LIKE UPPER(pattern) on Postgres.
