@@ -5,12 +5,13 @@ Ticket subjects and messages are customer-authored, so every one goes through `e
 
 from __future__ import annotations
 
+import io
 import re
 import json
 import asyncio
 import dataclasses
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal, cast
 from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlparse, urlsplit, urlunsplit
 from uuid import UUID
@@ -21,6 +22,7 @@ from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
+from PIL import Image, UnidentifiedImageError
 from slack_sdk.errors import SlackApiError
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -46,6 +48,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.error_tracking.backend.facade import api as error_tracking_facade
 from products.experiments.backend.models.experiment import Experiment
+from products.exports.backend.facade import api as exports_facade
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import condition_rollout_percentage
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -54,7 +57,7 @@ from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_access import may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.logic.link_unfurl_charts import chat_unfurl_kwargs
+from products.slack_app.backend.logic.link_unfurl_charts import DEBUG_PLACEHOLDER_IMAGE_URL, chat_unfurl_kwargs
 from products.slack_app.backend.services.followup_invite import build_followup_invite
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.slack_app.backend.temporal.slack_app_unfurl_charts import (
@@ -85,7 +88,9 @@ ADHOC_INSIGHT_KIND = "adhoc_insight"
 # The image formats a Slack image block displays.
 _SLACK_IMAGE_CONTENT_TYPES = frozenset({"image/png", "image/jpeg", "image/gif"})
 _MAX_ARTIFACT_IMAGE_BYTES = 5 * 1024 * 1024
-_SLACK_FILE_SCOPE = "files:write"
+# Slack fetches image_url again after the unfurl is posted, so the link must outlive the post.
+_ARTIFACT_IMAGE_URL_TTL = timedelta(days=30)
+_ARTIFACT_IMAGE_ASSET_TTL = timedelta(days=31)
 
 _UNFURL_TEMPLATES: dict[str, tuple[str, ...]] = {
     "insight": (*OBJECT_URL_TEMPLATES["insight"], "/bi/{id}"),
@@ -349,7 +354,7 @@ class _CardButton:
 
 @frozen
 class ArtifactImageRequest:
-    """A task artifact image to upload to Slack and show in its card. Plain strings, so it survives Celery."""
+    """A task artifact image to show in its card. Plain strings, so it survives Celery."""
 
     task_id: str
     run_id: str
@@ -1165,8 +1170,8 @@ def _queue_unfurl_artifact_image(
     url: str,
     image: ArtifactImageRequest,
 ) -> bool:
-    """Queue ``add_artifact_image_to_unfurl`` on Celery. The file read and the Slack upload are too slow for
-    the webhook's ack budget."""
+    """Queue ``add_artifact_image_to_unfurl`` on Celery. The file read and the image conversion are too slow
+    for the webhook's ack budget."""
     # noqa reason: the task module imports api, which imports this module at load time.
     from products.slack_app.backend.tasks import add_slack_unfurl_artifact_image  # noqa: PLC0415
 
@@ -1186,45 +1191,68 @@ def _queue_unfurl_artifact_image(
     return True
 
 
-_ImageFailure = Literal["missing_scope", "unavailable", "upload_failed", "unfurl_failed"]
+_ImageFailure = Literal["public_sharing_disabled", "unavailable", "not_an_image", "unfurl_failed"]
 
 
 @frozen
-class _ImageUpload:
-    file_id: str | None = None
+class _ImageLink:
+    url: str | None = None
     failure: _ImageFailure | None = None
 
 
-def _upload_artifact_image(
-    slack: SlackIntegration, *, user: User, team_id: int, image: ArtifactImageRequest
-) -> _ImageUpload:
-    """Upload the image to Slack. The result holds its file id, or why it is not shown.
+def _as_png(content: bytes) -> bytes | None:
+    """The image as PNG bytes, or None when the bytes are not an image Pillow can read."""
+    try:
+        with Image.open(io.BytesIO(content)) as image:
+            if image.format == "PNG":
+                image.verify()
+                return content
+            image.load()
+            output = io.BytesIO()
+            image.save(output, format="PNG")
+            return output.getvalue()
+    except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError):
+        return None
 
-    The upload names no channel, so the file is visible only where a block references it. The
-    image needs no public URL, so the organization's public sharing setting does not apply.
+
+def _artifact_image_link(*, integration: Integration, user: User, image: ArtifactImageRequest) -> _ImageLink:
+    """Store the artifact as an export and mint a link Slack can fetch. The result holds the link, or why
+    there is none.
+
+    The link opens without a PostHog login, so an organization that turns off public sharing gets no
+    image, the same as for chart unfurls.
     """
-    if slack.missing_scopes({_SLACK_FILE_SCOPE}):
-        return _ImageUpload(failure="missing_scope")
+    if not integration.team.organization.allow_publicly_shared_resources:
+        return _ImageLink(failure="public_sharing_disabled")
     content = tasks_facade.read_task_artifact_for_slack_unfurl(
         task_id=image.task_id,
         run_id=image.run_id,
         artifact_id=image.artifact_id,
-        team_id=team_id,
+        team_id=integration.team_id,
         user_id=user.pk,
         max_bytes=_MAX_ARTIFACT_IMAGE_BYTES,
     )
     if content is None:
-        return _ImageUpload(failure="unavailable")
-    try:
-        response = slack.client.files_upload_v2(content=content, filename=image.name, title=image.name)
-    except Exception:
-        logger.warning("slack_app_unfurl_artifact_image_upload_failed", team_id=team_id, exc_info=True)
-        return _ImageUpload(failure="upload_failed")
-    file = response.get("file")
-    file_id = file.get("id") if isinstance(file, dict) else None
-    if not isinstance(file_id, str) or not file_id:
-        return _ImageUpload(failure="upload_failed")
-    return _ImageUpload(file_id=file_id)
+        return _ImageLink(failure="unavailable")
+    png = _as_png(content)
+    if png is None:
+        return _ImageLink(failure="not_an_image")
+    asset_id = exports_facade.create_png_asset_from_content(
+        team_id=integration.team_id,
+        created_by_id=user.pk,
+        content=png,
+        filename=image.name,
+        expires_after=timezone.now() + _ARTIFACT_IMAGE_ASSET_TTL,
+    )
+    url = exports_facade.get_delivery_image_url(
+        team_id=integration.team_id, asset_id=asset_id, expiry_delta=_ARTIFACT_IMAGE_URL_TTL
+    )
+    if url is None:
+        return _ImageLink(failure="unavailable")
+    # Slack cannot fetch a localhost link, and then rejects the whole unfurl.
+    if urlparse(url).hostname in ("localhost", "127.0.0.1"):
+        url = DEBUG_PLACEHOLDER_IMAGE_URL
+    return _ImageLink(url=url)
 
 
 def add_artifact_image_to_unfurl(
@@ -1236,18 +1264,18 @@ def add_artifact_image_to_unfurl(
     url: str,
     image: ArtifactImageRequest,
 ) -> None:
-    """Upload a task artifact image to Slack and post its card again with the image. Best effort: a
-    failure keeps the text card."""
-    slack = SlackIntegration(integration)
-    upload = _upload_artifact_image(slack, user=user, team_id=integration.team_id, image=image)
-    failure = upload.failure
+    """Post a task artifact card again with its image. Best effort: a failure keeps the text card."""
+    link = _artifact_image_link(integration=integration, user=user, image=image)
+    failure = link.failure
     error: str | None = None
-    if upload.file_id is not None:
+    if link.url is not None:
         blocks = list(unfurls[url]["blocks"])
         position = next((i for i, block in enumerate(blocks) if block.get("type") == "actions"), len(blocks))
         alt_text = _truncate(image.name, _MAX_TITLE_CHARS)
-        blocks.insert(position, {"type": "image", "slack_file": {"id": upload.file_id}, "alt_text": alt_text})
-        error = _post_unfurls(slack, event, {**unfurls, url: {**unfurls[url], "blocks": blocks}})
+        blocks.insert(position, {"type": "image", "image_url": link.url, "alt_text": alt_text})
+        error = _post_unfurls(
+            SlackIntegration(integration), event, {**unfurls, url: {**unfurls[url], "blocks": blocks}}
+        )
         failure = "unfurl_failed" if error else None
     logger.info(
         "slack_app_unfurl_artifact_image_result",

@@ -24,6 +24,7 @@ from products.exports.backend.models.exported_asset import (
     DATASET_EXPORT_KIND as DATASET_EXPORT_KIND,
     ExportedAsset,
     get_content_response,
+    save_content as _save_content,
     save_content_from_file as _save_content_from_file,
 )
 from products.exports.backend.models.subscription import Subscription
@@ -207,6 +208,25 @@ def get_delivery_image_url(
     if asset is None:
         return None
     return asset.get_subscription_delivery_content_url(expiry_delta=expiry_delta)
+
+
+def create_png_asset_from_content(
+    *, team_id: int, created_by_id: int, content: bytes, filename: str, expires_after: datetime
+) -> int:
+    """Store PNG bytes that the caller already has as an export, and return its id.
+
+    Pass the id to ``get_delivery_image_url`` to show the image where a login is not possible.
+    The caller must check that the bytes are a PNG image and that the user may see them.
+    """
+    asset = ExportedAsset.objects.create(
+        team_id=team_id,
+        created_by_id=created_by_id,
+        export_format=ExportedAsset.ExportFormat.PNG,
+        export_context={"filename": filename},
+        expires_after=expires_after,
+    )
+    _save_content(asset, content)
+    return asset.id
 
 
 def _create_png_export_asset(

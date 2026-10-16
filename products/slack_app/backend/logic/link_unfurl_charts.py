@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 _MAX_ALT_TEXT_CHARS = 2000
 # A local render has a localhost URL that Slack cannot fetch, and Slack then rejects the whole
 # unfurl with cannot_parse_attachment. The same placeholder as subscriptions use in DEBUG.
-_DEBUG_PLACEHOLDER_IMAGE_URL = (
+DEBUG_PLACEHOLDER_IMAGE_URL = (
     "https://raw.githubusercontent.com/PostHog/posthog/master/frontend/public/icons/android-chrome-512x512.png"
 )
 # Slack errors that a later attempt can fix. Any other error means Slack rejects the payload itself.
@@ -144,7 +144,7 @@ def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput, *, image_urls_by_key
             if key not in allowed:
                 allowed[key] = _can_view_chart(team, user, chart, access)
             if allowed[key]:
-                image_urls[chart.url] = _DEBUG_PLACEHOLDER_IMAGE_URL if settings.DEBUG else image_urls_by_key[key]
+                image_urls[chart.url] = DEBUG_PLACEHOLDER_IMAGE_URL if settings.DEBUG else image_urls_by_key[key]
 
     adhoc_urls = {chart.url for chart in request.charts if chart.query is not None}
     if image_urls:

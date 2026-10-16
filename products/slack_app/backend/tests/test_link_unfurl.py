@@ -1,5 +1,6 @@
+import io
 import json
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -11,6 +12,7 @@ from django.test.client import RequestFactory
 from django.utils import timezone
 
 from parameterized import parameterized
+from PIL import Image
 from slack_sdk.errors import SlackApiError
 from slack_sdk.models.blocks import Block
 from slack_sdk.web.slack_response import SlackResponse
@@ -25,6 +27,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 from posthog.object_tags.kinds import ObjectRef
+from posthog.storage import object_storage
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.facade import testing as canvas_testing
@@ -865,12 +868,14 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("image", "chart.png", "image/png", frozenset(), True),
-            ("not_an_image", "report.md", "text/markdown", frozenset(), False),
-            ("install_without_file_scope", "chart.png", "image/png", frozenset({"files:write"}), False),
+            ("png", "chart.png", "image/png", "PNG", True, True),
+            ("jpeg_shown_as_png", "photo.jpg", "image/jpeg", "JPEG", True, True),
+            ("bytes_are_not_an_image", "chart.png", "image/png", None, True, False),
+            ("public_sharing_off", "chart.png", "image/png", "PNG", False, False),
+            ("file_type_is_not_an_image", "report.md", "text/markdown", None, True, False),
         ]
     )
-    @patch("posthog.storage.object_storage.read_bytes", return_value=b"png-bytes")
+    @override_settings(SITE_URL="https://app.example.com")
     @patch("products.slack_app.backend.tasks.add_slack_unfurl_artifact_image.delay")
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
@@ -879,33 +884,50 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         _name: str,
         name: str,
         content_type: str,
-        missing_scopes: frozenset[str],
+        image_format: str | None,
+        public_sharing: bool,
         expect_image: bool,
         mock_slack_integration_class: MagicMock,
         mock_resolve: MagicMock,
         mock_delay: MagicMock,
-        _mock_read_bytes: MagicMock,
     ) -> None:
         # Runs the queued task in process, through JSON like the Celery broker.
         mock_delay.side_effect = lambda **kwargs: add_slack_unfurl_artifact_image(**json.loads(json.dumps(kwargs)))
+        self.organization.allow_publicly_shared_resources = public_sharing
+        self.organization.save()
+        content = b"<html>not an image</html>"
+        if image_format:
+            buffer = io.BytesIO()
+            Image.new("RGB", (4, 4), "red").save(buffer, format=image_format)
+            content = buffer.getvalue()
         url = self._create_task_artifact(name=name, content_type=content_type)
         mock_resolve.return_value = MagicMock(user=self.user)
-        mock_slack_integration_class.return_value.missing_scopes.return_value = missing_scopes
         mock_client = mock_slack_integration_class.return_value.client
-        mock_client.files_upload_v2.return_value = {"file": {"id": "F123"}}
+        read_bytes = object_storage.read_bytes
 
-        self._unfurl_links([url])
+        with patch(
+            "posthog.storage.object_storage.read_bytes",
+            side_effect=lambda path, *args, **kwargs: (
+                content if path.startswith("tasks/artifacts/") else read_bytes(path, *args, **kwargs)
+            ),
+        ):
+            self._unfurl_links([url])
 
-        if not expect_image:
-            mock_client.chat_unfurl.assert_called_once()
-            mock_client.files_upload_v2.assert_not_called()
-            return
-        mock_client.files_upload_v2.assert_called_once_with(content=b"png-bytes", filename=name, title=name)
-        unfurl = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]
-        self._assert_slack_accepts(unfurl)
-        types = [block["type"] for block in unfurl["blocks"]]
-        assert types.index("image") == types.index("actions") - 1
-        assert unfurl["blocks"][types.index("image")]["slack_file"] == {"id": "F123"}
+            if not expect_image:
+                mock_client.chat_unfurl.assert_called_once()
+                return
+            unfurl = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]
+            self._assert_slack_accepts(unfurl)
+            types = [block["type"] for block in unfurl["blocks"]]
+            assert types.index("image") == types.index("actions") - 1
+            image_url = urlparse(unfurl["blocks"][types.index("image")]["image_url"])
+            assert image_url.netloc == "app.example.com"
+            self.client.logout()
+            response = self.client.get(f"{image_url.path}?{image_url.query}")
+
+        assert response.status_code == 200
+        with Image.open(io.BytesIO(response.getvalue())) as served:
+            assert served.format == "PNG"
 
     @parameterized.expand(
         [
