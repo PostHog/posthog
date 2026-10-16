@@ -1,11 +1,10 @@
 import { useValues } from 'kea'
 
-import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
-
 import { groupsModel } from '~/models/groupsModel'
 import { EditorFilterProps } from '~/types'
 
 import { FunnelConversionWindowFilter } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelConversionWindowFilter'
+import { AggregationSelect } from 'products/product_analytics/frontend/insights/shared/AggregationSelect'
 
 export function FunnelStepConfiguration({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)

@@ -5743,6 +5743,7 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
 
         response = self.client.get("/.well-known/oauth-authorization-server")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["client_id_metadata_document_supported"])
 
     @override_settings(CLOUD_DEPLOYMENT="US", SITE_URL="https://us.posthog.com")
     def test_metadata_includes_region_for_cloud(self):

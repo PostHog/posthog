@@ -30,6 +30,7 @@ export const TRACE_SPAN_LIST_RESOURCE_URI = 'ui://posthog/trace-span-list.html'
 export const VISION_OBSERVATION_LIST_RESOURCE_URI = 'ui://posthog/vision-observation-list.html'
 export const VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI = 'ui://posthog/visual-review-snapshots.html'
 export const WORKFLOW_RESOURCE_URI = 'ui://posthog/workflow.html'
+export const WORKFLOW_DATA_SUGGESTIONS_RESOURCE_URI = 'ui://posthog/workflow-data-suggestions.html'
 export const WORKFLOW_LIST_RESOURCE_URI = 'ui://posthog/workflow-list.html'
 
 export type UiAppKey =
@@ -63,6 +64,7 @@ export type UiAppKey =
     | 'vision-observation-list'
     | 'visual-review-snapshots'
     | 'workflow'
+    | 'workflow-data-suggestions'
     | 'workflow-list'
 
 export const URI_MAP: Record<UiAppKey, string> = {
@@ -96,6 +98,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'vision-observation-list': VISION_OBSERVATION_LIST_RESOURCE_URI,
     'visual-review-snapshots': VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI,
     workflow: WORKFLOW_RESOURCE_URI,
+    'workflow-data-suggestions': WORKFLOW_DATA_SUGGESTIONS_RESOURCE_URI,
     'workflow-list': WORKFLOW_LIST_RESOURCE_URI,
 }
 
@@ -324,6 +327,12 @@ export const UI_APPS: Array<{
         uri: WORKFLOW_RESOURCE_URI,
         description: 'Workflow detail view',
         appDir: 'generated/workflow',
+    },
+    {
+        name: 'PostHog Workflow Suggestions',
+        uri: WORKFLOW_DATA_SUGGESTIONS_RESOURCE_URI,
+        description: 'Suggested workflows built from the events a project sends, each with a Create workflow action.',
+        appDir: 'workflow-data-suggestions',
     },
     {
         name: 'PostHog Workflow List',

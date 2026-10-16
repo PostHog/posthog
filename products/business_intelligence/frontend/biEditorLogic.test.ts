@@ -625,7 +625,7 @@ describe('biEditorLogic', () => {
         biLogic.actions.setAutoUpdate(false)
         biLogic.actions.setFieldExpression('rows', 0, 'distinct_id')
         expect(getBIFieldPillLabel(biLogic.values.config.rows[0])).toBe('distinct_id')
-        expect(biLogic.values.generatedQuery?.query).toContain('SELECT\n    distinct_id,')
+        expect(biLogic.values.generatedQuery?.query).toContain('SELECT\n    distinct_id AS distinct_id,')
         biLogic.unmount()
     })
 })
