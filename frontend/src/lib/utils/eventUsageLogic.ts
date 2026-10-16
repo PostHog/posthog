@@ -538,18 +538,8 @@ export function getEventPropertiesForMetric(
         }
 
         return base
-    } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
-        return {
-            kind: NodeKind.ExperimentFunnelsQuery,
-            steps_count: metric.funnels_query?.series?.length,
-            filter_test_accounts: metric.funnels_query?.filterTestAccounts,
-        }
     }
-    return {
-        kind: NodeKind.ExperimentTrendsQuery,
-        series_kind: metric.count_query?.series?.[0]?.kind,
-        filter_test_accounts: metric.count_query?.filterTestAccounts,
-    }
+    return { kind: metric.kind }
 }
 
 /**
@@ -1128,7 +1118,7 @@ export interface eventUsageLogicActions {
     }
     reportExperimentMetricFinished: (
         experimentId: ExperimentIdType,
-        metric: ExperimentFunnelsQuery | ExperimentMetric | ExperimentTrendsQuery,
+        metric: ExperimentMetric,
         teamId?: number | null,
         queryId?: string | null,
         context?: {
@@ -1155,7 +1145,7 @@ export interface eventUsageLogicActions {
               }
             | undefined
         experimentId: ExperimentIdType
-        metric: ExperimentFunnelsQuery | ExperimentMetricUnion | ExperimentTrendsQuery
+        metric: ExperimentMetricUnion
         queryId: string | null | undefined
         teamId: number | null | undefined
     }
@@ -1981,7 +1971,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportExperimentMetricFinished: (
             experimentId: ExperimentIdType,
-            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
+            metric: ExperimentMetric,
             teamId?: number | null,
             queryId?: string | null,
             context?: {
@@ -2631,7 +2621,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment shared metric created', {
                 name: sharedMetric.name,
                 id: sharedMetric.id,
-                ...getEventPropertiesForMetric(sharedMetric.query as ExperimentTrendsQuery | ExperimentFunnelsQuery),
+                ...getEventPropertiesForMetric(sharedMetric.query as ExperimentMetric),
             })
         },
         reportExperimentSharedMetricAssigned: ({ experimentId, sharedMetric }) => {
@@ -2639,7 +2629,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_id: experimentId,
                 name: sharedMetric.name,
                 id: sharedMetric.id,
-                ...getEventPropertiesForMetric(sharedMetric.query as ExperimentTrendsQuery | ExperimentFunnelsQuery),
+                ...getEventPropertiesForMetric(sharedMetric.query as ExperimentMetric),
             })
         },
         reportExperimentDashboardCreated: ({ experiment, dashboardId }) => {
