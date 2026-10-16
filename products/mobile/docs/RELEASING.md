@@ -253,6 +253,29 @@ References: [Expo local builds](https://docs.expo.dev/guides/local-app-developme
 [Expo CLI](https://docs.expo.dev/more/expo-cli/), and
 [Apple Developer Mode](https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device).
 
+### Swift errors after upgrading Xcode
+
+If importing `ExpoModulesJSI` fails with `cannot find type '__ObjC::expo' in scope`,
+the generated bridge framework may belong to the previous SDK. Its cache can survive
+an Xcode upgrade when the Swift compiler version stays the same, as described in
+[this upstream report](https://github.com/expo/expo/issues/50365).
+
+The recovery verified with Xcode 27.1 regenerates the physical-device bridge slice and
+builds Expo modules from source. Run from this app's workspace, with the existing `ios/`
+project and the device and signing setup above:
+
+```sh
+rm node_modules/expo-modules-jsi/apple/Products/ExpoModulesJSI.xcframework/ios-arm64/.build-hash
+(cd ios && EXPO_USE_PRECOMPILED_MODULES=0 pod install)
+CI=1 EXPO_USE_PRECOMPILED_MODULES=0 pnpm exec expo run:ios --device "$DEVICE_ID" --configuration Release --no-bundler --no-install
+```
+
+The removed file is a generated cache marker; it is recreated by the bridge build.
+For a simulator error, invalidate the corresponding simulator slice instead of `ios-arm64`.
+The source-build setting applies to this local pod installation; a later pod install or
+prebuild without it returns to the default. No dependency-source or Swift-interface edits
+are needed. After installation, repeat the launch and rendering checks above.
+
 ### Verification record
 
 On October 14, 2026, this process installed app version `1.1.0` (local build `1`) from the
@@ -263,6 +286,10 @@ After installation, an explicit relaunch succeeded, the PostHog process remained
 and a local screenshot confirmed that the inbox rendered with the existing session.
 No server was listening on Metro's default port 8081. Full feature QA and installation on
 other devices were not performed; the parameters and distribution options above cover reuse.
+
+On October 16, 2026, the Xcode 27.1 recovery above produced and installed a new Release
+build of `1.1.0`. The type check and signature verification passed. An explicit relaunch
+kept the app running, and a local screenshot confirmed the inbox with the existing session.
 
 ## Install the current checkout on a connected Android phone
 
