@@ -1,21 +1,37 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+
+import { createHmac } from 'crypto'
+
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import * as requestModule from '~/common/utils/request'
 import { FetchOptions, FetchResponse } from '~/common/utils/request'
+import { encodeLogAttributeValue } from '~/logs/attribute-value'
+import type { LogRecord } from '~/logs/log-record-avro'
+import { LogsTransformerService } from '~/logs/transformations/logs-transformer.service'
 import { PluginEvent } from '~/plugin-scaffold'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { insertIntegration } from '../../_tests/fixtures'
+import {
+    CdpSourceWebhooksConsumer,
+    HogFunctionWebhookResult,
+    SourceWebhookRequest,
+    getCustomHttpResponse,
+} from '../../consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from '../../hog-transformations/hog-transformer.service'
 import { HogExecutorAsyncService } from '../../services/hog-executor-async.service'
 import { HogExecutorService } from '../../services/hog-executor.service'
 import { HogInputsService } from '../../services/hog-inputs.service'
+import { HogFunctionManagerService } from '../../services/managers/hog-function-manager.service'
 import { EmailService } from '../../services/messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../../services/messaging/recipient-tokens.service'
+import { HogFunctionMonitoringService } from '../../services/monitoring/hog-function-monitoring.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -53,6 +69,8 @@ export type ResponseScenario = {
 export type RunOptions = {
     /** Turns on every boolean input whose key mentions debug, so templates print what they send. */
     debug?: boolean
+    /** Sends a source webhook request whose credentials do not match the configured secrets. */
+    forgedCredentials?: boolean
 }
 
 export type PipelineRun = {
@@ -62,6 +80,10 @@ export type PipelineRun = {
     thrown?: string
     requests: OutgoingRequest[]
     printedOutput: string[]
+    /** What a source webhook answers its caller. */
+    httpResponse?: HogFunctionWebhookResult | null
+    /** What a source webhook or log transformation hands on: captured events, its response, or the transformed record. */
+    deliveredOutput: string[]
     sensitiveValues: string[]
     integrationCredentials: string[]
 }
@@ -106,7 +128,8 @@ export class TemplatePipeline {
         private team: Team,
         private executor: HogExecutorAsyncService,
         private hogInputsService: HogInputsService,
-        private transformer: HogTransformerService
+        private transformer: HogTransformerService,
+        private sourceWebhooks: CdpSourceWebhooksConsumer
     ) {}
 
     static async start(): Promise<TemplatePipeline> {
@@ -164,13 +187,19 @@ export class TemplatePipeline {
             { ...hub, TRANSFORMATIONS_HOG_TIMEOUT_MS: EXECUTION_BUDGET_MS, CDP_HOG_RUST_VM_EXECUTION_ENABLED: false },
             { ...hub, monitoringOutputs: createTestMonitoringOutputs(undefined as unknown as KafkaProducerWrapper) }
         )
-        const pipeline = new TemplatePipeline(hub, team, executor, hogInputsService, transformer)
+        const sourceWebhooks = new CdpSourceWebhooksConsumer(
+            { ...hub, CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: EXECUTION_BUDGET_MS },
+            createCdpConsumerDeps(hub),
+            { hogQueue: createMockJobQueue(), hogflowQueue: createMockJobQueue() }
+        )
+        const pipeline = new TemplatePipeline(hub, team, executor, hogInputsService, transformer, sourceWebhooks)
         pipeline.interceptNetwork()
         return pipeline
     }
 
     async stop(): Promise<void> {
         jest.restoreAllMocks()
+        await this.sourceWebhooks.stop()
         await closeHub(this.hub)
     }
 
@@ -182,6 +211,14 @@ export class TemplatePipeline {
         const globals = this.representativeGlobals(templateCase)
         const sensitiveValues = [...this.sensitiveInputValues(hogFunction), ...integrationCredentials]
 
+        if (hogFunction.type === 'source_webhook') {
+            return await this.runSourceWebhook(hogFunction, sensitiveValues, options)
+        }
+
+        if (hogFunction.type === 'transformation_log') {
+            return await this.runLogTransformation(hogFunction, sensitiveValues)
+        }
+
         if (hogFunction.type === 'transformation') {
             const { invocationResults } = await this.transformer.transformEvent(pluginEventFrom(globals), [hogFunction])
             const result = invocationResults[0]
@@ -190,6 +227,7 @@ export class TemplatePipeline {
                 result,
                 requests: this.requests,
                 printedOutput: result?.logs.map((log) => log.message) ?? [],
+                deliveredOutput: [],
                 sensitiveValues,
                 integrationCredentials,
             }
@@ -213,8 +251,71 @@ export class TemplatePipeline {
             thrown,
             requests: this.requests,
             printedOutput: result?.logs.map((log) => log.message) ?? [],
+            deliveredOutput: [],
             sensitiveValues,
             integrationCredentials,
+        }
+    }
+
+    private async runSourceWebhook(
+        hogFunction: HogFunctionType,
+        sensitiveValues: string[],
+        options: RunOptions
+    ): Promise<PipelineRun> {
+        const configuredSecrets = Object.fromEntries(
+            Object.entries(hogFunction.encrypted_inputs ?? {}).map(([key, input]) => [key, String(input.value)])
+        )
+        const credentials = options.forgedCredentials
+            ? Object.fromEntries(Object.keys(configuredSecrets).map((key) => [key, `fake-forged-${key}-0000`]))
+            : configuredSecrets
+        const request = representativeWebhookRequest(hogFunction.template_id ?? '', credentials)
+
+        const result = await this.sourceWebhooks.executeHogFunction(request, hogFunction, null)
+        const httpResponse = getCustomHttpResponse(result)
+
+        return {
+            invocationErrors: [],
+            result,
+            httpResponse,
+            requests: this.requests,
+            printedOutput: result.logs.map((log) => log.message),
+            deliveredOutput: [JSON.stringify(result.capturedPostHogEvents), JSON.stringify(httpResponse?.body ?? '')],
+            sensitiveValues,
+            integrationCredentials: [],
+        }
+    }
+
+    private async runLogTransformation(hogFunction: HogFunctionType, sensitiveValues: string[]): Promise<PipelineRun> {
+        const monitoring = new HogFunctionMonitoringService(
+            createTestMonitoringOutputs(undefined as unknown as KafkaProducerWrapper)
+        )
+        const transformer = new LogsTransformerService(
+            new HogFunctionManagerService(this.hub.postgres, this.hub.pubSub, this.hub.encryptedFields),
+            monitoring,
+            {
+                siteUrl: this.hub.SITE_URL,
+                hogTimeoutMs: EXECUTION_BUDGET_MS,
+                messageBudgetMs: EXECUTION_BUDGET_MS,
+                batchBudgetMs: EXECUTION_BUDGET_MS,
+                maxErrorLogsPerFunctionPerMessage: 1,
+            }
+        )
+        const records = [representativeLogRecord()]
+
+        await transformer.transformRecordsWith(this.team.id, [hogFunction], records)
+
+        const logs = monitoring.queuedLogMessages
+        const failed = records.some((record) => record.attributes?.[TRANSFORMATIONS_FAILED_ATTRIBUTE])
+        return {
+            invocationErrors: [
+                ...logs.filter((log) => log.level === 'error').map((log) => log.message),
+                ...(failed ? ['the record is marked as failed'] : []),
+            ],
+            requests: this.requests,
+            printedOutput: logs.map((log) => log.message),
+            deliveredOutput: records.map((record) => JSON.stringify(record)),
+            sensitiveValues,
+            integrationCredentials: [],
         }
     }
 
@@ -415,6 +516,105 @@ const pluginEventFrom = (globals: HogFunctionInvocationGlobals): PluginEvent => 
     team_id: globals.project.id,
     now: globals.event.timestamp,
 })
+
+const TRANSFORMATIONS_FAILED_ATTRIBUTE = '$transformations_failed'
+
+const representativeLogRecord = (): LogRecord => ({
+    uuid: '01920000-0000-7000-8000-000000000005',
+    trace_id: null,
+    span_id: null,
+    trace_flags: 0,
+    timestamp: 1_735_689_600_000_000_000,
+    observed_timestamp: 1_735_689_600_000_000_000,
+    body: 'user ada@example.com signed in from 203.0.113.10',
+    severity_text: 'info',
+    severity_number: 9,
+    service_name: 'example-api',
+    resource_attributes: { 'service.namespace': encodeLogAttributeValue('example') },
+    instrumentation_scope: 'example.sessions',
+    event_name: null,
+    attributes: {
+        'user.email': encodeLogAttributeValue('ada@example.com'),
+        'user.id': encodeLogAttributeValue('example-user-id'),
+        'http.method': encodeLogAttributeValue('POST'),
+    },
+    bytes_uncompressed: 120,
+})
+
+type ProviderRequest = {
+    body: Record<string, unknown>
+    /** Headers the provider derives from a secret it shares with the source, such as a body signature. */
+    signedHeaders?: (credentials: Record<string, string>, rawBody: string) => Record<string, string>
+}
+
+const SIGNATURE_TIMESTAMP = '1735689600'
+
+// A source template parses its own provider's payload, so each provider gets a request of its own shape.
+const PROVIDER_REQUESTS: Record<string, ProviderRequest> = {
+    'template-source-stripe-webhook': {
+        body: {
+            type: 'customer.created',
+            data: { object: { object: 'customer', id: 'cus_example0000', customer: 'cus_example0000' } },
+        },
+        signedHeaders: (credentials, rawBody) => ({
+            'stripe-signature': `t=${SIGNATURE_TIMESTAMP},v1=${createHmac('sha256', credentials.signing_secret ?? '')
+                .update(`${SIGNATURE_TIMESTAMP}.${rawBody}`)
+                .digest('hex')}`,
+        }),
+    },
+    'template-source-vercel-log-drain': {
+        body: {
+            id: 'log-example-0001',
+            deploymentId: 'dpl_example0000',
+            projectId: 'prj_example0000',
+            projectName: 'example-app',
+            source: 'request',
+            environment: 'production',
+            level: 'info',
+            message: 'GET /pricing 200',
+            timestamp: 1735689600000,
+            host: 'example.com',
+            path: '/pricing?utm_source=newsletter',
+            statusCode: 200,
+            proxy: {
+                timestamp: 1735689600000,
+                method: 'GET',
+                host: 'example.com',
+                path: '/pricing?utm_source=newsletter',
+                userAgent: ['Mozilla/5.0 (Macintosh)'],
+                clientIp: '203.0.113.10',
+                scheme: 'https',
+                statusCode: 200,
+            },
+        },
+    },
+}
+
+const GENERIC_WEBHOOK_REQUEST: ProviderRequest = {
+    body: { event: 'order_completed', distinct_id: 'example-distinct-id' },
+}
+
+const representativeWebhookRequest = (
+    templateId: string,
+    credentials: Record<string, string>
+): SourceWebhookRequest => {
+    const { body, signedHeaders } = PROVIDER_REQUESTS[templateId] ?? GENERIC_WEBHOOK_REQUEST
+    const rawBody = JSON.stringify(body)
+    return {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            'user-agent': 'example-provider/1.0',
+            ...(credentials.auth_header ? { authorization: credentials.auth_header } : {}),
+            ...signedHeaders?.(credentials, rawBody),
+        },
+        body,
+        rawBody,
+        query: { ph_event: 'email_opened', ph_distinct_id: 'example-distinct-id' },
+        ip: '203.0.113.10',
+        socket: { remoteAddress: '203.0.113.10' },
+    }
+}
 
 const fakeIntegrationCredentials = (key: string): Record<string, string> => ({
     access_token: `fake-access-token-${key}-0000`,

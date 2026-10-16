@@ -91,6 +91,10 @@ export const getCustomAppMetricName = (
     return null
 }
 
+export type SourceWebhookRequest = Pick<ModifiedRequest, 'body' | 'headers' | 'ip' | 'method' | 'query' | 'rawBody'> & {
+    socket: Pick<ModifiedRequest['socket'], 'remoteAddress'>
+}
+
 export class SourceWebhookError extends Error {
     status: number
 
@@ -155,7 +159,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         return null
     }
 
-    private buildRequestGlobals(hogFunction: HogFunctionType, req: ModifiedRequest): HogFunctionInvocationGlobals {
+    private buildRequestGlobals(hogFunction: HogFunctionType, req: SourceWebhookRequest): HogFunctionInvocationGlobals {
         const body: Record<string, any> = req.body
 
         const ipValue = getFirstHeaderValue(req.headers['x-forwarded-for']) || req.socket.remoteAddress || req.ip
@@ -363,8 +367,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         }
     }
 
-    private async executeHogFunction(
-        req: ModifiedRequest,
+    public async executeHogFunction(
+        req: SourceWebhookRequest,
         hogFunction: HogFunctionType,
         hogFunctionState: HogWatcherFunctionState | null
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {

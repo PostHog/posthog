@@ -1,4 +1,9 @@
-import { HOG_FUNCTION_TEMPLATES_DESTINATIONS, HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS } from '.'
+import {
+    HOG_FUNCTION_TEMPLATES_DESTINATIONS,
+    HOG_FUNCTION_TEMPLATES_SOURCES,
+    HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS,
+    HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_LOG,
+} from '.'
 
 import { getRegisteredAsyncFunctionNames } from '~/cdp/async-function-registry'
 import '~/cdp/async-functions'
@@ -44,6 +49,8 @@ const FAILURES_EXEMPTIONS: Exemptions = {}
 
 const DESTINATION_CASES = casesFor(HOG_FUNCTION_TEMPLATES_DESTINATIONS)
 const TRANSFORMATION_CASES = casesFor(HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS)
+const SOURCE_WEBHOOK_CASES = casesFor(HOG_FUNCTION_TEMPLATES_SOURCES)
+const LOG_TRANSFORMATION_CASES = casesFor(HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_LOG)
 
 const OK = { status: 200, body: {} }
 const REJECTED = { status: 401, body: {}, echoRequest: true }
@@ -56,6 +63,17 @@ const runsWithoutError = (run: PipelineRun): string[] => [
     ...(run.result?.error ? [`execution: ${String(run.result.error)}`] : []),
     ...(run.result && !run.result.finished ? ['execution did not finish'] : []),
 ]
+
+const capturesFromTheRequest = (run: PipelineRun): string[] => {
+    const response = run.httpResponse
+    return [
+        ...runsWithoutError(run),
+        ...(response && response.status >= 400
+            ? [`responded ${response.status}: ${JSON.stringify(response.body)}`]
+            : []),
+        ...(run.result?.capturedPostHogEvents.length ? [] : ['no event was captured']),
+    ]
+}
 
 const wireText = (request: OutgoingRequest): string => {
     const basicAuthCredentials = Object.values(request.headers)
@@ -170,6 +188,7 @@ const secretsStayOutOfOutput = (run: PipelineRun): string[] => {
     const output = [
         ...run.printedOutput,
         ...run.invocationErrors,
+        ...run.deliveredOutput,
         run.thrown ?? '',
         String(run.result?.error ?? ''),
     ].map(withDecodedBase64)
@@ -200,7 +219,7 @@ const sendsHttpRequests = ({ template }: TemplateCase): boolean =>
 const hasIntegrationInput = ({ template }: TemplateCase): boolean =>
     template.inputs_schema.some((schema) => schema.type === 'integration')
 
-const ALL_CASES = [...DESTINATION_CASES, ...TRANSFORMATION_CASES]
+const ALL_CASES = [...DESTINATION_CASES, ...TRANSFORMATION_CASES, ...SOURCE_WEBHOOK_CASES, ...LOG_TRANSFORMATION_CASES]
 const isRunnable = (templateCase: TemplateCase): boolean => !(templateCase.name in RUNS_EXEMPTIONS)
 const isRunnableDestination = (templateCase: TemplateCase): boolean =>
     isRunnable(templateCase) && DESTINATION_CASES.includes(templateCase)
@@ -252,7 +271,12 @@ describe('template contracts', () => {
 
     it('runs every hog template in the registry as at least one case', () => {
         const coveredIds = new Set(ALL_CASES.map((c) => c.template.id))
-        const uncoveredIds = [...HOG_FUNCTION_TEMPLATES_DESTINATIONS, ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS]
+        const uncoveredIds = [
+            ...HOG_FUNCTION_TEMPLATES_DESTINATIONS,
+            ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS,
+            ...HOG_FUNCTION_TEMPLATES_SOURCES,
+            ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_LOG,
+        ]
             .filter((template) => template.code_language === 'hog' && !coveredIds.has(template.id))
             .map((template) => template.id)
 
@@ -318,4 +342,42 @@ describe('template contracts', () => {
             })
         }
     })
+
+    describe.each(SOURCE_WEBHOOK_CASES.map((c) => [c.name, c] as const))('%s', (_name, templateCase: TemplateCase) => {
+        it('captures an event from a representative request', async () => {
+            const run = await pipeline.run(templateCase, OK)
+
+            expectInvariant(templateCase, RUNS_EXEMPTIONS, capturesFromTheRequest(run))
+        })
+
+        if (checksSecrets(templateCase)) {
+            it('keeps sensitive values out of its output, also when the request carries forged credentials', async () => {
+                const runs = [
+                    await pipeline.run(templateCase, OK, { debug: true }),
+                    await pipeline.run(templateCase, OK, { debug: true, forgedCredentials: true }),
+                ]
+
+                expectInvariant(templateCase, SECRETS_EXEMPTIONS, runs.flatMap(secretsStayOutOfOutput))
+            })
+        }
+    })
+
+    describe.each(LOG_TRANSFORMATION_CASES.map((c) => [c.name, c] as const))(
+        '%s',
+        (_name, templateCase: TemplateCase) => {
+            it('runs on a representative log record', async () => {
+                const run = await pipeline.run(templateCase, OK)
+
+                expectInvariant(templateCase, RUNS_EXEMPTIONS, runsWithoutError(run))
+            })
+
+            if (checksSecrets(templateCase)) {
+                it('keeps sensitive values out of its output and the transformed record', async () => {
+                    const run = await pipeline.run(templateCase, OK)
+
+                    expectInvariant(templateCase, SECRETS_EXEMPTIONS, secretsStayOutOfOutput(run))
+                })
+            }
+        }
+    )
 })
