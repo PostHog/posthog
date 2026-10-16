@@ -203,7 +203,7 @@ def test_trino_error_to_message_explains_access_failures(raw_error: str, expecte
 
 
 @pytest.mark.parametrize(
-    ("error", "expected"),
+    ("timeout", "expected"),
     [
         (
             ConnectTimeout("HTTPSConnectionPool(host='trino.example.com', port=443): Max retries exceeded"),
@@ -214,9 +214,33 @@ def test_trino_error_to_message_explains_access_failures(raw_error: str, expecte
             TRINO_READ_TIMEOUT_ERROR,
         ),
     ],
+    ids=["connect_timeout", "read_timeout"],
 )
-def test_trino_error_to_message_hides_the_host_on_a_timeout(error: Exception, expected: str) -> None:
-    assert trino_error_to_message(error) == expected
+def test_validate_credentials_hides_the_host_when_the_driver_times_out(timeout: Exception, expected: str) -> None:
+    with patch("trino.client.TrinoRequest.post", side_effect=timeout):
+        assert TrinoSource().validate_credentials(_config(), team_id=1) == (False, expected)
+
+
+@pytest.mark.parametrize(
+    ("timeout", "expected"),
+    [
+        (ReadTimeout("Read timed out. (read timeout=60)"), TRINO_DISCOVERY_TIMEOUT_ERROR),
+        (ConnectTimeout("Max retries exceeded"), TRINO_CONNECT_TIMEOUT_ERROR),
+    ],
+    ids=["read_timeout", "connect_timeout"],
+)
+def test_get_schemas_explains_a_timeout_the_driver_wrapped(timeout: Exception, expected: str) -> None:
+    source = TrinoSource()
+
+    with (
+        patch("trino.client.TrinoRequest.post", side_effect=timeout),
+        pytest.raises(TrinoSchemaDiscoveryError) as raised,
+    ):
+        source.get_schemas(_config(), team_id=1)
+
+    message, is_expected_source_error = _classify_refresh_schemas_error(source, raised.value)
+    assert message == expected
+    assert is_expected_source_error is True
 
 
 def _trino_external_error(message: str) -> TrinoExternalError:
@@ -232,29 +256,20 @@ def _trino_external_error(message: str) -> TrinoExternalError:
     )
 
 
-@pytest.mark.parametrize(
-    ("error", "expected"),
-    [
-        (_trino_external_error("Failed to query OPA backend"), TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR),
-        (ReadTimeout("Read timed out. (read timeout=60)"), TRINO_DISCOVERY_TIMEOUT_ERROR),
-        (ConnectTimeout("Max retries exceeded"), TRINO_CONNECT_TIMEOUT_ERROR),
-    ],
-    ids=["access_control", "read_timeout", "connect_timeout"],
-)
-def test_get_schemas_reports_what_trino_said_without_an_exception_report(error: Exception, expected: str) -> None:
+def test_get_schemas_reports_what_trino_said_without_an_exception_report() -> None:
     source = TrinoSource()
 
     with (
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.connect_trino",
-            side_effect=error,
+            side_effect=_trino_external_error("Failed to query OPA backend"),
         ),
         pytest.raises(TrinoSchemaDiscoveryError) as raised,
     ):
         source.get_schemas(_config(), team_id=1)
 
     message, is_expected_source_error = _classify_refresh_schemas_error(source, raised.value)
-    assert message == expected
+    assert message == TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR
     assert is_expected_source_error is True
 
 

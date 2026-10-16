@@ -163,6 +163,17 @@ class TrinoConfigurationError(ValueError):
     """A connection setting Trino cannot be reached with, found before PostHog opens the connection."""
 
 
+def _timeout_in_chain(error: BaseException) -> Timeout | None:
+    # The driver re-raises a requests timeout as `TrinoConnectionError` inside its `except` block,
+    # so only `__context__` still carries the original.
+    current: BaseException | None = error
+    while current is not None:
+        if isinstance(current, Timeout):
+            return current
+        current = current.__cause__ or current.__context__
+    return None
+
+
 @contextmanager
 def trino_failures_as_discovery_error() -> Iterator[None]:
     """Word a failed trip to Trino for the person who connects the source.
@@ -175,7 +186,8 @@ def trino_failures_as_discovery_error() -> Iterator[None]:
         yield
     except (Error, HttpError, RequestException, TrinoConfigurationError) as exc:
         # Listing every schema in a large catalog is the slow part of discovery, so a schema narrows it.
-        if isinstance(exc, Timeout) and not isinstance(exc, ConnectTimeout):
+        timeout = _timeout_in_chain(exc)
+        if timeout is not None and not isinstance(timeout, ConnectTimeout):
             raise TrinoSchemaDiscoveryError(TRINO_DISCOVERY_TIMEOUT_ERROR) from exc
         raise TrinoSchemaDiscoveryError(trino_error_to_message(exc)) from exc
 
@@ -186,9 +198,10 @@ def trino_error_to_message(error: Exception) -> str:
     if message == TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR:
         return message
     # The raw requests text names the host, so it never reaches the user.
-    if isinstance(error, ConnectTimeout):
+    timeout = _timeout_in_chain(error)
+    if isinstance(timeout, ConnectTimeout):
         return TRINO_CONNECT_TIMEOUT_ERROR
-    if isinstance(error, Timeout):
+    if timeout is not None:
         return TRINO_READ_TIMEOUT_ERROR
     # Match the driver's HTTP 401 form ("error 401: ..."), not a bare "401": a Trino query error's
     # text carries a query ID whose time part can hold "401" and would derail this classification.
