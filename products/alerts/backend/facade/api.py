@@ -18,6 +18,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.models.activity_logging.model_activity import ActingUserContext
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.schema_enums import AlertState
 from posthog.user_permissions import UserPermissions
@@ -180,26 +181,28 @@ def snooze_alert_from_slack(
     return "snoozed"
 
 
-def list_firing_alerts_on_insights_created_by(
-    team_id: int, user_id: int, *, include_metrics_insights: bool, limit: int
+def list_firing_alerts_created_by(
+    team: Team, user: User, *, include_metrics_insights: bool, limit: int
 ) -> list[contracts.FiringAlert]:
     alerts = AlertConfiguration.objects.filter(
-        team_id=team_id,
+        team_id=team.id,
         enabled=True,
         state=AlertState.FIRING,
-        insight__created_by_id=user_id,
+        created_by_id=user.id,
         insight__deleted=False,
     ).filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=timezone.now()))
     if not include_metrics_insights:
         alerts = alerts.exclude(id__in=alerts.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
-    rows = alerts.order_by("-created_at").values_list(
-        "id", "name", "insight__name", "insight__derived_name", "insight__short_id"
-    )[:limit]
+    access = UserAccessControl(user, team=team)
     return [
         contracts.FiringAlert(
-            id=alert_id, name=name, insight_name=insight_name or derived_name, insight_short_id=short_id
+            id=alert.id,
+            name=alert.name,
+            insight_name=alert.insight.name or alert.insight.derived_name,
+            insight_short_id=alert.insight.short_id,
         )
-        for alert_id, name, insight_name, derived_name, short_id in rows
+        for alert in alerts.select_related("insight").order_by("-created_at")[:limit]
+        if access.check_access_level_for_object(alert.insight, "viewer")
     ]
 
 

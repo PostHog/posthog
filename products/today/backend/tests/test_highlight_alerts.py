@@ -32,7 +32,7 @@ class TestAlerts(BaseTest):
         alert = FiringAlert(id=uuid.uuid4(), name=alert_name, insight_name=insight_name, insight_short_id="abc123")
         registered = next(s for s in load_sources() if s.name == "alerts")
 
-        with patch.object(alerts, "list_firing_alerts_on_insights_created_by", return_value=[alert]):
+        with patch.object(alerts, "list_firing_alerts_created_by", return_value=[alert]):
             found = registered.find(Context(self.team, self.user, date(2026, 10, 13)))
 
         self.assertEqual(
@@ -53,7 +53,7 @@ class TestAlerts(BaseTest):
         listed = MagicMock(return_value=[])
         registered = next(s for s in load_sources() if s.name == "alerts")
 
-        with patch.object(alerts, "list_firing_alerts_on_insights_created_by", listed):
+        with patch.object(alerts, "list_firing_alerts_created_by", listed):
             registered.find(Context(self.team, self.user, date(2026, 10, 13), scopes))
 
         self.assertEqual(listed.call_args.kwargs["include_metrics_insights"], include)

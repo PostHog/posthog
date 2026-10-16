@@ -1,6 +1,6 @@
 import re
 
-from products.alerts.backend.facade.api import list_firing_alerts_on_insights_created_by
+from products.alerts.backend.facade.api import list_firing_alerts_created_by
 from products.alerts.backend.facade.contracts import FiringAlert
 
 from ...facade.enums import HighlightLabel
@@ -13,8 +13,8 @@ ALERT_FIRING_DETAIL = "Insight ‘{insight}’"
 
 
 def find(context: Context) -> Found:
-    alerts = list_firing_alerts_on_insights_created_by(
-        context.team.id, context.user.id, include_metrics_insights=context.allows("metrics:read"), limit=10
+    alerts = list_firing_alerts_created_by(
+        context.team, context.user, include_metrics_insights=context.allows("metrics:read"), limit=10
     )
     return Found(items=tuple(_candidate(alert) for alert in alerts))
 
