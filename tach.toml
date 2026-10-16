@@ -279,6 +279,8 @@ depends_on = [
     # Facade-only: the deleted-ticket purge retracts the ticket's signal embeddings. products.signals
     # depends on products.conversations in turn, so keep this direction on the facade.
     "products.signals",
+    # Facade-only: conversations declares its "For you today" sources against Today's contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -1641,7 +1643,6 @@ depends_on = [
     "ee",
     "posthog",
     "products.access_control",
-    "products.conversations",
     "products.signals",
     "products.tasks",
 ]

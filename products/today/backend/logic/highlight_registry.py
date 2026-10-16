@@ -1,15 +1,33 @@
-import pkgutil
-import importlib
 from functools import cache
-from typing import cast
 
-from . import highlight_sources
-from .highlight_types import Source
+from posthog.products import load_product_modules
+
+from ..facade.contracts import HighlightSource
+
+SOURCES_MODULE = "facade.today_highlights"
+SOURCES_ATTRIBUTE = "HIGHLIGHT_SOURCES"
+
+
+class HighlightRegistryError(Exception):
+    pass
 
 
 @cache
-def load_sources() -> tuple[Source, ...]:
-    return tuple(
-        cast(Source, importlib.import_module(f"{highlight_sources.__name__}.{name}").SOURCE)
-        for name in sorted(module.name for module in pkgutil.iter_modules(highlight_sources.__path__))
-    )
+def load_sources() -> tuple[HighlightSource, ...]:
+    """Every source that a product declares in `backend/facade/today_highlights.py`, sorted by name.
+
+    Today imports no product by name, so the dependency points from the product to Today's facade.
+    A broken declaration raises instead of dropping the source without a trace.
+    """
+    sources: dict[str, HighlightSource] = {}
+    for module in load_product_modules(SOURCES_MODULE):
+        declared = getattr(module, SOURCES_ATTRIBUTE, None)
+        if declared is None:
+            raise HighlightRegistryError(f"{module.__name__} has no {SOURCES_ATTRIBUTE}")
+        for source in declared:
+            if not isinstance(source, HighlightSource):
+                raise HighlightRegistryError(f"{module.__name__} declares {source!r}, which is not a HighlightSource")
+            if source.name in sources:
+                raise HighlightRegistryError(f"{module.__name__} declares the source name {source.name!r} again")
+            sources[source.name] = source
+    return tuple(sources[name] for name in sorted(sources))

@@ -26,6 +26,17 @@ def product_app_names() -> list[str]:
     return [app_config.name for app_config in apps.get_app_configs() if is_product_module(app_config.name)]
 
 
+def _module_exists(module_name: str) -> bool:
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except ModuleNotFoundError as error:
+        # find_spec imports the parent packages of a dotted name, so a product without the parent
+        # (no `facade/` for "facade.x") raises here. Any other missing module is a real import error.
+        if error.name is not None and module_name.startswith(f"{error.name}."):
+            return False
+        raise
+
+
 def load_product_modules(submodule: str) -> Iterator[ModuleType]:
     """Import `<product app>.<submodule>` for every product that has one.
 
@@ -38,7 +49,7 @@ def load_product_modules(submodule: str) -> Iterator[ModuleType]:
     """
     for app_name in product_app_names():
         module_name = f"{app_name}.{submodule}"
-        if importlib.util.find_spec(module_name) is None:
+        if not _module_exists(module_name):
             continue
         yield importlib.import_module(module_name)
 

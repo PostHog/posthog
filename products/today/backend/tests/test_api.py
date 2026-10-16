@@ -27,8 +27,8 @@ from posthog.models.personal_api_key import hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.facade import api as signals
 from products.signals.backend.models import SignalReport
+from products.today.backend.facade.contracts import HighlightFindings, HighlightSource
 from products.today.backend.logic import highlights
-from products.today.backend.logic.highlight_types import Found, Source
 from products.today.backend.logic.jev import JevPick
 from products.today.backend.temporal.inputs import (
     ComputeHighlightsInputs,
@@ -349,8 +349,9 @@ def _temporal() -> MagicMock:
 
 class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
     def _get(self, connect: MagicMock, flag: bool = True) -> "_MonkeyPatchedResponse":
-        source = Source(
-            name="alerts", find=lambda _c: Found(items=(candidate("alert:1", "alerts", 0.8),), pulse=(metric("k1"),))
+        source = HighlightSource(
+            name="alerts",
+            find=lambda _c: HighlightFindings(items=(candidate("alert:1", "alerts", 0.8),), pulse=(metric("k1"),)),
         )
         with (
             patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=flag),
