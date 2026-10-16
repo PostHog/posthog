@@ -10,7 +10,7 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 
 
-@pytest.fixture(params=["turn_ended_before_patch", "continued_open_turn"])
+@pytest.fixture(params=["turn_ended_before_patch", "continued_open_turn", "continued_context_failure"])
 def history(request: pytest.FixtureRequest) -> WorkflowHistory:
     return WorkflowHistory.from_json(
         "process-task-replay", (Path(__file__).parent / "histories" / f"{request.param}.json").read_text()

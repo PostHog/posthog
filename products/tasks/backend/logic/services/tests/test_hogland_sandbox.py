@@ -1,5 +1,7 @@
+import asyncio
+
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
@@ -181,7 +183,10 @@ class TestHoglandSandboxExecution:
 
         assert "secret" not in str(err.value.context)
 
-    def test_execute_stream_buffers_output_and_defaults_missing_exit_to_minus_one(self):
+    @pytest.mark.parametrize("buffer_stdout,stalled", [(True, False), (False, False), (False, True)])
+    def test_execute_stream_buffers_output_and_defaults_missing_exit_to_minus_one(
+        self, buffer_stdout: bool, stalled: bool
+    ):
         box = _mock_box()
         events = [
             {"kind": "stdout", "data": "a"},
@@ -191,10 +196,42 @@ class TestHoglandSandboxExecution:
         box.exec_stream.return_value = iter([ExecEvent.model_validate(e) for e in events])
         sandbox = _running_sandbox(box)
 
-        stream = sandbox.execute_stream("cmd")
-        assert list(stream.iter_stdout()) == ["a", "b"]
-        result = stream.wait()
-        assert (result.stdout, result.stderr, result.exit_code) == ("ab", "warn", -1)
+        async def output(*args: object, **kwargs: object):
+            for event in events:
+                yield ExecEvent.model_validate(event)
+            if stalled:
+                await asyncio.Event().wait()
+
+        async_box = MagicMock()
+        async_box.exec_stream.side_effect = output
+        client = AsyncMock()
+        client.get.return_value = async_box
+        with patch("products.tasks.backend.logic.services.hogland_sandbox.AsyncHogland", return_value=client):
+            stream = sandbox.execute_stream(
+                "cmd", timeout_seconds=0 if stalled else 10, isolated=not buffer_stdout, buffer_stdout=buffer_stdout
+            )
+            try:
+                if stalled:
+                    with pytest.raises(TimeoutError):
+                        list(stream.iter_stdout())
+                else:
+                    assert list(stream.iter_stdout()) == ["a", "b"]
+                    result = stream.wait()
+                    assert (result.stdout, result.stderr, result.exit_code) == (
+                        "ab" if buffer_stdout else "",
+                        "warn",
+                        -1,
+                    )
+            finally:
+                stream.close()
+        if not buffer_stdout:
+            client.aclose.assert_awaited_once()
+            assert async_box.exec_stream.call_args.args[0][:4] == [
+                "/usr/bin/env",
+                "-i",
+                "PATH=/usr/bin:/bin",
+                "/bin/bash",
+            ]
 
 
 class TestHoglandSandboxLifecycle:

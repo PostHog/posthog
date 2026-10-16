@@ -1008,6 +1008,9 @@ def _refresh_sandbox_github(
             )
             return SandboxRebindFailure.CREDENTIAL_LOCK_UNAVAILABLE
 
+        if TaskRun.objects.filter(id=run_id, state__sandbox_retained_for_recovery=sandbox.id).exists():
+            return SandboxRebindFailure.CREDENTIAL_LOCK_UNAVAILABLE
+
         if token:
             applied = False
             try:

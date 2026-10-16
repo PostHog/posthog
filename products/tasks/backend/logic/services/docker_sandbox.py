@@ -777,6 +777,9 @@ class DockerSandbox(AgentServerLaunchMixin):
         self,
         command: str,
         timeout_seconds: Optional[int] = None,
+        *,
+        isolated: bool = False,
+        buffer_stdout: bool = True,
     ) -> ExecutionStream:
         if not self.is_running():
             raise SandboxExecutionError(
@@ -791,8 +794,13 @@ class DockerSandbox(AgentServerLaunchMixin):
         try:
             redacted_command = redact_sandbox_command(command)
             logger.debug(f"Streaming execution in sandbox {self.id}: {redacted_command[:100]}...")
+            argv = (
+                ["/usr/bin/env", "-i", "PATH=/usr/bin:/bin", "/bin/bash", "--noprofile", "--norc", "-c", command]
+                if isolated
+                else ["bash", "-c", command]
+            )
             process = subprocess.Popen(
-                ["docker", "exec", self._container_id, "bash", "-c", command],
+                ["docker", "exec", self._container_id, *argv],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -813,6 +821,28 @@ class DockerSandbox(AgentServerLaunchMixin):
                 self._sandbox_id = sandbox_id
                 self._stdout_buffer: list[str] = []
                 self._stdout_iterated = False
+                self._stderr_tail = ""
+                self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
+                self._stderr_thread.start()
+                self._timer = threading.Timer(timeout, self._process.kill)
+                self._timer.daemon = True
+                self._timer.start()
+
+            def _drain_stderr(self) -> None:
+                if self._process.stderr:
+                    for line in self._process.stderr:
+                        self._stderr_tail = (self._stderr_tail + redact_sandbox_command(line))[-4096:]
+
+            def close(self) -> None:
+                self._timer.cancel()
+                if self._process.poll() is None:
+                    self._process.kill()
+                self._process.wait(timeout=5)
+                self._stderr_thread.join(timeout=5)
+                if self._process.stdout:
+                    self._process.stdout.close()
+                if self._process.stderr:
+                    self._process.stderr.close()
 
             def iter_stdout(self) -> Iterable[str]:
                 if not self._process.stdout:
@@ -821,11 +851,15 @@ class DockerSandbox(AgentServerLaunchMixin):
                 for line in iter(self._process.stdout.readline, ""):
                     if line == "" and self._process.poll() is not None:
                         break
-                    self._stdout_buffer.append(line)
+                    if buffer_stdout:
+                        self._stdout_buffer.append(line)
                     yield line
                 self._process.stdout.close()
 
             def wait(self) -> ExecutionResult:
+                if not buffer_stdout and not self._stdout_iterated:
+                    for _ in self.iter_stdout():
+                        pass
                 try:
                     self._process.wait(timeout=self._timeout)
                 except subprocess.TimeoutExpired as e:
@@ -841,7 +875,11 @@ class DockerSandbox(AgentServerLaunchMixin):
                     stdout = self._process.stdout.read()
                 else:
                     stdout = "".join(self._stdout_buffer)
-                stderr = self._process.stderr.read() if self._process.stderr else ""
+                self._timer.cancel()
+                self._stderr_thread.join(timeout=self._timeout)
+                if self._stderr_thread.is_alive():
+                    raise TimeoutError("Sandbox stderr did not finish")
+                stderr = self._stderr_tail
                 return ExecutionResult(
                     stdout=stdout,
                     stderr=stderr,

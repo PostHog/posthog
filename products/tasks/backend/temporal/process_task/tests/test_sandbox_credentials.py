@@ -14,6 +14,15 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
 )
 
 
+@pytest.fixture(autouse=True)
+def retention_lookup(request, mocker):
+    if request.node.get_closest_marker("django_db") is None:
+        mocker.patch(
+            "products.tasks.backend.temporal.process_task.sandbox_credentials.TaskRun.objects.filter",
+            return_value=MagicMock(**{"exists.return_value": False}),
+        )
+
+
 def _ok(stdout: str = "") -> ExecutionResult:
     return ExecutionResult(stdout=stdout, stderr="", exit_code=0)
 

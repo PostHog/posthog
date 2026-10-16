@@ -122,6 +122,7 @@ from products.tasks.backend.logic.services.network_policy import (
     normalize_requested_domains,
 )
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
+from products.tasks.backend.logic.services.sandbox_recovery import SandboxRecoveryArchive
 from products.tasks.backend.logic.services.space_setup import (
     SPACE_SETUP_FEED_EVENT,
     SPACE_SETUP_MODEL,
@@ -309,6 +310,7 @@ __all__ = [
     "get_task_id_for_run",
     "get_task_run",
     "get_task_run_session",
+    "get_task_run_recovery_url",
     "sync_task_run_session",
     "get_task_run_detail",
     "get_task_run_source",
@@ -2777,6 +2779,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_url",
         "sandbox_connect_token",
         "sandbox_jwt_kid",
+        "sandbox_retained_for_recovery",
+        "sandbox_recovery_deadline",
+        "sandbox_recovery_archive_sandbox_id",
+        "sandbox_recovery_archive_partial",
         DEV_STACK_PREVIEW_STATE_KEY,
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
@@ -3916,6 +3922,15 @@ def ensure_task_run_session(run_id: str | UUID) -> UUID:
         return task_session.id
 
 
+def get_task_run_recovery_url(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, user_id: int | None
+) -> str | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None or user_id is None or run.task.created_by_id != user_id:
+        return None
+    return SandboxRecoveryArchive.download_url(run)
+
+
 def get_task_run_session(
     run_id: str | UUID, task_id: str | UUID, team_id: int
 ) -> tuple[UUID, str | None, str | None] | None:
@@ -4500,9 +4515,6 @@ def finalize_task_run_artifact_uploads(
     """
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
-    from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
-        get_safe_artifact_name,
-    )
     from products.tasks.backend.presentation.serializers import (  # noqa: PLC0415 — pure size helpers, kept off the api import path
         build_task_run_artifact_size_error,
         get_task_run_artifact_max_size_bytes,
@@ -4513,7 +4525,6 @@ def finalize_task_run_artifact_uploads(
         return None, None
 
     manifest = list(run.artifacts or [])
-    artifact_prefix = f"{run.get_artifact_s3_prefix()}/"
     finalized_entries: list[dict] = []
     new_entries: list[dict] = []
     hash_budget = ARTIFACT_SCRIPT_HASH_BUDGET_BYTES
@@ -4523,7 +4534,8 @@ def finalize_task_run_artifact_uploads(
         artifact_id = artifact["id"]
         storage_path = artifact["storage_path"]
 
-        if not storage_path.startswith(artifact_prefix) or f"/{artifact_id[:8]}_" not in storage_path:
+        safe_name, expected_storage_path = _build_artifact_storage_path(run, artifact_id, artifact["name"])
+        if storage_path != expected_storage_path:
             return None, "Artifact storage path is invalid for this run"
 
         existing_entry = _find_artifact_manifest_entry(manifest, artifact_id, storage_path)
@@ -4535,7 +4547,6 @@ def finalize_task_run_artifact_uploads(
         if not s3_object:
             return None, "Artifact upload not found in object storage"
 
-        safe_name = get_safe_artifact_name(artifact["name"])
         content_type = artifact.get("content_type") or s3_object.get("ContentType") or ""
         content_length = s3_object.get("ContentLength")
         if not isinstance(content_length, int):

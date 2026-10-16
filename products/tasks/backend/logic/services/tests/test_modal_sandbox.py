@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -16,6 +16,7 @@ from modal import Probe
 from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
+    NotFoundError as ModalNotFoundError,
     ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
@@ -541,6 +542,47 @@ class TestModalSandboxAgentServer:
         assert "secret-token" not in exc.value.context["error"]
         assert "--mcpServers <redacted>" in exc.value.context["command"]
         assert "--mcpServers <redacted>" in exc.value.context["error"]
+
+    @pytest.mark.parametrize("buffer_stdout", [False, True])
+    def test_execute_stream_can_leave_output_unbuffered(self, mock_sandbox: Any, buffer_stdout: bool) -> None:
+        process = MagicMock(returncode=0)
+        process.stdout = iter(["data\n"])
+        process.stderr.read.return_value = ""
+        process.stderr.__iter__.return_value = iter(
+            [
+                "x" * 8192 + "\n",
+                "tar: GITHUB_TOKEN=synthetic-token: Permission denied\n",
+            ]
+        )
+        if not buffer_stdout:
+            process.stdout = MagicMock()
+            process.stdout.__aiter__.return_value = ["data\n"]
+            process.stderr.__aiter__.return_value = [
+                "x" * 8192 + "\n",
+                "tar: GITHUB_TOKEN=synthetic-token: Permission denied\n",
+            ]
+            process.wait.aio = AsyncMock(return_value=0)
+            process.stdout.aclose = AsyncMock()
+            process.stderr.aclose = AsyncMock()
+        mock_sandbox._sandbox.exec.return_value = process
+        stream = mock_sandbox.execute_stream("command", isolated=True, buffer_stdout=buffer_stdout)
+        assert list(stream.iter_stdout()) == ["data\n"]
+        result = stream.wait()
+        if not buffer_stdout:
+            stream.close()
+            process.stdout.aclose.assert_awaited_once()
+            process.stderr.aclose.assert_awaited_once()
+        assert result.stdout == ("data\n" if buffer_stdout else "")
+        if not buffer_stdout:
+            assert len(result.stderr) == 4096
+            assert result.stderr.endswith("tar: GITHUB_TOKEN=<redacted> Permission denied\n")
+            assert "synthetic-token" not in result.stderr
+        assert mock_sandbox._sandbox.exec.call_args.args[:4] == (
+            "/usr/bin/env",
+            "-i",
+            "PATH=/usr/bin:/bin",
+            "/bin/bash",
+        )
 
     def test_execute_raises_timeout_when_modal_reports_minus_one(self, mock_sandbox: Any):
         process = MagicMock(returncode=-1)
@@ -2900,16 +2942,28 @@ class TestModalSandboxProxyRateLimit:
 
         assert not isinstance(exc.value, SandboxControlPlaneError)
 
-    def test_get_by_id_rate_limit_is_not_reported_as_missing_sandbox(self):
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            (_modal_wrapped_rate_limit(), SandboxRateLimitedError),
+            (ModalTimeoutError("lookup timed out"), ModalTimeoutError),
+            (ModalConnectionError("connection failed"), ModalConnectionError),
+            (ModalNotFoundError("missing"), SandboxNotFoundError),
+        ],
+    )
+    def test_get_by_id_distinguishes_provider_failures_from_missing_sandbox(
+        self, error: Exception, expected: type[Exception]
+    ) -> None:
         with patch(
             "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.from_id",
-            side_effect=_modal_wrapped_rate_limit(),
+            side_effect=error,
         ):
-            with pytest.raises(SandboxRateLimitedError) as exc:
+            with pytest.raises(expected) as exc:
                 ModalSandbox.get_by_id("sb-123")
 
-        assert not isinstance(exc.value, SandboxNotFoundError)
-        assert exc.value.context["operation"] == "lookup"
+        if isinstance(exc.value, SandboxRateLimitedError):
+            assert exc.value.context["operation"] == "lookup"
+            assert exc.value.next_retry_delay is not None
 
     def test_write_file_rate_limit_skips_exec_fallback(self, mock_sandbox: Any):
         mock_sandbox._sandbox.filesystem.write_bytes.side_effect = _socks_rate_limit()

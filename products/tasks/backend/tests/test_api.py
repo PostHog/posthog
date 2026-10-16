@@ -76,6 +76,7 @@ from products.tasks.backend.logic.services.connection_token import (
     reset_sandbox_jwt_key_cache,
 )
 from products.tasks.backend.logic.services.model_catalogue import GatewayModel
+from products.tasks.backend.logic.services.sandbox_recovery import SandboxRecoveryArchive
 from products.tasks.backend.logic.services.staged_artifacts import (
     RUN_ARTIFACT_TTL_DAYS,
     build_task_artifact_entry,
@@ -9918,11 +9919,19 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertNotIn("uploaded_by", artifact)
         self.assertNotIn("uploaded_by_user_id", artifact)
 
+    @parameterized.expand(["wrong_prefix", "nested", "recovery"])
     @patch("posthog.storage.object_storage.head_object")
-    def test_finalize_artifact_uploads_rejects_invalid_storage_path(self, mock_head_object):
-        task = self.create_task()
+    def test_finalize_artifact_uploads_rejects_invalid_storage_path(self, path_kind, mock_head_object):
+        task = self.create_task(created_by=self.create_organization_user())
+        task.origin_product = Task.OriginProduct.WORKFLOW
+        task.save(update_fields=["origin_product"])
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        artifact_id = uuid.uuid4().hex
+        artifact_id = "run"
+        paths = {
+            "wrong_prefix": f"{run.get_artifact_s3_prefix()}/wrong-prefix_spec.pdf",
+            "nested": f"{run.get_artifact_s3_prefix()}/nested/run_spec.pdf",
+            "recovery": SandboxRecoveryArchive.storage_path(run, "sandbox-example"),
+        }
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/finalize_upload/",
@@ -9933,7 +9942,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         "name": "spec.pdf",
                         "type": "user_attachment",
                         "source": "user_attachment",
-                        "storage_path": f"{run.get_artifact_s3_prefix()}/wrong-prefix_spec.pdf",
+                        "storage_path": paths[path_kind],
                         "content_type": "application/pdf",
                     }
                 ]
@@ -9944,6 +9953,14 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "Artifact storage path is invalid for this run")
         mock_head_object.assert_not_called()
+        run.refresh_from_db()
+        self.assertFalse(run.artifacts)
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/presign/",
+            {"storage_path": paths[path_kind]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch("posthog.storage.object_storage.head_object")
     @patch("products.tasks.backend.logic.services.staged_artifacts.tag_task_artifact")
@@ -17767,6 +17784,92 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "scanning")
         mock_workflow.assert_called_once()
+
+
+class TestTaskRunRecoveryApiAccess(BaseTaskAPITest):
+    @parameterized.expand(["state", "state_remove_keys", "state_append"])
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_recovery_state_is_server_owned(self, operation: str, _publish: MagicMock) -> None:
+        task = Task.objects.create(team=self.team, created_by=self.user, title="Recovery state")
+        original = {
+            "sandbox_retained_for_recovery": "sandbox-original",
+            "sandbox_recovery_archive_sandbox_id": "sandbox-original",
+            "sandbox_recovery_archive_partial": False,
+            "cancel_fallback_stream_generation": "original-generation",
+        }
+        run = TaskRun.objects.create(task=task, team=self.team, state=original)
+        value = list(original) if operation == "state_remove_keys" else {key: ["replacement"] for key in original}
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", {operation: value}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        run.refresh_from_db()
+        assert {key: (run.state or {}).get(key) for key in original} == original
+
+    @parameterized.expand(
+        [
+            ("owner", True, status.HTTP_302_FOUND),
+            ("owner", False, status.HTTP_404_NOT_FOUND),
+            ("read_key", True, status.HTTP_403_FORBIDDEN),
+            ("write_key", True, status.HTTP_302_FOUND),
+            ("teammate", True, status.HTTP_404_NOT_FOUND),
+            ("other_team", True, status.HTTP_404_NOT_FOUND),
+            ("anonymous", True, status.HTTP_401_UNAUTHORIZED),
+        ]
+    )
+    @patch("posthog.storage.object_storage.head_object", return_value={"ContentLength": 123})
+    @patch("posthog.storage.object_storage.get_presigned_url", return_value="https://example.com/recovery")
+    def test_recovery_download_requires_owner(
+        self, caller: str, ready: bool, expected_status: int, presign: MagicMock, head: MagicMock
+    ) -> None:
+        task = Task.objects.create(
+            team=self.team, created_by=self.user, title="Recovery test", origin_product=Task.OriginProduct.SLACK
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            environment=TaskRun.Environment.CLOUD,
+            state={
+                "sandbox_retained_for_recovery": "sandbox-123",
+                "sandbox_recovery_archive_sandbox_id": "sandbox-123" if ready else None,
+            },
+        )
+        if caller in {"read_key", "write_key"}:
+            raw_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="Recovery access",
+                user=self.user,
+                secure_value=hash_key_value(raw_key),
+                scopes=["task:read"] if caller == "read_key" else ["task:read", "task:write"],
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        elif caller == "teammate":
+            self.client.force_authenticate(self.create_organization_user("archive-reader"))
+        elif caller == "other_team":
+            other_team = Team.objects.create(organization=self.organization, name="Other project")
+            task.team = other_team
+            task.save(update_fields=["team"])
+            run.team = other_team
+            run.save(update_fields=["team"])
+        elif caller == "anonymous":
+            self.client.logout()
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/recovery/")
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_302_FOUND:
+            self.assertEqual(response["Location"], "https://example.com/recovery")
+            self.assertEqual(response["Cache-Control"], "no-store")
+            presign.assert_called_once_with(
+                f"tasks/recovery/team_{run.team_id}/task_{task.id}/run_{run.id}/{hashlib.sha256(b'sandbox-123').hexdigest()}/workspace.tar.gz",
+                content_type="application/gzip",
+                content_disposition='attachment; filename="workspace-recovery.tar.gz"',
+            )
+        else:
+            head.assert_not_called()
+            presign.assert_not_called()
 
 
 class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):

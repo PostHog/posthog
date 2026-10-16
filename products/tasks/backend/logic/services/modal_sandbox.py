@@ -11,7 +11,7 @@ import asyncio
 import logging
 import tempfile
 import threading
-from collections.abc import Iterable
+from collections.abc import AsyncGenerator, Iterable
 from dataclasses import dataclass
 from functools import lru_cache
 from http import HTTPStatus
@@ -27,6 +27,7 @@ from cachetools import TTLCache, cached
 from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
+    NotFoundError as ModalNotFoundError,
     ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
@@ -107,6 +108,7 @@ from .sandbox import (
     SandboxTemplate,
     SandboxWorkload,
 )
+from .sandbox_stream import AsyncExecutionStream
 
 logger = logging.getLogger(__name__)
 
@@ -1358,12 +1360,14 @@ class ModalSandbox(AgentServerLaunchMixin):
 
             return ModalSandbox(sandbox=sb, config=config)
 
-        except Exception as e:
-            _raise_if_proxy_failure(e, sandbox_id, "lookup")
-            logger.exception(f"Failed to retrieve sandbox {sandbox_id}: {e}")
+        except ModalNotFoundError as e:
             raise SandboxNotFoundError(
                 f"Sandbox {sandbox_id} not found", {"sandbox_id": sandbox_id, "error": str(e)}, cause=e
             )
+        except Exception as e:
+            _raise_if_proxy_failure(e, sandbox_id, "lookup")
+            logger.exception(f"Failed to retrieve sandbox {sandbox_id}: {e}")
+            raise
 
     def get_status(self) -> SandboxStatus:
         if self._destroyed:
@@ -1461,13 +1465,49 @@ class ModalSandbox(AgentServerLaunchMixin):
         self,
         command: str,
         timeout_seconds: int | None = None,
+        *,
+        isolated: bool = False,
+        buffer_stdout: bool = True,
     ) -> ExecutionStream:
         redacted_command, timeout_seconds = self._prepare_command(command, timeout_seconds)
 
         try:
-            process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
+            argv = (
+                ["/usr/bin/env", "-i", "PATH=/usr/bin:/bin", "/bin/bash", "--noprofile", "--norc", "-c", command]
+                if isolated
+                else ["bash", "-c", command]
+            )
+            process = self._sandbox.exec(*argv, timeout=timeout_seconds)
         except Exception as e:
             self._raise_command_failure(e, redacted_command, timeout_seconds)
+
+        if not buffer_stdout:
+
+            async def output() -> AsyncGenerator[str | ExecutionResult]:
+                stderr_tail = ""
+
+                async def drain_stderr() -> None:
+                    nonlocal stderr_tail
+                    async for line in process.stderr:
+                        stderr_tail = (stderr_tail + redact_sandbox_command(line))[-4096:]
+
+                stderr_task = asyncio.create_task(drain_stderr())
+                try:
+                    async for line in process.stdout:
+                        yield line
+                    await process.wait.aio()
+                    await stderr_task
+                    yield ExecutionResult(stdout="", stderr=stderr_tail, exit_code=process.returncode)
+                except Exception as error:
+                    _raise_if_proxy_failure(error, self.id, "exec")
+                    raise
+                finally:
+                    stderr_task.cancel()
+                    await asyncio.gather(stderr_task, return_exceptions=True)
+                    await process.stdout.aclose()
+                    await process.stderr.aclose()
+
+            return AsyncExecutionStream(output(), timeout_seconds)
 
         class _ModalExecutionStream:
             def __init__(self, process: Any, sandbox_id: str):
@@ -1476,12 +1516,17 @@ class ModalSandbox(AgentServerLaunchMixin):
                 self._stdout_buffer: list[str] = []
                 self._stdout_iterated = False
 
+            def close(self) -> None:
+                self._process.stdout.close()
+                self._process.stderr.close()
+
             def iter_stdout(self) -> Iterable[str]:
                 self._stdout_iterated = True
                 try:
                     for line in self._process.stdout:
                         output = line.decode("utf-8") if isinstance(line, bytes) else line
-                        self._stdout_buffer.append(output)
+                        if buffer_stdout:
+                            self._stdout_buffer.append(output)
                         yield output
                 except Exception as e:
                     _raise_if_proxy_failure(e, self._sandbox_id, "exec")

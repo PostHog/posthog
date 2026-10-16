@@ -195,6 +195,8 @@ class ExecutionStream(Protocol):
 
     def wait(self) -> ExecutionResult: ...
 
+    def close(self) -> None: ...
+
 
 @dataclass(frozen=True)
 class SandboxResources:
@@ -493,7 +495,9 @@ class SandboxBase(ABC):
     def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult: ...
 
     @abstractmethod
-    def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream: ...
+    def execute_stream(
+        self, command: str, timeout_seconds: int | None = None, *, isolated: bool = False, buffer_stdout: bool = True
+    ) -> ExecutionStream: ...
 
     @abstractmethod
     def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult: ...

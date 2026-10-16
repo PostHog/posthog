@@ -1,3 +1,4 @@
+import sys
 import shlex
 import subprocess
 from pathlib import Path
@@ -26,6 +27,32 @@ from products.tasks.backend.logic.services.sandbox import (
 def sandbox() -> DockerSandbox:
     config = SandboxConfig(name="test-sandbox")
     return DockerSandbox(container_id="c" * 64, config=config, host_port=8000)
+
+
+@pytest.mark.parametrize("buffer_stdout", [False, True])
+def test_execute_stream_can_leave_output_unbuffered(sandbox: DockerSandbox, buffer_stdout: bool) -> None:
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import sys; sys.stderr.write('warning\\n' * 20000); sys.stdout.write('data\\n')"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    with (
+        patch.object(sandbox, "is_running", return_value=True),
+        patch("subprocess.Popen", return_value=process) as start,
+    ):
+        stream = sandbox.execute_stream("command", timeout_seconds=5, isolated=True, buffer_stdout=buffer_stdout)
+        try:
+            assert list(stream.iter_stdout()) == ["data\n"]
+            result = stream.wait()
+            assert result.stdout == ("data\n" if buffer_stdout else "")
+            assert len(result.stderr) == 4096
+            assert result.exit_code == 0
+        finally:
+            stream.close()
+    assert process.stdout is not None and process.stdout.closed
+    assert process.stderr is not None and process.stderr.closed
+    assert start.call_args.args[0][3:7] == ["/usr/bin/env", "-i", "PATH=/usr/bin:/bin", "/bin/bash"]
 
 
 def _log_result() -> ExecutionResult:

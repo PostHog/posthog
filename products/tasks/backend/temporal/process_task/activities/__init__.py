@@ -1,4 +1,10 @@
-from .cleanup_sandbox import CleanupSandboxInput, CompleteRunStreamInput, cleanup_sandbox, complete_run_stream
+from .cleanup_sandbox import (
+    CleanupSandboxInput,
+    CompleteRunStreamInput,
+    cleanup_sandbox,
+    complete_run_stream,
+    retain_sandbox_for_recovery,
+)
 from .create_resume_snapshot import CreateResumeSnapshotInput, CreateResumeSnapshotOutput, create_resume_snapshot
 from .emit_progress_activity import EmitProgressInput, emit_progress_activity
 from .enforce_self_driving_quota import EnforceSelfDrivingRunQuotaInput, enforce_self_driving_run_quota
@@ -132,6 +138,7 @@ __all__ = [
     "peer_message_id_from_context",
     "record_peer_message_outcome",
     "cleanup_sandbox",
+    "retain_sandbox_for_recovery",
     "complete_run_stream",
     "create_resume_snapshot",
     "create_sandbox_for_repository",

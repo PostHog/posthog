@@ -146,7 +146,18 @@ them. If capture exceeds the file limit, it reports failure and retains the prev
 checkpoint without pruning the live workspace. Directory names such as `.cache` or
 `.venv` do not establish that their contents can be rebuilt. The legacy
 `allow_pruning` activity field remains readable but no longer enables deletion.
-
+On teardown capture failure, the agent is stopped and active connection credentials
+are cleared. The sandbox ID is recorded separately in `sandbox_retained_for_recovery`.
+A durable cleanup workflow destroys it after 15 minutes; an earlier provider expiry
+still applies. Cleanup transfers a workspace recovery archive through the backend
+before expiry, so sandbox egress rules do not need to allow object storage. Archive
+readiness belongs to that sandbox; a later failed checkpoint needs a new archive.
+Compression streams through the backend into object storage without staging the
+full archive on sandbox or worker disk. Export attempts share a 14-minute deadline, including queue time, and
+sandbox reads stop before expiry.
+Exhausted recovery retries report failure without restarting the completed task.
+The expiry workflow still destroys the retained sandbox.
+The same recovery path preserves a handed-off sandbox when a continuation cannot load its task context.
 `TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED` defaults to `false` during rollout.
 Deploy generation-aware token issuers and ingest handlers everywhere before enabling it.
 Leave rotation off until old workers drain; otherwise a resumed sandbox can receive
@@ -160,6 +171,23 @@ Sandbox ingest tokens carry the same generation. Django and agent-proxy check it
 atomically when accepting events or completion, rejecting stale senders with HTTP 403
 and `stream_generation_mismatch`. The sender discards its buffer and stops on this code.
 Tokens issued before generation tracking remain valid only until the stream resets.
+Once ready, the task owner can download it from
+`GET /api/projects/{project_id}/tasks/{task_id}/runs/{run_id}/recovery/` for 30 days.
+The endpoint requires task creator access and `task:write`; shared task visibility
+does not grant access. Recovery archives live outside the ordinary artifact namespace.
+If the sandbox expires before its archive upload completes,
+no recovery download is available. Completed archives remain downloadable for 30 days
+after upload, even after sandbox destruction. Managed GitHub credentials are removed
+under the sandbox credential lock before export; unsuccessful removal prevents publication.
+Credential refreshes skip retained sandboxes. Retention requires a stopped agent and
+removed credentials; otherwise cleanup destroys the sandbox and expires its run OAuth tokens.
+Exports exclude Git configuration files inside `.git`, including moved and copied checkouts.
+Reconfigure remotes after extracting an archive. Archives use `OBJECT_STORAGE_TASKS_FOLDER`.
+Failed transfers stop their export command and close the provider streams before retrying.
+The archive is for manual file recovery, not automatic session resume, and
+does not turn an older checkpoint into a current one. If files change during
+compression, the download is named `workspace-recovery-partial.tar.gz`: it can
+recover files but does not represent a consistent point in time.
 
 ## Running via the UI
 

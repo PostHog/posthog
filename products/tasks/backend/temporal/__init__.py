@@ -45,6 +45,7 @@ from .process_task.activities import (
     relay_sandbox_events,
     relay_sandbox_events_deferred_completion,
     restore_sandbox_connection_state,
+    retain_sandbox_for_recovery,
     run_wizard,
     send_followup_to_sandbox,
     send_permission_denial_guidance,
@@ -64,11 +65,13 @@ from .process_task.activities.slack_agent_design import (
     start_slack_agent_design_stream,
     stop_slack_agent_design_stream,
 )
+from .process_task.expire_retained_sandbox import ExpireRetainedSandboxWorkflow
 from .process_task.slack_agent_design_relay import SlackAgentDesignRelayWorkflow
 from .process_task.workflow import ProcessTaskWorkflow
 from .slack_relay import PostHogCodeAgentRelayWorkflow, relay_slack_message
 
 WORKFLOWS = [
+    ExpireRetainedSandboxWorkflow,
     TaskRunGatewayUsageWorkflow,
     ProcessTaskWorkflow,
     SlackAgentDesignRelayWorkflow,
@@ -113,6 +116,7 @@ ACTIVITIES = [
     mark_repo_ready,
     read_sandbox_logs,
     cleanup_sandbox,
+    retain_sandbox_for_recovery,
     complete_run_stream,
     emit_progress_activity,
     enforce_self_driving_run_quota,

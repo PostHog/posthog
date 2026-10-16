@@ -22,7 +22,7 @@ import time
 import uuid
 import shlex
 import logging
-from collections.abc import Iterable
+from collections.abc import AsyncGenerator, Iterable
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -30,7 +30,7 @@ from typing import Any
 from django.conf import settings
 
 import httpx
-from hogland import APIError, ExecEvent, Hogbox, Hogland, NotFoundError
+from hogland import APIError, AsyncHogland, ExecEvent, Hogbox, Hogland, NotFoundError
 
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
@@ -53,6 +53,7 @@ from products.tasks.backend.logic.services.sandbox import redact_sandbox_command
 from products.tasks.backend.logic.services.sandbox_config import BURSTABLE_REQUEST_CPU_CORES
 
 from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
+from .sandbox_stream import AsyncExecutionStream
 
 logger = logging.getLogger(__name__)
 
@@ -172,15 +173,22 @@ def get_hogland_client() -> Hogland:
 class _HogboxExecutionStream:
     """Adapts the SDK's SSE exec stream to the ExecutionStream protocol."""
 
-    def __init__(self, events: Iterable[ExecEvent]):
+    def __init__(self, events: Iterable[ExecEvent], *, buffer_stdout: bool = True):
         self._events = iter(events)
+        self._buffer_stdout = buffer_stdout
         self._stdout_chunks: list[str] = []
         self._stderr_chunks: list[str] = []
         self._exit_code: int | None = None
 
+    def close(self) -> None:
+        close = getattr(self._events, "close", None)
+        if close is not None:
+            close()
+
     def _consume(self, event: ExecEvent) -> str | None:
         if event.kind == "stdout":
-            self._stdout_chunks.append(event.data)
+            if self._buffer_stdout:
+                self._stdout_chunks.append(event.data)
             return event.data
         if event.kind == "stderr":
             self._stderr_chunks.append(event.data)
@@ -389,7 +397,9 @@ class HoglandSandbox(AgentServerLaunchMixin):
 
         return ExecutionResult(stdout=result.stdout, stderr=result.stderr, exit_code=result.exit_code, error=None)
 
-    def execute_stream(self, command: str, timeout_seconds: int | None = None) -> ExecutionStream:
+    def execute_stream(
+        self, command: str, timeout_seconds: int | None = None, *, isolated: bool = False, buffer_stdout: bool = True
+    ) -> ExecutionStream:
         if not self.is_running():
             raise SandboxNotRunningError(
                 "Sandbox not in running state.",
@@ -400,8 +410,39 @@ class HoglandSandbox(AgentServerLaunchMixin):
         if timeout_seconds is None:
             timeout_seconds = self.config.default_execution_timeout_seconds
 
-        events = self._box.exec_stream(["bash", "-c", command], timeout_seconds=timeout_seconds)
-        return _HogboxExecutionStream(events)
+        argv = (
+            ["/usr/bin/env", "-i", "PATH=/usr/bin:/bin", "/bin/bash", "--noprofile", "--norc", "-c", command]
+            if isolated
+            else ["bash", "-c", command]
+        )
+        if not buffer_stdout:
+
+            async def output() -> AsyncGenerator[str | ExecutionResult]:
+                client = AsyncHogland(
+                    token=get_hogland_api_token(),
+                    base_url=settings.HOGLAND_API_URL,
+                    timeout=timeout_seconds,
+                    trust_env=False,
+                )
+                try:
+                    box = await client.get(self.id)
+                    stderr_tail = ""
+                    exit_code = -1
+                    async for event in box.exec_stream(argv, timeout_seconds=timeout_seconds):
+                        if event.kind == "stdout":
+                            yield event.data
+                        elif event.kind == "stderr":
+                            stderr_tail = (stderr_tail + redact_sandbox_command(event.data))[-4096:]
+                        elif event.kind == "exit":
+                            exit_code = event.exit_code if event.exit_code is not None else -1
+                    yield ExecutionResult(stdout="", stderr=stderr_tail, exit_code=exit_code)
+                finally:
+                    await client.aclose()
+
+            return AsyncExecutionStream(output(), timeout_seconds)
+
+        events = self._box.exec_stream(argv, timeout_seconds=timeout_seconds)
+        return _HogboxExecutionStream(events, buffer_stdout=buffer_stdout)
 
     def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
         if not self.is_running():

@@ -2087,6 +2087,26 @@ export const tasksRunsPreviewRetrieve = async (
     })
 }
 
+export const getTasksRunsRecoveryRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/recovery/`
+}
+
+/**
+ * Only the task creator can download this archive, for 30 days after upload.
+ * @summary Download the workspace recovered after a failed checkpoint
+ */
+export const tasksRunsRecoveryRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getTasksRunsRecoveryRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getTasksRunsRelayMessageCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/relay_message/`
 }

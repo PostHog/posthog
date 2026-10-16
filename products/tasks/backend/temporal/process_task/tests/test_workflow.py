@@ -3,9 +3,11 @@ import json
 import uuid
 import random
 import asyncio
+import logging
 import dataclasses
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -67,6 +69,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     post_permission_delivery_failure_notice,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
+    retain_sandbox_for_recovery,
     send_permission_denial_guidance,
     send_permission_response_to_sandbox,
     start_agent_server,
@@ -1688,24 +1691,45 @@ class TestProcessTaskWorkflowUnit:
             )
         ]
 
-    async def test_final_sandbox_cleanup_completes_stream_after_cleanup_retries_fail(self, monkeypatch):
+    @pytest.mark.parametrize("retain_sandbox,completion_fails", [(False, False), (True, False), (True, True)])
+    async def test_final_sandbox_cleanup_completes_stream_after_cleanup_retries_fail(
+        self, monkeypatch: pytest.MonkeyPatch, retain_sandbox: bool, completion_fails: bool
+    ) -> None:
         activity_calls: list[object] = []
 
         async def fake_execute_activity(activity_fn, activity_input, **kwargs):
             activity_calls.append(activity_fn)
-            if activity_fn is cleanup_sandbox:
-                raise RuntimeError("destroy failed")
+            if activity_fn in (cleanup_sandbox, retain_sandbox_for_recovery):
+                raise RuntimeError("upload failed" if retain_sandbox else "destroy failed")
             assert activity_fn is complete_run_stream
             assert activity_input == CompleteRunStreamInput(run_id="run-id")
+            if completion_fails:
+                raise RuntimeError("stream unavailable")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logging.getLogger(__name__))
+        expiry = AsyncMock()
+        monkeypatch.setattr(process_task_workflow_module.workflow, "start_child_workflow", expiry)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", lambda: datetime.now(UTC))
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
+        progress = AsyncMock()
+        monkeypatch.setattr(workflow, "_emit_progress", progress)
 
-        with pytest.raises(RuntimeError, match="destroy failed"):
-            await workflow._cleanup_sandbox("sandbox-123", complete_stream=True)
+        with nullcontext() if retain_sandbox else pytest.raises(RuntimeError, match="destroy failed"):
+            await workflow._cleanup_sandbox("sandbox-123", complete_stream=True, retain_sandbox=retain_sandbox)
 
-        assert activity_calls == [cleanup_sandbox, complete_run_stream]
+        assert activity_calls == [
+            retain_sandbox_for_recovery if retain_sandbox else cleanup_sandbox,
+            complete_run_stream,
+        ]
+        assert expiry.await_count == int(retain_sandbox)
+        assert progress.await_count == int(retain_sandbox)
+        if retain_sandbox:
+            assert (
+                expiry.call_args.kwargs["parent_close_policy"] == process_task_workflow_module.ParentClosePolicy.ABANDON
+            )
+            assert progress.call_args.kwargs["status"] == "failed"
 
     async def test_finalizes_run_stream_without_a_sandbox(self, monkeypatch):
         stream_inputs: list[CompleteRunStreamInput] = []
@@ -2410,25 +2434,51 @@ class TestProcessTaskWorkflowUnit:
         update_task_run_status_mock.assert_not_awaited()
         get_sandbox_mock.assert_not_awaited()
 
-    async def test_run_marks_failed_when_context_load_fails(self, monkeypatch):
+    @pytest.mark.parametrize("resumed", [False, True])
+    async def test_run_marks_failed_when_context_load_fails(
+        self, monkeypatch: pytest.MonkeyPatch, resumed: bool
+    ) -> None:
         workflow = ProcessTaskWorkflow()
         get_task_processing_context_mock = AsyncMock(side_effect=RuntimeError("database connection closed"))
         update_task_run_status_mock = AsyncMock()
         track_workflow_event_mock = AsyncMock()
         post_slack_update_mock = AsyncMock()
-        execute_activity = AsyncMock()
+        completion_inputs: list[CompleteRunStreamInput] = []
+        cleanup_inputs: list[CleanupSandboxInput] = []
+        now = datetime.now(UTC)
+        start_child = AsyncMock()
+
+        async def execute_activity(
+            activity_fn: object, activity_input: CleanupSandboxInput | CompleteRunStreamInput, **kwargs: object
+        ) -> None:
+            if activity_fn is complete_run_stream:
+                assert isinstance(activity_input, CompleteRunStreamInput)
+                completion_inputs.append(activity_input)
+            else:
+                assert activity_fn is retain_sandbox_for_recovery
+                assert isinstance(activity_input, CleanupSandboxInput)
+                cleanup_inputs.append(activity_input)
 
         monkeypatch.setattr(workflow, "_get_task_processing_context", get_task_processing_context_mock)
         monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
         monkeypatch.setattr(workflow, "_track_workflow_event", track_workflow_event_mock)
         monkeypatch.setattr(workflow, "_post_slack_update", post_slack_update_mock)
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", lambda: now)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "start_child_workflow", start_child)
 
-        result = await workflow.run(ProcessTaskInput(run_id="run-id", stream_generation="resumed-generation"))
+        input = ProcessTaskInput(run_id="run-id", stream_generation="resumed-generation")
+        if resumed:
+            previous = ProcessTaskWorkflow()
+            previous._context = _build_context(github_integration_id=123)
+            previous.context.stream_generation = "original-generation"
+            monkeypatch.setattr(previous, "_chain_start_time", lambda: datetime.now(UTC))
+            input = previous._build_resumed_input(input, "sandbox-123")
+        result = await workflow.run(input)
 
         assert result.success is False
         assert result.error == "database connection closed"
-        assert result.sandbox_id is None
+        assert result.sandbox_id == ("sandbox-123" if resumed else None)
         update_task_run_status_mock.assert_awaited_once_with(
             "failed",
             error_message="database connection closed",
@@ -2437,9 +2487,25 @@ class TestProcessTaskWorkflowUnit:
         )
         track_workflow_event_mock.assert_not_awaited()
         post_slack_update_mock.assert_not_awaited()
-        assert execute_activity.call_args.args[1] == CompleteRunStreamInput(
-            run_id="run-id", stream_generation="resumed-generation"
-        )
+        if resumed:
+            assert cleanup_inputs == [
+                CleanupSandboxInput(
+                    sandbox_id="sandbox-123",
+                    run_id="run-id",
+                    complete_stream_on_cleanup=True,
+                    retain_sandbox=True,
+                    recovery_deadline=(now + timedelta(minutes=14)).timestamp(),
+                    stream_generation="original-generation",
+                )
+            ]
+            assert start_child.await_args is not None
+            assert start_child.await_args.args[1] == cleanup_inputs[0]
+            assert completion_inputs == []
+        else:
+            assert cleanup_inputs == []
+            assert completion_inputs == [
+                CompleteRunStreamInput(run_id="run-id", stream_generation="resumed-generation")
+            ]
 
     async def test_run_persists_activity_failure_cause_not_the_wrapper(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
@@ -3756,15 +3822,17 @@ class TestProcessTaskWorkflowUnit:
         assert cleanup_sandbox not in activity_calls
 
     @pytest.mark.parametrize(
-        "mode, use_modal_resume_snapshots, expect_resume_snapshot_call",
+        "mode, use_modal_resume_snapshots, expect_resume_snapshot_call, snapshot_saved, retain_failed",
         [
-            ("interactive", True, True),
-            ("interactive", False, False),
-            ("background", True, False),
+            ("interactive", True, True, True, True),
+            ("interactive", True, True, False, True),
+            ("interactive", True, True, False, False),
+            ("interactive", False, False, False, True),
+            ("background", True, False, False, True),
         ],
     )
     async def test_finally_block_creates_resume_snapshot_for_interactive_runs(
-        self, monkeypatch, mode, use_modal_resume_snapshots, expect_resume_snapshot_call
+        self, monkeypatch, mode, use_modal_resume_snapshots, expect_resume_snapshot_call, snapshot_saved, retain_failed
     ):
         workflow = ProcessTaskWorkflow()
         get_task_processing_context_mock = AsyncMock(
@@ -3779,7 +3847,8 @@ class TestProcessTaskWorkflowUnit:
         post_slack_update_mock = AsyncMock()
         read_sandbox_logs_mock = AsyncMock()
         cleanup_sandbox_mock = AsyncMock()
-        create_resume_snapshot_mock = AsyncMock()
+        create_resume_snapshot_mock = AsyncMock(return_value=snapshot_saved)
+        monkeypatch.setattr(process_task_workflow_module, "_retain_failed_checkpoint", lambda: retain_failed)
 
         monkeypatch.setattr(workflow, "_get_task_processing_context", get_task_processing_context_mock)
         monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
@@ -3799,7 +3868,12 @@ class TestProcessTaskWorkflowUnit:
 
         await workflow.run(ProcessTaskInput(run_id="run-id"))
 
-        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
+        if expect_resume_snapshot_call and not snapshot_saved and retain_failed:
+            cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True, retain_sandbox=True)
+            assert workflow._sandbox_id_for_cleanup == "sandbox-123"
+        else:
+            cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
+            assert workflow._sandbox_id_for_cleanup is None
         if expect_resume_snapshot_call:
             create_resume_snapshot_mock.assert_awaited_once_with("sandbox-123", reason="teardown", allow_pruning=True)
         else:

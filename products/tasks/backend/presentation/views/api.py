@@ -2448,6 +2448,26 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         responses={
+            302: OpenApiResponse(description="Redirect to the workspace recovery archive"),
+            404: OpenApiResponse(description="Recovery archive unavailable"),
+        },
+        summary="Download the workspace recovered after a failed checkpoint",
+        description="Only the task creator can download this archive, for 30 days after upload.",
+    )
+    @action(detail=True, methods=["get"], url_path="recovery", required_scopes=["task:write"])
+    def recovery(self, request: Request, pk: str | None = None, **kwargs: object) -> HttpResponseRedirect:
+        task_id = self._ensure_task_accessible()
+        if pk is None:
+            raise NotFound("Recovery archive unavailable")
+        url = tasks_facade.get_task_run_recovery_url(pk, task_id, self.team_id, user_id=self._user_id())
+        if url is None:
+            raise NotFound("Recovery archive unavailable")
+        response = HttpResponseRedirect(url)
+        response["Cache-Control"] = "no-store"
+        return response
+
+    @extend_schema(
+        responses={
             200: TaskSessionResponseSerializer,
             404: OpenApiResponse(description="Task session not found"),
         },

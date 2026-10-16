@@ -247,6 +247,8 @@ def _apply_owner_token_locked(
                 "owner_token_apply_skipped_lock_unavailable", extra={"run_id": run_id, "sandbox_id": sandbox.id}
             )
             return False
+        if TaskRun.objects.filter(id=run_id, state__sandbox_retained_for_recovery=sandbox.id).exists():
+            return False
         rebound_actor = _actor_rebound_away_from_owner(run_id, state, owner_id)
         if rebound_actor is not None:
             logger.info(
@@ -405,7 +407,16 @@ class GitHubSandboxCredential:
                 # rewritten with the fresh token, not just the credential file. A repo-less run has
                 # no remote to rewrite, but a repo-backed one keeps the expired token in
                 # `.git/config` without this, which fails every later `git fetch`.
-                apply_github_credentials_to_sandbox(sandbox, ctx.repositories, token)
+                with sandbox_credential_lock(sandbox.id) as acquired:
+                    if (
+                        not acquired
+                        or TaskRun.objects.filter(
+                            id=ctx.run_id, state__sandbox_retained_for_recovery=sandbox.id
+                        ).exists()
+                    ):
+                        token = None
+                    elif not apply_github_credentials_to_sandbox(sandbox, ctx.repositories, token):
+                        token = None
             return CredentialRefreshOutcome(
                 self.kind,
                 refreshed=bool(token),

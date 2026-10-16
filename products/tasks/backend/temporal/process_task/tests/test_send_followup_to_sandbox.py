@@ -435,6 +435,10 @@ class TestSandboxGithubIdentityGate:
     their token when they have access, otherwise a logout so no previous actor's
     identity survives."""
 
+    @pytest.fixture(autouse=True)
+    def retention_lookup(self, mocker):
+        mocker.patch(f"{_GH_MODULE}.TaskRun.objects.filter", return_value=MagicMock(**{"exists.return_value": False}))
+
     def test_same_actor_is_re_established_not_skipped(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
     ):
