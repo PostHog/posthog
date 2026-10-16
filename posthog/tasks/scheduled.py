@@ -124,6 +124,7 @@ from products.signals.backend.tasks import (
     refresh_signal_scout_background_bands,
     sweep_implementation_dispatches,
     sweep_implementation_replacements,
+    sweep_stale_signal_reports,
     sync_pending_signals_refund_credits,
 )
 from products.skills.backend.tasks import sync_community_skills
@@ -476,6 +477,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="45"),
         prune_expired_scratchpad_entries_task.s(),
         name="prune expired signals scratchpad entries",
+    )
+
+    # Keep the report sweep separate from the scratchpad cleanup to spread worker load.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="6", minute="50"),
+        sweep_stale_signal_reports.s(),
+        name="sweep stale signals reports",
     )
 
     # Keep the signals repository area-activity cache warm - weekly, Monday early morning

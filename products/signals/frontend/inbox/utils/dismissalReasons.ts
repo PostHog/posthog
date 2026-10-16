@@ -78,9 +78,11 @@ export function suppressDismissalPayload(dismissal: DismissalFeedback): {
 // reason chip still renders a label instead of the raw code. `refunded` is written by the PR
 // refund action, which dismisses the report as part of the refund. `merged` is written by the
 // report merge action, which archives each duplicate it folds into the surviving report.
+// `stale` is written by the daily staleness sweep, which archives reports that stopped moving.
 const EXTRA_DISMISSAL_REASON_LABELS: Record<string, string> = {
     refunded: 'Refunded',
     merged: 'Merged into another report',
+    stale: 'No recent activity',
 }
 
 // Why a report nobody dismissed left the inbox, keyed by the backend's `suppression_source`.

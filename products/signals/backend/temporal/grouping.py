@@ -982,6 +982,12 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             ):
                 report.pending_triggering_signal_id = input.signal_id
                 report.save(update_fields=["pending_triggering_signal_id"])
+            if bucket is not None:
+                # A signal arriving while the report still has research passes left is an event
+                # that can still change it, so it keeps the staleness clock running. Past the last
+                # bucket, a signal is collected but can change nothing, and deliberately does not
+                # hold the report open — that is the case the staleness sweep exists to close.
+                SignalReport.stamp_activity(team_id=input.team_id, report_id=str(report.id))
 
             report_id = str(report.id)
             _link_check_follow_up(

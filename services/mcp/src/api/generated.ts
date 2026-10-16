@@ -102575,6 +102575,11 @@ export namespace Schemas {
       readonly reports_generated_today: number;
       /** Whether the team hit its daily report limit, pausing new report generation until local midnight. Always false when max_reports_per_day is null. */
       readonly daily_report_limit_reached: boolean;
+      /**
+         * Whether the daily sweep may archive reports that stopped moving, closing any open PR with them. A report is archived after 14 days with nothing happening on it, or after 21 days without a person touching it when a scout keeps revising it. Restoring an archived report brings it back. Null leaves it on, except for teams that already existed when this shipped, which start opted out.
+         * @nullable
+         */
+      stale_report_sweep_enabled?: boolean | null;
       readonly created_at: string;
       readonly updated_at: string;
     }

@@ -36,6 +36,8 @@ interface CardState {
     /** Integration id the project already tracks issues in, and where inside it they land. */
     issueTrackingIntegration?: number | null
     issueTrackingConfig?: Record<string, string>
+    /** `stale_report_sweep_enabled` on the team config, or null when the team has not chosen. */
+    staleSweep?: boolean | null
 }
 
 const GITHUB_INTEGRATION = { id: 1, kind: 'github', display_name: 'PostHog', config: {}, created_at: '2024-03-01' }
@@ -55,6 +57,7 @@ function useAutonomyMocks({
     integrations = [],
     issueTrackingIntegration = null,
     issueTrackingConfig = {},
+    staleSweep = null,
 }: CardState): void {
     useStorybookMocks({
         get: {
@@ -71,6 +74,7 @@ function useAutonomyMocks({
                 default_open_pull_request_ready: projectPrReady,
                 pull_request_label_enabled: prLabelEnabled,
                 pull_request_label: prLabel,
+                stale_report_sweep_enabled: staleSweep,
             },
             '/api/users/@me/signal_autonomy/': {
                 id: 'auto-1',
@@ -234,4 +238,10 @@ export const IssueTrackerConfigured: Story = {
             issueTrackingConfig={{ repository: 'posthog' }}
         />
     ),
+}
+
+// Teams that predate the staleness sweep are backfilled opted out, so this is what most existing
+// teams see until someone turns it on.
+export const StaleSweepOptedOut: Story = {
+    render: () => <Card staleSweep={false} />,
 }

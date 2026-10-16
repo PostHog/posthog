@@ -141,6 +141,12 @@ export const SignalsConfigCreateBody = () => zod.object({
         .describe(
             "The label name self-driving applies, at most 50 characters. Null or blank means 'self-driving'. The label is created in the repository when it does not exist yet. Only used while pull_request_label_enabled is true."
         ),
+    stale_report_sweep_enabled: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Whether the daily sweep may archive reports that stopped moving, closing any open PR with them. A report is archived after 14 days with nothing happening on it, or after 21 days without a person touching it when a scout keeps revising it. Restoring an archived report brings it back. Null leaves it on, except for teams that already existed when this shipped, which start opted out.'
+        ),
 })
 
 export const SignalsReportsListParams = () => zod.object({

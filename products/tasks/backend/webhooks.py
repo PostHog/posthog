@@ -13,6 +13,7 @@ from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.facade.github import (
     refresh_pull_request_review_decisions,
+    stamp_pull_request_activity,
     update_pull_request_assignments,
 )
 from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
@@ -299,6 +300,7 @@ def handle_pull_request_event(payload: dict) -> None:
     update_pull_request_assignments(payload, pr_state)
     if refresh_review_decision:
         refresh_pull_request_review_decisions(payload)
+    stamp_pull_request_activity(payload, human=False)
 
     if analytics_event is not None:
         _capture_task_pr_event(payload, task_run, analytics_event)
@@ -357,6 +359,8 @@ def handle_pull_request_review_event(payload: dict) -> None:
     )
 
     _capture_task_pr_event(payload, task_run, "pr_reviewed")
+
+    stamp_pull_request_activity(payload, human=True)
 
     logger.info(
         "github_pr_review_webhook_processed",
