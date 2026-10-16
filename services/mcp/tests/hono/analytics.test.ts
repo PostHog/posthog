@@ -270,46 +270,61 @@ describe('Hono MCP analytics contexts', () => {
     // must reach every event for those projects and stay off events for projects with data.
     it.each([
         {
-            name: 'an allowed call on a project without events',
+            name: 'an untouched call on a project without events',
             projectHasData: false,
-            extra: undefined,
+            variant: 'block',
+            noDataAction: undefined,
             expected: {
                 mcp_project_has_data: false,
-                mcp_no_data_blocked: false,
-                mcp_no_data_install_notice_variant: 'test',
+                mcp_no_data_action: 'none',
+                mcp_no_data_install_notice_variant: 'block',
             },
         },
         {
             name: 'a blocked call on a project without events',
             projectHasData: false,
-            extra: { mcp_no_data_blocked: true },
+            variant: 'block',
+            noDataAction: 'blocked' as const,
             expected: {
                 mcp_project_has_data: false,
-                mcp_no_data_blocked: true,
-                mcp_no_data_install_notice_variant: 'test',
+                mcp_no_data_action: 'blocked',
+                mcp_no_data_install_notice_variant: 'block',
+            },
+        },
+        {
+            name: 'a warned call on a project without events',
+            projectHasData: false,
+            variant: 'warn',
+            noDataAction: 'warned' as const,
+            expected: {
+                mcp_project_has_data: false,
+                mcp_no_data_action: 'warned',
+                mcp_no_data_install_notice_variant: 'warn',
             },
         },
         {
             name: 'a call on a project with events',
             projectHasData: true,
-            extra: undefined,
+            variant: 'block',
+            noDataAction: undefined,
             expected: {
                 mcp_project_has_data: true,
-                mcp_no_data_blocked: undefined,
+                mcp_no_data_action: undefined,
                 mcp_no_data_install_notice_variant: undefined,
             },
         },
-    ])('stamps the project data state for $name', async ({ projectHasData, extra, expected }) => {
+    ])('stamps the project data state for $name', async ({ projectHasData, variant, noDataAction, expected }) => {
         const state = makeState({
             projectHasData,
-            toolFeatureFlags: { [MCP_NO_DATA_INSTALL_NOTICE_FLAG]: 'test' },
+            noDataAction,
+            toolFeatureFlags: { [MCP_NO_DATA_INSTALL_NOTICE_FLAG]: variant },
             reqCtx: {
                 ...makeState().reqCtx,
                 safelyGetAnalyticsContext: vi.fn(async () => ({ projectId: '1', projectHasData })),
             } as any,
         })
 
-        await trackToolCall('query-trends', 0, false, state, extra)
+        await trackToolCall('query-trends', 0, false, state)
         await trackInitEvent(state)
 
         const toolCallProperties = mockCaptureToolCall.mock.calls[0]![0].properties

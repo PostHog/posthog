@@ -240,44 +240,51 @@ describe('ToolExecutor', () => {
             hasWarehouseData?: boolean
             overrides?: Partial<ResolvedState>
             withInstallTool?: boolean
-            blocked: boolean
+            outcome: 'blocked' | 'warned' | 'none'
         }
-        const noData = { projectHasData: false, variant: 'test' }
+        const block = { projectHasData: false, variant: 'block' }
+        const warn = { projectHasData: false, variant: 'warn' }
 
         it.each<Row>([
-            { mode: 'direct', tool: 'query-trends', ...noData, blocked: true },
-            { mode: 'exec', tool: 'query-trends', ...noData, blocked: true },
+            { mode: 'direct', tool: 'query-trends', ...block, outcome: 'blocked' },
+            { mode: 'exec', tool: 'query-trends', ...block, outcome: 'blocked' },
+            { mode: 'direct', tool: 'query-trends', ...warn, outcome: 'warned' },
+            { mode: 'exec', tool: 'query-trends', ...warn, outcome: 'warned' },
             // Direct mode, because exec looks up every roster entry in the static tool registry,
             // and `wizard-install-start` may not be registered there.
-            { mode: 'direct', tool: 'query-trends', ...noData, withInstallTool: true, blocked: true },
-            { mode: 'direct', tool: 'query-trends', projectHasData: false, variant: 'control', blocked: false },
-            { mode: 'exec', tool: 'query-trends', projectHasData: true, variant: 'test', blocked: false },
-            { mode: 'direct', tool: 'query-trends', projectHasData: undefined, variant: 'test', blocked: false },
-            { mode: 'exec', tool: 'docs-search', ...noData, blocked: false },
-            { mode: 'direct', tool: 'query-logs', ...noData, blocked: true },
-            { mode: 'direct', tool: 'execute-sql', ...noData, hasWarehouseData: false, blocked: true },
-            { mode: 'exec', tool: 'execute-sql', ...noData, hasWarehouseData: true, blocked: false },
-            { mode: 'exec', tool: 'execute-sql', ...noData, hasWarehouseData: undefined, blocked: false },
-            { mode: 'exec', tool: 'query-trends', ...noData, overrides: { isImpersonated: true }, blocked: false },
+            { mode: 'direct', tool: 'query-trends', ...block, withInstallTool: true, outcome: 'blocked' },
+            { mode: 'direct', tool: 'query-trends', projectHasData: false, variant: 'control', outcome: 'none' },
+            { mode: 'exec', tool: 'query-trends', projectHasData: true, variant: 'block', outcome: 'none' },
+            { mode: 'direct', tool: 'query-trends', projectHasData: true, variant: 'warn', outcome: 'none' },
+            { mode: 'direct', tool: 'query-trends', projectHasData: undefined, variant: 'block', outcome: 'none' },
+            { mode: 'exec', tool: 'docs-search', ...block, outcome: 'none' },
+            { mode: 'exec', tool: 'docs-search', ...warn, outcome: 'none' },
+            { mode: 'direct', tool: 'query-logs', ...block, outcome: 'blocked' },
+            { mode: 'direct', tool: 'execute-sql', ...block, hasWarehouseData: false, outcome: 'blocked' },
+            { mode: 'exec', tool: 'execute-sql', ...block, hasWarehouseData: true, outcome: 'none' },
+            { mode: 'exec', tool: 'execute-sql', ...warn, hasWarehouseData: true, outcome: 'none' },
+            { mode: 'exec', tool: 'execute-sql', ...block, hasWarehouseData: undefined, outcome: 'none' },
+            { mode: 'exec', tool: 'query-trends', ...block, overrides: { isImpersonated: true }, outcome: 'none' },
+            { mode: 'direct', tool: 'query-trends', ...warn, overrides: { isImpersonated: true }, outcome: 'none' },
             {
                 mode: 'direct',
                 tool: 'query-trends',
-                ...noData,
+                ...block,
                 overrides: { apiKeyScopes: ['internal_run:read'] },
-                blocked: false,
+                outcome: 'none',
             },
             {
                 mode: 'exec',
                 tool: 'query-trends',
-                ...noData,
+                ...block,
                 overrides: {
                     clientProfile: { ...makeToolExecutorState([]).clientProfile, consumer: 'posthog_ai' } as any,
                 },
-                blocked: false,
+                outcome: 'none',
             },
         ])(
-            '$mode call to $tool (has data: $projectHasData, variant: $variant, warehouse: $hasWarehouseData) blocked=$blocked',
-            async ({ mode, tool, projectHasData, variant, hasWarehouseData, overrides, withInstallTool, blocked }) => {
+            '$mode call to $tool (has data: $projectHasData, variant: $variant, warehouse: $hasWarehouseData) is $outcome',
+            async ({ mode, tool, projectHasData, variant, hasWarehouseData, overrides, withInstallTool, outcome }) => {
                 const roster = [
                     ...catalog.getFilteredTools({ scopes: ['*'] }).filter((t) => t.name === tool),
                     ...(withInstallTool ? [{ name: 'wizard-install-start' }] : []),
@@ -301,11 +308,16 @@ describe('ToolExecutor', () => {
                 const result = (await executor.handleToolCall(call, state)) as any
                 const text: string = result.content?.[0]?.text ?? ''
 
-                expect(text.includes("This project (id 7) hasn't received any events yet")).toBe(blocked)
-                if (blocked) {
+                expect(text.includes("This project (id 7) hasn't received any events yet")).toBe(outcome !== 'none')
+                if (outcome === 'blocked') {
                     expect(result.isError).toBeFalsy()
+                    expect(result.content).toHaveLength(1)
                     expect(text).toContain('npx -y @posthog/wizard@latest --project-id=7')
                     expect(text.includes('`wizard-install-start`')).toBe(withInstallTool === true)
+                }
+                if (outcome === 'warned') {
+                    // The tool still ran, so its own output follows the notice.
+                    expect(result.content.length).toBeGreaterThan(1)
                 }
             }
         )

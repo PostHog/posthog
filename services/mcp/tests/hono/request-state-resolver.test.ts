@@ -511,9 +511,10 @@ describe('RequestStateResolver MCP client contexts', () => {
 
     // Unknown must stay unknown: the no-data notice only fires on an explicit false.
     it.each([
-        [{ projectHasData: false }, 'test', false, true],
+        [{ projectHasData: false }, 'block', false, true],
+        [{ projectHasData: false }, 'warn', false, true],
         [{ projectHasData: false }, 'control', false, false],
-        [{ projectHasData: true }, 'test', true, true],
+        [{ projectHasData: true }, 'block', true, true],
         [undefined, undefined, undefined, false],
     ])(
         'carries the project ingestion state from analytics context %j with variant %s',

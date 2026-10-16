@@ -4,7 +4,12 @@
 import type { FlagValue } from '@/lib/posthog/flags'
 
 export const MCP_NO_DATA_INSTALL_NOTICE_FLAG = 'mcp-no-data-install-notice'
-export const NO_DATA_NOTICE_VARIANT = 'test'
+export type NoDataNoticeMode = 'warn' | 'block'
+export type NoDataAction = 'warned' | 'blocked'
+
+export function noDataNoticeMode(variant: FlagValue): NoDataNoticeMode | undefined {
+    return variant === 'warn' || variant === 'block' ? variant : undefined
+}
 
 export const WIZARD_INSTALL_START_TOOL = 'wizard-install-start'
 const GITHUB_CONNECT_URL_TOOL = 'integrations-github-connect-url'
@@ -50,15 +55,17 @@ export interface NoDataNoticeAudience {
 }
 
 // Impersonated sessions, sandbox runs and PostHog AI did not set up the project, so install steps do not help them.
-export function isNoDataNoticeActive(audience: NoDataNoticeAudience): boolean {
-    return (
-        audience.projectHasData === false &&
-        audience.variant === NO_DATA_NOTICE_VARIANT &&
-        !audience.isImpersonated &&
-        !audience.suppressAnalytics &&
-        !audience.apiKeyScopes.includes('internal_run:read') &&
-        audience.mcpConsumer !== 'posthog_ai'
-    )
+export function resolveNoDataNoticeMode(audience: NoDataNoticeAudience): NoDataNoticeMode | undefined {
+    if (
+        audience.projectHasData !== false ||
+        audience.isImpersonated ||
+        audience.suppressAnalytics ||
+        audience.apiKeyScopes.includes('internal_run:read') ||
+        audience.mcpConsumer === 'posthog_ai'
+    ) {
+        return undefined
+    }
+    return noDataNoticeMode(audience.variant)
 }
 
 export function buildNoDataInstallNotice({
@@ -85,15 +92,25 @@ export function buildNoDataInstallNotice({
     ].join('\n')
 }
 
+// A separate content block keeps the tool's own text intact, so a `--json` result still parses.
+export function prependNoDataNotice(result: unknown, notice: string): unknown {
+    if (typeof result !== 'object' || result === null || !Array.isArray((result as { content?: unknown }).content)) {
+        return result
+    }
+    const withContent = result as { content: unknown[] }
+    return { ...withContent, content: [{ type: 'text', text: notice }, ...withContent.content] }
+}
+
 export function noDataAnalyticsProperties(
     projectHasData: boolean | undefined,
-    variant: FlagValue
+    variant: FlagValue,
+    action: NoDataAction | undefined
 ): Record<string, unknown> {
     if (projectHasData !== false) {
         return {}
     }
     return {
-        mcp_no_data_blocked: false,
+        mcp_no_data_action: action ?? 'none',
         ...(typeof variant === 'string' ? { mcp_no_data_install_notice_variant: variant } : {}),
     }
 }

@@ -3,7 +3,7 @@ import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
-import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, NO_DATA_NOTICE_VARIANT } from '@/lib/no-data-guard'
+import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, type NoDataAction, noDataNoticeMode } from '@/lib/no-data-guard'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -61,6 +61,8 @@ export interface ResolvedState {
     isImpersonated?: boolean
     suppressAnalytics?: boolean
     projectHasData?: boolean | undefined
+    /** Set on the per-call state when the no-data notice blocked or warned this call. */
+    noDataAction?: NoDataAction | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -250,7 +252,7 @@ export class RequestStateResolver {
                 ? resolveIntentPrompt(mergedFlags[MCP_INTENT_PROMPT_FLAG], payloads[MCP_INTENT_PROMPT_FLAG])
                 : undefined
 
-        context.noDataInstallNotice = mergedFlags[MCP_NO_DATA_INSTALL_NOTICE_FLAG] === NO_DATA_NOTICE_VARIANT
+        context.noDataInstallNotice = noDataNoticeMode(mergedFlags[MCP_NO_DATA_INSTALL_NOTICE_FLAG]) !== undefined
 
         const clientProfile = new MCPClientProfile({
             clientName: clientContext.mcpClientName,

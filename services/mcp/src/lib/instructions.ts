@@ -64,7 +64,7 @@ function buildIntegrationsLine(integrationKinds?: string[]): string | undefined 
 export interface EnvironmentContextOptions {
     /** Integration kinds connected in the active project; `undefined` means unknown. */
     integrationKinds?: string[]
-    /** Whether to state that the project has no events yet. Set only in the no-data notice test arm. */
+    /** Whether to state that the project has no events yet. Set only in the no-data notice `warn` and `block` arms. */
     noEventsNotice?: boolean
 }
 
