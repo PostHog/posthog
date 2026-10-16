@@ -125,11 +125,28 @@ export function matchesTypeFilter(
     return (flow.origin_product === 'broadcasts') === (filter === 'broadcasts')
 }
 
+function normalizedRule(rrule: string): string | null {
+    try {
+        return new RRule(RRule.parseString(rrule)).toString()
+    } catch {
+        return null
+    }
+}
+
 export function describeRepeat(schedule: Pick<HogFlowScheduleApi, 'rrule' | 'starts_at'>): string {
     if (isOneTimeSchedule(schedule.rrule)) {
         return 'Once'
     }
-    const text = scheduleToText(parseRRuleToState(schedule.rrule), schedule.starts_at)
+    const state = parseRRuleToState(schedule.rrule)
+    const original = normalizedRule(schedule.rrule)
+    // The editor state only holds the rules the schedule editor builds. A rule made through the API, such as an
+    // hourly one, comes back changed, so it is described from the rule itself.
+    const fitsEditor = original !== null && normalizedRule(stateToRRule(state, schedule.starts_at)) === original
+    const text = fitsEditor
+        ? scheduleToText(state, schedule.starts_at)
+        : original !== null
+          ? new RRule(RRule.parseString(schedule.rrule)).toText()
+          : ''
     return text ? text.charAt(0).toUpperCase() + text.slice(1) : 'Repeats'
 }
 

@@ -162,6 +162,8 @@ describe('sendCalendarUtils', () => {
     it.each([
         ['a one-time send', 'FREQ=DAILY;COUNT=1', 'Once'],
         ['a weekly send', 'FREQ=WEEKLY;BYDAY=TU', 'Every week on Tuesday'],
+        ['an hourly send from the API', 'FREQ=HOURLY', 'Every hour'],
+        ['a monthly send on a set date', 'FREQ=MONTHLY;BYMONTHDAY=15', 'Every month on the 15th'],
     ])('describes the repeat rule of %s', (_, rrule, expected) => {
         expect(describeRepeat({ rrule, starts_at: '2026-09-01T08:00:00Z' })).toBe(expected)
     })
