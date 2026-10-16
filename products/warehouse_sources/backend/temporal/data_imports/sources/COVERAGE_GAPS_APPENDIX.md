@@ -13332,10 +13332,10 @@ Today (9): `devices`, `dynamic_teams`, `events`, `groups`, `people`, `plans`, `r
 
 Diffed against: <https://help.xmatters.com/xmapi/index.html>
 
-- [ ] `audits (GET /api/xm/1/audits)` — the notification, response and event audit records — the main analytical fact table for alerting (high)
-- [ ] `incidents (GET /api/xm/1/incidents, /incidents/{id}/timeline-entries)` — incident objects and their timeline; the headline object of xMatters incident management (high)
-- [ ] `group members (GET /api/xm/1/groups/{id}/members)` — membership lookup joining the people and groups we already sync (high)
-- [ ] `group shifts (GET /api/xm/1/groups/{id}/shifts)` — on-call rotation definitions; without them groups carry no schedule (high)
+- [x] `audits (GET /api/xm/1/audits)` — the notification, response and event audit records — the main analytical fact table for alerting (high)
+- [x] `incidents (GET /api/xm/1/incidents, /incidents/{id}/timeline-entries)` — incident objects and their timeline; the headline object of xMatters incident management (high)
+- [x] `group members (GET /api/xm/1/groups/{id}/members)` — membership lookup joining the people and groups we already sync (high)
+- [x] `group shifts (GET /api/xm/1/groups/{id}/shifts)` — on-call rotation definitions; without them groups carry no schedule (high)
 - [ ] `on-call (GET /api/xm/1/on-call)` — who is on call over a timeframe, the vendor's headline query (high)
 - [ ] `services (GET /api/xm/1/services)` — lookup resolving the service referenced by incidents and signals (high)
 - [ ] `event user deliveries (GET /api/xm/1/events/{id}/user-deliveries)` — per-recipient delivery and response outcomes for each event (medium)
