@@ -22,6 +22,10 @@ from products.slack_app.evals.scorers import REPLY_OFFER_KEY, NoUnaskedButtons, 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
 
+# The person's last message, when a case needs it to show who decides or what they want.
+PERSON_MESSAGE_KEY = "person_message"
+
+
 def _offer(offer: bool) -> dict:
     return {REPLY_OFFER_KEY: {"offer": offer}}
 
@@ -46,6 +50,7 @@ WAITING_CASES = [
             "after a failure. The fix is two lines in `relay.py`. Should I open a pull request with it?"
         ),
         expected=_offer(True),
+        metadata={PERSON_MESSAGE_KEY: "Why does the relay keep retrying after the export fails?"},
     ),
     BaseEvalCase(
         name="choice_between_options",
@@ -166,6 +171,7 @@ BARE_CASES = [
             "ready to merge as it is."
         ),
         expected=_offer(False),
+        metadata={PERSON_MESSAGE_KEY: "What is left before we can ship the usage caps?"},
     ),
     # Only the person can answer this, and a button would have to guess the repository.
     BaseEvalCase(
@@ -179,17 +185,24 @@ BARE_CASES = [
 async def eval_reply_suggestions(ctx: EvalContext) -> None:
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
         model = reply_suggestions.SUGGESTIONS_MODEL
+        person_message = case.metadata.get(PERSON_MESSAGE_KEY)
         try:
             # Sync and blocking on the gateway, so off the event loop to keep cases concurrent.
             suggestions = await asyncio.to_thread(
                 reply_suggestions.request_reply_suggestions,
                 case.prompt,
                 reply_suggestions.ReplySuggestionAttribution(),
+                person_message,
             )
         except Exception as error:
             return {"model": model, "suggestions": None, "error": f"{type(error).__name__}: {error}"}
         offered = [{"label": s.label, "reply": s.reply} for s in suggestions]
-        return {"model": model, "suggestions": offered, "last_message": f"{model}: {offered}"}
+        return {
+            "model": model,
+            "suggestions": offered,
+            "person_message": person_message,
+            "last_message": f"{model}: {offered}",
+        }
 
     await OneShotPublicEval(
         experiment_name="slack-app-reply-suggestions",

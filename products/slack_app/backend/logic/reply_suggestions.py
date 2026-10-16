@@ -1,5 +1,6 @@
 """One-click replies under an agent answer that asks the reader for a permission, a choice, or a next step."""
 
+import re
 import json
 from typing import Any
 
@@ -38,11 +39,20 @@ SUGGESTIONS_MAX_RETRIES = 0
 # The question that asks for a reply is nearly always at the end of an answer.
 ANSWER_HEAD_CHARS = 1500
 ANSWER_TAIL_CHARS = 4500
+# A person's message is short, and a long one is a pasted log or a thread digest the answer already covers.
+PERSON_MESSAGE_CHARS = 2000
+
+# A click posts its reply as the bot, so this text marks the bot message that is really the person's.
+PICKED_REPLY_MARK = " picked a suggested reply: "
 
 # The answer goes in its own message, so text in it cannot replace these instructions.
 REPLY_SUGGESTIONS_INSTRUCTIONS = """\
-You write reply buttons for a Slack thread. The PostHog agent posted the answer in the next message. \
-The person who reads it can send one of your replies with one click.
+You write reply buttons for a Slack thread. The next message holds the PostHog agent's answer in \
+<agent_answer>. When it is known, the last message that the person sent before the answer is in \
+<person_message>. The person who reads the answer can send one of your replies with one click.
+
+Use the person's message to see what they want, who decides, and which reply they will most likely send. \
+Write replies only to what the answer asks or offers, not to the person's message.
 
 First decide if the answer waits for the person. It does when it:
 - asks for permission, for example "Should I open a pull request?"
@@ -144,6 +154,39 @@ def _clip_answer(answer: str) -> str:
     return f"{answer[:ANSWER_HEAD_CHARS]}\n…\n{answer[-ANSWER_TAIL_CHARS:]}"
 
 
+def _user_content(answer_markdown: str, person_message: str | None) -> str:
+    answer = f"<agent_answer>\n{_clip_answer(answer_markdown)}\n</agent_answer>"
+    if not person_message:
+        return answer
+    return f"<person_message>\n{person_message}\n</person_message>\n\n{answer}"
+
+
+def picked_reply_text(slack_user_id: str, reply: str) -> str:
+    return f"<@{slack_user_id}>{PICKED_REPLY_MARK}*{reply}*"
+
+
+def last_person_message(messages: list[dict[str, Any]], bot_user_id: str | None) -> str | None:
+    """The newest message a person sent in the thread, without the mention of the bot.
+
+    Bot posts are skipped, except the one a click posts, because that holds the person's reply.
+    """
+    for message in reversed(messages):
+        text = str(message.get("text") or "").strip()
+        if bot_user_id and message.get("user") == bot_user_id:
+            _, mark, picked = text.partition(PICKED_REPLY_MARK)
+            if mark and len(picked) > 2 and picked.startswith("*") and picked.endswith("*"):
+                return picked[1:-1][:PERSON_MESSAGE_CHARS]
+            continue
+        if message.get("bot_id"):
+            continue
+        if bot_user_id:
+            text = re.sub(rf"<@{re.escape(bot_user_id)}>", "", text)
+        text = " ".join(text.split())
+        if text:
+            return text[:PERSON_MESSAGE_CHARS]
+    return None
+
+
 def _clean_suggestions(raw: object) -> list[SuggestedReply]:
     """A label Slack would reject is dropped, not cut, because a cut label can say something the reply does not."""
     if not isinstance(raw, list):
@@ -162,7 +205,9 @@ def _clean_suggestions(raw: object) -> list[SuggestedReply]:
     return suggestions[:MAX_SUGGESTIONS]
 
 
-def request_reply_suggestions(answer_markdown: str, attribution: ReplySuggestionAttribution) -> list[SuggestedReply]:
+def request_reply_suggestions(
+    answer_markdown: str, attribution: ReplySuggestionAttribution, person_message: str | None = None
+) -> list[SuggestedReply]:
     """Raises on a failed call, so the offline eval can tell a failure from an answer that asks nothing."""
     if not answer_markdown.strip():
         return []
@@ -184,7 +229,7 @@ def request_reply_suggestions(answer_markdown: str, attribution: ReplySuggestion
         model=SUGGESTIONS_MODEL,
         messages=[
             {"role": "system", "content": REPLY_SUGGESTIONS_INSTRUCTIONS},
-            {"role": "user", "content": _clip_answer(answer_markdown)},
+            {"role": "user", "content": _user_content(answer_markdown, person_message)},
         ],
         max_completion_tokens=SUGGESTIONS_MAX_COMPLETION_TOKENS,
         response_format=_RESPONSE_FORMAT,
@@ -196,11 +241,13 @@ def request_reply_suggestions(answer_markdown: str, attribution: ReplySuggestion
     return _clean_suggestions(parsed.get("suggestions"))
 
 
-def suggest_replies(answer_markdown: str, attribution: ReplySuggestionAttribution) -> list[SuggestedReply]:
+def suggest_replies(
+    answer_markdown: str, attribution: ReplySuggestionAttribution, person_message: str | None = None
+) -> list[SuggestedReply]:
     """Any failure returns no replies: a missing button costs the reader one typed reply, and a
     wrong one sends the agent an instruction nobody gave."""
     try:
-        return request_reply_suggestions(answer_markdown, attribution)
+        return request_reply_suggestions(answer_markdown, attribution, person_message)
     except Exception:
         logger.warning("slack_app_reply_suggestions_failed", exc_info=True)
         return []

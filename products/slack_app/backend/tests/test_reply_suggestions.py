@@ -19,6 +19,8 @@ from products.slack_app.backend.logic.reply_suggestions import (
     ReplySuggestionAttribution,
     SuggestedReply,
     clear_open_suggestions,
+    last_person_message,
+    picked_reply_text,
     remember_open_suggestions,
     reply_suggestions_block,
     suggest_replies,
@@ -115,6 +117,48 @@ class TestSuggestReplies(SimpleTestCase):
         with patch("products.slack_app.backend.logic.reply_suggestions.build_openai_client") as build:
             build.return_value.with_options.return_value.chat.completions.create.side_effect = TimeoutError()
             assert suggest_replies("Should I open a PR?", ReplySuggestionAttribution()) == []
+
+    def test_the_person_message_reaches_the_model_apart_from_the_answer(self) -> None:
+        with patch("products.slack_app.backend.logic.reply_suggestions.build_openai_client") as build:
+            create = build.return_value.with_options.return_value.chat.completions.create
+            create.return_value = _completion(json.dumps({"suggestions": []}))
+            suggest_replies("Should I open a PR?", ReplySuggestionAttribution(), "Why does the retry never stop?")
+
+        content = create.call_args.kwargs["messages"][1]["content"]
+        assert content == (
+            "<person_message>\nWhy does the retry never stop?\n</person_message>\n\n"
+            "<agent_answer>\nShould I open a PR?\n</agent_answer>"
+        )
+
+
+class TestLastPersonMessage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "skips_the_answer_and_drops_the_bot_mention",
+                [
+                    {"user": "U_ANA", "text": "<@U_BOT> why is the export slow?"},
+                    {"user": "U_BOT", "bot_id": "B_BOT", "text": "A missing index. Should I add it?"},
+                ],
+                "why is the export slow?",
+            ),
+            (
+                "a_click_posted_by_the_bot_is_the_person_reply",
+                [
+                    {"user": "U_ANA", "text": "<@U_BOT> why is the export slow?"},
+                    {"user": "U_BOT", "bot_id": "B_BOT", "text": "A missing index. Should I add it?"},
+                    {"user": "U_BOT", "bot_id": "B_BOT", "text": picked_reply_text("U_ANA", "Yes, add the index")},
+                    {"user": "U_BOT", "bot_id": "B_BOT", "text": "Done. Should I open a pull request?"},
+                ],
+                "Yes, add the index",
+            ),
+            ("only_bot_posts", [{"user": "U_BOT", "bot_id": "B_BOT", "text": "Hello"}], None),
+        ]
+    )
+    def test_picks_the_message_the_answer_replies_to(
+        self, _name: str, messages: list[dict[str, Any]], expected: str | None
+    ) -> None:
+        assert last_person_message(messages, "U_BOT") == expected
 
 
 @override_settings(DEBUG=True)
@@ -268,10 +312,14 @@ class TestReplySuggestionPlacement(SimpleTestCase):
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_plain_answer_gets_the_buttons_under_its_text(
-        self, mock_get_client, mock_get_integration, *_mocks: MagicMock
+        self, mock_get_client, mock_get_integration, _mock_enabled, mock_suggest, _mock_capture
     ) -> None:
         mock_client = MagicMock()
         mock_client.chat_postMessage.return_value = {"ts": "2.0"}
+        mock_client.auth_test.return_value = {"user_id": "U_BOT"}
+        mock_client.conversations_replies.return_value = {
+            "messages": [{"user": "U_ANA", "text": "<@U_BOT> why does the retry never stop?"}]
+        }
         mock_get_client.return_value = mock_client
         mock_get_integration.return_value = Integration(id=7, config={}, integration_id="T1")
         handler = SlackThreadHandler(
@@ -288,6 +336,7 @@ class TestReplySuggestionPlacement(SimpleTestCase):
         assert update["blocks"][0] == posted[0]
         assert update["blocks"][1]["block_id"] == REPLY_SUGGESTIONS_BLOCK_ID
         assert update["blocks"][2:] == posted[1:]
+        assert mock_suggest.call_args.args[2] == "why does the retry never stop?"
 
 
 class TestClearOpenSuggestions(SimpleTestCase):

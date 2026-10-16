@@ -413,6 +413,7 @@ class SuggestedRepliesFit(JudgedScorer):
         return {
             "output": {
                 "answer": (output or {}).get("prompt", ""),
+                "person_message": (output or {}).get("person_message") or "(not known)",
                 "replies": "\n".join(f'- button "{s["label"]}" sends "{s["reply"]}"' for s in suggestions),
             }
         }
@@ -422,6 +423,11 @@ class SuggestedRepliesFit(JudgedScorer):
             name="suggested_replies_fit",
             prompt_template="""
 You are evaluating reply buttons in a Slack thread. The PostHog agent posted the answer below. A person who reads it can send one of the replies to the agent with one click.
+
+The person's last message before the answer:
+<person_message>
+{{output.person_message}}
+</person_message>
 
 Agent's answer:
 <answer>

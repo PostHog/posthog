@@ -23,6 +23,7 @@ from products.slack_app.backend.logic.reply_suggestions import (
     ReplySuggestionAttribution,
     SuggestedReply,
     clear_open_suggestions,
+    last_person_message,
     remember_open_suggestions,
     reply_suggestions_block,
     reply_suggestions_fallback_text,
@@ -1003,10 +1004,22 @@ class SlackThreadHandler:
             task_id=self.run_footer.task_id,
             run_id=self.run_footer.run_id,
         )
-        suggestions = suggest_replies(answer_markdown, attribution)
+        suggestions = suggest_replies(answer_markdown, attribution, self._last_person_message())
         if not suggestions:
             return None
         return suggestions, reply_suggestions_block(integration.id, suggestions, self.turn_trace_id)
+
+    def _last_person_message(self) -> str | None:
+        """Read from Slack, because the run holds a follow-up only inside the agent's prompt.
+
+        A failed read sends no message, and the buttons come from the answer alone.
+        """
+        try:
+            response = self._get_client().conversations_replies(channel=self.context.channel, ts=self.context.thread_ts)
+            return last_person_message(response.get("messages") or [], self._get_bot_user_id())
+        except Exception:
+            logger.warning("slack_app_reply_suggestions_person_message_failed", exc_info=True)
+            return None
 
     def _append_reply_suggestions(self, ts: str, answer_markdown: str) -> list[SuggestedReply]:
         """Add the buttons to an open stream, under the answer and its attachments and above the footer."""
