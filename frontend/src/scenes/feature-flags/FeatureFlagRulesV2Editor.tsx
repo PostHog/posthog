@@ -3,14 +3,7 @@ import { router } from 'kea-router'
 import { useId } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonSelect,
-    LemonTextArea,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -21,18 +14,26 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 
 import { FeatureFlagLogicProps, slugifyFeatureFlagKey } from './featureFlagLogic'
-import { BOOLEAN_OPTIONS, featureFlagRulesV2EditorLogic } from './featureFlagRulesV2EditorLogic'
+import { featureFlagRulesV2EditorLogic } from './featureFlagRulesV2EditorLogic'
 import { RulesV2RuleEditor } from './RulesV2RuleEditor'
+import { RulesV2ValueInput } from './RulesV2ValueInput'
+
+const RETURN_TYPE_OPTIONS = [
+    { value: 'boolean' as const, label: 'Boolean' },
+    { value: 'string' as const, label: 'String' },
+]
 
 export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Element {
     const logic = featureFlagRulesV2EditorLogic({ id })
     const { draft, ruleKeys, featureFlag, saving, saveError, saveDisabledReason, fieldError } = useValues(logic)
-    const { setDraft, setConfig, addRule, saveRulesV2Flag, editFeatureFlag } = useActions(logic)
+    const { setDraft, setConfig, setReturnType, addRule, saveRulesV2Flag, editFeatureFlag } = useActions(logic)
     const { tags } = useValues(tagsModel)
     const { loadTagsIfNeeded } = useActions(tagsModel)
     const isNew = id === 'new'
     const keyInputId = useId()
     const descriptionInputId = useId()
+    const defaultValueInputId = useId()
+    const returnType = draft.config.return_type
 
     return (
         <div className="flex flex-col gap-4" data-attr="feature-flag-rules-v2-editor">
@@ -114,25 +115,33 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                         />
                     </LemonField.Pure>
                     <div className="flex flex-wrap gap-4">
-                        <LemonField.Pure label="Return type">
+                        <LemonField.Pure label="Return type" error={fieldError('filters.return_type')}>
                             <LemonSelect
-                                value={draft.config.return_type}
-                                options={[{ value: 'boolean', label: 'Boolean' }]}
-                                disabledReason="Other return types are not available yet."
+                                value={returnType}
+                                onChange={setReturnType}
+                                options={RETURN_TYPE_OPTIONS}
+                                disabledReason={
+                                    isNew ? undefined : 'The return type cannot be changed after the flag is created.'
+                                }
+                                data-attr="rules-v2-return-type"
                             />
                         </LemonField.Pure>
                         <LemonField.Pure
                             label="Default value"
-                            help="Returned when no rule matches. Null returns no value, so the SDK uses the caller's default."
+                            htmlFor={defaultValueInputId}
+                            help={
+                                returnType === 'boolean'
+                                    ? "Returned when no rule matches. Null returns no value, so the SDK uses the caller's default."
+                                    : "Returned when no rule matches. Leave it empty to return no value, so the SDK uses the caller's default."
+                            }
                             error={fieldError('filters.default_value')}
                         >
-                            <LemonSegmentedButton
-                                size="small"
-                                value={String(draft.config.default_value)}
-                                onChange={(value) =>
-                                    setConfig({ default_value: value === 'null' ? null : value === 'true' })
-                                }
-                                options={[...BOOLEAN_OPTIONS, { value: 'null', label: 'null' }]}
+                            <RulesV2ValueInput
+                                id={defaultValueInputId}
+                                returnType={returnType}
+                                value={draft.config.default_value}
+                                onChange={(default_value) => setConfig({ default_value })}
+                                nullable
                                 data-attr="rules-v2-default-value"
                             />
                         </LemonField.Pure>
@@ -156,6 +165,7 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                             index={index}
                             rule={rule}
                             ruleCount={draft.config.rules.length}
+                            returnType={returnType}
                         />
                     ))}
                     <div>
