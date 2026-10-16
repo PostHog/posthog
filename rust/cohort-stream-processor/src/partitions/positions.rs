@@ -3,8 +3,8 @@
 //!
 //! Every commit the processor makes follows a WAL fsync, so a group's committed offset is at or
 //! below the durable state, and a checkpoint taken after reading it contains at least that state.
-//! That holds only while this pod is the one committer for the partitions it checkpoints, which a
-//! single pod guarantees and static ownership must keep.
+//! That holds only for this pod's own commits, so a checkpoint takes no position another split
+//! stamped (see [`super::fence`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -16,8 +16,9 @@ use rdkafka::types::RDKafkaErrorCode;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 use serde::{Deserialize, Serialize};
 
-use super::fence::{CommitLedger, Committed, InputCommits};
+use super::fence::{ClaimedSplit, CommitLedger, Committed, InputCommits};
 use super::stamp::{CommitStamp, Stamp};
+use super::PartitionOwnership;
 use crate::config::Config;
 
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -163,6 +164,36 @@ pub enum PositionsError {
     Kafka(#[from] KafkaError),
     #[error(transparent)]
     Negative(#[from] NegativeOffset),
+    #[error("{topic} partition {partition} was last committed by {stamp}, not this pod")]
+    Foreign {
+        topic: InputTopic,
+        partition: u16,
+        stamp: Stamp,
+    },
+}
+
+/// Every input's resume positions on partitions of a claimed split, none of them committed by
+/// another split. Only [`InputGroups::owned_positions`] builds one, so a manifest never records a
+/// position another pod committed.
+#[derive(Debug)]
+pub struct OwnedPositions {
+    split: PartitionOwnership,
+    inputs: Vec<InputPositions>,
+}
+
+impl OwnedPositions {
+    #[cfg(test)]
+    pub(crate) fn for_test(split: PartitionOwnership, inputs: Vec<InputPositions>) -> Self {
+        Self { split, inputs }
+    }
+
+    pub fn split(&self) -> PartitionOwnership {
+        self.split
+    }
+
+    pub fn inputs(&self) -> &[InputPositions] {
+        &self.inputs
+    }
 }
 
 /// Reads and commits one input's consumer-group positions without joining the group. Every method
@@ -249,10 +280,23 @@ impl GroupReader {
         Ok(positions)
     }
 
-    /// The group's resume positions on `partitions`.
-    fn positions(&self, partitions: &BTreeSet<u16>) -> Result<InputPositions, PositionsError> {
+    /// The group's resume positions on `partitions`. Refuses a position another split committed.
+    fn owned_positions(
+        &self,
+        owner: &PartitionOwnership,
+        partitions: &BTreeSet<u16>,
+    ) -> Result<InputPositions, PositionsError> {
         let client = self.client()?;
         let commits = self.commits(&client, partitions)?;
+        for (&partition, committed) in commits.commits() {
+            if let Some(stamp) = committed.stamp().filter(|stamp| stamp.is_foreign_to(owner)) {
+                return Err(PositionsError::Foreign {
+                    topic: self.topic.clone(),
+                    partition,
+                    stamp: stamp.clone(),
+                });
+            }
+        }
         let positions = self.resume_positions(&client, &commits)?;
         Ok(InputPositions::new(self.topic.clone(), positions))
     }
@@ -389,14 +433,18 @@ impl InputGroups {
             .try_for_each(|(reader, commits)| reader.restamp(stamp, commits))
     }
 
-    /// Every input's resume positions on `partitions`.
-    pub fn resume_positions(
+    /// Every input's resume positions on `partitions`, as long as no other split committed them.
+    pub fn owned_positions(
         &self,
+        claimed: &ClaimedSplit,
         partitions: &BTreeSet<u16>,
-    ) -> Result<Vec<InputPositions>, PositionsError> {
-        self.readers()
-            .map(|reader| reader.positions(partitions))
-            .collect()
+    ) -> Result<OwnedPositions, PositionsError> {
+        let split = claimed.ownership();
+        let inputs = self
+            .readers()
+            .map(|reader| reader.owned_positions(&split, partitions))
+            .collect::<Result<_, _>>()?;
+        Ok(OwnedPositions { split, inputs })
     }
 
     /// `topic`'s watermarks on partitions `0..partition_count`.
