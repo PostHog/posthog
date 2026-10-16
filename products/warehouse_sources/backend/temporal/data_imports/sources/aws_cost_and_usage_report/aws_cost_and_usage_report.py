@@ -440,7 +440,11 @@ def csv_column_type(declared_type: str) -> Optional[CsvColumnType]:
         # Same type as the Parquet file of the same export, so a format switch keeps the column type.
         precision, scale = int(match.group(1)), int(match.group(2))
         step = decimal.Decimal(1).scaleb(-scale)
-        return CsvColumnType(lambda text: decimal.Decimal(text).quantize(step), pa.decimal128(precision, scale))
+        # The default context holds 28 digits, which a decimal(38, 30) value can exceed.
+        context = decimal.Context(prec=precision)
+        return CsvColumnType(
+            lambda text: decimal.Decimal(text).quantize(step, context=context), pa.decimal128(precision, scale)
+        )
     if declared_type.startswith("decimal"):
         return CsvColumnType(float, pa.float64())
     if declared_type in ("bigint", "int", "integer", "smallint", "tinyint", "long"):
@@ -603,6 +607,8 @@ def get_rows(
             f"{ERROR_PREFIX}: {NO_MANIFEST} - no billing period under s3://{bucket.strip()}/{base}/metadata/ has a manifest",
             NO_MANIFEST,
         )
+    # A retry after a failed finalization would otherwise resume past every batch and load nothing.
+    resumable_source_manager.clear_state()
 
 
 VALIDATION_ERROR_MESSAGES: dict[str, str] = {

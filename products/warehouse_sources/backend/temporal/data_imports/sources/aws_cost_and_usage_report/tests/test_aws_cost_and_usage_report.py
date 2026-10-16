@@ -243,7 +243,8 @@ class TestSync:
             "columns": [
                 {"name": "BillingAccountId", "type": "string"},
                 {"name": "BilledCost", "type": "double"},
-                {"name": "ConsumedQuantity", "type": "decimal(38,10)"},
+                # 30 decimal places exceed the 28-digit default decimal context.
+                {"name": "ConsumedQuantity", "type": "decimal(38,30)"},
                 {"name": "x_LeaseContractLength", "type": "bigint"},
                 {"name": "ChargePeriodStart", "type": "timestamp"},
                 {"name": "x_UsageDate", "type": "date"},
@@ -428,6 +429,8 @@ class TestDeliveries:
             assert result.saved_states[-1] == CostAndUsageReportResumeConfig(
                 billing_period="2024-03", manifest_last_modified=self.WRITTEN, file_index=1, batch_index=1
             )
+            # A retry after a failed finalization must read again, not resume past every batch.
+            assert result.final_state is None
         else:
             assert raised in str(result.raised)
             assert result.final_state is None
