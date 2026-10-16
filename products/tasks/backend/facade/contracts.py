@@ -56,6 +56,16 @@ class TaskDTO:
 
 
 @dataclass(frozen=True, kw_only=True)
+class TaskAccessScope:
+    """Task IDs a user can or cannot access through channel visibility rules."""
+
+    user_id: int
+    has_resource_access: bool
+    allowed_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+
+
+@dataclass(frozen=True, kw_only=True)
 class AgentTaskRunDTO:
     """Identity and workflow handle for a newly dispatched agent task."""
 
@@ -118,6 +128,14 @@ class WizardCloudRunDTO:
     run_id: UUID
     status: str
     started_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunTokenUsage:
+    """Settled token subtotal in micro-USD and whether every request is accounted for."""
+
+    cost_microusd: int | None
+    complete: bool
 
 
 @dataclass(frozen=True)
@@ -212,6 +230,21 @@ class TaskSlackUnfurlDTO:
     title: str
     created_by_id: int | None
     latest_run_status: str | None
+
+
+@dataclass(frozen=True)
+class TaskArtifactSlackUnfurlDTO:
+    """The task run artifact metadata needed to build a Slack unfurl."""
+
+    name: str
+    content_type: str
+    size: int | None
+    uploaded_at: datetime | None
+    task_id: UUID
+    task_title: str
+    run_id: UUID
+    artifact_id: str
+    download_path: str
 
 
 @dataclass(frozen=True)

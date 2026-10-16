@@ -124,8 +124,14 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
 
-    const { scanner, scannerLoading, isScannerSubmitting, stepErrors, linkedExperimentContext } =
-        useValues(scannerLogic)
+    const {
+        scanner,
+        scannerLoading,
+        isScannerSubmitting,
+        stepErrors,
+        linkedExperimentContext,
+        lockedToExperimentScanner,
+    } = useValues(scannerLogic)
     const { submitScanner } = useActions(scannerLogic)
 
     // An experiment cross-sell entry point has already said what to watch and deep-linked the
@@ -189,9 +195,11 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                             onStepClick={goToStep}
                             stepErrors={stepErrors}
                             disabledSteps={
-                                isNew
-                                    ? undefined
-                                    : { template: 'A saved scanner keeps the template it was created from' }
+                                !isNew
+                                    ? { template: 'A saved scanner keeps the template it was created from' }
+                                    : lockedToExperimentScanner
+                                      ? { template: 'A scanner started from an experiment is an experiment scanner' }
+                                      : undefined
                             }
                             className="flex-wrap justify-center gap-y-1"
                             aria-label="Scanner editor progress"
@@ -363,10 +371,10 @@ function SelfDrivingOutcomesLine({ scannerId }: { scannerId: string }): JSX.Elem
 
 function ConfigureStep(): JSX.Element {
     const { scannerId } = useValues(scannerEditorSceneLogic)
-    const { scanner, isNew, goalDraft } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, isNew, goalDraft, lockedToExperimentScanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
-    const isTypeSelectable = isNew && !searchParams.template
+    const isTypeSelectable = isNew && !searchParams.template && !lockedToExperimentScanner
     const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
 
     if (!scanner) {
@@ -502,7 +510,9 @@ function EditorFooter({
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
-    const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, durationValidationError, hasUnsavedChanges, lockedToExperimentScanner } = useValues(
+        replayScannerLogic({ id: scannerId })
+    )
     const { searchParams } = useValues(router)
     const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(aiConsentLogic)
@@ -513,7 +523,7 @@ function EditorFooter({
     const canApproveConsent = !dataProcessingApprovalDisabledReason
     const stepIndex = SCANNER_EDITOR_STEPS.indexOf(step)
     const previous = stepIndex > 0 ? SCANNER_EDITOR_STEPS[stepIndex - 1] : null
-    const prevStep = previous === 'template' && !isNew ? null : previous
+    const prevStep = previous === 'template' && (!isNew || lockedToExperimentScanner) ? null : previous
     const nextStep = stepIndex < SCANNER_EDITOR_STEPS.length - 1 ? SCANNER_EDITOR_STEPS[stepIndex + 1] : null
     // A broken duration filter blocks the save, but only from the triggers step onward: gating an
     // earlier step's button on it blocks the wizard with a reason nothing on screen explains. RBAC
