@@ -111,6 +111,11 @@ export const manifest: ProductManifest = {
             searchTabs: [
                 { name: 'Insights', href: urls.errorTracking({ activeTab: 'insights' }) },
                 {
+                    name: 'Impact',
+                    href: urls.errorTracking({ activeTab: 'impact' }),
+                    flag: FEATURE_FLAGS.ERROR_TRACKING_IMPACT,
+                },
+                {
                     name: 'Recommendations',
                     href: urls.errorTracking({ activeTab: 'recommendations' }),
                     flag: FEATURE_FLAGS.ERROR_TRACKING_RECOMMENDATIONS,

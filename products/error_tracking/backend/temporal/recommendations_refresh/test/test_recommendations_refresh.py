@@ -1,4 +1,5 @@
 import uuid
+from contextlib import ExitStack
 from datetime import timedelta
 
 import pytest
@@ -14,6 +15,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Team
 
+from products.error_tracking.backend.logic.recommendations import RECOMMENDATIONS
+from products.error_tracking.backend.logic.recommendations.impact_lens import ImpactLens
 from products.error_tracking.backend.logic.recommendations.long_running_issues import LongRunningIssuesRecommendation
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
@@ -135,6 +138,42 @@ class TestRefreshRecommendationsBatchActivity(APIBaseTest):
         # `alerts` and `rate_limits` have no refresh_interval, so they recompute for both teams;
         # long_running_issues and source_maps (both 6h) are still fresh and are skipped.
         assert second.recommendations_kicked == 4
+
+    @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
+    @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
+    @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
+    @patch(_ALERTS_COMPUTE_BATCH, side_effect=_batch_meta(_ALERTS_META))
+    def test_computes_impact_lenses_for_flagged_teams_only_and_a_few_at_a_time(
+        self, _alerts, _long, _source, _rate_limits
+    ):
+        flagged = [self.team, *(Team.objects.create(organization=self.organization) for _ in range(10))]
+        unflagged = Team.objects.create(organization=self.organization, name="Not in the preview")
+        flagged_uuids = {str(team.uuid) for team in flagged}
+        lenses = [rec for rec in RECOMMENDATIONS if isinstance(rec, ImpactLens)]
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "posthoganalytics.feature_enabled",
+                    side_effect=lambda key, distinct_id, **kwargs: distinct_id in flagged_uuids,
+                )
+            )
+            computes = [
+                stack.enter_context(patch.object(type(lens), "compute_batch", side_effect=_batch_meta({"issues": []})))
+                for lens in lenses
+            ]
+
+            _run_batch_activity(RefreshBatchInputs(team_ids=[team.id for team in [*flagged, unflagged]]))
+
+        flagged_ids = {team.id for team in flagged}
+        for lens, compute in zip(lenses, computes):
+            batches = [call.args[0] for call in compute.call_args_list]
+            assert all(len(batch) <= ImpactLens.max_teams_per_compute for batch in batches), lens.type
+            assert {team_id for batch in batches for team_id in batch} == flagged_ids, lens.type
+        lens_types = [lens.type for lens in lenses]
+        assert not ErrorTrackingRecommendation.objects.filter(team_id=unflagged.id, type__in=lens_types).exists()
+        assert ErrorTrackingRecommendation.objects.filter(team_id__in=flagged_ids, type__in=lens_types).count() == len(
+            flagged_ids
+        ) * len(lens_types)
 
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))

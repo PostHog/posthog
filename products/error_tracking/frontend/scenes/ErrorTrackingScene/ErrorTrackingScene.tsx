@@ -31,6 +31,7 @@ import {
     ErrorTrackingSceneActiveTab,
     errorTrackingSceneLogic,
 } from './errorTrackingSceneLogic'
+import { ImpactTab } from './tabs/impact/ImpactTab'
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesList } from './tabs/issues/IssuesList'
 import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
@@ -54,6 +55,7 @@ export function ErrorTrackingScene(): JSX.Element {
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
+    const hasImpact = useFeatureFlag('ERROR_TRACKING_IMPACT')
     // Same gate as the settings section: configuration endpoints require error tracking viewer access.
     const configurationAccessDeniedReason = getAccessControlDisabledReason(
         AccessControlResourceType.ErrorTracking,
@@ -95,6 +97,15 @@ export function ErrorTrackingScene(): JSX.Element {
             label: 'Insights',
             content: <ErrorTrackingInsights />,
         },
+        ...(hasImpact
+            ? [
+                  {
+                      key: 'impact' as const,
+                      label: 'Impact',
+                      content: <ImpactTab />,
+                  },
+              ]
+            : []),
         ...(hasRecommendations
             ? [
                   {

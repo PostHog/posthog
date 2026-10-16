@@ -656,6 +656,458 @@ export const InsightsPage: Story = {
     ],
 }
 
+// The impact tab shows one lens at a time. Every lens is computed as a hidden recommendation.
+const SIGNIN_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0a1b'
+const CART_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0a2c'
+const CHUNK_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0a3d'
+const STYLESHEET_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0a4e'
+const UPLOAD_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0a5f'
+const EXPORT_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0a6a'
+const QUOTA_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0a7b'
+const PERMISSION_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0a8c'
+const CALENDAR_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0a9d'
+const HYDRATION_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0aae'
+const HYDRATION_TWIN_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0abf'
+const GRAPHQL_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0aca'
+const BILLING_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0adb'
+const DRAFT_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0aec'
+const POLLING_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0afd'
+const SHORTCUTS_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0b0e'
+const RESIZE_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0b1f'
+const SCRIPT_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0b2a'
+const REPORT_ISSUE_ID = '0191a0b2-7c3d-7e4f-8a5b-6c7d8e9f0b3b'
+
+const impactLens = (type: string, meta: Record<string, unknown>): Record<string, unknown> => ({
+    id: `${type}-lens`,
+    type,
+    completed: false,
+    status: 'ready',
+    computed_at: '2024-07-08T23:48:00Z',
+    dismissed_at: null,
+    created_at: '2024-07-08T00:00:00Z',
+    updated_at: '2024-07-08T23:48:00Z',
+    meta,
+})
+
+const impactIssue = (id: string, name: string, description: string): Record<string, unknown> => ({
+    id,
+    name,
+    description,
+    status: 'active',
+})
+
+const PAGE_LOAD_DAYS = ['2024-07-07T00:00:00+00:00', '2024-06-30T00:00:00+00:00']
+
+// A sign-in flow that usually gets a bit over 40% of visits through, broken at 19:00 on the story's last day.
+const SIGNIN_HOURLY = Array.from({ length: 24 }, (_, hour) => {
+    const usual = 0.42 + 0.05 * Math.sin(hour / 4)
+    const rate = hour === 19 ? 0.081 : usual + 0.03 * Math.cos(hour * 1.3)
+    return {
+        hour: `2024-07-08T${String(hour).padStart(2, '0')}:00:00+00:00`,
+        starts: 820 + 35 * (hour % 7),
+        rate: Math.round(rate * 1000) / 1000,
+        usual_rate: Math.round(usual * 1000) / 1000,
+    }
+})
+
+const SIGNIN_ATTACHED = {
+    ...impactIssue(SIGNIN_ISSUE_ID, 'SessionRestoreError', 'Could not restore the saved session token'),
+    visits: 1135,
+    exposed: 640,
+    exposed_finished: 13,
+    exposed_finish_rate: 0.02,
+    unexposed_finish_rate: 0.154,
+}
+
+const SIGNIN_FLOW = { from_path: 'app.example.com/signin', to_path: 'app.example.com/projects' }
+
+// A chain from the project list to a report that usually gets 18% of visits through, broken at 14:00 on the last step.
+const REPORT_CHAIN = [
+    'app.example.com/projects',
+    'app.example.com/projects/:n/reports',
+    'app.example.com/projects/:n/reports/:n',
+]
+
+const REPORT_HOURLY = Array.from({ length: 24 }, (_, hour) => {
+    const usual = 0.18 + 0.02 * Math.sin(hour / 5)
+    const rate = hour === 14 ? 0.052 : usual + 0.015 * Math.cos(hour * 1.1)
+    return {
+        hour: `2024-07-08T${String(hour).padStart(2, '0')}:00:00+00:00`,
+        starts: 760 + 40 * (hour % 5),
+        rate: Math.round(rate * 1000) / 1000,
+        usual_rate: Math.round(usual * 1000) / 1000,
+    }
+})
+
+const REPORT_ATTACHED = {
+    ...impactIssue(REPORT_ISSUE_ID, 'TypeError', "Cannot read properties of undefined (reading 'columns')"),
+    visits: 610,
+    exposed: 288,
+    exposed_finished: 9,
+    exposed_finish_rate: 0.031,
+    unexposed_finish_rate: 0.124,
+}
+
+const RELATED_PAIRS = [
+    {
+        ...impactIssue(HYDRATION_ISSUE_ID, 'Error', 'Hydration failed because the server HTML did not match'),
+        sessions: 233,
+        related: impactIssue(
+            HYDRATION_TWIN_ISSUE_ID,
+            'Error',
+            'Hydration failed because the server HTML did not match'
+        ),
+        related_sessions: 236,
+        both_sessions: 232,
+        shared_sessions: 231,
+        leads_share: 0.52,
+        relation: 'same',
+    },
+    {
+        ...impactIssue(GRAPHQL_ISSUE_ID, 'GraphQLError', 'Field "plan" returned null'),
+        sessions: 158,
+        related: impactIssue(BILLING_ISSUE_ID, 'Error', 'Billing summary failed to render'),
+        related_sessions: 171,
+        both_sessions: 156,
+        shared_sessions: 149,
+        leads_share: 0.96,
+        relation: 'causes',
+    },
+]
+
+const IMPACT_LENSES = [
+    impactLens('flow_drop', {
+        window_hours: 24,
+        evaluable: true,
+        flows: [SIGNIN_FLOW],
+        incidents: [
+            {
+                ...SIGNIN_FLOW,
+                hour: '2024-07-08T19:00:00+00:00',
+                hours: 1,
+                worst_hour: '2024-07-08T19:00:00+00:00',
+                starts: 1180,
+                finishes: 96,
+                rate: 0.081,
+                usual_starts: 1050,
+                usual_finishes: 452,
+                usual_rate: 0.43,
+                hourly: SIGNIN_HOURLY,
+                issues: [SIGNIN_ATTACHED],
+            },
+        ],
+        surges: [],
+        issues: [
+            { ...SIGNIN_ATTACHED, ...SIGNIN_FLOW, hour: '2024-07-08T19:00:00+00:00', rate: 0.081, usual_rate: 0.43 },
+        ],
+    }),
+    impactLens('funnel_step', {
+        window_hours: 24,
+        evaluable: true,
+        chains: [REPORT_CHAIN],
+        incidents: [
+            {
+                pages: REPORT_CHAIN,
+                hour: '2024-07-08T14:00:00+00:00',
+                hours: 1,
+                worst_hour: '2024-07-08T14:00:00+00:00',
+                starts: 940,
+                finishes: 49,
+                rate: 0.052,
+                usual_starts: 880,
+                usual_finishes: 160,
+                usual_rate: 0.182,
+                steps: [
+                    {
+                        from_path: REPORT_CHAIN[0],
+                        to_path: REPORT_CHAIN[1],
+                        entered: 940,
+                        continued: 610,
+                        rate: 0.649,
+                        usual_rate: 0.64,
+                        ratio: 1.014,
+                        reached_rate: 0.649,
+                        usual_reached_rate: 0.64,
+                    },
+                    {
+                        from_path: REPORT_CHAIN[1],
+                        to_path: REPORT_CHAIN[2],
+                        entered: 610,
+                        continued: 49,
+                        rate: 0.08,
+                        usual_rate: 0.284,
+                        ratio: 0.282,
+                        reached_rate: 0.052,
+                        usual_reached_rate: 0.182,
+                    },
+                ],
+                broken_step: 1,
+                clear: true,
+                hourly: REPORT_HOURLY,
+                issues: [REPORT_ATTACHED],
+            },
+        ],
+        surges: [],
+        muted: [],
+        issues: [
+            {
+                ...REPORT_ATTACHED,
+                pages: REPORT_CHAIN,
+                hour: '2024-07-08T14:00:00+00:00',
+                broken_step: 1,
+                from_path: REPORT_CHAIN[1],
+                to_path: REPORT_CHAIN[2],
+                rate: 0.052,
+                usual_rate: 0.182,
+            },
+        ],
+    }),
+    impactLens('quick_leave', {
+        days: PAGE_LOAD_DAYS,
+        min_page_seconds: 3,
+        quick_leave_seconds: 10,
+        return_hours: 24,
+        evaluable: true,
+        issues: [
+            {
+                ...impactIssue(CART_ISSUE_ID, 'TypeError', "Cannot read properties of null (reading 'items')"),
+                pageviews: 1430,
+                quick_leaves: 905,
+                rate: 0.633,
+                expected_rate: 0.18,
+                returned_rate: 0.71,
+                expected_returned_rate: 0.64,
+            },
+            {
+                ...impactIssue(CHUNK_ISSUE_ID, 'ChunkLoadError', 'Loading chunk 77 failed'),
+                pageviews: 312,
+                quick_leaves: 141,
+                rate: 0.452,
+                expected_rate: 0.27,
+                returned_rate: null,
+                expected_returned_rate: null,
+            },
+        ],
+    }),
+    impactLens('lost_visitor', {
+        days: PAGE_LOAD_DAYS,
+        return_hours: 24,
+        evaluable: true,
+        issues: [
+            {
+                ...impactIssue(
+                    STYLESHEET_ISSUE_ID,
+                    'StylesheetLoadError',
+                    'Stylesheet for the pricing page failed to load'
+                ),
+                pageviews: 268,
+                lost: 151,
+                rate: 0.563,
+                expected_rate: 0.31,
+            },
+        ],
+    }),
+    impactLens('suppressed_events', {
+        window_hours: 24,
+        evaluable: true,
+        issues: [
+            {
+                ...impactIssue(UPLOAD_ISSUE_ID, 'UploadError', 'Avatar upload rejected: unsupported format'),
+                path: 'app.example.com/settings/profile',
+                sessions: 143,
+                comparison_sessions: 2380,
+                events: [
+                    { event: 'profile_saved', issue_share: 0.09, comparison_share: 0.47 },
+                    { event: 'avatar_uploaded', issue_share: 0.02, comparison_share: 0.21 },
+                ],
+            },
+        ],
+    }),
+    impactLens('support_tickets', {
+        window_days: 30,
+        evaluable: true,
+        tickets: 820,
+        tickets_with_errors: 133,
+        baseline_per_1k: 0.6,
+        issues: [
+            {
+                ...impactIssue(EXPORT_ISSUE_ID, 'ExportError', 'CSV export stopped before the last page'),
+                tickets: 6,
+                sessions: 118,
+                per_1k: 50.8,
+                ticket_refs: [
+                    { id: 'ticket-5121', number: 5121 },
+                    { id: 'ticket-5117', number: 5117 },
+                    { id: 'ticket-5102', number: 5102 },
+                ],
+            },
+        ],
+    }),
+    impactLens('many_accounts', {
+        window_days: 14,
+        evaluable: true,
+        group_label: 'organizations',
+        active_accounts: 1840,
+        issues: [
+            {
+                ...impactIssue(QUOTA_ISSUE_ID, 'QuotaExceededError', 'Workspace storage quota reached while saving'),
+                people: 1414,
+                sessions: 2210,
+                accounts: 307,
+                account_share: 0.167,
+            },
+        ],
+    }),
+    impactLens('one_account', {
+        window_days: 14,
+        evaluable: true,
+        group_label: 'organizations',
+        active_accounts: 1840,
+        issues: [
+            {
+                ...impactIssue(PERMISSION_ISSUE_ID, 'PermissionError', 'Role cannot edit shared dashboards'),
+                people: 74,
+                sessions: 610,
+                accounts: 3,
+                top_account: { key: 'org-7', name: 'Northwind Traders', session_share: 0.91 },
+            },
+        ],
+    }),
+    impactLens('audience_slices', {
+        window_hours: 24,
+        evaluable: true,
+        issues: [
+            {
+                ...impactIssue(CALENDAR_ISSUE_ID, 'RangeError', 'Invalid time value'),
+                sessions: 264,
+                slices: [
+                    {
+                        dimension: 'browser',
+                        value: 'Safari',
+                        sessions: 232,
+                        issue_share: 0.88,
+                        baseline_share: 0.12,
+                        lift: 7.3,
+                    },
+                    {
+                        dimension: 'browser_version',
+                        value: 'Safari 17',
+                        sessions: 161,
+                        issue_share: 0.61,
+                        baseline_share: 0.05,
+                        lift: 12.2,
+                    },
+                ],
+            },
+        ],
+    }),
+    impactLens('related_issues', { window_hours: 24, evaluable: true, issues: RELATED_PAIRS }),
+    impactLens('fires_on_leave', {
+        window_hours: 24,
+        evaluable: true,
+        baseline_leave_share: 0.07,
+        issues: [
+            {
+                ...impactIssue(DRAFT_ISSUE_ID, 'FetchError', 'Failed to save draft: request cancelled'),
+                sessions: 412,
+                leave_share: 0.41,
+                baseline_leave_share: 0.07,
+                after_navigation_share: 0.05,
+                after_action_share: 0.1,
+                background_share: 0.68,
+            },
+        ],
+    }),
+    impactLens('inflated_counts', {
+        window_hours: 24,
+        evaluable: true,
+        issues: [
+            {
+                ...impactIssue(POLLING_ISSUE_ID, 'NetworkError', 'Failed to fetch /api/notifications'),
+                occurrences: 3105,
+                sessions: 47,
+                top_session_share: 0.29,
+                heavy_session_share: 0.66,
+                repeating_sessions: 15,
+                timer_sessions: 14,
+                timer_interval_seconds: 30,
+                reasons: ['top_session', 'heavy_sessions', 'timer'],
+            },
+            {
+                ...impactIssue(SHORTCUTS_ISSUE_ID, 'Error', 'loadShortcuts timed out'),
+                occurrences: 870,
+                sessions: 58,
+                top_session_share: 0.55,
+                heavy_session_share: 0.55,
+                repeating_sessions: 3,
+                timer_sessions: 0,
+                timer_interval_seconds: null,
+                reasons: ['top_session', 'heavy_sessions'],
+            },
+        ],
+    }),
+    impactLens('known_patterns', {
+        window_hours: 24,
+        evaluable: true,
+        total_events: 52300,
+        pattern_events: 27410,
+        classes: [
+            { pattern: 'resize_observer', events: 14200 },
+            { pattern: 'code_bug', events: 13090 },
+            { pattern: 'other', events: 11800 },
+            { pattern: 'chunk_load', events: 6100 },
+            { pattern: 'script_error', events: 4910 },
+            { pattern: 'network', events: 2200 },
+        ],
+        issues: [
+            {
+                ...impactIssue(
+                    RESIZE_ISSUE_ID,
+                    'Error',
+                    'ResizeObserver loop completed with undelivered notifications.'
+                ),
+                events: 14200,
+                sessions: 4380,
+                pattern: 'resize_observer',
+                reasons: ['known_pattern'],
+                no_stack_share: 1,
+                third_party_share: 0,
+                resolved_share: null,
+            },
+            {
+                ...impactIssue(SCRIPT_ISSUE_ID, 'Error', 'Script error.'),
+                events: 4910,
+                sessions: 1730,
+                pattern: 'script_error',
+                reasons: ['known_pattern', 'third_party'],
+                no_stack_share: 1,
+                third_party_share: 0.88,
+                resolved_share: null,
+            },
+        ],
+    }),
+]
+
+const impactPageStory = (params: Record<string, string>): Story => ({
+    parameters: {
+        pageUrl: urls.errorTracking({ activeTab: 'impact', ...params }),
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_IMPACT],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/environments/:team_id/error_tracking/recommendations': () => [200, { results: IMPACT_LENSES }],
+            },
+        }),
+    ],
+})
+
+// Opens on every lens's items, grouped by lens.
+export const ImpactPage: Story = impactPageStory({})
+
+// One lens, with the description of how it flags issues above its items.
+export const ImpactPageOneLens: Story = impactPageStory({ lens: 'quick_leave' })
+
 // An unresolved source maps recommendation renders the wizard banner above the
 // issue list without the sticky filters bar overlapping its bottom edge
 export const ListPageWithSourceMapsBanner: Story = {

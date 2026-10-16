@@ -7,12 +7,15 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.utils import uuid7
 
 from products.cdp.backend.facade.models import HogFunction
 from products.error_tracking.backend.logic.recommendations.alerts import AlertsRecommendation
+from products.error_tracking.backend.logic.recommendations.audience_slices import AudienceSlicesRecommendation
+from products.error_tracking.backend.logic.recommendations.inflated_counts import InflatedCountsRecommendation
 from products.error_tracking.backend.logic.recommendations.long_running_issues import LongRunningIssuesRecommendation
 from products.error_tracking.backend.logic.recommendations.rate_limits import RateLimitsRecommendation
 from products.error_tracking.backend.logic.recommendations.source_maps import SourceMapsRecommendation
@@ -47,6 +50,24 @@ def _days_ago(n: int) -> str:
     return (timezone.now() - timedelta(days=n)).isoformat()
 
 
+BASE_TYPES = {"alerts", "long_running_issues", "rate_limits", "source_maps"}
+IMPACT_TYPES = {
+    "audience_slices",
+    "fires_on_leave",
+    "flow_drop",
+    "funnel_step",
+    "inflated_counts",
+    "known_patterns",
+    "lost_visitor",
+    "many_accounts",
+    "one_account",
+    "quick_leave",
+    "related_issues",
+    "support_tickets",
+    "suppressed_events",
+}
+
+
 class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
     @classmethod
     def setUpTestData(cls):
@@ -65,6 +86,19 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
     def _refresh(self, rec_id):
         return self.client.post(f"/api/environments/{self.team.id}/error_tracking/recommendations/{rec_id}/refresh/")
 
+    @parameterized.expand(
+        [
+            ("impact_flag_off", False, BASE_TYPES),
+            ("impact_flag_on", True, BASE_TYPES | IMPACT_TYPES),
+            # A flag check that fails hides the impact lenses rather than failing the list: fail closed.
+            ("impact_flag_check_fails", Exception("flags unavailable"), BASE_TYPES),
+        ]
+    )
+    @patch(
+        "products.error_tracking.backend.logic.recommendations.impact_lens.ImpactLens.compute",
+        return_value={"window_hours": 24, "issues": []},
+    )
+    @patch("posthoganalytics.feature_enabled")
     @patch(
         "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
         return_value={"issues": []},
@@ -73,15 +107,53 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_first_list_creates_all_recommendations(self, mock_alerts, mock_long_running):
+    def test_first_list_creates_all_recommendations(
+        self, _name, impact_flag, expected_types, mock_alerts, mock_long_running, mock_flag, mock_lens
+    ):
+        if isinstance(impact_flag, Exception):
+            mock_flag.side_effect = impact_flag
+        else:
+            mock_flag.return_value = impact_flag
         self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 0)
 
         response = self._list()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 4)
+        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), len(expected_types))
         types = {r["type"] for r in response.json()["results"]}
-        self.assertEqual(types, {"alerts", "long_running_issues", "rate_limits", "source_maps"})
+        self.assertEqual(types, expected_types)
+        self.assertEqual(mock_lens.call_count, len(expected_types & IMPACT_TYPES))
+
+    @patch(
+        "products.error_tracking.backend.logic.recommendations.impact_lens.ImpactLens.compute",
+        return_value={"window_hours": 24, "issues": []},
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch(
+        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        return_value={"issues": []},
+    )
+    @patch(
+        "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
+        return_value=MOCK_ALERTS_META,
+    )
+    def test_a_team_that_leaves_the_flag_no_longer_sees_or_acts_on_its_lenses(
+        self, mock_alerts, mock_long_running, mock_flag, mock_lens
+    ):
+        lens_id = next(r["id"] for r in self._list().json()["results"] if r["type"] == "flow_drop")
+
+        mock_flag.return_value = False
+        response = self._list()
+
+        self.assertEqual({r["type"] for r in response.json()["results"]}, BASE_TYPES)
+        for action in ("refresh", "dismiss", "restore"):
+            self.assertEqual(
+                self.client.post(
+                    f"/api/environments/{self.team.id}/error_tracking/recommendations/{lens_id}/{action}/"
+                ).status_code,
+                status.HTTP_404_NOT_FOUND,
+                action,
+            )
 
     @patch(
         "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
@@ -195,6 +267,77 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
             },
             timestamp=timestamp,
         )
+
+    def test_audience_slices_flags_issue_concentrated_in_one_browser(self):
+        issue = self._create_issue(created_at=timezone.now() - timedelta(days=2), name="FirefoxOnly")
+        recent = (timezone.now() - timedelta(hours=1)).isoformat()
+        common = {"$lib": "web", "$os": "Windows", "$device_type": "Desktop"}
+        for i in range(70):
+            properties = {
+                **common,
+                "$session_id": str(uuid7()),
+                "$pageview_id": str(uuid7()),
+                "$browser": "Firefox",
+                "$browser_version": 141,
+                "$exception_issue_id": str(issue.id),
+                "$exception_fingerprint": f"fp::{issue.id}",
+                # A stack in the app's own code, so the issue is not noise.
+                "$exception_types": ["TypeError"],
+                "$exception_values": ["Cannot read properties of undefined (reading 'menu')"],
+                "$exception_list": [
+                    {
+                        "type": "TypeError",
+                        "value": "Cannot read properties of undefined (reading 'menu')",
+                        "stacktrace": {
+                            "type": "resolved",
+                            "frames": [{"source": "https://app.example.com/app.js", "in_app": True, "resolved": True}],
+                        },
+                    }
+                ],
+            }
+            _create_event(
+                distinct_id=f"user_{i}", event="$exception", team=self.team, properties=properties, timestamp=recent
+            )
+        for i in range(200):
+            browser = "Firefox" if i < 10 else "Chrome"
+            properties = {**common, "$session_id": str(uuid7()), "$browser": browser, "$browser_version": 141}
+            _create_event(
+                distinct_id=f"visitor_{i}", event="$pageview", team=self.team, properties=properties, timestamp=recent
+            )
+        flush_persons_and_events()
+
+        meta = AudienceSlicesRecommendation().compute(self.team)
+
+        self.assertEqual([i["name"] for i in meta["issues"]], ["FirefoxOnly"])
+        slices = {(s["dimension"], s["value"]): s for s in meta["issues"][0]["slices"]}
+        self.assertEqual(set(slices), {("browser", "Firefox"), ("browser_version", "Firefox 141")})
+        self.assertEqual(slices[("browser", "Firefox")]["issue_share"], 1.0)
+        self.assertEqual(slices[("browser", "Firefox")]["baseline_share"], 0.05)
+
+    def test_inflated_counts_flags_issue_driven_by_one_session_on_a_timer(self):
+        issue = self._create_issue(created_at=timezone.now() - timedelta(days=2), name="Polling")
+        start = timezone.now() - timedelta(hours=6)
+        # 40 sessions with one occurrence, 10 sessions repeating every minute, and one session firing every 30 seconds.
+        sessions = [(1, 0)] * 40 + [(6, 60)] * 10 + [(100, 30)]
+        for occurrences, gap_seconds in sessions:
+            session_id = str(uuid7())
+            for i in range(occurrences):
+                _create_event(
+                    distinct_id=session_id,
+                    event="$exception",
+                    team=self.team,
+                    properties={"$session_id": session_id, "$exception_fingerprint": f"fp::{issue.id}"},
+                    timestamp=(start + timedelta(seconds=i * gap_seconds)).isoformat(),
+                )
+        flush_persons_and_events()
+
+        meta = InflatedCountsRecommendation().compute(self.team)
+
+        self.assertEqual([i["name"] for i in meta["issues"]], ["Polling"])
+        flagged = meta["issues"][0]
+        self.assertEqual(flagged["reasons"], ["top_session", "heavy_sessions", "timer"])
+        self.assertEqual((flagged["occurrences"], flagged["sessions"]), (200, 51))
+        self.assertEqual(flagged["timer_interval_seconds"], 60)
 
     def test_long_running_returns_oldest_active_issues_with_recent_occurrences(self):
         old_active = self._create_issue(created_at=timezone.now() - timedelta(days=60), name="Oldest")

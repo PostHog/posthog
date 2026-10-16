@@ -11,8 +11,9 @@ from posthoganalytics import capture_exception
 
 from posthog.models import Team
 
-from products.error_tracking.backend.logic.recommendations import RECOMMENDATIONS
+from products.error_tracking.backend.logic.recommendations import RECOMMENDATIONS, enabled_recommendations
 from products.error_tracking.backend.logic.recommendations.base import Recommendation
+from products.error_tracking.backend.logic.recommendations.impact_lens import shared_batch_results
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
 from products.error_tracking.backend.tasks import compute_error_tracking_recommendation
 
@@ -38,7 +39,7 @@ def is_stale(rec: Recommendation, obj: ErrorTrackingRecommendation, now: datetim
     if rec.refresh_interval is None:
         return True
     interval_seconds = rec.refresh_interval.total_seconds()
-    phase_seconds = _stable_phase_seconds(obj.team_id, rec.type, interval_seconds)
+    phase_seconds = _stable_phase_seconds(obj.team_id, rec.refresh_group or rec.type, interval_seconds)
     return _refresh_window(now, phase_seconds, interval_seconds) > _refresh_window(
         obj.computed_at, phase_seconds, interval_seconds
     )
@@ -128,7 +129,8 @@ def refresh_team_recommendations(team_id: int) -> int:
     Returns the number of recommendations kicked.
     """
     now = timezone.now()
-    return sum(_refresh_one(rec, team_id, now) for rec in RECOMMENDATIONS)
+    team = Team.objects.only("id", "uuid", "organization_id").get(id=team_id)
+    return sum(_refresh_one(rec, team_id, now) for rec in enabled_recommendations(team))
 
 
 def refresh_teams_recommendations_batched(
@@ -151,15 +153,19 @@ def refresh_teams_recommendations_batched(
     # that have since been deleted from Postgres. Writing a recommendation row for such a team
     # violates the team_id foreign key and (since it's a single INSERT) fails the whole batch,
     # so drop the deleted teams before any writes.
-    existing_team_ids = list(Team.objects.filter(id__in=team_ids).values_list("id", flat=True))
-    if len(existing_team_ids) != len(team_ids):
+    teams = list(Team.objects.filter(id__in=team_ids).only("id", "uuid", "organization_id"))
+    if len(teams) != len(team_ids):
         logger.info(
             "error_tracking_recommendation_skipped_deleted_teams",
-            skipped=len(team_ids) - len(existing_team_ids),
+            skipped=len(team_ids) - len(teams),
         )
-    team_ids = existing_team_ids
+    team_ids = [team.id for team in teams]
     if not team_ids:
         return 0, 0
+    enabled_types = {team.id: {rec.type for rec in enabled_recommendations(team)} for team in teams}
+    enabled_team_ids = {
+        rec.type: [team.id for team in teams if rec.type in enabled_types[team.id]] for rec in RECOMMENDATIONS
+    }
 
     def fetch_rows() -> dict[tuple[int, str], ErrorTrackingRecommendation]:
         return {
@@ -171,7 +177,7 @@ def refresh_teams_recommendations_batched(
     missing = [
         ErrorTrackingRecommendation(team_id=team_id, type=rec.type, status=ErrorTrackingRecommendation.Status.READY)
         for rec in RECOMMENDATIONS
-        for team_id in team_ids
+        for team_id in enabled_team_ids[rec.type]
         if (team_id, rec.type) not in rows
     ]
     if missing:
@@ -181,11 +187,22 @@ def refresh_teams_recommendations_batched(
         rows = fetch_rows()
 
     computed = 0
-    for rec in RECOMMENDATIONS:
-        computed += _refresh_rec_for_teams(rec, team_ids, rows, now)
-        if on_progress is not None:
-            on_progress(rec.type)
+    with shared_batch_results():
+        for rec in RECOMMENDATIONS:
+            for chunk in _chunks(enabled_team_ids[rec.type], rec.max_teams_per_compute):
+                computed += _refresh_rec_for_teams(rec, chunk, rows, now)
+                # A heartbeat per chunk, so one slow recommendation over many teams cannot miss the heartbeat timeout.
+                if on_progress is not None:
+                    on_progress(rec.type)
     return len(team_ids), computed
+
+
+def _chunks(team_ids: list[int], size: int | None) -> list[list[int]]:
+    if not team_ids:
+        return []
+    if size is None:
+        return [team_ids]
+    return [team_ids[start : start + size] for start in range(0, len(team_ids), size)]
 
 
 def _refresh_rec_for_teams(

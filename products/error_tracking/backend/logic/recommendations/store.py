@@ -3,7 +3,7 @@ from uuid import UUID
 
 from django.utils import timezone
 
-from products.error_tracking.backend.logic.recommendations import RECOMMENDATIONS_BY_TYPE
+from products.error_tracking.backend.logic.recommendations import RECOMMENDATIONS_BY_TYPE, enabled_recommendations
 from products.error_tracking.backend.logic.recommendations.refresh import claim_for_compute, revert_to_ready
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
 from products.error_tracking.backend.tasks import compute_error_tracking_recommendation
@@ -17,15 +17,28 @@ class UnknownRecommendationTypeError(Exception):
     pass
 
 
+def _is_enabled(obj: ErrorTrackingRecommendation) -> bool:
+    rec = RECOMMENDATIONS_BY_TYPE.get(obj.type)
+    return rec is None or rec.is_enabled_for_team(obj.team)
+
+
 def list_recommendations(team_id: int) -> list[ErrorTrackingRecommendation]:
-    return list(ErrorTrackingRecommendation.objects.filter(team_id=team_id).select_related("team").order_by("type"))
+    rows = list(ErrorTrackingRecommendation.objects.filter(team_id=team_id).select_related("team").order_by("type"))
+    if not rows:
+        return []
+    # A row outlives its gate, for example when a team leaves a feature flag, so filter on read too.
+    enabled = {rec.type for rec in enabled_recommendations(rows[0].team)}
+    return [obj for obj in rows if obj.type not in RECOMMENDATIONS_BY_TYPE or obj.type in enabled]
 
 
 def _get(team_id: int, recommendation_id: UUID) -> ErrorTrackingRecommendation:
     try:
-        return ErrorTrackingRecommendation.objects.select_related("team").get(team_id=team_id, id=recommendation_id)
+        obj = ErrorTrackingRecommendation.objects.select_related("team").get(team_id=team_id, id=recommendation_id)
     except ErrorTrackingRecommendation.DoesNotExist as err:
         raise RecommendationNotFoundError() from err
+    if not _is_enabled(obj):
+        raise RecommendationNotFoundError()
+    return obj
 
 
 def refresh_recommendation(team_id: int, recommendation_id: UUID, *, force: bool) -> ErrorTrackingRecommendation:

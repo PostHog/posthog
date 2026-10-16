@@ -40,7 +40,7 @@ function RecommendationCardForType({
 
 export function RecommendationsTab(): JSX.Element {
     const {
-        recommendations,
+        visibleRecommendations,
         recommendationsLoading,
         activeRecommendations,
         completedRecommendations,
@@ -50,7 +50,7 @@ export function RecommendationsTab(): JSX.Element {
     } = useValues(recommendationsTabLogic)
     const { toggleDismissedExpanded, toggleCompletedExpanded } = useActions(recommendationsTabLogic)
 
-    if (recommendationsLoading && recommendations.length === 0) {
+    if (recommendationsLoading && visibleRecommendations.length === 0) {
         return (
             <div className="flex justify-center py-8">
                 <Spinner />
@@ -58,7 +58,7 @@ export function RecommendationsTab(): JSX.Element {
         )
     }
 
-    if (recommendations.length === 0) {
+    if (visibleRecommendations.length === 0) {
         return (
             <div className="border rounded-lg bg-surface-primary p-4 text-secondary text-sm">
                 No recommendations right now — everything's looking good!
