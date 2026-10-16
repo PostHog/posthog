@@ -23,8 +23,8 @@ export function WaysToUseSurfaces({ onSurfaceLinkClick }: WaysToUseSurfacesProps
                 <WaysToUseSurfaceCard
                     order={0}
                     logo={<Logomark size="xs" />}
-                    title="Web app"
-                    description="See what changed today, chat with PostHog AI, and open any product."
+                    title="In the web app"
+                    description="See what changed today, ask PostHog AI, and open any product."
                     illustration={<WebAppIllustration />}
                     action={
                         <Badge>
@@ -36,8 +36,8 @@ export function WaysToUseSurfaces({ onSurfaceLinkClick }: WaysToUseSurfacesProps
                 <WaysToUseSurfaceCard
                     order={1}
                     logo={<IconSlack className="size-5" />}
-                    title="Slack"
-                    description="Tag @PostHog in any thread to ask about your data."
+                    title="In Slack"
+                    description="Mention @PostHog with a data question, quick fix, or chore."
                     illustration={<SlackIllustration />}
                     action={
                         <WaysToUseSurfaceLink
@@ -52,8 +52,8 @@ export function WaysToUseSurfaces({ onSurfaceLinkClick }: WaysToUseSurfacesProps
                 <WaysToUseSurfaceCard
                     order={2}
                     logo={<IconMCP className="size-5" />}
-                    title="MCP"
-                    description="Use PostHog data and tools in Claude, Cursor, and other AI agents."
+                    title="In your coding agent"
+                    description="Plug PostHog into Claude, Cursor, and anything else that speaks MCP."
                     illustration={<McpIllustration />}
                     action={
                         <WaysToUseSurfaceLink

@@ -30,7 +30,7 @@ export function WaysToUseSurfaceCard({
         >
             <div
                 aria-hidden
-                className="pointer-events-none relative h-44 overflow-hidden rounded-xl border border-border bg-fill-hover select-none @md:@max-3xl:row-span-2"
+                className="pointer-events-none relative h-48 overflow-hidden rounded-xl border border-border bg-fill-hover select-none @md:@max-3xl:row-span-2"
                 {...{ inert: '' }}
             >
                 <span className="absolute top-4 left-4 flex size-6 items-center justify-center">{logo}</span>

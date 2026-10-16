@@ -7,8 +7,8 @@ import { WaysToUsePreviewWindow } from './WaysToUsePreviewWindow'
 export function WebAppIllustration(): JSX.Element {
     return (
         <>
-            <WaysToUsePreviewWindow>
-                <div className="flex flex-col gap-2.5 p-3">
+            <WaysToUsePreviewWindow title="Today">
+                <div className="flex flex-col gap-2 p-3">
                     <Text size="xs" weight="semibold">
                         Good morning, Sam
                     </Text>
@@ -25,9 +25,9 @@ export function WebAppIllustration(): JSX.Element {
             <WaysToUsePreviewCallout>
                 <div className="flex items-center gap-2">
                     <IconSparkles className="size-3.5 shrink-0 text-muted-foreground" />
-                    <Text size="xs">Why did errors double?</Text>
-                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                        <IconArrowRight className="size-3 -rotate-90" />
+                    <Text size="xs">Why the error spike?</Text>
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                        <IconArrowRight className="size-3" />
                     </span>
                 </div>
             </WaysToUsePreviewCallout>

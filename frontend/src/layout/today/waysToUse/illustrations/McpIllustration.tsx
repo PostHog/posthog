@@ -7,17 +7,12 @@ import { WaysToUsePreviewWindow } from './WaysToUsePreviewWindow'
 export function McpIllustration(): JSX.Element {
     return (
         <>
-            <WaysToUsePreviewWindow>
-                <div className="flex items-center gap-1 border-b border-border px-3 py-2">
-                    <span className="size-1.5 rounded-full bg-border" />
-                    <span className="size-1.5 rounded-full bg-border" />
-                    <span className="size-1.5 rounded-full bg-border" />
-                </div>
+            <WaysToUsePreviewWindow title="agent">
                 <div className="flex flex-col gap-2 p-3">
                     <div className="self-end rounded-lg bg-fill-selected px-2 py-1">
-                        <Text size="xs">Which flags are stale?</Text>
+                        <Text size="xs">Who's on this flag?</Text>
                     </div>
-                    <Text size="xs">3 flags are fully rolled out.</Text>
+                    <Text size="xs">No one in 30 days.</Text>
                 </div>
             </WaysToUsePreviewWindow>
             <WaysToUsePreviewCallout>

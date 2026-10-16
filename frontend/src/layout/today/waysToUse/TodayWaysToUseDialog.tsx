@@ -10,6 +10,7 @@ import {
     DialogFooter,
     DialogHeader,
     DialogTitle,
+    Highlight,
 } from '@posthog/quill'
 
 import { waysToUseLogic } from './waysToUseLogic'
@@ -30,9 +31,14 @@ export function TodayWaysToUseDialog(): JSX.Element {
                 data-attr="today-ways-to-use-dialog"
             >
                 <DialogHeader className="items-center text-center">
-                    <DialogTitle className="text-lg">Use PostHog where you work</DialogTitle>
+                    <DialogTitle className="text-lg">
+                        PostHog,{' '}
+                        <Highlight animate delay={300}>
+                            wherever you work
+                        </Highlight>
+                    </DialogTitle>
                     <DialogDescription className="max-w-xl text-balance">
-                        Use the web app, ask in Slack, or connect your AI agents. They all use the same project data.
+                        Bring your product data into the tools you already use.
                     </DialogDescription>
                 </DialogHeader>
                 <DialogBody>
