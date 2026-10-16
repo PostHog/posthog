@@ -201,6 +201,8 @@ def _write_snapshot_state(
             sql.Identifier(DUCKLAKE_ALIAS, "posthog", table_name), sql.Literal(comment)
         )
     )
+    if _read_snapshot_state(conn, table_name) != state:
+        raise ValueError("Groups snapshot metadata write was not applied")
 
 
 def _transaction_conflict(error: BaseException) -> bool:
