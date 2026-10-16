@@ -256,6 +256,7 @@ the row lists both.
 | copper                           | HTTP                        | requests                                                        | ✅                          |
 | coralogix                        | HTTP                        | requests                                                        | ✅                          |
 | cortex                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| cosmosdb                         | HTTP                        | requests                                                        | ✅                          |
 | coupa                            | HTTP                        | requests                                                        | ✅                          |
 | courier                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | coveralls                        | HTTP                        | requests                                                        | ✅                          |
@@ -1097,7 +1098,6 @@ doesn't conflict with concurrent PRs.
 - contentsquare
 - convonite
 - copper
-- cosmosdb
 - couchbase
 - crowdstrike_falcon
 - cube_cloud
