@@ -31,9 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     RepartitionStoppedError,
     RepartitionSupersededError,
     RepartitionTarget,
-    _ensure_claim,
-    _partition_key_from_add_path,
+    ensure_repartition_claim,
     measure_partition_bytes,
+    partition_key_from_add_path,
     rewrite_budget,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_stream import (
@@ -73,12 +73,12 @@ def _rewrite_partition(
 ) -> int:
     """Rewrite every row of one datetime partition under `split`, in one commit. Returns the row count.
 
-    Reads with the rewrite's bounded reader and caps the writer's open files to the same budget, so a
-    wide hot partition cannot outgrow the worker's memory. A stop raises before the commit, so the
+    Reads with the rewrite's bounded reader and sizes the row groups of the writer's open files from the
+    same budget, so a wide hot partition cannot outgrow the worker's memory. A stop raises before the commit, so the
     partition keeps its old keys.
     """
     count = split.buckets[base]
-    sources = [source for source in plan_source_files(live) if _partition_key_from_add_path(source.path) in old_keys]
+    sources = [source for source in plan_source_files(live) if partition_key_from_add_path(source.path) in old_keys]
     if not sources:
         # The overwrite removes every file under `old_keys`, so writing nothing would delete the partition.
         raise RuntimeError(f"no data files found for hot partition {base}")
@@ -135,6 +135,24 @@ def _rewrite_partition(
     return rows
 
 
+def hot_split_landed(live: deltalake.DeltaTable, staged: dict[str, Any], saved: dict[str, Any] | None) -> bool:
+    """Whether any partition of the staged split is committed, which means it has to finish.
+
+    Each partition is replaced in one commit, so a sub-bucket key that only the staged split makes is on
+    disk exactly when that partition landed. A split with no such key can be dropped safely.
+    """
+    staged_split = HotPartitionSplit.from_dict(staged)
+    if staged_split is None:
+        return False
+    saved_split = HotPartitionSplit.from_dict(saved)
+    present = set(measure_partition_bytes(live))
+    for base, count in staged_split.buckets.items():
+        saved_count = saved_split.buckets.get(base) if saved_split else None
+        if (_bucket_keys(base, count) - _bucket_keys(base, saved_count)) & present:
+            return True
+    return False
+
+
 async def split_hot_partitions_in_place(
     *,
     table_ref: DeltaTableRef,
@@ -179,7 +197,7 @@ async def split_hot_partitions_in_place(
             raise RepartitionStoppedError(
                 f"hot partition split stopped after {partitions_split} partitions", rows_written=rows_rewritten
             )
-        await _ensure_claim(schema, claim_token)
+        await ensure_repartition_claim(schema, claim_token)
         rows = await asyncio.to_thread(
             _rewrite_partition,
             live,

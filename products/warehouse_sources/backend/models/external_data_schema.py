@@ -925,7 +925,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
 
     @property
     def hot_split_staged(self) -> dict[str, Any] | None:
-        """The split a hot-partition rewrite is writing. Shape: {"state": "staged", "split": dict}."""
+        """The split a hot-partition rewrite is writing. Shape: {"state": "staged", "split": dict, "done": list[str]}."""
         if self.sync_type_config:
             staged = self.sync_type_config.get(HOT_SPLIT_STAGED_KEY, None)
             if isinstance(staged, dict):
@@ -2084,6 +2084,21 @@ def stage_hot_partition_split(
     return staged
 
 
+def release_hot_split_if_claimed(schema: ExternalDataSchema, *, claim_token: str) -> bool:
+    """Drop a staged split that never committed a partition, which releases the import it holds."""
+    released = False
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal released
+        claim = config.get("repartition_claim")
+        if not (claim and claim.get("token") == claim_token):
+            return
+        released = config.pop(HOT_SPLIT_STAGED_KEY, None) is not None
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return released
+
+
 def mark_hot_split_partition_done(schema: ExternalDataSchema, *, partition: str, claim_token: str) -> bool:
     """Record one partition the staged split has committed. Returns False when the claim is lost."""
     wrote = False
@@ -2113,8 +2128,13 @@ def finalize_hot_partition_split(schema: ExternalDataSchema, *, split: dict[str,
                 return
         config[PARTITION_HOT_SPLIT_KEY] = split
         config["last_repartition_at"] = timezone.now().isoformat()
-        for key in (HOT_SPLIT_STAGED_KEY, "repartition_pending", "repartition_rewrite", "partition_measurement"):
+        for key in (HOT_SPLIT_STAGED_KEY, "repartition_rewrite", "partition_measurement"):
             config.pop(key, None)
+        # A pending target for another scheme (an operator's) arrived while the split was staged, so it
+        # stays for the next run.
+        pending = config.get("repartition_pending")
+        if not isinstance(pending, dict) or pending.get("hot_split") == split:
+            config.pop("repartition_pending", None)
         wrote = True
 
     schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)

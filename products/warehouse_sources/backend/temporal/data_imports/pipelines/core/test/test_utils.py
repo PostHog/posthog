@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    MAX_HOT_PARTITIONS,
     NULL_NUMERICAL_PARTITION,
     HotPartitionSplit,
     append_cursor_partition_keys,
@@ -2156,6 +2157,12 @@ def test_a_hot_split_sub_buckets_only_the_split_partitions_by_the_pinned_hash_ke
             {"2026-10-01T10_0": 300, "2026-10-01T10_1": 300, "2026-10-01T11": 700},
             {"2026-10-01T10": 2, "2026-10-01T11": 3},
             id="keeps_existing_splits_while_adding_one",
+        ),
+        pytest.param(
+            {f"2026-01-01T{index:05d}": 2 for index in range(MAX_HOT_PARTITIONS)},
+            {"2026-10-01T11": 700},
+            None,
+            id="past_the_cap_falls_back_to_md5",
         ),
     ],
 )

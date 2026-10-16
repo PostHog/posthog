@@ -42,6 +42,10 @@ DATE_CURSOR_TYPES = frozenset(
 # Joins a datetime partition value and its md5 sub-bucket. Datetime values never contain it.
 HOT_BUCKET_SEPARATOR = "_"
 
+# Past this many split partitions most of the table is hot, and md5 over the whole table costs less
+# than a split map carried in every queue message and a rewrite of each hour after it lands.
+MAX_HOT_PARTITIONS = 256
+
 
 @frozen
 class HotPartitionSplit:
@@ -88,7 +92,8 @@ def next_hot_split(
 
     A partition is sized to half the budget, so it has to double before it is split again. A split
     partition with one sub-bucket over budget gets more sub-buckets, which rehashes that partition
-    only. The hash keys of an existing split never change.
+    only. The hash keys of an existing split never change. None as well when the split would grow past
+    `MAX_HOT_PARTITIONS`, so the caller falls back to md5 over the whole table.
     """
     buckets = dict(current.buckets) if current else {}
     split = HotPartitionSplit(hash_keys=current.hash_keys if current else hash_keys, buckets=buckets)
@@ -106,6 +111,8 @@ def next_hot_split(
     for base in over_budget:
         current_count = buckets.get(base, 1)
         buckets[base] = max(current_count + 1, math.ceil(totals[base] * 2 / budget))
+    if len(buckets) > MAX_HOT_PARTITIONS:
+        return None
     return HotPartitionSplit(hash_keys=split.hash_keys, buckets=buckets)
 
 
@@ -116,7 +123,29 @@ def _hash_input(value: Any) -> Any:
         return int(value)
     if isinstance(value, decimal.Decimal) and value.is_finite() and value == value.to_integral_value():
         return int(value)
+    if isinstance(value, datetime.datetime) and value.tzinfo is not None:
+        return value.astimezone(datetime.UTC).replace(tzinfo=None)
     return value
+
+
+def hash_columns_as_stored(table: pa.Table, stored: pa.Schema, hash_keys: list[str]) -> pa.Table:
+    """`table` with each hash key column cast to its stored type, so the loader hashes what the split reads.
+
+    A column that cannot be cast keeps its type, and the schema evolution after partitioning reports it.
+    """
+    for name in hash_keys:
+        if name not in table.column_names or name not in stored.names:
+            continue
+        stored_type = stored.field(name).type
+        index = table.schema.get_field_index(name)
+        if table.schema.field(index).type == stored_type:
+            continue
+        try:
+            column = pc.cast(table.column(index), stored_type)
+        except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
+            continue
+        table = table.set_column(index, table.schema.field(index).with_type(stored_type), column)
+    return table
 
 
 def md5_bucket(values: list[Any], count: int) -> int:
@@ -319,6 +348,8 @@ def append_partition_key_to_table(
         for row in batch.to_pylist():
             if mode == "md5":
                 assert partition_count is not None, "append_partition_key_to_table: partition_count is None"
+                # Unlike `md5_bucket`, this hashes the raw values: normalizing them would move rows of
+                # existing md5 tables to other buckets.
 
                 primary_key_values = [str(row.get(key)) for key in normalized_partition_keys]
                 delimited_primary_key_value = "|".join(primary_key_values)

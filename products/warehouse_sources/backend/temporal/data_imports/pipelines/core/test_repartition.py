@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     _PURGE_S3_PREFIX_MAX_ATTEMPTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hot_partitions import (
+    hot_split_landed,
     split_hot_partitions_in_place,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -453,7 +454,7 @@ class TestSplitHotPartitionsInPlace:
             patch.object(hot_partitions_module, "stage_hot_partition_split", Mock(return_value=staged)),
             patch.object(hot_partitions_module, "mark_hot_split_partition_done", Mock(return_value=True)),
             patch.object(hot_partitions_module, "finalize_hot_partition_split", Mock(return_value=True)) as finalize,
-            patch.object(hot_partitions_module, "_ensure_claim", new=AsyncMock()),
+            patch.object(hot_partitions_module, "ensure_repartition_claim", new=AsyncMock()),
         ):
             result = asyncio.run(
                 split_hot_partitions_in_place(
@@ -504,6 +505,38 @@ class TestSplitHotPartitionsInPlace:
         files = deltalake.DeltaTable(path).file_uris()
         assert {f for f in files if f"{PARTITION_KEY}=2024-01-01T10" in f} == finished
         assert not any(f"{PARTITION_KEY}=2024-01-01T12/" in f for f in files)
+
+    def test_a_split_that_committed_before_its_progress_record_rewrites_to_the_same_rows(self, tmp_path):
+        path = str(tmp_path / "live")
+        uids = [f"u{index}" for index in range(30)]
+        split = HotPartitionSplit(hash_keys=["uid"], buckets={"2024-01-01T10": 3})
+        table = pa.table(
+            {
+                "uid": pa.array(uids),
+                "created_at": pa.array([datetime.datetime(2024, 1, 1, 10, 5)] * 30, type=pa.timestamp("us")),
+            }
+        )
+        keyed = append_partition_key_to_table(
+            table, None, None, ["created_at"], "datetime", "hour", logger, hot_split=split
+        )
+        assert keyed is not None
+        deltalake.write_deltalake(path, keyed.table, partition_by=PARTITION_KEY)
+        before = self._keys_by_uid(path)
+        assert hot_split_landed(deltalake.DeltaTable(path), split.to_dict(), None)
+
+        self._split(deltalake.DeltaTable(path), None, {"2024-01-01T10": 3})
+
+        assert deltalake.DeltaTable(path).to_pyarrow_table().num_rows == 30
+        assert self._keys_by_uid(path) == before
+
+    def test_a_split_lands_only_once_a_partition_commits(self, tmp_path):
+        path = str(tmp_path / "live")
+        self._write(path, [f"u{index}" for index in range(10)], [10] * 10)
+        staged = {"hash_keys": ["uid"], "buckets": {"2024-01-01T10": 3}}
+
+        assert not hot_split_landed(deltalake.DeltaTable(path), staged, None)
+        self._split(deltalake.DeltaTable(path), None, {"2024-01-01T10": 3})
+        assert hot_split_landed(deltalake.DeltaTable(path), staged, None)
 
     def test_a_stop_during_a_partition_leaves_it_on_its_old_keys(self, tmp_path):
         path = str(tmp_path / "live")

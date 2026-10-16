@@ -226,7 +226,7 @@ def is_repartition_hold_enabled(schema: ExternalDataSchema) -> bool:
 
 def repartition_import_hold_reason(
     schema: ExternalDataSchema, logger: FilteringBoundLogger
-) -> Literal["swap_staged", "rewrite_converging"] | None:
+) -> Literal["swap_staged", "hot_split_staged", "rewrite_converging"] | None:
     """Why an in-flight repartition holds this schema's import, or None when it does not.
 
     Two situations hold the import. A staged swap holds it unconditionally, because the table's
@@ -242,7 +242,7 @@ def repartition_import_hold_reason(
     """
     swap = schema.repartition_swap
     if staged_hot_split(schema) is not None:
-        return "swap_staged"
+        return "hot_split_staged"
     if swap and swap.get("state") == "ready":
         # The rewrite may already have re-bucketed the data in S3 while the schema row still holds the
         # old settings. The merge computes each row's `_ph_partition_key` from those settings and

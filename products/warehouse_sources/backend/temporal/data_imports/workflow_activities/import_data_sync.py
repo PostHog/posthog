@@ -284,6 +284,22 @@ def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: Filt
         return False
 
     reason = repartition_import_hold_reason(schema, logger)
+    if reason == "hot_split_staged":
+        logger.warning(
+            "Holding import: a hot partition split is staged, so part of the table may carry the new keys",
+            schema_id=str(schema.id),
+        )
+        capture_repartition_event(
+            "warehouse_repartition_import_held",
+            {
+                "team_id": schema.team_id,
+                "schema_id": str(schema.id),
+                "resource_name": schema.name,
+                "reason": "hot_split_staged",
+            },
+        )
+        return True
+
     if reason == "swap_staged":
         swap = schema.repartition_swap or {}
         logger.warning(

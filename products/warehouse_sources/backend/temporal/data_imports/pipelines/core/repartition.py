@@ -270,7 +270,7 @@ class RepartitionTarget:
 _HIVE_NULL_PARTITION = "__HIVE_DEFAULT_PARTITION__"
 
 
-def _partition_key_from_add_path(path: str) -> str | None:
+def partition_key_from_add_path(path: str) -> str | None:
     """Recover the `_ph_partition_key` value from a Hive-style partitioned add-action file path.
 
     Every value this pipeline actually partitions by — an md5 bucket index, a numerical bucket or the
@@ -301,7 +301,7 @@ def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | Non
 
     totals: dict[str | None, int] = defaultdict(int)
     for path, size in delta_table._table.get_add_file_sizes().items():
-        key = _partition_key_from_add_path(path) if partitioned else None
+        key = partition_key_from_add_path(path) if partitioned else None
         totals[key] += size or 0
     return dict(totals)
 
@@ -501,7 +501,7 @@ async def purge_abandoned_rewrite_temp(
             schema_id=str(schema.id),
         )
         return False
-    await _ensure_claim(schema, claim_token)
+    await ensure_repartition_claim(schema, claim_token)
     swap = schema.repartition_swap
     if swap is not None and swap.get("temp_uri") == temp_uri:
         # A staged swap makes temp the only intact copy.
@@ -529,7 +529,7 @@ def _current_claim_token(schema: ExternalDataSchema) -> str | None:
     return claim.get("token") if claim else None
 
 
-async def _ensure_claim(schema: ExternalDataSchema, claim_token: str | None) -> None:
+async def ensure_repartition_claim(schema: ExternalDataSchema, claim_token: str | None) -> None:
     """Raise `RepartitionSupersededError` if a newer attempt has claimed the schema.
 
     Re-reads the schema row (the single, strongly-consistent coordination point — S3 has no locking)
@@ -1447,7 +1447,7 @@ async def repartition_table_in_place(
     storage_options = table_ref.get_storage_options()
 
     async def ensure_claim() -> None:
-        await _ensure_claim(schema, claim_token)
+        await ensure_repartition_claim(schema, claim_token)
 
     # Resume path: a prior attempt already built + validated temp and recorded the swap marker. The
     # marker's temp_uri is authoritative — it may be scoped to the attempt that built it.
