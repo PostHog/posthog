@@ -164,7 +164,6 @@
 1 products/signals/backend/temporal/emit_eval_signal.py
 1 products/signals/backend/temporal/emitter.py
 1 products/signals/backend/temporal/grouping_v2.py
-1 products/signals/eval/capture.py
 1 products/signals/eval/common.py
 1 products/skills/backend/marketplace/git_smart_http.py
 1 products/slack_app/backend/tests/services/test_run_preferences.py
