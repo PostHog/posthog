@@ -2,6 +2,7 @@ import re
 import json
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote
@@ -16,11 +17,13 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_log_analytics.settings import (
     API_HOST,
     DISCOVERY_LOOKBACK_DAYS,
+    INGESTION_TIME_FIELD,
     ITEM_ID_FIELD,
     LOGIN_HOST,
     PAGE_SIZE,
     PRIMARY_KEYS,
     TABLE_NAME_RE,
+    TIME_GENERATED_PRUNE,
     TIMESTAMP_FIELD,
     TOKEN_SCOPE,
 )
@@ -49,8 +52,8 @@ _GUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F
 # The cursor values are embedded in KQL, so they must keep the exact shape Log Analytics returns.
 _DATETIME_LITERAL_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?Z$")
 _ITEM_ID_LITERAL_RE = re.compile(r"^[A-Za-z0-9-]{0,128}$")
-# TimeGenerated as KQL renders it (100 ns precision), so the cursor matches rows exactly. Dropped
-# from every row before it is yielded.
+# The ingestion time as KQL renders it (100 ns precision), so the cursor matches rows exactly.
+# Dropped from every row before it is yielded.
 CURSOR_COLUMN = "__posthog_cursor"
 
 
@@ -68,11 +71,36 @@ class AzureLogAnalyticsPartialResultError(ValueError):
 
 @frozen
 class AzureLogAnalyticsResumeConfig:
-    # Where the next page starts: after this TimeGenerated (exactly as KQL renders it, 100 ns
+    # Where the next page starts: after this ingestion time (exactly as KQL renders it, 100 ns
     # precision, which a Python datetime cannot hold) and this _ItemId. An empty item_id means
-    # "at or after" the time, which starts a day window or a watermark.
-    time_generated: str
+    # "at or after" the time, which starts a window or a watermark.
+    ingested_at: str
     item_id: str = ""
+
+
+@frozen
+class WorkspaceCredentials:
+    tenant_id: str
+    client_id: str
+    client_secret: str = field(repr=False)
+    workspace_id: str
+
+    def client(
+        self,
+        logger: FilteringBoundLogger,
+        safe_point: Callable[[], None] | None = None,
+        probe: bool = False,
+    ) -> "AzureLogAnalyticsClient":
+        return AzureLogAnalyticsClient(
+            self.tenant_id,
+            self.client_id,
+            self.client_secret,
+            self.workspace_id,
+            logger,
+            safe_point=safe_point,
+            request_timeout=PROBE_REQUEST_TIMEOUT_SECONDS if probe else REQUEST_TIMEOUT_SECONDS,
+            max_attempts=1 if probe else MAX_RETRY_ATTEMPTS,
+        )
 
 
 def validate_workspace_id(workspace_id: str) -> str:
@@ -134,7 +162,7 @@ class AzureLogAnalyticsClient:
     """Client-credentials client for the Log Analytics query API.
 
     Transport retries are off (`Retry(total=0)`): every query is a POST, which the default retry
-    never covers, so throttling and gateway errors are retried once, here.
+    never covers, so throttling and gateway errors are retried here, within `RETRY_BUDGET_SECONDS`.
     """
 
     def __init__(
@@ -286,54 +314,60 @@ def _format_datetime_literal(value: Any) -> str:
 def build_query(
     table: str,
     after: AzureLogAnalyticsResumeConfig,
-    before: str | None,
+    before: str,
     page_size: int,
 ) -> str:
     if not TABLE_NAME_RE.match(table):
         raise ValueError(f"{table!r} is not a valid Log Analytics table name.")
-    for literal in (after.time_generated, before):
-        if literal is not None and not _DATETIME_LITERAL_RE.match(literal):
+    for literal in (after.ingested_at, before):
+        if not _DATETIME_LITERAL_RE.match(literal):
             raise ValueError("Azure Log Analytics cursor has an unexpected shape")
     if not _ITEM_ID_LITERAL_RE.match(after.item_id):
         raise ValueError("Azure Log Analytics cursor has an unexpected shape")
 
-    moment = f"datetime({after.time_generated})"
-    # Re-assigning _ItemId makes it a visible column in the result.
-    lines = [table, f"| extend {ITEM_ID_FIELD} = {ITEM_ID_FIELD}, {CURSOR_COLUMN} = tostring({TIMESTAMP_FIELD})"]
+    moment = f"datetime({after.ingested_at})"
+    lines = [table, f"| where {TIMESTAMP_FIELD} >= {moment} - {TIME_GENERATED_PRUNE}"]
     if after.item_id:
         lines.append(
-            f"| where {TIMESTAMP_FIELD} > {moment} or "
-            f"({TIMESTAMP_FIELD} == {moment} and strcmp({ITEM_ID_FIELD}, '{after.item_id}') > 0)"
+            f"| where ingestion_time() > {moment} or "
+            f"(ingestion_time() == {moment} and strcmp({ITEM_ID_FIELD}, '{after.item_id}') > 0)"
         )
     else:
-        lines.append(f"| where {TIMESTAMP_FIELD} >= {moment}")
-    if before is not None:
-        lines.append(f"| where {TIMESTAMP_FIELD} < datetime({before})")
-    # _ItemId breaks ties, so a page that ends inside one TimeGenerated value resumes without gaps.
-    lines.append(f"| sort by {TIMESTAMP_FIELD} asc, {ITEM_ID_FIELD} asc")
+        lines.append(f"| where ingestion_time() >= {moment}")
+    lines.append(f"| where ingestion_time() < datetime({before})")
+    # ingestion_time() only resolves against the table, so it is captured before the sort.
+    lines.append(f"| extend {INGESTION_TIME_FIELD} = ingestion_time()")
+    # _ItemId breaks ties, so a page that ends inside one ingestion time resumes without gaps.
+    lines.append(f"| sort by {INGESTION_TIME_FIELD} asc, {ITEM_ID_FIELD} asc")
     lines.append(f"| take {page_size}")
+    # Re-assigning _ItemId makes it a visible column in the result.
+    lines.append(f"| extend {ITEM_ID_FIELD} = {ITEM_ID_FIELD}, {CURSOR_COLUMN} = tostring({INGESTION_TIME_FIELD})")
     return "\n".join(lines)
 
 
-def window_end(after: AzureLogAnalyticsResumeConfig, run_start: datetime) -> str:
-    """The end of the one-day window the cursor sits in, capped at the run start.
+def window_end(after: AzureLogAnalyticsResumeConfig, run_start: datetime, hourly: bool) -> str:
+    """The end of the day or hour the cursor sits in, capped at the run start.
 
-    Each page sorts only the rows left in one day, so a backfill never re-scans the whole table
-    for every page. The cap keeps a row stamped in the future out of this run: as the newest
-    value it would become the watermark and hide every later row with a normal timestamp.
+    Each page sorts only the rows left in its window, so a backfill never re-scans the whole table
+    for every page. A busy table walks hours instead of days. The cap leaves rows ingested during
+    the run to the next run.
     """
-    day = date.fromisoformat(after.time_generated[:10])
-    if day >= run_start.date():
+    moment = datetime.fromisoformat(after.ingested_at[:19]).replace(tzinfo=UTC)
+    if hourly:
+        end = moment.replace(minute=0, second=0) + timedelta(hours=1)
+    else:
+        end = moment.replace(hour=0, minute=0, second=0) + timedelta(days=1)
+    if end >= run_start:
         return _format_datetime_literal(run_start)
-    return f"{(day + timedelta(days=1)).isoformat()}T00:00:00Z"
+    return end.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _first_cursor(client: AzureLogAnalyticsClient, table: str, watermark: Any) -> AzureLogAnalyticsResumeConfig | None:
     if watermark is not None:
-        return AzureLogAnalyticsResumeConfig(time_generated=_format_datetime_literal(watermark))
-    rows = client.query(f"{table} | summarize start = min({TIMESTAMP_FIELD}) | project start = tostring(start)")
+        return AzureLogAnalyticsResumeConfig(ingested_at=_format_datetime_literal(watermark))
+    rows = client.query(f"{table} | summarize start = min(ingestion_time()) | project start = tostring(start)")
     start = str(rows[0].get("start") or "") if rows else ""
-    return AzureLogAnalyticsResumeConfig(time_generated=start) if start else None
+    return AzureLogAnalyticsResumeConfig(ingested_at=start) if start else None
 
 
 def get_rows(
@@ -345,7 +379,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None:
-        logger.debug(f"Azure Log Analytics: resuming {table} after {resume.time_generated}")
+        logger.debug(f"Azure Log Analytics: resuming {table} after {resume.ingested_at}")
     after = resume or _first_cursor(client, table, watermark)
     if after is None:
         return
@@ -353,13 +387,16 @@ def get_rows(
     run_start = datetime.now(UTC)
     run_end = _format_datetime_literal(run_start)
     page_size = PAGE_SIZE
+    hourly = False
     while True:
-        before = window_end(after, run_start)
+        before = window_end(after, run_start, hourly)
         try:
             rows = client.query(build_query(table, after, before, page_size))
         except AzureLogAnalyticsPartialResultError:
             if page_size <= MIN_PAGE_SIZE:
                 raise
+            # A smaller window shrinks the scan; a smaller page shrinks the response.
+            hourly = True
             page_size = max(MIN_PAGE_SIZE, page_size // 2)
             logger.debug(f"Azure Log Analytics: {table} page hit a service limit, retrying with {page_size} rows")
             # The staged cursor covers every yielded row, so the run can hand over between retries.
@@ -368,12 +405,15 @@ def get_rows(
 
         window_done = len(rows) < page_size
         if not window_done:
+            hourly = True
             last = rows[-1]
             after = AzureLogAnalyticsResumeConfig(
-                time_generated=str(last.get(CURSOR_COLUMN)), item_id=str(last.get(ITEM_ID_FIELD))
+                ingested_at=str(last.get(CURSOR_COLUMN)), item_id=str(last.get(ITEM_ID_FIELD))
             )
         else:
-            after = AzureLogAnalyticsResumeConfig(time_generated=before)
+            page_size = PAGE_SIZE
+            hourly = hourly and not before.endswith("T00:00:00Z")
+            after = AzureLogAnalyticsResumeConfig(ingested_at=before)
         for row in rows:
             row.pop(CURSOR_COLUMN, None)
 
@@ -383,7 +423,7 @@ def get_rows(
         if rows:
             yield rows
         else:
-            # A day with no rows yields nothing; the pipeline only sees a shutdown at an item or here.
+            # A window with no rows yields nothing; the pipeline only sees a shutdown at an item or here.
             resumable_source_manager.safe_point()
         if window_done and before == run_end:
             return
@@ -396,7 +436,13 @@ def discover_tables(client: AzureLogAnalyticsClient) -> list[str]:
     return [str(row["DataType"]) for row in rows if TABLE_NAME_RE.match(str(row.get("DataType") or ""))]
 
 
-def probe_tables(client: AzureLogAnalyticsClient, tables: list[str]) -> dict[str, str | None]:
+def _is_missing_table(error: requests.HTTPError) -> bool:
+    return getattr(error.response, "status_code", None) == 400 and "Failed to resolve table" in str(error)
+
+
+def probe_tables(
+    credentials: WorkspaceCredentials, tables: list[str], missing_table_reason: str
+) -> dict[str, str | None]:
     """Why the query API cannot read each table, or None when it can.
 
     Basic and Auxiliary plan tables are only readable through the search API, so the query API
@@ -404,6 +450,11 @@ def probe_tables(client: AzureLogAnalyticsClient, tables: list[str]) -> dict[str
     is not a reason: the table counts as readable, and probing stops so setup stays fast.
     """
     reasons: dict[str, str | None] = dict.fromkeys(tables)
+    client = credentials.client(structlog.get_logger(__name__), probe=True)
+    try:
+        client.mint_token()
+    except (requests.RequestException, ValueError):
+        return reasons
     started = time.monotonic()
     for table in tables:
         if time.monotonic() - started > PROBE_BUDGET_SECONDS:
@@ -412,7 +463,9 @@ def probe_tables(client: AzureLogAnalyticsClient, tables: list[str]) -> dict[str
             client.query(f"{table} | take 0")
         except requests.HTTPError as error:
             status = getattr(error.response, "status_code", None)
-            if status == 400:
+            if _is_missing_table(error):
+                reasons[table] = missing_table_reason
+            elif status == 400:
                 reasons[table] = (
                     "Log Analytics can't query this table. Basic and Auxiliary plan tables aren't supported."
                     f"{_error_description(error.response)}"
@@ -426,24 +479,26 @@ def probe_tables(client: AzureLogAnalyticsClient, tables: list[str]) -> dict[str
     return reasons
 
 
-def _probe_failure_message(error: Exception, table: str | None) -> str:
+def _probe_failure_message(error: Exception, missing_table_message: str) -> str:
     status = getattr(getattr(error, "response", None), "status_code", None)
     if status == 403:
-        return "The app registration cannot query this workspace. Give its service principal the Log Analytics Reader role on the workspace, then try again."
+        return (
+            "The app registration cannot query this workspace. Give its service principal the Log Analytics "
+            "Reader role on the workspace, or read access to the table, then try again."
+        )
     if status == 404:
         return "No Log Analytics workspace has this workspace ID. Copy the workspace ID from the workspace's Overview page."
-    if status == 400 and table is not None and "Failed to resolve table" in str(error):
-        return f"The workspace has no table named {table}. Check the table name, or remove it from the list."
+    if isinstance(error, requests.HTTPError) and _is_missing_table(error):
+        return missing_table_message
     return f"Could not query the Log Analytics workspace: {error}"
 
 
-def validate_credentials(
-    tenant_id: str, client_id: str, client_secret: str, workspace_id: str, table: str | None = None
+def validate_workspace(
+    credentials: WorkspaceCredentials, probe_query: str, missing_table_message: str
 ) -> tuple[bool, Optional[str]]:
+    """Mint a token, then run `probe_query`, which proves the app can query the workspace."""
     try:
-        client = AzureLogAnalyticsClient(
-            tenant_id, client_id, client_secret, workspace_id, structlog.get_logger(__name__)
-        )
+        client = credentials.client(structlog.get_logger(__name__))
     except ValueError as error:
         return False, str(error)
 
@@ -456,26 +511,21 @@ def validate_credentials(
         )
 
     try:
-        client.query(f"{table} | take 0" if table else "print ok = 1")
+        client.query(probe_query)
     except Exception as error:
-        return False, _probe_failure_message(error, table)
+        return False, _probe_failure_message(error, missing_table_message)
 
     return True, None
 
 
 def azure_log_analytics_source(
-    tenant_id: str,
-    client_id: str,
-    client_secret: str,
-    workspace_id: str,
+    credentials: WorkspaceCredentials,
     table: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[AzureLogAnalyticsResumeConfig],
     db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
-    client = AzureLogAnalyticsClient(
-        tenant_id, client_id, client_secret, workspace_id, logger, safe_point=resumable_source_manager.safe_point
-    )
+    client = credentials.client(logger, safe_point=resumable_source_manager.safe_point)
 
     return SourceResponse(
         name=table,
@@ -486,7 +536,7 @@ def azure_log_analytics_source(
         partition_keys=[TIMESTAMP_FIELD],
         partition_mode="datetime",
         partition_format="day",
-        # Every page is one query sorted by TimeGenerated, then _ItemId.
+        # Every page is one query sorted by ingestion time, then _ItemId.
         sort_mode="asc",
         on_complete=resumable_source_manager.clear_state,
     )
