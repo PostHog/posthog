@@ -15,6 +15,9 @@ import { ToolCallRevealCard } from './ToolCallRevealCard'
 const HedgehogParty = pngHoggie(partyPng)
 const HedgehogError = pngHoggie(errorPng)
 
+/** The newest call as a hero card and the one before it as a smaller card. Later calls go to the panel. */
+const REVEALED_CALLS = 2
+
 const COPY = {
     loading: 'Loading your first tool call',
     failedToLoad: "Couldn't load your tool calls. This page tries again in a few seconds.",
@@ -59,7 +62,8 @@ function FirstCallBody({ calls, loadFailed, onNext }: SetupFirstCallStepProps): 
         )
     }
 
-    const failed = calls.filter((call) => call.is_error).length
+    const revealed = calls.slice(0, REVEALED_CALLS)
+    const failed = revealed.filter((call) => call.is_error).length
     const copy = failed > 0 ? COPY.failure : COPY.success
     const next = (
         <div className="flex justify-end">
@@ -83,12 +87,12 @@ function FirstCallBody({ calls, loadFailed, onNext }: SetupFirstCallStepProps): 
         )
     }
 
-    const [newest, previous] = calls
+    const [newest, previous] = revealed
     return (
         <>
             <SetupStepHero
                 Hedgehog={failed > 0 ? HedgehogError : HedgehogParty}
-                title={failed > 0 ? COPY.failure.title(calls.length, failed) : COPY.success.title(calls.length)}
+                title={failed > 0 ? COPY.failure.title(revealed.length, failed) : COPY.success.title(revealed.length)}
                 lead={copy.lead}
             />
             <ToolCallHeroCard call={newest} />
@@ -100,7 +104,15 @@ function FirstCallBody({ calls, loadFailed, onNext }: SetupFirstCallStepProps): 
 
 export function SetupFirstCallStep(props: SetupFirstCallStepProps): JSX.Element {
     return (
-        <SetupStepLayout aside={<SetupCallsPanel calls={props.calls} status={{ kind: 'live', text: COPY.live }} />}>
+        <SetupStepLayout
+            aside={
+                <SetupCallsPanel
+                    calls={props.calls?.slice(REVEALED_CALLS) ?? null}
+                    status={{ kind: 'live', text: COPY.live }}
+                    empty={null}
+                />
+            }
+        >
             <FirstCallBody {...props} />
         </SetupStepLayout>
     )

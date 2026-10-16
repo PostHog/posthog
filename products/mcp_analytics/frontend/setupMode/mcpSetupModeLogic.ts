@@ -39,8 +39,8 @@ import type { MCPConnectState } from './setupMode'
 
 const WIZARD_PROGRESS = { mode: 'local', workflowId: 'mcp-analytics' } as const
 
-/** The reveal shows the newest call large and the one before it under it. */
-const REVEAL_CALLS = 2
+/** The two calls the reveal shows as cards, plus the newer ones its calls panel lists beside them. */
+const RECENT_CALLS = 7
 
 // Faster than the onboarding logic's own poll: someone in setup mode is watching for the moment
 // their server answers. Both queries stay cheap while the project has a handful of events.
@@ -243,7 +243,7 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                     // message out of a failed call's response, both of which only the backend knows how to do.
                     const overview = await mcpAnalyticsSessionsActivityOverview(String(values.currentProjectId))
                     breakpoint()
-                    return overview.recent_calls.slice(0, REVEAL_CALLS)
+                    return overview.recent_calls.slice(0, RECENT_CALLS)
                 },
             },
         ],
