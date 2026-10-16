@@ -1,3 +1,4 @@
+import os
 import json
 import shutil
 import tempfile
@@ -7,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from posthog.models.person.divergence import team_scan
 from posthog.models.person.test.divergence_fixtures import DivergenceFixturesMixin
@@ -107,3 +109,20 @@ class TestChunkScan(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         shared.chmod(0o755)
         with pytest.raises(team_scan.ScanError, match="readable by other users"):
             team_scan.create_plan(shared, self.team.pk)
+
+        target = self.scan_root / "target"
+        target.mkdir(mode=0o700)
+        linked = self.scan_root / "linked"
+        linked.symlink_to(target)
+        with pytest.raises(team_scan.ScanError, match="not a directory"):
+            team_scan.create_plan(linked, self.team.pk)
+
+        with patch("posthog.models.person.divergence.team_scan.os.geteuid", return_value=os.geteuid() + 1):
+            with pytest.raises(team_scan.ScanError, match="owned by another user"):
+                team_scan.run_chunk(scan_dir, 0, resume=False)
+
+        # A directory opened up after its plan was written is refused when the scan resumes.
+        scan_dir.chmod(0o755)
+        with pytest.raises(team_scan.ScanError, match="readable by other users"):
+            team_scan.run_chunk(scan_dir, 0, resume=False)
+        scan_dir.chmod(0o700)
