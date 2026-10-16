@@ -244,6 +244,31 @@ jobs:
                   REPO: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: python3 .github/scripts/cancel_superseded_depot_runs.py
+            # Depot creates the gate's own check only when the gate job resolves, so a
+            # ready-for-review or reopen on an already green commit keeps that stale
+            # success while the new run is in flight. This marker makes the `Test results`
+            # check pending within seconds of the event; the gate job completes it.
+            - name: Mint test results check token
+              id: results-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-checks: write
+            - name: Mark the test results check in progress
+              if: steps.results-token.outputs.token != ''
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ steps.results-token.outputs.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
+                  GATE_CHECK: Backend CI on Depot / Test results
+              run: |
+                  gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
+                      -f head_sha="$SHA" -f status=in_progress -f details_url="$DEPOT_JOB_URL" \
+                      -f "output[title]=Backend tests running on Depot" \
+                      -f "output[summary]=The Depot run for this event is in progress. The gate job posts the verdict here." --silent
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
