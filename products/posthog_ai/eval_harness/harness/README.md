@@ -20,25 +20,28 @@ A run of one-shot suites never pays for — or fails preflight on — the sandbo
 
 ## Modules
 
-| Module             | Role                                                                                                                              |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| `__main__.py`      | Entry point. Parses args, starts the transcript, configures Django, then hands off to `lifecycle`.                                |
-| `cli.py`           | `HarnessOptions` and the argparse builder. Resolves per-provider defaults.                                                        |
-| `env_preflight.py` | Loads the repo-root `.env` (stdlib parser, shell wins) and validates per-kind env vars via pydantic models.                       |
-| `ports.py`         | The seven port constants. Deliberately free of Django imports.                                                                    |
-| `providers.py`     | `SandboxProviderStrategy` and its docker/modal implementations: preflight, settings overrides, sandbox TTL, cleanup.              |
-| `tunnels.py`       | `TailscaleFunnel`. Modal only: enables Tailscale Funnel on the host services and resolves their public URLs.                      |
-| `requirements.py`  | `SuiteKind`, `Infra`, and the kind → infrastructure mapping (with implication closure).                                           |
-| `django_env.py`    | `setup_django()`, the `NullDbBlocker` shim, and `EvalDatabase` (test database lifecycle).                                         |
-| `live_server.py`   | `EvalLiveServer`, a session-lifetime Uvicorn server for PostHog's full ASGI application.                                          |
+| Module             | Role                                                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `__main__.py`      | Entry point. Parses args, starts the transcript, configures Django, then hands off to `lifecycle`.                                         |
+| `cli.py`           | `HarnessOptions` and the argparse builder. Resolves per-provider defaults.                                                                 |
+| `env_preflight.py` | Loads the repo-root `.env` (stdlib parser, shell wins) and validates per-kind env vars via pydantic models.                                |
+| `ports.py`         | The seven port constants. Deliberately free of Django imports.                                                                             |
+| `providers.py`     | `SandboxProviderStrategy` and its docker/modal implementations: preflight, settings overrides, sandbox TTL, cleanup.                       |
+| `tunnels.py`       | `TailscaleFunnel`. Modal only: enables Tailscale Funnel on the host services, waits for the public relays, and resolves the URLs.          |
+| `requirements.py`  | `SuiteKind`, `Infra`, and the kind → infrastructure mapping (with implication closure).                                                    |
+| `django_env.py`    | `setup_django()`, the `NullDbBlocker` shim, and `EvalDatabase` (test database lifecycle).                                                  |
+| `live_server.py`   | `EvalLiveServer`, a session-lifetime Uvicorn server for PostHog's full ASGI application.                                                   |
 | `services.py`      | Starts the AI gateway, MCP server, skill archive server, and personhog subprocesses; provisions the gateway mint key; builds local skills. |
-| `temporal_env.py`  | Local Temporal dev server, stale-workflow cleanup, and the worker thread.                                                         |
-| `demo_data.py`     | `SandboxedDemoData`: seeds the master Hedgebox team once, then mints an isolated team per case.                                   |
-| `discovery.py`     | Walks the tree for `eval_*.py` and collects `eval_*` coroutines into `EvalSuite` objects.                                         |
-| `context.py`       | `EvalContext`, the single object every suite receives.                                                                            |
-| `reporting.py`     | `ProgressReporter` and the final summary table. The quiet Braintrust reporter lives with the engine (`../engines/braintrust.py`). |
-| `transcript.py`    | Mirrors stdout and stderr to one run log, then publishes its absolute path as the final line.                                     |
-| `lifecycle.py`     | `SandboxedEvalHarness`: orchestrates bootstrap, the run, and teardown.                                                            |
+| `temporal_env.py`  | Local Temporal dev server, stale-workflow cleanup, and the worker thread.                                                                  |
+| `demo_data.py`     | `SandboxedDemoData`: seeds the master Hedgebox team once, then mints an isolated team per case.                                            |
+| `discovery.py`     | Walks the tree for `eval_*.py` and collects `eval_*` coroutines into `EvalSuite` objects.                                                  |
+| `context.py`       | `EvalContext`, the single object every suite receives.                                                                                     |
+| `reporting.py`     | `ProgressReporter` and the final summary table. The quiet Braintrust reporter lives with the engine (`../engines/braintrust.py`).          |
+| `transcript.py`    | Mirrors stdout and stderr to one run log, then publishes its absolute path as the final line.                                              |
+| `dashboard.py`     | Starts the `phrocs evals` view process and streams run progress to it over a socket pair.                                                  |
+| `progress.py`      | Immutable trial progress shared by the reporter and interactive view.                                                                      |
+| `terminal.py`      | Opens terminal streams without sharing the descriptors used by transcript capture.                                                         |
+| `lifecycle.py`     | `SandboxedEvalHarness`: orchestrates bootstrap, the run, and teardown.                                                                     |
 
 ## Boot sequence
 
@@ -54,7 +57,7 @@ The bootstrap is deliberately synchronous and runs before any event loop exists,
 3. `personhog-replica` (`:15051`) and `personhog-router` (`:15052`) start against the test persons database — before anything can query, so a dead router never poisons the negative group-types cache.
 4. `EvalLiveServer` serves PostHog's ASGI application on `0.0.0.0:18000`, including the sandbox event-ingest route.
 5. The Go AI gateway (`:18080`) starts in resolver mode, on the gateway compose Postgres (database `ai_gateway_evals`) and Valkey (DB 5), and local skills are built. In bundled mode, the MCP server (`:18787`) starts with exec skill distribution forced off. In exec mode, the skills are packaged, the local archive server (`:18788`) starts, and MCP receives its content-addressed URL with distribution forced on.
-6. Docker only: the `posthog-sandbox-base` image freshness check runs (rebuilding when the Dockerfile or its agent pin changed). Modal only: Tailscale Funnel comes up, exposing the callback services publicly.
+6. Docker only: the `posthog-sandbox-base` image freshness check runs (rebuilding when the Dockerfile or its agent pin changed). Modal only: Tailscale Funnel comes up, exposing the callback services publicly. Setup then waits until every public Funnel relay serves every service, because the relays start serving at different times and can take minutes.
 7. Bundled mode bind-mounts the built skills on Docker and bakes them into the Modal image. Exec mode suppresses those skills and clears native skill directories before every case; `disable_bundled_skills=True` remains available as a per-case override in other modes.
 8. The master Hedgebox team is seeded. It then gets the AI gateway mint key: a `phs_` key, gateway admission, and an overspend allowance. One model listing and one token mint check that path before any case starts.
 
@@ -79,8 +82,25 @@ Terminal writes do not hold the transcript file lock, so progress output cannot 
 The runner starts workflow cleanup before progress reporting.
 Cancellation during progress reporting does not stop workflow cleanup.
 The sandbox window always reclaims notebook kernels after the agent run, without another progress report.
-The console defaults to concise output. `--verbose` shows detailed logging and tracebacks.
+Interactive terminals use the dashboard by default. CI, pipes, and `--no-tui` use concise text output.
+`--tui` overrides CI and `TERM=dumb` detection and opens `/dev/tty` when standard input or output is redirected.
+Redirected stderr does not disable automatic detection. Sessions without a controlling terminal use text output.
+`hogli evals` runs through the secrets wrapper (`op run`), which pipes stdout. hogli records whether its own stdout was a terminal in `HOGLI_STDOUT_TTY`, and detection uses that record when stdout is a pipe.
+`--verbose` shows detailed logging and tracebacks.
 Both modes retain detailed logs in the transcript, including routine service stderr without a warning label.
+
+The reporter publishes immutable trial updates to the dashboard; the view does not parse log lines to infer case state.
+The view is a separate `phrocs evals` process (`tools/phrocs/internal/tui/evals.go`). It owns the terminal, so the harness's GIL never delays input or rendering.
+The harness passes one end of a socket pair with `--fd`. It writes one JSON event per line; the view replies `ready` after its first layout and `cancel` when the user confirms.
+The view reads the selected summary, agent log, or transcript itself. The harness sends file paths, never file contents.
+The view process gets a duplicate terminal descriptor, outside stdout/stderr capture.
+While the view runs, the harness points its own stdin at `/dev/null`. Services inherit stdin, and a service that reads the terminal (for example `tsx watch`) takes key presses from the view.
+The transcript routes console messages to the view while still saving their original text.
+Cancel replies send one SIGINT through the existing cleanup path. The view ignores SIGINT, so it stays open during teardown.
+The completed view stays open until `q`, then the final summary and transcript path print to the restored terminal.
+Dashboard readiness requires the `ready` reply. Forced UI startup failures stop before eval setup; automatic mode reports the failure before selecting text output.
+If the view process exits during a run, the runner stops through its cleanup path and saves the view's stderr in the transcript.
+UI loop exceptions propagate through the worker, interrupt an active run once for cleanup, and are logged with their original traceback.
 
 Every invocation that attempts an eval writes the combined stdout/stderr stream to `logs/harness/<timestamp>_<id>.log`.
 An explanatory line identifies the full run transcript, followed by the log's unlabeled absolute path as the final line in both the transcript and terminal.

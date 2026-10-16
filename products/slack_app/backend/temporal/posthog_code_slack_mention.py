@@ -46,8 +46,8 @@ POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
 _PATCH_ID_MODEL_ROUTER = "slack-app-model-router-v1"
 
 
-@workflow.defn(name="posthog-code-slack-mention-processing")
-class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
+@workflow.defn(name="slack-app-mention-processing")
+class SlackAppMentionProcessingWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._selected_repo: str | None = None
         self._repo_selection_resolved = False
@@ -373,3 +373,12 @@ async def _execute_posthog_code_agent_activity(activity_fn: Any, *args: Any) -> 
         heartbeat_timeout=timedelta(minutes=5),
         retry_policy=RetryPolicy(maximum_attempts=1),
     )
+
+
+@workflow.defn(name="posthog-code-slack-mention-processing")
+class LegacyPostHogCodeSlackMentionWorkflow(SlackAppMentionProcessingWorkflow):
+    """Previous type name, kept registered until no execution of it remains in any region."""
+
+    @workflow.run
+    async def run(self, inputs: PostHogCodeSlackMentionWorkflowInputs) -> None:
+        await super().run(inputs)

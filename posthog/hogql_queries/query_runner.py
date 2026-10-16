@@ -562,6 +562,52 @@ def get_api_queries_budget_status(team: Team) -> Optional[BudgetStatus]:
         return None
 
 
+def enforce_api_queries_budget(team: Team) -> None:
+    """Hourly read budget for api key queries. Observe-only until the org is flagged in;
+    then an exhausted budget is a 429. The query that crosses the line still runs in full,
+    since the budget is debited after the query and the next request is the one refused."""
+    status = get_api_queries_budget_status(team)
+    if status is None:
+        return
+    API_QUERIES_BUDGET_BALANCE_HISTOGRAM.observe(status.remaining_bytes)
+    if status.remaining_bytes > 0:
+        return
+    enforced = _api_queries_budget_enforcement_enabled(team)
+    outcome = "enforced" if enforced else "observed"
+    API_QUERIES_BUDGET_LIMITED_COUNTER.labels(outcome=outcome).inc()
+    budget_logger.info(
+        "api_queries_budget_limited",
+        organization_id=str(team.organization_id),
+        team_id=team.pk,
+        remaining_bytes=status.remaining_bytes,
+        bytes_per_hour=status.spec.bytes_per_hour,
+        retry_after_seconds=status.retry_after_seconds,
+        outcome=outcome,
+    )
+    if claim_limited_event(str(team.pk)):
+        try:
+            access_method = get_query_tag_value("access_method")
+            product = get_query_tag_value("product")
+            report_team_action(
+                team,
+                "api queries budget limited",
+                {
+                    "outcome": outcome,
+                    "team_id": team.pk,
+                    "bytes_per_hour": status.spec.bytes_per_hour,
+                    "remaining_bytes": status.remaining_bytes,
+                    "retry_after_seconds": status.retry_after_seconds,
+                    "access_method": str(access_method) if access_method else None,
+                    "product": str(product) if product else None,
+                },
+            )
+        except Exception as e:
+            API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event").inc()
+            capture_exception(e)
+    if outcome == "enforced":
+        raise APIQueriesBudgetExceeded(wait=status.retry_after_seconds)
+
+
 RunnableQueryNode = Union[
     TrendsQuery,
     FunnelsQuery,
@@ -3001,49 +3047,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return feature.get("limit") if feature else None
 
     def _enforce_api_queries_budget(self) -> None:
-        """Hourly read budget for api key queries. Observe-only until the org is flagged in;
-        then an exhausted budget is a 429. The query that crosses the line still runs in full,
-        since the budget is debited after the query and the next request is the one refused."""
-        status = get_api_queries_budget_status(self.team)
-        if status is None:
-            return
-        API_QUERIES_BUDGET_BALANCE_HISTOGRAM.observe(status.remaining_bytes)
-        if status.remaining_bytes > 0:
-            return
-        enforced = _api_queries_budget_enforcement_enabled(self.team)
-        outcome = "enforced" if enforced else "observed"
-        API_QUERIES_BUDGET_LIMITED_COUNTER.labels(outcome=outcome).inc()
-        budget_logger.info(
-            "api_queries_budget_limited",
-            organization_id=str(self.team.organization_id),
-            team_id=self.team.pk,
-            remaining_bytes=status.remaining_bytes,
-            bytes_per_hour=status.spec.bytes_per_hour,
-            retry_after_seconds=status.retry_after_seconds,
-            outcome=outcome,
-        )
-        if claim_limited_event(str(self.team.pk)):
-            try:
-                access_method = get_query_tag_value("access_method")
-                product = get_query_tag_value("product")
-                report_team_action(
-                    self.team,
-                    "api queries budget limited",
-                    {
-                        "outcome": outcome,
-                        "team_id": self.team.pk,
-                        "bytes_per_hour": status.spec.bytes_per_hour,
-                        "remaining_bytes": status.remaining_bytes,
-                        "retry_after_seconds": status.retry_after_seconds,
-                        "access_method": str(access_method) if access_method else None,
-                        "product": str(product) if product else None,
-                    },
-                )
-            except Exception as e:
-                API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event").inc()
-                capture_exception(e)
-        if outcome == "enforced":
-            raise APIQueriesBudgetExceeded(wait=status.retry_after_seconds)
+        enforce_api_queries_budget(self.team)
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:

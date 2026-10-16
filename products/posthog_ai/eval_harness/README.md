@@ -77,6 +77,8 @@ python -m products.posthog_ai.eval_harness.harness --list
 | `--create-db`                     | Rebuild the eval test database instead of reusing it.                                                    |
 | `--case-timeout <seconds>`        | Agent-run budget (minimum 1 second), started after the case's team setup.                                |
 | `--verbose`                       | Show detailed logs and tracebacks in the console. The transcript always keeps the detailed logs.         |
+| `--tui`                           | Force the interactive view using the session's terminal, including when standard streams are redirected. |
+| `--no-tui`                        | Use plain text output, including in an interactive terminal.                                             |
 | `--trials N`                      | Run every case N times (Braintrust trials), for variance on stochastic agents.                           |
 | `--infra-retries N`               | Retry temporary case setup failures and service readiness timeouts N times. Default 2; use 0 to disable. |
 | `--fail-under <fraction>`         | Exit nonzero when the mean score across all experiments falls below this (0-1).                          |
@@ -109,7 +111,8 @@ A timeout summary contains the failure reason. Its raw log file can be empty; th
 
 `EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
 The full plain-text run transcript is always written without this setting.
-Normal console output shows runner progress, summaries, and short error messages.
+Interactive terminals show a live view by default. CI and redirected standard input or output use plain text.
+Plain text output shows runner progress, summaries, and short error messages.
 Dependency warnings, SDK progress bars, and direct setup prints stay in the transcript.
 `--verbose` also shows Python warnings, SDK output, and detailed logs in the console.
 Native subprocess output always goes to the transcript.
@@ -126,6 +129,43 @@ git clone git@github.com:PostHog/ai-gateway.git ~/Development/ai-gateway
 The gateway runs on `:18080` with its own Postgres database and Valkey DB index in the clone's compose containers, so it does not touch a dev-stack gateway's ledger or blobs.
 It uses `LLM_GATEWAY_ANTHROPIC_API_KEY` and `LLM_GATEWAY_OPENAI_API_KEY` as its provider keys.
 Each run gets a capped `phe_` token minted with a key on the master demo team, so spend is per run and never reaches a real wallet.
+
+### Interactive view
+
+The view is `phrocs evals`, the same Bubble Tea program that renders `hogli start`.
+It runs in its own process, so a busy eval run does not delay key presses or redraws.
+The harness builds the in-repo phrocs (`tools/phrocs/dist/phrocs`) when Go is available, otherwise it uses `phrocs` on `PATH`.
+If phrocs is missing or too old to have the `evals` command, the run continues with plain text output.
+
+The sidebar shows the run and one row per trial, grouped by experiment, with status and elapsed time.
+A failed trial shows its full error and traceback. Select **Run** for setup status, trial counts, and warnings. Press `l` to switch to the full run transcript.
+During agent execution, use this transcript for live logs. Per-trial log files become available after execution.
+Click a row or use the mouse wheel over the sidebar to change the selection. The wheel over the output pane scrolls it.
+Drag over the output pane to select text. The view copies the selection when you release the button, through OSC 52 and `pbcopy` on macOS.
+
+| Key                      | Action                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------ |
+| Up/Down, `j`/`k`         | Select a trial or the run, or scroll when the output pane has focus                  |
+| Tab, Enter               | Move focus between the sidebar and the output pane                                   |
+| `l`                      | Switch between the summary and logs                                                  |
+| `/`, Up/Down, Escape     | Search the output, move between matches, or clear the search                         |
+| PgUp/PgDn, Home          | Scroll the output                                                                    |
+| End                      | Jump to the end and follow new output                                                |
+| `q`, then `y`            | Cancel a running eval and wait for cleanup; `n` continues the run                    |
+| Ctrl-C                   | Cancel once and wait for cleanup                                                     |
+| `q` after completion     | Close the view                                                                       |
+| Mouse drag in the output | Select text; releasing the button copies it to the clipboard                         |
+| `c`, then `c` twice      | Select lines with Up/Down and copy them; the mouse can also drag-select in this mode |
+| `?`                      | Show all keys                                                                        |
+
+The final results stay visible until you close the view. The terminal then prints the final summary and transcript path.
+Use `--no-tui` for the existing text output. `--verbose` adds detailed messages to the view or text output.
+`--tui` overrides automatic detection, including `TERM=dumb` and CI. It uses `/dev/tty` when a launcher redirects standard input or output.
+Redirecting stderr alone does not disable the view. A session without an attached terminal still requires `--no-tui`.
+`hogli evals` opens the view by default in a terminal, even though its secrets wrapper pipes stdout. Redirect the output of `hogli evals` to get text output.
+With `--tui`, setup starts only after the first screen is drawn. A startup failure stops the command and reports its cause.
+If the view exits during a run, the runner stops through its cleanup path and saves the view error in the transcript.
+The view does not change scores, retries, timeouts, or sandbox cleanup. Its screen controls are not written to the transcript.
 
 ### Comparing skill delivery
 
@@ -192,6 +232,7 @@ An unchanged image passes the check in under a second, and even a rebuild is mos
 
 **modal** runs sandboxes remotely.
 Modal's network cannot reach `localhost`, so the harness exposes the host services via Tailscale Funnel itself and points the sandbox at the public URLs.
+A new Funnel takes up to a few minutes before all of its public relays serve it, so Modal setup waits for them before the first case starts.
 Eval sandboxes run in the dedicated `posthog-sandbox-evals` Modal app, separate from production and local development sandboxes.
 The manual tunnel setup in [`docs/internal/sandboxes-setup-guide.md`](../../../../docs/internal/sandboxes-setup-guide.md) is therefore not needed for evals.
 The first modal run pays a one-time remote image build; later runs reuse the cached image until the skills or build context change.
@@ -326,7 +367,7 @@ python -m products.posthog_ai.eval_harness.harness --list | grep my_thing
 
 ## Output
 
-Progress lines use stable labels as cases and suites start or finish: `SUITE START`, `EXPERIMENT START`, `CASE START`, `CASE PHASE`, `CASE READY`, `CASE DONE`, `EXPERIMENT DONE`, and `SUITE DONE`.
+In plain text output and the transcript, progress lines use stable labels as cases and suites start or finish: `SUITE START`, `EXPERIMENT START`, `CASE START`, `CASE PHASE`, `CASE READY`, `CASE DONE`, `EXPERIMENT DONE`, and `SUITE DONE`.
 Only the overall run uses `PASS` or `FAIL`, so a suite with a low behavioral score still reads as completed rather than passed.
 The console shows case starts and phase changes for each trial.
 A status line every 30 seconds shows execution totals, phase counts, elapsed time, and the oldest active trial.
@@ -334,7 +375,8 @@ A status line every 30 seconds shows execution totals, phase counts, elapsed tim
 `CASE DONE` and `EXPERIMENT DONE` mean the scores are ready.
 The `scoring` phase includes time waiting for all results in that experiment, so it is not an isolated scorer duration.
 Use `--verbose` to show detailed service and agent logs in the console. The transcript retains these logs in both modes.
-Warnings and errors use short console messages. Open the transcript for full tracebacks.
+Warnings and errors use short console messages, including the exception type and message when available.
+Open the transcript for full tracebacks.
 
 The final summary gives labeled suite and case totals, the score gate, total duration, and one block per experiment with scorer averages, PostHog and Braintrust URLs, and the agent-log directory.
 Each scorer line shows its score with a 95% confidence interval clustered by case. With `--trials N` a second line adds pass^N (every trial passed), pass@N (any trial passed) and the number of flaky cases, counting only cases scored on all N trials, so a noisy suite is distinguishable from a real score change.

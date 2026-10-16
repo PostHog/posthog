@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from contextlib import AsyncExitStack, ExitStack
 from dataclasses import replace
 from functools import partial
+from typing import TYPE_CHECKING
 
 from unittest.mock import patch
 
@@ -70,6 +71,9 @@ from .temporal_env import (
     terminate_stale_workflows,
 )
 
+if TYPE_CHECKING:
+    from .dashboard import EvalDashboard
+
 logger = logging.getLogger(__name__)
 
 # Exceptions to the blanket "every flag is on" stub the run installs below. These two hand a
@@ -121,8 +125,9 @@ class SandboxedEvalHarness:
     and the shared semaphores that bound sandbox load and serialize team setup.
     """
 
-    def __init__(self, options: HarnessOptions) -> None:
+    def __init__(self, options: HarnessOptions, *, dashboard: EvalDashboard | None = None) -> None:
         self.options = options
+        self._dashboard = dashboard
         self.provider: SandboxProviderStrategy | None = None
         # The execution/reporting backend for this run. No --engine flag yet, so
         # this is the registry default; it feeds preflight and every suite's run.
@@ -173,7 +178,7 @@ class SandboxedEvalHarness:
             flags = ", ".join(self.options.sandbox_flags_set)
             raise PreflightError(f"{flags}: no selected suite is sandboxed, so sandbox flags have no effect")
 
-        reporter = ProgressReporter(total_suites=len(suites), verbose=self.options.verbose)
+        reporter = ProgressReporter(total_suites=len(suites), verbose=self.options.verbose, dashboard=self._dashboard)
         reporter.print_run_header(
             provider=self.options.provider,
             agent_runtime=self.options.agent_runtime,
@@ -204,13 +209,17 @@ class SandboxedEvalHarness:
                 reporter.setup_started("build ai-gateway")
                 ensure_ai_gateway_binary()
             reporter.setup_started("start shared services and prepare demo data")
-            self._bootstrap(required)
+            self._bootstrap(required, reporter)
+            if self._dashboard:
+                self._dashboard.setup_finished()
             results = asyncio.run(self._run_suites(suites, required, reporter))
         except KeyboardInterrupt:
             logger.warning("Interrupted, tearing down")
             interrupted = True
         finally:
             try:
+                if self._dashboard:
+                    self._dashboard.set_stage("Cleaning up shared services")
                 self._stack.close()
             finally:
                 atexit.unregister(stop_all_subprocesses)
@@ -255,7 +264,7 @@ class SandboxedEvalHarness:
         if error:
             raise PreflightError(error)
 
-    def _bootstrap(self, required: frozenset[Infra]) -> None:
+    def _bootstrap(self, required: frozenset[Infra], reporter: ProgressReporter) -> None:
         """Stand up everything the selected suites share. Teardown is registered in
         reverse on the stack, so what wasn't started is never torn down."""
         LONG_LIVED_SUBPROCESSES.startup_retries = self.options.infrastructure_retries
@@ -266,25 +275,30 @@ class SandboxedEvalHarness:
             self._stack.callback(self.provider.cleanup)
 
         if Infra.DATABASE in required:
+            reporter.setup_started("prepare eval databases")
             database = EvalDatabase(keepdb=not self.options.create_db)
             database.setup()
             self._stack.callback(database.teardown)
             self._database = database
 
         if Infra.PERSONHOG in required:
+            reporter.setup_started("start personhog")
             # Bring personhog up before the live server and demo seeding: those bootstrap
             # reads go through the router, and a dead router would poison personhog's 30s
             # negative group-types cache for the rest of the run.
             self._stack.callback(start_personhog())
 
         if Infra.LIVE_SERVER in required:
+            reporter.setup_started("start Django server")
             live_server = EvalLiveServer(DJANGO_LIVE_PORT)
             self._stack.callback(live_server.stop)
             self._live_server = live_server
 
         if Infra.AI_GATEWAY in required:
+            reporter.setup_started("start AI gateway")
             self._stack.callback(start_ai_gateway())
         if Infra.MCP_SERVER in required:
+            reporter.setup_started("build skills and start MCP server")
             assert self._live_server is not None
 
             # Both delivery modes use rendered skills from this checkout, never a
@@ -306,6 +320,7 @@ class SandboxedEvalHarness:
             )
 
         if Infra.SANDBOX in required:
+            reporter.setup_started("prepare sandbox provider")
             assert self.provider is not None
             # Modal sandboxes live off-host, so the three services above have to be
             # publicly reachable before any settings pointing at them are computed.
@@ -321,6 +336,7 @@ class SandboxedEvalHarness:
             self._stack.callback(self._posthog_evaluation_client.shutdown)
 
         if Infra.DEMO_DATA in required:
+            reporter.setup_started("prepare demo data")
             assert self._database is not None
             self._demo_data = ensure_demo_ready(
                 blocker=self._database.blocker,
