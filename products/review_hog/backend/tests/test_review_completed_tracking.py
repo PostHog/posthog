@@ -381,6 +381,64 @@ class TestTrackReviewCompleted(BaseTest):
         assert (props["pr_draft"], second.kwargs["properties"]["pr_draft"]) == (True, False)
         assert (props["next_push_probability"], second.kwargs["properties"]["next_push_probability"]) == (None, 0.559)
 
+    @parameterized.expand(
+        [
+            ("quiet_previous_review", False, (True, "quiet_small_push", 0)),
+            ("previous_review_found_a_bug", True, (False, "system_one_above_threshold", 1)),
+        ]
+    )
+    def test_the_gate_reads_the_previous_turns_findings_and_the_pr_size(
+        self, _name: str, previous_finding: bool, expected: tuple[bool, str, int]
+    ) -> None:
+        report_id = self._review_report()
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata(),
+            pr_comments=[],
+            pr_files=[
+                PRFile(filename="a.py", status="modified", additions=300, deletions=100),
+                PRFile(filename="pnpm-lock.yaml", status="modified", additions=900, deletions=0),
+            ],
+        )
+        if previous_finding:
+            issues = [_issue("1-1-1")]
+            persist_findings(team_id=self.team.id, report_id=report_id, issues=issues, run_index=1)
+            persist_verdicts(
+                team_id=self.team.id,
+                report_id=report_id,
+                issues=issues,
+                run_index=1,
+                validations={"1-1-1": IssueValidation(is_valid=True, argumentation="real")},
+            )
+        decision = PushGateDecision(
+            skip=False, would_skip=False, reason="system_one_above_threshold", probability=0.8, own_code_lines=12
+        )
+
+        with (
+            patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
+            patch("products.review_hog.backend.temporal.activities.PushGate") as gate,
+            patch("products.review_hog.backend.temporal.activities.apply_throttle", side_effect=lambda d, **_: d),
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
+        ):
+            gate.return_value.decide.return_value = decision
+            result = _gate_push(
+                GatePushInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    repository="o/r",
+                    previous_head_sha="sha0",
+                    head_sha="sha1",
+                    run_index=2,
+                    review_mode=REVIEW_MODE_FLASH,
+                )
+            )
+
+        props = capture.call_args.kwargs["properties"]
+        assert (result.skip, result.reason, props["previous_findings"]) == expected
+        assert props["reviewable_lines"] == 400
+
     def _gate_draft_push(self, report_id: str, live_pr: dict[str, object] | Exception) -> tuple[PushGateDecision, Any]:
         live = MagicMock(side_effect=live_pr) if isinstance(live_pr, Exception) else MagicMock()
         live.return_value.json.return_value = live_pr

@@ -18,6 +18,7 @@ from products.review_hog.backend.reviewer.push_gate import (
     PushGateDecision,
     _NextPushCell,
     apply_draft_rule,
+    apply_follow_up_value_rules,
     apply_next_push_rule,
     apply_throttle,
     next_push_probability,
@@ -452,3 +453,55 @@ def test_push_gate_records_a_likely_next_push_without_skipping(
     with patch(f"{_MODULE}.NEXT_PUSH_SKIP_AT", 0.842):
         decision = _decide(responses, _system_one(system_one_probability), follow_up=follow_up, pr_lines=pr_lines)
     assert (decision.skip, decision.would_skip, decision.reason, decision.next_push_probability) == expected
+
+
+def _running(own_code_lines: int | None) -> PushGateDecision:
+    return PushGateDecision(
+        skip=False,
+        would_skip=False,
+        reason="system_one_above_threshold",
+        probability=0.8,
+        own_code_lines=own_code_lines,
+    )
+
+
+@parameterized.expand(
+    [
+        ("ninth_review", _running(200), 9, 2000, 3, (True, True, "late_follow_up")),
+        ("eighth_review_runs", _running(200), 8, 2000, 3, (False, False, "system_one_above_threshold")),
+        ("pr_under_150_lines", _running(200), 3, 149, 3, (True, True, "small_pr")),
+        ("pr_of_150_lines_runs", _running(200), 3, 150, 3, (False, False, "system_one_above_threshold")),
+        ("quiet_review_and_small_push", _running(30), 3, 400, 0, (True, True, "quiet_small_push")),
+        ("quiet_review_and_larger_push_runs", _running(31), 3, 400, 0, (False, False, "system_one_above_threshold")),
+        ("review_with_a_finding_runs", _running(5), 3, 400, 1, (False, False, "system_one_above_threshold")),
+        ("unknown_inputs_run", _running(None), 3, None, None, (False, False, "system_one_above_threshold")),
+        (
+            "shadow_match_skips",
+            PushGateDecision(skip=False, would_skip=True, reason="docs_only", own_code_lines=0),
+            3,
+            400,
+            0,
+            (True, True, "quiet_small_push"),
+        ),
+        (
+            "earlier_skip_keeps_its_reason",
+            PushGateDecision(skip=True, would_skip=True, reason="merge_only"),
+            12,
+            50,
+            0,
+            (True, True, "merge_only"),
+        ),
+    ]
+)
+def test_push_gate_skips_follow_ups_that_rarely_surface_anything(
+    _name: str,
+    decision: PushGateDecision,
+    run_index: int,
+    reviewable_lines: int | None,
+    previous_findings: int | None,
+    expected: tuple[bool, bool, str],
+) -> None:
+    result = apply_follow_up_value_rules(
+        decision, run_index=run_index, reviewable_lines=reviewable_lines, previous_findings=previous_findings
+    )
+    assert (result.skip, result.would_skip, result.reason) == expected
