@@ -127,11 +127,21 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         assert self._alert().state == "not_firing"
 
-    def test_a_copy_inside_its_own_firing_is_not_taken_over(self) -> None:
+    @parameterized.expand(
+        [
+            ("a_live_firing_stays_with_its_source", "ok", False, ("source", "firing", True)),
+            # The machine ended the firing when the check broke, so the row's firing is stale.
+            ("a_broken_copy_is_taken_over", "broken", True, ("platform", "not_firing", False)),
+            ("an_errored_copy_is_taken_over", "errored", True, ("platform", "not_firing", False)),
+        ]
+    )
+    def test_a_copy_inside_its_own_firing_is_taken_over_only_once_that_firing_ended(
+        self, _name: str, check_status: str, expected_taken: bool, expected: tuple[str, str, bool]
+    ) -> None:
         legacy_id = uuid4()
         with team_scope(self.team.id):
             PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
-                legacy_configuration_id=legacy_id
+                legacy_configuration_id=legacy_id, check_status=check_status
             )
             PlatformAlert.objects.create(
                 team=self.team, configuration=self.configuration, state="firing", firing_started_at=self.cutoff
@@ -149,9 +159,10 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        assert not taken
+        alert = self._alert()
         self.configuration.refresh_from_db()
-        assert (self.configuration.owner, self._alert().state) == ("source", "firing")
+        assert taken is expected_taken
+        assert (self.configuration.owner, alert.state, alert.firing_started_at is not None) == expected
 
     @parameterized.expand(
         [
