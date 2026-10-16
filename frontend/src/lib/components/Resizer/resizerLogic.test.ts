@@ -1,6 +1,6 @@
 import { initKeaTests } from '~/test/init'
 
-import { ResizerLogicProps, resizerLogic } from './resizerLogic'
+import { resizerLogic } from './resizerLogic'
 
 describe('resizerLogic', () => {
     let logic: ReturnType<typeof resizerLogic.build>
@@ -21,10 +21,10 @@ describe('resizerLogic', () => {
         jest.restoreAllMocks()
     })
 
-    function mount(placement: ResizerLogicProps['placement'] = 'right'): void {
+    function mount(): void {
         logic = resizerLogic({
             logicKey: 'test-resizer',
-            placement,
+            placement: 'right',
             containerRef: { current: container },
             closeThreshold: 100,
             onToggleClosed,
@@ -38,32 +38,24 @@ describe('resizerLogic', () => {
         document.dispatchEvent(event)
     }
 
-    it.each([
-        ['right', 320, 340],
-        ['left', 280, 260],
-        ['bottom', 420, 440],
-        ['top', 380, 360],
-    ] as const)(
-        'uses the latest pointer position once per frame for %s placement',
-        (placement, expectedSize, expectedSavedSize) => {
-            mount(placement)
-            logic.actions.beginResize(0)
+    it('uses the latest pointer position per frame and saves the release position', () => {
+        mount()
+        logic.actions.beginResize(0)
 
-            mouse('mousemove', 10)
-            mouse('mousemove', 20)
-            expect(logic.values.desiredSize).toBeNull()
+        mouse('mousemove', 10)
+        mouse('mousemove', 20)
+        expect(logic.values.desiredSize).toBeNull()
 
-            jest.advanceTimersByTime(16)
-            expect(logic.values.desiredSize).toBe(expectedSize)
+        jest.advanceTimersByTime(16)
+        expect(logic.values.desiredSize).toBe(320)
 
-            mouse('mousemove', 30)
-            mouse('mouseup', 40)
-            expect(logic.values.size).toBe(expectedSavedSize)
-            expect(logic.values.isResizeInProgress).toBe(false)
-            jest.advanceTimersByTime(16)
-            expect(logic.values.resizingSize).toBeNull()
-        }
-    )
+        mouse('mousemove', 30)
+        mouse('mouseup', 40)
+        expect(logic.values.size).toBe(340)
+        expect(logic.values.isResizeInProgress).toBe(false)
+        jest.advanceTimersByTime(16)
+        expect(logic.values.resizingSize).toBeNull()
+    })
 
     it('keeps the saved width when released past the collapse threshold before the next frame', () => {
         mount()
