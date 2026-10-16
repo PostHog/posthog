@@ -1,22 +1,20 @@
-import json
-import hashlib
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any, cast
 
 from django.utils import timezone
 
-from posthog.schema import HogQLQueryModifiers
+from pydantic import BaseModel
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clone_expr
 
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 
-from products.actions.backend.facade.api import action_filter_conditions, action_revisions
+from products.actions.backend.facade.api import action_filter_conditions
 from products.customer_analytics.backend.facade.contracts import KeyMetric
 
 KEY_METRICS = {
@@ -27,7 +25,7 @@ KEY_METRICS = {
 }
 PEOPLE_METRIC = "activity_event"
 DAYS = 35
-QUERY_TIMEOUT_SECONDS = 10
+EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
 DAILY = (
     "SELECT toDate(timestamp) AS day FROM events"
     " WHERE timestamp >= toStartOfDay(now()) - INTERVAL {days} DAY AND timestamp < toStartOfDay(now())"
@@ -71,21 +69,21 @@ def _select(query: str, **placeholders: ast.Expr) -> ast.SelectQuery:
     return cast(ast.SelectQuery, parse_select(query, placeholders=placeholders))
 
 
-def _run(query: ast.SelectQuery, team: Team, user: User, query_type: str) -> list[Any]:
-    return execute_hogql_query(
-        query,
+def _run(query: ast.SelectQuery, team: Team, user: User) -> list[Any] | None:
+    from posthog.api.services.query import process_query_dict  # noqa: PLC0415 — the query service imports this facade
+
+    response = process_query_dict(
         team,
-        query_type=query_type,
+        {"kind": "HogQLQuery", "query": to_printed_hogql(query, team), "modifiers": {"convertToProjectTimezone": True}},
+        execution_mode=EXECUTION_MODE,
         user=user,
-        modifiers=HogQLQueryModifiers(convertToProjectTimezone=True),
-        settings=HogQLGlobalSettings(max_execution_time=QUERY_TIMEOUT_SECONDS, timeout_overflow_mode="throw"),
-    ).results
+    )
+    results = (response.model_dump() if isinstance(response, BaseModel) else response).get("results")
+    return None if results is None else list(results)
 
 
-def key_metrics_fingerprint(team: Team) -> str:
-    nodes = _configured_nodes(team)
-    payload = [nodes, action_revisions(team=team, action_ids=_action_ids(nodes)), team.test_account_filters]
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:16]
+def _day(value: date | str) -> date:
+    return value if isinstance(value, date) else date.fromisoformat(value[:10])
 
 
 def key_metrics(team: Team, user: User) -> list[KeyMetric]:
@@ -116,7 +114,10 @@ def key_metrics(team: Team, user: User) -> list[KeyMetric]:
         )
         for key, condition in conditions.items()
     )
-    by_day = {row[0]: row[1:] for row in _run(daily, team, user, "customer_analytics_key_metrics_daily")}
+    rows = _run(daily, team, user)
+    if rows is None:
+        return []
+    by_day = {_day(row[0]): row[1:] for row in rows}
 
     today = timezone.now().astimezone(team.timezone_info).date()
     days = [today - timedelta(days=offset) for offset in range(DAYS, 0, -1)]
@@ -125,7 +126,9 @@ def key_metrics(team: Team, user: User) -> list[KeyMetric]:
         points = [(day, float(by_day[day][index]) if day in by_day else 0.0) for day in days]
         if key == PEOPLE_METRIC:
             weekly_query = _select(WEEKLY_PEOPLE, match=condition, test_accounts=clone_expr(test_accounts))
-            weekly = _run(weekly_query, team, user, "customer_analytics_key_metrics_weekly")
+            weekly = _run(weekly_query, team, user)
+            if not weekly:
+                return []
             this_week, last_week = (float(value) for value in weekly[0])
         else:
             this_week, last_week = sum(v for _, v in points[-7:]), sum(v for _, v in points[-14:-7])

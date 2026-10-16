@@ -41,15 +41,11 @@ class TestKeyMetrics(SimpleTestCase):
                 team=SimpleNamespace(id=1),
                 user=SimpleNamespace(id=2),
                 today=TODAY,
-                daily=lambda _name, compute: compute(),
             ),
         )
         registered = next(s for s in load_sources() if s.name == "key_metrics")
 
-        with (
-            patch.object(key_metrics, "get_key_metrics", return_value=metrics),
-            patch.object(key_metrics, "get_key_metrics_fingerprint", return_value="config"),
-        ):
+        with patch.object(key_metrics, "get_key_metrics", return_value=metrics):
             found = registered.find(context)
 
         self.assertEqual(

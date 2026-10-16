@@ -5757,7 +5757,3 @@ def list_announcement_channels(team_id: int) -> list[contracts.AnnouncementChann
 
 def get_key_metrics(*, team: Team, user: "User") -> list[contracts.KeyMetric]:
     return _key_metrics_logic.key_metrics(team, user)
-
-
-def get_key_metrics_fingerprint(team: Team) -> str:
-    return _key_metrics_logic.key_metrics_fingerprint(team)

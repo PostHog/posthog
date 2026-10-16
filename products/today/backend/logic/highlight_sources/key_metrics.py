@@ -1,4 +1,4 @@
-from products.customer_analytics.backend.facade.api import get_key_metrics, get_key_metrics_fingerprint
+from products.customer_analytics.backend.facade.api import get_key_metrics
 from products.customer_analytics.backend.facade.contracts import KeyMetric
 
 from ...facade import contracts
@@ -16,10 +16,7 @@ KEY_METRIC_DAY_DETAIL_WEEK = "{now} yesterday · {usual} a day over the week bef
 
 
 def find(context: Context) -> Found:
-    metrics = context.daily(
-        f"key_metrics:{context.user.id}:{get_key_metrics_fingerprint(context.team)}",
-        lambda: get_key_metrics(team=context.team, user=context.user),
-    )
+    metrics = get_key_metrics(team=context.team, user=context.user)
     shown = [metric for metric in metrics if metric.this_week or metric.last_week]
     candidates = [candidate for metric in shown if (candidate := _same_weekday(context, metric)) is not None]
     return Found(items=tuple(candidates), pulse=tuple(_tile(metric) for metric in shown))
