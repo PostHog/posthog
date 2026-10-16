@@ -143,7 +143,7 @@ import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConf
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import { ProjectTimezoneName } from './environment/ProjectTimezoneName'
 import { ReplayIntegrations } from './environment/ReplayIntegrations'
-import { SDKSetupInstructions } from './environment/SDKSetupInstructions'
+import { SDKInstallOptions } from './environment/SDKInstallOptions'
 import {
     CanvasCaptureSettings,
     LogCaptureSettings,
@@ -245,9 +245,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'snippet',
                 title: 'SDK setup',
                 description:
-                    'Install PostHog in your app using one of our SDKs. Select your platform to see the setup instructions.',
+                    'Install PostHog in your app with Wizard, or set it up manually by following the instructions for your platform.',
                 docsUrl: 'https://posthog.com/docs/getting-started/install',
-                component: <SDKSetupInstructions />,
+                component: <SDKInstallOptions />,
                 keywords: [
                     'install',
                     'setup',
@@ -255,6 +255,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'code',
                     'sdk',
                     'snippet',
+                    'wizard',
+                    'setup agent',
                     'javascript',
                     'html',
                     'react',

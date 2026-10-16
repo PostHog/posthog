@@ -29,12 +29,13 @@ import structlog
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.models import Team
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.facade.destinations import configured_destination_template_ids
-from products.alerts_platform.backend.facade.api import due_checks, refresh_settings, slot_of
+from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -51,6 +52,7 @@ from products.alerts_platform.backend.facade.grouping import (
     GroupObservation,
     bounded_grouping_key,
     decide_groups,
+    delivery_parts,
     is_hashed_grouping_key,
     muted_value,
 )
@@ -69,6 +71,7 @@ from products.alerts_platform.backend.facade.lifecycle import (
     decide_incident_action,
     evaluate_alert_check,
 )
+from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES, payload_bytes
 from products.alerts_platform.backend.facade.platform_metrics import (
     increment_checks,
     increment_checks_deferred,
@@ -100,6 +103,7 @@ from products.logs.backend.platform_alert_backfill import platform_upsert_of
 # Private to the production activity. Reimplementing either would let this path drift from
 # what the logs stack evaluates. Promoting them to a shared home is the deeper fix.
 from products.logs.backend.temporal.activities import _derive_breaches, _detect_broken_filter_config
+from products.logs.backend.temporal.batch_slot import LogsBatchAdmission, LogsBatchSlot
 from products.logs.backend.temporal.constants import MAX_ALERT_COHORT_SIZE
 
 logger = structlog.get_logger(__name__)
@@ -125,11 +129,16 @@ MIN_QUERY_SECONDS = 2
 # With the cohort budget this keeps every query of a batch inside `BATCH_SLOT_LEASE_SECONDS`, so a
 # query never runs after its slot frees for another batch.
 CHECKPOINT_QUERY_SECONDS = 10
+# The errors ClickHouse raises when a query exceeds, or is estimated to exceed, its time limit.
+_OUT_OF_TIME_ERRORS: Final = (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)
 
 INFLIGHT_KEY = "alerts:platform:logs:batches:inflight"
-# Taken inside the evaluation activity, so it only has to outlast that activity's start-to-close. Short
-# enough that a worker that dies mid-batch frees its slot within a minute.
-BATCH_SLOT_LEASE_SECONDS = 60
+# A workflow takes the slot before its evaluation activity starts, and the activity holds it again
+# under a fresh lease when it starts. So the lease has to outlast the rest of the take and the
+# activity's queue time, and also the activity's run, with room to spare. Short enough that a worker
+# that dies mid-batch frees its slot within two minutes.
+BATCH_SLOT_LEASE_SECONDS = 90
+_DEFERRED_COUNT_LIMIT = 10_000
 
 
 @frozen
@@ -458,6 +467,7 @@ def _request(
         else None,
         owned_by_platform=check.owned_by_platform,
         overflowed=recorded.overflowed,
+        parts=delivery_parts(recorded, actions),
     )
 
 
@@ -561,8 +571,10 @@ def _evaluate_cohort(
     *,
     now: datetime,
     query_seconds: int,
+    cut_short: bool,
     muted_ids: frozenset[UUID],
-) -> list[Decision]:
+) -> list[Decision] | None:
+    """The cohort's decisions, or None when it ran out of time that earlier queries spent."""
     window_minutes, evaluation_periods, cadence_minutes, projection_eligible, date_to = key
     lookback = rolling_check_lookback_minutes(window_minutes, cadence_minutes, evaluation_periods)
 
@@ -577,6 +589,8 @@ def _evaluate_cohort(
             ch_user=ClickHouseUser.ALERTS_PLATFORM_LOGS,
         ).execute_rolling_checks(date_to, window_minutes, cadence_minutes, evaluation_periods)
     except Exception as error:
+        if cut_short and isinstance(error, _OUT_OF_TIME_ERRORS):
+            return None
         # One cohort's query must not end the batch, which is how the production cohort runner
         # contains the same failure.
         logger.exception(
@@ -744,8 +758,9 @@ def _evaluate_grouped(
     checkpoint: datetime | None,
     now: datetime,
     query_seconds: int,
+    cut_short: bool,
     muted: bool,
-) -> Decision:
+) -> Decision | None:
     """One grouped alert: its own query, then the platform's per-group decision.
 
     An open group the query did not return had no matching log, so it is checked against a zero
@@ -775,6 +790,8 @@ def _evaluate_grouped(
             date_to, condition.window_minutes, check.check_interval_minutes, check.evaluation_periods
         )
     except Exception as error:
+        if cut_short and isinstance(error, _OUT_OF_TIME_ERRORS):
+            return None
         logger.exception("Grouped logs alert query failed", check_id=str(check.id), error=str(error))
         return _delivery(check, _failed(check, error, now=now, muted=muted), window_end=date_to, now=now, failed=True)
 
@@ -876,29 +893,53 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
 
 
 def _collect(decided: Sequence[Decision], team_id: int, slot: str, started_at: float) -> SourceBatchEvaluation:
-    """Applies the payload bound and reports the batch."""
+    """Applies the payload bounds and reports the batch.
+
+    A check that does not fit is left out with its delivery, so it keeps its due time and a later
+    tick evaluates it again. The byte budget counts every check, including one with no delivery,
+    because a grouped check's outcome grows with its groups whether or not it announces.
+    """
     outcomes: list[PlatformAlertOutcome] = []
     deliveries: list[AlertDeliveryRequest] = []
-    omitted = 0
+    deferred_deliveries = 0
+    deferred_checks = 0
+    spent = 0
     for outcome, delivery in decided:
         if delivery is not None and len(deliveries) >= MAX_DELIVERIES_PER_CYCLE:
-            omitted += 1
+            deferred_deliveries += 1
             continue
+        size = payload_bytes(outcome) + (payload_bytes(delivery) if delivery is not None else 0)
+        if spent + size > MAX_BATCH_PAYLOAD_BYTES:
+            deferred_checks += 1
+            continue
+        spent += size
         outcomes.append(outcome)
         if delivery is not None:
             deliveries.append(delivery)
 
-    if omitted:
+    if deferred_deliveries:
         logger.warning(
             "Deferred logs alert deliveries over the batch payload bound",
             team_id=team_id,
             slot=slot,
             delivered=len(deliveries),
-            deferred=omitted,
+            deferred=deferred_deliveries,
         )
-        safe_record(increment_deliveries_deferred, SourceKind.LOGS.value, omitted)
+        safe_record(increment_deliveries_deferred, SourceKind.LOGS.value, deferred_deliveries)
+    if deferred_checks:
+        logger.warning(
+            "Deferred logs alert checks over the batch payload byte budget",
+            team_id=team_id,
+            slot=slot,
+            recorded=len(outcomes),
+            deferred=deferred_checks,
+            budget_bytes=MAX_BATCH_PAYLOAD_BYTES,
+        )
+        safe_record(increment_checks_deferred, SourceKind.LOGS.value, deferred_checks)
     safe_record(record_batch_duration, SourceKind.LOGS.value, int((time.monotonic() - started_at) * 1000))
-    return SourceBatchEvaluation(outcomes=tuple(outcomes), deliveries=tuple(deliveries), omitted=omitted)
+    return SourceBatchEvaluation(
+        outcomes=tuple(outcomes), deliveries=tuple(deliveries), omitted=deferred_deliveries + deferred_checks
+    )
 
 
 def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatchEvaluation:
@@ -935,6 +976,66 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
         return _evaluate_admitted(team_id, slot, cutoff, checks, started_at=started_at)
     finally:
         release_evaluation_slot(member, held_until=held_until, key=INFLIGHT_KEY)
+
+
+def take_logs_batch_slot(
+    team_id: int, slot: str, cutoff: datetime, *, member: str, first: bool, final: bool
+) -> LogsBatchAdmission:
+    """One try at a pool slot for a batch, without waiting. The workflow waits between tries.
+
+    `member` comes from the workflow, so a retried attempt finds the slot an earlier attempt took
+    instead of taking a second one. Only the first try asks whether the batch is due: nothing else
+    evaluates this batch key while its workflow waits, and the evaluation reads the checks again.
+    `final` marks the last try: a batch that still finds no room misses its tick, and only that try
+    counts its checks as deferred.
+    """
+    due: tuple[str, ...] = ()
+    if first or final:
+        # The last try counts every due check it defers, so only it reads more than one id.
+        due = due_check_ids(team_id, SourceKind.LOGS.value, slot, cutoff, limit=_DEFERRED_COUNT_LIMIT if final else 1)
+        if not due:
+            return LogsBatchAdmission(due=False)
+    held_until = hold_evaluation_slot(
+        member,
+        limit=settings.ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES,
+        lease_seconds=BATCH_SLOT_LEASE_SECONDS,
+        key=INFLIGHT_KEY,
+    )
+    if held_until is None:
+        if final:
+            logger.info("Deferred a platform logs batch over the pool limit", team_id=team_id, slot=slot)
+            safe_record(increment_checks_deferred, SourceKind.LOGS.value, len(due))
+        return LogsBatchAdmission(due=True)
+    return LogsBatchAdmission(due=True, slot=LogsBatchSlot(member=member, held_until=held_until))
+
+
+def evaluate_held_logs_batch(team_id: int, slot: str, cutoff: datetime, held: LogsBatchSlot) -> SourceBatchEvaluation:
+    """`evaluate_logs_batch` for a batch whose workflow already took its slot. Releases the slot."""
+    started_at = time.monotonic()
+    # Hold the slot again under a fresh lease. The take's lease can lapse while this activity waits in
+    # the queue, and a timed-out take attempt can rewrite the expiry after its retry returned. A batch
+    # whose slot lapsed while the pool filled finds no room here, and its checks stay due.
+    held_until = hold_evaluation_slot(
+        held.member,
+        limit=settings.ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES,
+        lease_seconds=BATCH_SLOT_LEASE_SECONDS,
+        key=INFLIGHT_KEY,
+    )
+    if held_until is None:
+        logger.info("Deferred a platform logs batch whose slot lapsed", team_id=team_id, slot=slot)
+        return SourceBatchEvaluation(outcomes=(), deliveries=())
+    try:
+        checks = due_checks(team_id, SourceKind.LOGS.value, slot, cutoff)
+        if not checks:
+            return SourceBatchEvaluation(outcomes=(), deliveries=())
+        return _evaluate_admitted(team_id, slot, cutoff, checks, started_at=started_at)
+    finally:
+        release_evaluation_slot(held.member, held_until=held_until, key=INFLIGHT_KEY)
+
+
+def release_logs_batch_slot(held: LogsBatchSlot) -> None:
+    """Frees a slot whose evaluation never started. A no-op once that evaluation held the slot again."""
+    release_evaluation_slot(held.member, held_until=held.held_until, key=INFLIGHT_KEY)
 
 
 def _evaluate_admitted(
@@ -978,6 +1079,11 @@ def _evaluate_admitted(
 
     deadline = started_at + BATCH_QUERY_BUDGET_SECONDS
     unqueried = 0
+    # A query that runs out of time the queries before it spent records nothing, so its checks keep
+    # their due time. Discovery then hands their slot back alone, and the first query of that batch
+    # has the full time, so a query too slow even with it counts toward BROKEN rather than retrying
+    # forever. The first query of a batch has nothing before it to blame, so its timeout counts.
+    queried = False
     # Capped the way the production cohort query requires: one batched query carries one countIf
     # column per alert, so an uncapped cohort is an unbounded query.
     chunks = [
@@ -992,26 +1098,39 @@ def _evaluate_admitted(
             # advancing their schedule would drop a real check. They keep their due time.
             unqueried += len(chunk)
             continue
-        decided.extend(
-            _evaluate_cohort(
-                team, chunk, cohort_key, now=cutoff, query_seconds=query_seconds, muted_ids=triage.muted_ids
-            )
+        cohort_decided = _evaluate_cohort(
+            team,
+            chunk,
+            cohort_key,
+            now=cutoff,
+            query_seconds=query_seconds,
+            cut_short=queried and query_seconds < MAX_QUERY_SECONDS,
+            muted_ids=triage.muted_ids,
         )
+        queried = True
+        if cohort_decided is None:
+            unqueried += len(chunk)
+            continue
+        decided.extend(cohort_decided)
     for check in grouped:
         query_seconds = min(MAX_QUERY_SECONDS, int(deadline - time.monotonic()))
         if query_seconds < MIN_QUERY_SECONDS:
             unqueried += 1
             continue
-        decided.append(
-            _evaluate_grouped(
-                team,
-                check,
-                checkpoint=checkpoint,
-                now=cutoff,
-                query_seconds=query_seconds,
-                muted=check.id in triage.muted_ids,
-            )
+        grouped_decided = _evaluate_grouped(
+            team,
+            check,
+            checkpoint=checkpoint,
+            now=cutoff,
+            query_seconds=query_seconds,
+            cut_short=queried and query_seconds < MAX_QUERY_SECONDS,
+            muted=check.id in triage.muted_ids,
         )
+        queried = True
+        if grouped_decided is None:
+            unqueried += 1
+            continue
+        decided.append(grouped_decided)
 
     if unqueried:
         logger.warning(

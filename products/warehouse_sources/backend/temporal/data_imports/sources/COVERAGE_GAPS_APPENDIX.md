@@ -2295,7 +2295,7 @@ Diffed against: <https://developers.chameleon.io/apis/overview.md>
 - [x] `GET /v3/edit/tooltips` — a whole experience type missing alongside tours, launchers and surveys (medium)
 - [x] `GET /v3/edit/tags` — lookup resolving the tag IDs used to organize experiences (medium)
 - [x] `GET /v3/edit/properties (Data Properties)` — lookup of the property definitions sent on profiles and companies, needed to interpret their semi-arbitrary property blobs (medium)
-- [ ] `GET /v3/edit/deliveries (Experience Deliveries)` — records of experiences targeted at specific users, the delivery side of the interaction funnel (medium)
+- [x] `GET /v3/edit/deliveries (Experience Deliveries)` — records of experiences targeted at specific users, the delivery side of the interaction funnel (medium)
 
 Note: Chameleon's published OpenAPI at developers.chameleon.io/api-reference/openapi.json is a stub (it documents a /plants toy API), so the authoritative endpoint table is the markdown overview page. Alert groups, rate limit groups, webhooks, domains and data imports were excluded as config/plumbing. Embeddables, Product Demos and Changes have doc pages in llms.txt but do not appear in the overview endpoint table, so no list endpoint could be confirmed for them - they are not reported as gaps.
 
@@ -4643,7 +4643,7 @@ Today (4): `auth_users`, `firestore_<collection_id>`, `firestore_collection_grou
 
 Diffed against: <https://identitytoolkit.googleapis.com/$discovery/rest?version=v1>
 
-- [ ] `Tenant accounts (GET /v1/projects/{targetProjectId}/tenants/{tenantId}/accounts:batchGet)` — include tenant users in signup and account activity analysis for projects that use Identity Platform tenants (high)
+- [x] `Tenant accounts (GET /v1/projects/{targetProjectId}/tenants/{tenantId}/accounts:batchGet)` — include tenant users in signup and account activity analysis for projects that use Identity Platform tenants (high)
 
 Note: Google discovery documents supplied Auth and Firestore operations, including the separate tenant account collection. Placeholders represent discovered collections and configured database paths; auth_users is fixed. Tenant accounts require Identity Toolkit v2 tenant discovery; current Auth reads use only the project route. Credentials, indexes, backups, and authentication settings are excluded; sampled subcollection discovery can also miss collections.
 
@@ -5505,10 +5505,10 @@ Today (14): `alert_groups`, `escalation_chains`, `escalation_policies`, `inciden
 
 Diffed against: <https://grafana.com/docs/grafana-cloud/observe-and-act/respond-to-incidents/reference/incident-api/reference/>
 
-- [ ] `Custom fields (POST /api/plugins/grafana-irm-app/resources/api/v1/FieldsService.GetFields)` — resolve fieldUUID values already included in incidents and activity into named analytical dimensions (high)
-- [ ] `Roles (POST /api/plugins/grafana-irm-app/resources/api/v1/RolesService.GetRoles)` — resolve roleID values in synced incident membership previews to named response responsibilities (high)
-- [ ] `Alerts (GET /api/v1/alerts/)` — measure individual alert volume and inspect payloads hidden by alert group aggregation (high)
-- [ ] `Incident membership (POST /api/plugins/grafana-irm-app/resources/api/v1/IncidentsService.GetIncidentMembership)` — include all responders and observers when comparing incident participation and response workload (medium)
+- [x] `Custom fields (POST /api/plugins/grafana-irm-app/resources/api/v1/FieldsService.GetFields)` — resolve fieldUUID values already included in incidents and activity into named analytical dimensions (high)
+- [x] `Roles (POST /api/plugins/grafana-irm-app/resources/api/v1/RolesService.GetRoles)` — resolve roleID values in synced incident membership previews to named response responsibilities (high)
+- [x] `Alerts (GET /api/v1/alerts/)` — measure individual alert volume and inspect payloads hidden by alert group aggregation (high)
+- [x] `Incident membership (POST /api/plugins/grafana-irm-app/resources/api/v1/IncidentsService.GetIncidentMembership)` — include all responders and observers when comparing incident participation and response workload (medium)
 - [ ] `Final schedule shifts (GET /api/v1/schedules/{schedule_id}/final_shifts)` — measure actual scheduled hours per responder after rotations and overrides are applied (medium)
 - [ ] `Key updates (POST /api/plugins/grafana-irm-app/resources/api/v1/KeyUpdatesService.QueryKeyUpdates)` — analyze incident communications, update frequency, and status changes across incident timelines (medium)
 
@@ -7065,9 +7065,9 @@ Diffed against: <https://cloud.langfuse.com/generated/api/openapi.yml>
 - [ ] `GET /api/public/dataset-run-items` — join table linking dataset items to the trace/observation produced in each eval run - without it synced dataset_items and traces cannot be joined (high) — skipped: deprecated, removed from Langfuse Cloud on 2026-11-16; superseded by `GET /api/public/experiment-items`
 - [ ] `GET /api/public/datasets/{datasetName}/runs` — the eval run records that dataset-run-items and scores hang off; the unit of 'how did this prompt version do' (high) — skipped: deprecated, removed from Langfuse Cloud on 2026-11-16; superseded by `GET /api/public/experiments`
 - [x] `GET /api/public/score-configs` — lookup that resolves the config, data type and categorical values behind the score rows already synced (high)
-- [ ] `GET /api/public/experiments and GET /api/public/experiment-items` — experiment runs and their per-item results, the headline eval surface (medium)
+- [x] `GET /api/public/experiments and GET /api/public/experiment-items` — experiment runs and their per-item results, the headline eval surface (medium)
 - [x] `GET /api/public/annotation-queues, /{queueId}/items` — human annotation queue state and per-item status for review throughput analysis (medium)
-- [ ] `GET /api/public/comments` — human comments attached to traces/observations/sessions, useful for qualitative review joins (low)
+- [x] `GET /api/public/comments` — human comments attached to traces/observations/sessions, useful for qualitative review joins (low)
 - [ ] `GET /api/public/organizations/memberships and /projects/{projectId}/memberships` — org/project membership lookup resolving user ids seen on traces and annotations (org-scoped key required) (low)
 
 Note: Endpoint map in products/warehouse_sources/backend/temporal/data_imports/sources/langfuse/settings.py is fully static - no dynamic table discovery. Some newer resources (dashboards, evaluators, evaluation-rules) sit under /api/public/unstable/ and are config-shaped, so excluded.
@@ -8148,7 +8148,7 @@ Note: Compared all GET operations in the official llms.txt, including nested acc
 
 ## MonteCarlo — **thin**
 
-Today (7): `alerts`, `domains`, `events`, `monitors`, `tables`, `users`, `warehouses`
+Today (12): `alerts`, `dbt_runs`, `dbt_test_results`, `domains`, `events`, `fh_events`, `job_executions`, `job_schedules`, `monitors`, `tables`, `users`, `warehouses`
 
 Diffed against: <https://apidocs.getmontecarlo.com/>
 
@@ -8156,10 +8156,10 @@ Diffed against: <https://apidocs.getmontecarlo.com/>
 - [x] `getEvents / getEventGroups` — raw detector events (freshness, volume, schema change) underlying alerts (high). Added as `events` (incremental on `createdTime`). `getEventGroups` skipped: it takes one required `alertId` and regroups the same events, which carry their alert id.
 - ~~`getEventsForIncidents`~~ — deprecated in the GraphQL schema; the timeline events it returned are in `events` (`INCIDENT_*` event types)
 - [x] `getDomainsV2 + getDomainsForMcons` — domain lookup and the domain-to-asset membership join for the mcons already synced (high). Added as `domains`; its `assignments` column holds the member MCONs. `getDomainsForMcons` skipped: it returns per-warehouse domain counts for a batch of at most 250 MCONs, not a per-asset membership row.
-- [ ] `getFhEvents / getFhEventsByMonitor` — field-health event series per monitor — the per-field metric history behind monitor results (medium)
-- [ ] `getDbtRuns / getDbtJobExecutions / getDbtTestResults` — dbt run and test outcomes tied to the same tables already synced (medium)
-- [ ] `getQueryLogs / getAggregatedQueries` — warehouse query logs attributed to tables — usage and cost analysis (medium)
-- [ ] `getJobExecutions / getJobSchedules` — pipeline job execution history for freshness root-causing (medium)
+- [x] `getFhEvents / getFhEventsByMonitor` — field-health event series per monitor — the per-field metric history behind monitor results (medium). Added as `fh_events` (`getFhEventsByMonitor` fanned out over metric monitors, incremental on `date`). `getFhEvents` skipped: it takes one alert id and returns a subset of the same events, which carry their `alertUuid`.
+- [x] `getDbtRuns / getDbtJobExecutions / getDbtTestResults` — dbt run and test outcomes tied to the same tables already synced (medium). Added as `dbt_runs` (full refresh) and `dbt_test_results` (incremental on `runStartedAt`). `getDbtJobExecutions` skipped: it needs one required `jobUuid` per call, and each `dbt_runs` row already carries its job execution.
+- [ ] `getQueryLogs / getAggregatedQueries` — warehouse query logs attributed to tables — usage and cost analysis (medium). Not added: `getAggregatedQueries` is deprecated and takes one table MCON per call; `getQueryLogs` is a search API with offset paging, no documented sort field or depth limit, and the full SQL text of each query.
+- [x] `getJobExecutions / getJobSchedules` — pipeline job execution history for freshness root-causing (medium). Added as `job_executions` (monitor run history, fanned out over monitors, incremental on `startTime` through `historyDays`) and `job_schedules` (data collector schedules, fanned out over warehouses, full refresh).
 - [ ] `getDataProductsV2` — data product definitions that group assets for SLA reporting (medium)
 - [ ] `getAccountUsage / getAssetsUsage / getBillingMonitorUsage` — monitored-asset and monitor usage counts — how consumption is tracked (medium)
 - [ ] `getAuthorizationGroups + getAccountRoles` — user group/role membership lookup for the users table already synced (medium)
@@ -8173,9 +8173,9 @@ Today (4): `projects`, `tasks`, `users`, `workspaces`
 
 Diffed against: <https://docs.usemotion.com/api-reference/comments/get/>
 
-- [ ] `List recurring tasks (GET /v1/recurring-tasks)` — analyze recurring work obligations and assigned workloads that ordinary task records do not fully describe (high)
-- [ ] `Get comments (GET /v1/comments?taskId={taskId})` — track task discussions and collaboration activity with comment creation times and authors (medium)
-- [ ] `Get custom fields (GET /beta/workspaces/{workspaceId}/custom-fields)` — interpret workspace field definitions when reporting on custom task and project values (medium)
+- [x] `List recurring tasks (GET /v1/recurring-tasks)` — analyze recurring work obligations and assigned workloads that ordinary task records do not fully describe (high)
+- [x] `Get comments (GET /v1/comments?taskId={taskId})` — track task discussions and collaboration activity with comment creation times and authors (medium)
+- [x] `Get custom fields (GET /beta/workspaces/{workspaceId}/custom-fields)` — interpret workspace field definitions when reporting on custom task and project values (medium)
 
 Note: Enumerated the official reference navigation and read the recurring task, comment, custom field, and workspace operation pages. Workspace records already include statuses and labels, so those collections are covered as nested data. Comments need task enumeration; recurring tasks and custom fields need workspace enumeration. Excluded write operations and the authenticated user schedule configuration.
 
@@ -8446,7 +8446,7 @@ Today (2): `Downloads`, `Versions`
 
 Diffed against: <https://raw.githubusercontent.com/npm/registry/master/docs/REGISTRY-API.md>
 
-- [ ] `GET https://api.npmjs.org/versions/{package}/last-week` — per-version download counts - joins straight onto the Versions table already synced and is the only way to measure version adoption or upgrade lag (high)
+- [x] `GET https://api.npmjs.org/versions/{package}/last-week` — per-version download counts - joins straight onto the Versions table already synced and is the only way to measure version adoption or upgrade lag (high)
 - [ ] `GET /-/v1/search` — search results carry npms.io quality, popularity and maintenance scores per package, unavailable from the packument (medium)
 - [ ] `GET https://api.npmjs.org/downloads/point/{period}/{pkg1},{pkg2}` — bulk point downloads for up to 128 packages in one call - same data as Downloads but far cheaper for large package lists (low)
 - [ ] `GET / (registry meta)` — registry-wide doc_count and update_seq, useful only as a sync watermark (low)
@@ -13034,10 +13034,10 @@ Today (2): `Incidents`, `Metrics`
 
 Diffed against: <https://api-docs.waydev.co/>
 
-- [ ] `Repositories (GET /v2/repositories)` — resolve repository IDs on synced incidents and group failures by codebase (high)
+- [x] `Repositories (GET /v2/repositories)` — resolve repository IDs on synced incidents and group failures by codebase (high)
 - [ ] `Dashboard and developer statistics (GET /v2/stats/dashboard; POST /v2/stats)` — import measured engineering performance; the synced Metrics table contains metric definitions, not measured results (high)
-- [ ] `Contributors (GET /v2/contributors)` — identify developers and compare contribution patterns across repositories (medium)
-- [ ] `Teams (GET /v2/teams)` — group engineering performance by named teams (medium)
+- [x] `Contributors (GET /v2/contributors)` — identify developers and compare contribution patterns across repositories (medium)
+- [x] `Teams (GET /v2/teams)` — group engineering performance by named teams (medium)
 - [ ] `Team members (GET /v2/teams/{team_id}/members)` — connect contributors to teams for team and developer comparisons (medium)
 - [ ] `Pull requests (GET /v2/repositories/{repository_id}/pulls)` — analyze review delays, delivery throughput, and pull request activity (medium)
 - [ ] `Commits (GET /v2/repositories/{repository_id}/commits)` — analyze code contribution frequency and development activity by repository (medium)
@@ -13413,10 +13413,10 @@ Today (10): `channel_daily`, `demographics`, `device_types`, `geography`, `opera
 
 Diffed against: <https://developers.google.com/youtube/analytics/channel_reports>
 
-- [ ] `Videos (GET /youtube/v3/videos, part=snippet,contentDetails)` — resolve video IDs in top_videos to titles, publication dates, durations, and content categories (high)
+- [x] `Videos (GET /youtube/v3/videos, part=snippet,contentDetails)` — resolve video IDs in top_videos to titles, publication dates, durations, and content categories (high)
 - [ ] `Estimated revenue reports (GET /v2/reports, metrics=estimatedRevenue,estimatedAdRevenue,estimatedRedPartnerRevenue)` — measure channel earnings and revenue trends that the existing viewing reports cannot produce (high)
-- [ ] `Audience retention (GET /v2/reports, dimensions=elapsedVideoTimeRatio)` — identify where viewers leave or replay each video, beyond its average viewing duration (high)
-- [ ] `Traffic source detail (GET /v2/reports, dimensions=insightTrafficSourceDetail)` — identify search terms, referring sites, and related videos behind broad traffic source totals (medium)
+- [x] `Audience retention (GET /v2/reports, dimensions=elapsedVideoTimeRatio)` — identify where viewers leave or replay each video, beyond its average viewing duration (high)
+- [x] `Traffic source detail (GET /v2/reports, dimensions=insightTrafficSourceDetail)` — identify search terms, referring sites, and related videos behind broad traffic source totals (medium)
 - [ ] `Playlist reports (GET /v2/reports, filters=playlist=={playlist_id})` — measure playlist starts, viewing time, and views per start to compare playlist performance (medium)
 - [ ] `Ad performance by ad type (GET /v2/reports, dimensions=adType)` — compare advertising impressions, gross revenue, and CPM across ad formats (medium)
 - [ ] `Concurrent viewers (GET /v2/reports, dimensions=livestreamPosition)` — analyze live audience peaks and viewing patterns during each broadcast (medium)

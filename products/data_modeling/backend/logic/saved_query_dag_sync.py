@@ -718,6 +718,50 @@ def move_saved_query_to_dag(team_id: int, saved_query_id: UUID, dag_id: UUID) ->
         sync_saved_query_to_dag(saved_query, dag=dag)
 
 
+class ManagedNodeMaterializingError(Exception):
+    """Raised when a managed view's node cannot move because a materialization of it is running."""
+
+
+def move_node_out_of_managed_dag(saved_query: "DataWarehouseSavedQuery", dag: DAG) -> DAG | None:
+    """Move the saved query's node from the Revenue Analytics DAG into `dag`, returning the DAG it left."""
+    with transaction.atomic():
+        node = (
+            Node.objects.filter(
+                team_id=saved_query.team_id, saved_query=saved_query, dag__name=REVENUE_ANALYTICS_DAG_NAME
+            )
+            .select_related("dag")
+            .first()
+        )
+        if node is None:
+            return None
+        managed_dag = node.dag
+        for dag_id in sorted({managed_dag.id, dag.id}, key=str):
+            lock_dag(saved_query.team_id, dag_id)
+            lock_dag_placements(saved_query.team_id, dag_id)
+        # A concurrent call may have moved the node between the read above and the locks. Acting on
+        # the stale row would take the existence check below for a legacy copy and delete the node.
+        node = (
+            Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query, dag=managed_dag)
+            .select_related("dag")
+            .first()
+        )
+        if node is None:
+            return None
+        if DataModelingJob.objects.filter(
+            team_id=saved_query.team_id, saved_query=saved_query, status=DataModelingJobStatus.RUNNING
+        ).exists():
+            raise ManagedNodeMaterializingError(saved_query.name)
+        source_ids = _delete_incoming_edges(saved_query.team_id, node)
+        Edge.objects.filter(team_id=saved_query.team_id, source=node).delete()
+        if Node.objects.filter(team_id=saved_query.team_id, dag=dag, saved_query=saved_query).exists():
+            node.delete()
+        else:
+            node.dag = dag
+            node.save(update_fields=["dag"])
+        delete_orphaned_table_nodes(saved_query.team_id, source_ids)
+    return managed_dag
+
+
 def update_node_type(saved_query: "DataWarehouseSavedQuery", type: NodeType) -> None:
     """Update a Node's type to MAT_VIEW when materialized."""
     nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team")
