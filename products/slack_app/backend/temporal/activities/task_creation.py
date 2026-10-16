@@ -2,7 +2,7 @@ import re
 import uuid
 import textwrap
 from dataclasses import field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import models
 
@@ -33,6 +33,9 @@ from products.slack_app.backend.temporal.attachments import (
 )
 from products.slack_app.backend.temporal.helpers import block_if_team_over_quota, safe_react
 from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
+
+if TYPE_CHECKING:
+    from products.slack_app.backend.models import SlackThreadTaskMapping
 
 logger = structlog.get_logger(__name__)
 
@@ -871,6 +874,34 @@ def create_posthog_code_task_for_repo_activity(
         )
 
 
+def _find_followup_task_mapping(
+    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, event_text: str
+) -> "SlackThreadTaskMapping | None":
+    from products.slack_app.backend.api import parse_rules_command
+    from products.slack_app.backend.models import SlackThreadTaskMapping
+
+    if parse_rules_command(event_text):
+        return None
+    return (
+        SlackThreadTaskMapping.objects.select_related("task_run", "task__created_by")
+        .filter(integration_id=inputs.integration_id, channel=channel, thread_ts=thread_ts)
+        .first()
+    )
+
+
+@activity.defn
+@close_db_connections
+def posthog_code_thread_has_task_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str, event_text: str
+) -> bool:
+    """Whether `forward_posthog_code_followup_activity` will handle this message.
+
+    It reads the same mapping, so the workflow knows a new thread early enough to run the
+    new-thread steps at the same time as the model override classifier.
+    """
+    return _find_followup_task_mapping(inputs, channel, thread_ts, event_text) is not None
+
+
 @activity.defn
 @close_db_connections
 def forward_posthog_code_followup_activity(
@@ -894,20 +925,11 @@ def forward_posthog_code_followup_activity(
     """
     from posthog.models.integration import Integration, SlackIntegration
 
-    from products.slack_app.backend.api import parse_rules_command, resolve_slack_user
-    from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.slack_app.backend.api import resolve_slack_user
     from products.tasks.backend.facade import api as tasks_facade
 
-    if parse_rules_command(event_text):
-        return False
-
-    try:
-        mapping = SlackThreadTaskMapping.objects.select_related("task_run", "task__created_by").get(
-            integration_id=inputs.integration_id,
-            channel=channel,
-            thread_ts=thread_ts,
-        )
-    except SlackThreadTaskMapping.DoesNotExist:
+    mapping = _find_followup_task_mapping(inputs, channel, thread_ts, event_text)
+    if mapping is None:
         logger.info("posthog_code_followup_not_handled", channel=channel, thread_ts=thread_ts)
         return False
 
