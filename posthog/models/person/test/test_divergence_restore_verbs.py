@@ -270,7 +270,6 @@ class TestRestoreVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         assert set_once.call_args.kwargs["distinct_id"] == "moved-1"
         assert str(second.uuid) not in (scan_dir / "pair.jsonl").read_text()
 
-
     def test_merge_points_the_shared_ids_at_the_survivor_once_ingestion_merged(self):
         old = self._live_person("a-own")
         survivor = self._live_person("shared")
